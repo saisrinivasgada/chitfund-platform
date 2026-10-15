@@ -15,7 +15,8 @@ import {
   adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
   getPaymentHistory, getDeletedMembers, setPromisedPaymentDate,
   adminCreateCashRequest, listStaff,
-  grantAppAccessSendOtp, grantAppAccessVerify, revokeAppAccess,
+  revokeAppAccess,
+  suspendChitfundRequest, revokeAfterSuspension,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -279,32 +280,15 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed to send Chitfund Request'),
   });
 
-  // Admin-driven OTP grant flow state
-  const [grantStep, setGrantStep] = useState<'idle' | 'confirm' | 'otp'>('idle');
-  const [grantMaskedPhone, setGrantMaskedPhone] = useState('');
-  const [grantOtp, setGrantOtp] = useState('');
-  const [grantError, setGrantError] = useState('');
-
-  const grantSendOtpMutation = useOnlineMutation({
-    mutationFn: () => grantAppAccessSendOtp(selected!.id),
-    onSuccess: (data: any) => {
-      setGrantMaskedPhone(data?.maskedPhone ?? '');
-      setGrantStep('otp');
-      setGrantError('');
-    },
-    onError: (e: any) => setGrantError(e.response?.data?.message ?? 'Failed to send OTP'),
+  const suspendChitfundMutation = useMutation({
+    mutationFn: () => suspendChitfundRequest(latestChitfundRequest!.id, 'Suspended by admin'),
+    onSuccess: () => { refreshChitfundRequest(); toast.cancelled('App access suspended'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not suspend'),
   });
-
-  const grantVerifyMutation = useOnlineMutation({
-    mutationFn: () => grantAppAccessVerify(selected!.id, grantOtp),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-members'] });
-      qc.invalidateQueries({ queryKey: ['m-member', selected?.id] });
-      setGrantStep('idle');
-      setGrantOtp('');
-      toast.success(selected?.fullName + ' now has app access');
-    },
-    onError: (e: any) => setGrantError(e.response?.data?.message ?? 'OTP incorrect or expired'),
+  const revokeAfterSuspensionMutation = useMutation({
+    mutationFn: () => revokeAfterSuspension(latestChitfundRequest!.id, 'Revoked after suspension'),
+    onSuccess: () => { refreshChitfundRequest(); toast.cancelled('App access permanently revoked'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not revoke'),
   });
 
   const revokeAccessMutation = useOnlineMutation({
@@ -976,99 +960,115 @@ export default function AdminMembersScreen() {
                 })}
 
                 {/* ChitWise app access */}
-                <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: selected?.appAccessGranted ? '#86EFAC' : C.gray200 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900, marginBottom: 4 }}>
-                    {selected?.appAccessGranted ? 'ChitWise App Access Active' : 'ChitWise App Access'}
-                  </Text>
-                  {selected?.appAccessGranted ? (
-                    <>
-                      <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12, lineHeight: 18 }}>
-                        The member controls their own password. If recovery is unsafe or unavailable, create an Account Access ticket.
+                {(() => {
+                  const isActive = selected?.hasAppAccess || latestChitfundRequest?.status === 'ACTIVE';
+                  const isSuspended = latestChitfundRequest?.status === 'SUSPENDED';
+                  const isOpen = ['PENDING_MEMBER', 'MEMBER_VERIFIED', 'AWAITING_ADMIN'].includes(latestChitfundRequest?.status);
+                  const isClosed = ['DECLINED', 'EXPIRED', 'REVOKED'].includes(latestChitfundRequest?.status);
+                  const badgeColors: Record<string, { bg: string; text: string }> = {
+                    PENDING_MEMBER: { bg: '#FEF3C7', text: '#92400E' },
+                    MEMBER_VERIFIED: { bg: '#DBEAFE', text: '#1D4ED8' },
+                    AWAITING_ADMIN: { bg: '#DBEAFE', text: '#1D4ED8' },
+                    SUSPENDED: { bg: '#FFF7ED', text: '#9A3412' },
+                    DECLINED: { bg: '#F3F4F6', text: '#6B7280' },
+                    EXPIRED: { bg: '#FEE2E2', text: '#B91C1C' },
+                    REVOKED: { bg: '#F3F4F6', text: '#6B7280' },
+                    ESCALATED: { bg: '#FEE2E2', text: '#B91C1C' },
+                  };
+                  const statusLabel: Record<string, string> = {
+                    PENDING_MEMBER: 'WAITING FOR MEMBER',
+                    MEMBER_VERIFIED: 'MEMBER VERIFIED',
+                    AWAITING_ADMIN: 'PENDING ACTIVATION',
+                    SUSPENDED: 'SUSPENDED',
+                  };
+                  return (
+                    <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: isActive ? '#86EFAC' : isSuspended ? '#FED7AA' : C.gray200 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900, marginBottom: 4 }}>
+                        {isActive ? 'ChitWise App Access Active' : isSuspended ? 'ChitWise App Access Suspended' : 'ChitWise App Access'}
                       </Text>
-                      <Button
-                        label={accountAccessTicketMutation.isPending ? 'Creating ticket…' : 'Create Account Access Ticket'}
-                        variant="outline" fullWidth loading={accountAccessTicketMutation.isPending}
-                        onPress={() => Alert.alert('Account Access Help', `Create a support ticket for ${selected?.fullName}? No password will be shared with you.`, [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Create Ticket', onPress: () => accountAccessTicketMutation.mutate() },
-                        ])}
-                      />
-                      <View style={{ height: 8 }} />
-                      <Button
-                        label={revokeAccessMutation.isPending ? 'Revoking…' : 'Revoke App Access'}
-                        variant="danger" fullWidth loading={revokeAccessMutation.isPending}
-                        onPress={() => Alert.alert('Revoke Access', `${selected?.fullName} will no longer be able to log in to this org. Revoke?`, [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Revoke', style: 'destructive', onPress: () => revokeAccessMutation.mutate() },
-                        ])}
-                      />
-                    </>
-                  ) : grantStep === 'otp' ? (
-                    <View style={{ gap: 10 }}>
-                      <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
-                        OTP sent to <Text style={{ fontWeight: '700' }}>{grantMaskedPhone}</Text>.{'\n'}Ask the member to read out the 6-digit code.
-                      </Text>
-                      <TextInput
-                        value={grantOtp}
-                        onChangeText={(v) => { setGrantOtp(v.replace(/\D/g, '').slice(0, 6)); setGrantError(''); }}
-                        placeholder="6-digit OTP"
-                        keyboardType="numeric"
-                        maxLength={6}
-                        style={{ borderWidth: 1, borderColor: grantError ? C.red : C.gray300, borderRadius: 10, padding: 12, fontSize: 18, letterSpacing: 6, textAlign: 'center' }}
-                        autoFocus
-                      />
-                      {grantError ? <Text style={{ fontSize: 12, color: C.red }}>{grantError}</Text> : null}
-                      <Button label={grantVerifyMutation.isPending ? 'Verifying…' : 'Verify & Grant Access'} variant="primary" fullWidth loading={grantVerifyMutation.isPending} disabled={grantOtp.length !== 6} onPress={() => grantVerifyMutation.mutate()} />
-                      <TouchableOpacity onPress={() => { setGrantStep('idle'); setGrantOtp(''); setGrantError(''); }} style={{ alignItems: 'center', paddingVertical: 8 }}>
-                        <Text style={{ fontSize: 13, color: C.gray400 }}>Cancel</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : grantStep === 'confirm' ? (
-                    <View style={{ gap: 10 }}>
-                      <Text style={{ fontSize: 12, color: C.gray600, lineHeight: 18 }}>
-                        Granting access to <Text style={{ fontWeight: '700' }}>{selected?.phone ? formatPhone(selected.phoneCountryCode ?? '+91', selected.phone) : 'this member'}</Text>.{'\n'}An OTP will be sent — ask the member to read it out to you.
-                      </Text>
-                      {grantError ? <Text style={{ fontSize: 12, color: C.red }}>{grantError}</Text> : null}
-                      <Button label={grantSendOtpMutation.isPending ? 'Sending OTP…' : 'Send OTP'} variant="primary" fullWidth loading={grantSendOtpMutation.isPending} onPress={() => grantSendOtpMutation.mutate()} />
-                      <TouchableOpacity onPress={() => { setGrantStep('idle'); setGrantError(''); }} style={{ alignItems: 'center', paddingVertical: 8 }}>
-                        <Text style={{ fontSize: 13, color: C.gray400 }}>Cancel</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : latestChitfundRequest ? (
-                    <View style={{ gap: 10 }}>
-                      <View style={{ alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, backgroundColor: latestChitfundRequest.status === 'AWAITING_ADMIN' ? '#DBEAFE' : '#FEF3C7' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: latestChitfundRequest.status === 'AWAITING_ADMIN' ? '#1D4ED8' : '#92400E' }}>
-                          {latestChitfundRequest.status === 'PENDING_MEMBER' ? 'WAITING FOR MEMBER' : latestChitfundRequest.status.replaceAll('_', ' ')}
-                        </Text>
-                      </View>
-                      <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
-                        {latestChitfundRequest.requestKind === 'LINK_EXISTING' ? 'Connect existing ChitWise account' : 'Set up a new ChitWise account'} · expires {new Date(latestChitfundRequest.expiresAt).toLocaleString()}
-                      </Text>
-                      {latestChitfundRequest.status === 'AWAITING_ADMIN' && (
-                        <Button label="Confirm App Access" variant="primary" fullWidth loading={confirmChitfundMutation.isPending} onPress={() => confirmChitfundMutation.mutate()} />
-                      )}
-                      {['PENDING_MEMBER', 'MEMBER_VERIFIED', 'AWAITING_ADMIN'].includes(latestChitfundRequest.status) ? (
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
-                          <TouchableOpacity onPress={() => resendChitfundMutation.mutate()} disabled={resendChitfundMutation.isPending} style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: C.gray300 }}><Text style={{ color: C.navy, fontWeight: '700' }}>Resend</Text></TouchableOpacity>
-                          <TouchableOpacity onPress={() => revokeChitfundMutation.mutate()} disabled={revokeChitfundMutation.isPending} style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: C.gray300 }}><Text style={{ color: C.red, fontWeight: '700' }}>Revoke</Text></TouchableOpacity>
+                      {isActive ? (
+                        <View style={{ gap: 10 }}>
+                          <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
+                            The member controls their own password. If recovery is unavailable, create an Account Access ticket.
+                          </Text>
+                          <Button
+                            label={accountAccessTicketMutation.isPending ? 'Creating ticket…' : 'Create Account Access Ticket'}
+                            variant="outline" fullWidth loading={accountAccessTicketMutation.isPending}
+                            onPress={() => Alert.alert('Account Access Help', `Create a support ticket for ${selected?.fullName}? No password will be shared with you.`, [
+                              { text: 'Cancel', style: 'cancel' },
+                              { text: 'Create Ticket', onPress: () => accountAccessTicketMutation.mutate() },
+                            ])}
+                          />
+                          {latestChitfundRequest?.id && (
+                            <TouchableOpacity
+                              onPress={() => Alert.alert('Suspend App Access', `${selected?.fullName} will immediately lose access to this organisation. You can revoke permanently or send a new request later.`, [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Suspend', style: 'destructive', onPress: () => suspendChitfundMutation.mutate() },
+                              ])}
+                              disabled={suspendChitfundMutation.isPending}
+                              style={{ alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: '#FCA5A5' }}>
+                              <Text style={{ color: C.red, fontWeight: '700', fontSize: 13 }}>
+                                {suspendChitfundMutation.isPending ? 'Suspending…' : 'Suspend Access'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      ) : isSuspended ? (
+                        <View style={{ gap: 10 }}>
+                          <Text style={{ fontSize: 12, color: '#9A3412', lineHeight: 18 }}>
+                            Access has been suspended. The member cannot log in to this organisation.
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <TouchableOpacity
+                              onPress={() => createLoginMutation.mutate()}
+                              disabled={createLoginMutation.isPending}
+                              style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: C.gray300 }}>
+                              <Text style={{ color: C.navy, fontWeight: '700' }}>New Request</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => Alert.alert('Permanently Revoke', `This will permanently close the access record for ${selected?.fullName}. History is preserved. Are you sure?`, [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Revoke', style: 'destructive', onPress: () => revokeAfterSuspensionMutation.mutate() },
+                              ])}
+                              disabled={revokeAfterSuspensionMutation.isPending}
+                              style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: '#FCA5A5' }}>
+                              <Text style={{ color: C.red, fontWeight: '700' }}>
+                                {revokeAfterSuspensionMutation.isPending ? 'Revoking…' : 'Perm. Revoke'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : latestChitfundRequest && !isClosed ? (
+                        <View style={{ gap: 10 }}>
+                          <View style={{ alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, backgroundColor: badgeColors[latestChitfundRequest.status]?.bg ?? '#F3F4F6' }}>
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: badgeColors[latestChitfundRequest.status]?.text ?? '#6B7280' }}>
+                              {statusLabel[latestChitfundRequest.status] ?? latestChitfundRequest.status.replaceAll('_', ' ')}
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
+                            {latestChitfundRequest.requestKind === 'LINK_EXISTING' ? 'Connect existing ChitWise account' : 'Set up a new ChitWise account'} · expires {new Date(latestChitfundRequest.expiresAt).toLocaleString()}
+                          </Text>
+                          {latestChitfundRequest.status === 'AWAITING_ADMIN' && (
+                            <Button label="Confirm App Access" variant="primary" fullWidth loading={confirmChitfundMutation.isPending} onPress={() => confirmChitfundMutation.mutate()} />
+                          )}
+                          {isOpen && (
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                              <TouchableOpacity onPress={() => resendChitfundMutation.mutate()} disabled={resendChitfundMutation.isPending} style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: C.gray300 }}><Text style={{ color: C.navy, fontWeight: '700' }}>Resend</Text></TouchableOpacity>
+                              <TouchableOpacity onPress={() => revokeChitfundMutation.mutate()} disabled={revokeChitfundMutation.isPending} style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: C.gray300 }}><Text style={{ color: C.red, fontWeight: '700' }}>Revoke</Text></TouchableOpacity>
+                            </View>
+                          )}
                         </View>
                       ) : (
-                        <Button label="Send New Chitfund Request" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
+                        <>
+                          <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12, lineHeight: 18 }}>
+                            The member will verify their identity and set their own credentials. No admin confirmation needed.
+                          </Text>
+                          <Button label="Send ChitWise App Access" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
+                        </>
                       )}
-                      <View style={{ borderTopWidth: 1, borderColor: C.gray100, paddingTop: 8 }}>
-                        <Button label="Grant Access via OTP (faster)" variant="outline" fullWidth onPress={() => setGrantStep('confirm')} />
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={{ gap: 10 }}>
-                      <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
-                        Admin verifies the member's identity via OTP — faster than a Chitfund Request.
-                      </Text>
-                      <Button label="Grant App Access via OTP" variant="primary" fullWidth onPress={() => setGrantStep('confirm')} />
-                      <Button label="Send Chitfund Request (member self-service)" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
-                    </View>
-                  )}
-                </Card>
+                    </Card>
+                  );
+                })()}
 
                 {/* Contact Info */}
                 <Card style={{ marginBottom: 12 }}>
