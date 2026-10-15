@@ -72,6 +72,12 @@ public class ChitfundAccessRequest {
     @Column(name = "phone_verification_pending", nullable = false)
     private boolean phoneVerificationPending;
 
+    @Column(name = "setup_email_status", nullable = false, length = 20)
+    private String setupEmailStatus = "UNAVAILABLE";
+
+    @Column(name = "setup_email_sent_at")
+    private LocalDateTime setupEmailSentAt;
+
     @Column(name = "resend_count", nullable = false)
     private int resendCount;
 

@@ -11,6 +11,7 @@ import com.chitfund.userservice.domain.enums.ChitfundRequestStatus;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.SetupAccountRequest;
 import com.chitfund.userservice.outbox.MemberDeactivationCommandOutbox;
+import com.chitfund.userservice.outbox.SetupEmailOutbox;
 import com.chitfund.userservice.repository.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +52,7 @@ class ChitfundRequestServiceTest {
     @Mock org.springframework.context.ApplicationEventPublisher eventPublisher;
     @Mock RefreshTokenRepository refreshTokenRepository;
     @Mock MemberDeactivationCommandOutbox deactivationOutbox;
+    @Mock SetupEmailOutbox setupEmailOutbox;
     ChitfundRequestService service;
 
     @BeforeEach
@@ -59,8 +61,9 @@ class ChitfundRequestServiceTest {
                 tenantRepository, setupTokenRepository, emailOtpService, emailService, passwordEncoder,
                 passwordValidator, otpService, authService, tenantService,
                 requestStateService, requestAuditRepository, eventPublisher,
-                refreshTokenRepository, deactivationOutbox);
+                refreshTokenRepository, deactivationOutbox, setupEmailOutbox);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "devOtpExposureEnabled", false);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "emailEnabled", false);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "frontendUrl", "https://app.thechitwise.com");
         lenient().when(requestRepository.findFirstByTenantIdAndMemberIdAndStatusInOrderByCreatedAtDesc(any(), any(), any()))
                 .thenReturn(Optional.empty());
@@ -78,6 +81,7 @@ class ChitfundRequestServiceTest {
 
     @Test
     void newAccountSetupEmailSentAndPhoneOtpAreBoundToExactRequest() {
+        // emailEnabled=false in setUp → status UNAVAILABLE, no outbox enqueue
         UUID tenantId = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -96,16 +100,43 @@ class ChitfundRequestServiceTest {
                 "member@example.com", UUID.randomUUID());
 
         assertThat(response.getRequestKind()).isEqualTo(ChitfundRequestKind.NEW_ACCOUNT);
-        // setupToken is null in production mode (devOtpExposureEnabled = false in setUp)
         assertThat(response.getSetupToken()).isNull();
-        assertThat(response.isSetupEmailSent()).isTrue();
-        // SMS not configured → phone verification not required or pending
+        // Email disabled → status UNAVAILABLE, setupEmailSent=false
+        assertThat(response.getSetupEmailStatus()).isEqualTo("UNAVAILABLE");
+        assertThat(response.isSetupEmailSent()).isFalse();
         assertThat(response.isPhoneVerificationPending()).isFalse();
         verify(authService).generateSetupToken(userId, response.getId());
         verify(otpService).sendOtp("9876543210", "+91", "APP_ACCESS_SETUP", response.getId().toString());
-        verify(emailService).sendFirstTimeSetupEmail(
-                eq("member@example.com"), any(), contains("setup-token"), any());
+        verifyNoInteractions(emailService);
+        verifyNoInteractions(setupEmailOutbox);
         verifyNoInteractions(memberLinkRepository);
+    }
+
+    @Test
+    void newAccountWithEmailEnabled_enqueuesToOutboxNotDirectSES() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "emailEnabled", true);
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull("9876543210", "+91"))
+                .thenReturn(List.of());
+        when(userRepository.save(any())).thenAnswer(call -> {
+            User user = call.getArgument(0);
+            user.setId(userId);
+            return user;
+        });
+        when(passwordEncoder.encode(any())).thenReturn("encoded");
+        when(authService.generateSetupToken(eq(userId), any())).thenReturn("setup-token");
+        when(otpService.isSmsProviderConfigured()).thenReturn(false);
+
+        var response = service.create(tenantId, memberId, "9876543210", "+91",
+                "member@example.com", UUID.randomUUID());
+
+        assertThat(response.getSetupEmailStatus()).isEqualTo("PENDING");
+        assertThat(response.isSetupEmailSent()).isFalse();
+        verifyNoInteractions(emailService);
+        verify(setupEmailOutbox).enqueue(eq(response.getId()), eq(userId),
+                eq("member@example.com"), any(), any());
     }
 
     @Test
@@ -272,7 +303,9 @@ class ChitfundRequestServiceTest {
         assertThat(response.getRequestKind()).isEqualTo(ChitfundRequestKind.NEW_ACCOUNT);
         // setupToken is not exposed in production mode (devOtpExposureEnabled = false in setUp)
         assertThat(response.getSetupToken()).isNull();
-        assertThat(response.isSetupEmailSent()).isTrue();
+        // emailEnabled=false in setUp → status UNAVAILABLE
+        assertThat(response.getSetupEmailStatus()).isEqualTo("UNAVAILABLE");
+        assertThat(response.isSetupEmailSent()).isFalse();
         assertThat(saved).hasSize(2);
         assertThat(saved.get(1).getCandidateUserId()).isEqualTo(newUserId);
     }

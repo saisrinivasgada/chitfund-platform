@@ -9,6 +9,7 @@ import com.chitfund.userservice.dto.request.SetupAccountRequest;
 import com.chitfund.userservice.dto.response.ChitfundRequestResponse;
 import com.chitfund.userservice.dto.response.ChitfundRequestPublicResponse;
 import com.chitfund.userservice.outbox.MemberDeactivationCommandOutbox;
+import com.chitfund.userservice.outbox.SetupEmailOutbox;
 import com.chitfund.userservice.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,9 +52,13 @@ public class ChitfundRequestService {
     private final ApplicationEventPublisher eventPublisher;
     private final RefreshTokenRepository refreshTokenRepository;
     private final MemberDeactivationCommandOutbox deactivationOutbox;
+    private final SetupEmailOutbox setupEmailOutbox;
 
     @Value("${app.dev.otp-exposure.enabled:false}")
     private boolean devOtpExposureEnabled;
+
+    @Value("${app.email.enabled:false}")
+    private boolean emailEnabled;
 
     @Value("${app.frontend-url}")
     private String frontendUrl;
@@ -138,14 +143,16 @@ public class ChitfundRequestService {
                 requestedBy, "ORG_ADMIN", "App-access request created");
 
         String setupToken = null;
-        boolean setupEmailSent = false;
         if (kind == ChitfundRequestKind.NEW_ACCOUNT) {
             setupToken = authService.generateSetupToken(candidate.getId(), request.getId());
             otpService.sendOtp(normalizedPhone, cc, SETUP_OTP, request.getId().toString());
             String orgName = tenantRepository.findById(tenantId).map(Tenant::getName).orElse("Organization");
-            String setupLink = frontendUrl + "/setup?token=" + setupToken;
-            emailService.sendFirstTimeSetupEmail(normalizedEmail, candidate.getFullName(), setupLink, orgName);
-            setupEmailSent = true;
+            if (emailEnabled) {
+                request.setSetupEmailStatus("PENDING");
+                requestRepository.save(request);
+                setupEmailOutbox.enqueue(request.getId(), candidate.getId(),
+                        normalizedEmail, candidate.getFullName(), orgName);
+            }
         }
         if (kind == ChitfundRequestKind.LINK_EXISTING) {
             eventPublisher.publishEvent(new IdentityNotificationEvent(
@@ -155,7 +162,7 @@ public class ChitfundRequestService {
                     tenantRepository.findById(tenantId).map(Tenant::getName).orElse("Organization"),
                     List.of(), null, null, null));
         }
-        return toResponse(request, devOtpExposureEnabled ? setupToken : null, actionToken, setupEmailSent);
+        return toResponse(request, devOtpExposureEnabled ? setupToken : null, actionToken);
     }
 
     /**
@@ -294,7 +301,6 @@ public class ChitfundRequestService {
         request.setExpiresAt(now.plusHours(72));
         request.setRequestedBy(adminId);
         String setupToken = null;
-        boolean setupEmailSent = false;
         String actionToken = newActionToken();
         request.setMemberActionTokenHash(AuthService.sha256Value(actionToken));
         User candidate = userRepository.findById(request.getCandidateUserId())
@@ -310,10 +316,13 @@ public class ChitfundRequestService {
             setupToken = authService.generateSetupToken(request.getCandidateUserId(), request.getId());
             otpService.sendOtp(request.getRequestedPhone(), request.getPhoneCountryCode(),
                     SETUP_OTP, request.getId().toString());
-            String orgName = tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization");
-            String setupLink = frontendUrl + "/setup?token=" + setupToken;
-            emailService.sendFirstTimeSetupEmail(request.getRequestedEmail(), candidate.getFullName(), setupLink, orgName);
-            setupEmailSent = true;
+            if (emailEnabled) {
+                request.setSetupEmailStatus("PENDING");
+                String orgName = tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization");
+                setupEmailOutbox.supersede(request.getId());
+                setupEmailOutbox.enqueue(request.getId(), request.getCandidateUserId(),
+                        request.getRequestedEmail(), candidate.getFullName(), orgName);
+            }
         }
         requestRepository.save(request);
         audit(request, "REQUEST_RESENT", request.getStatus(), request.getStatus(), adminId,
@@ -326,7 +335,7 @@ public class ChitfundRequestService {
                     tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
                     List.of(), null, null, null));
         }
-        return toResponse(request, devOtpExposureEnabled ? setupToken : null, actionToken, setupEmailSent);
+        return toResponse(request, devOtpExposureEnabled ? setupToken : null, actionToken);
     }
 
     @Transactional
@@ -709,17 +718,13 @@ public class ChitfundRequestService {
     }
 
     private ChitfundRequestResponse toResponse(ChitfundAccessRequest r, String setupToken) {
-        return toResponse(r, setupToken, null, false);
+        return toResponse(r, setupToken, null);
     }
 
     private ChitfundRequestResponse toResponse(ChitfundAccessRequest r, String setupToken, String actionToken) {
-        return toResponse(r, setupToken, actionToken, false);
-    }
-
-    private ChitfundRequestResponse toResponse(ChitfundAccessRequest r, String setupToken,
-                                                String actionToken, boolean setupEmailSent) {
         User user = userRepository.findById(r.getCandidateUserId()).orElse(null);
         String organization = tenantRepository.findById(r.getTenantId()).map(Tenant::getName).orElse("Organization");
+        String emailStatus = r.getSetupEmailStatus() != null ? r.getSetupEmailStatus() : "UNAVAILABLE";
         return ChitfundRequestResponse.builder()
                 .id(r.getId()).tenantId(r.getTenantId()).memberId(r.getMemberId())
                 .organizationName(organization).maskedPhone(maskPhone(r.getRequestedPhone()))
@@ -728,7 +733,8 @@ public class ChitfundRequestService {
                 .memberVerifiedAt(r.getMemberVerifiedAt()).adminConfirmedAt(r.getAdminConfirmedAt())
                 .emailVerified(user != null && user.getEmailVerifiedAt() != null)
                 .phoneVerificationPending(r.isPhoneVerificationPending())
-                .setupEmailSent(setupEmailSent)
+                .setupEmailStatus(emailStatus)
+                .setupEmailSent("SENT".equals(emailStatus))
                 .setupToken(setupToken).actionToken(actionToken).build();
     }
 

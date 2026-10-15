@@ -24,6 +24,9 @@ public class ChitfundRequestResponse {
     private LocalDateTime adminConfirmedAt;
     private boolean emailVerified;
     private boolean phoneVerificationPending;
+    /** "PENDING" | "SENT" | "FAILED" | "UNAVAILABLE" */
+    private String setupEmailStatus;
+    /** Backward-compat derived field: true only when setupEmailStatus == "SENT". */
     private boolean setupEmailSent;
     private String setupToken;
     private String actionToken;
