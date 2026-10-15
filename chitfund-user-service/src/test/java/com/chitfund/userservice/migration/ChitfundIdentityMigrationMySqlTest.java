@@ -192,6 +192,51 @@ class ChitfundIdentityMigrationMySqlTest {
                 String.class, requestId.toString())).isEqualTo("PENDING");
     }
 
+    @Test
+    void v177DeactivationOutboxTableIsCreatedWithCorrectSchema() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        try (var connection = java.sql.DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            // Table should exist
+            try (var rs = connection.createStatement().executeQuery(
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() " +
+                            "AND table_name='member_deactivation_command_outbox'")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1)).isEqualTo(1);
+            }
+            // ON DUPLICATE KEY UPDATE (via unique key on request_id) must be idempotent
+            String insertSql = "INSERT INTO member_deactivation_command_outbox " +
+                    "(delivery_id,request_id,tenant_id,member_id,user_id,status,attempts,next_attempt_after,created_at) " +
+                    "VALUES (?,?,?,?,?,'PENDING',0,NOW(),NOW()) " +
+                    "ON DUPLICATE KEY UPDATE request_id=request_id";
+            String deliveryId1 = UUID.randomUUID().toString();
+            String requestId = UUID.randomUUID().toString();
+            try (var ps = connection.prepareStatement(insertSql)) {
+                ps.setString(1, deliveryId1);
+                ps.setString(2, requestId);
+                ps.setString(3, "10000000-0000-0000-0000-000000000001");
+                ps.setString(4, "20000000-0000-0000-0000-000000000001");
+                ps.setString(5, "30000000-0000-0000-0000-000000000001");
+                ps.executeUpdate();
+            }
+            // Second insert with same request_id must not add a row
+            try (var ps = connection.prepareStatement(insertSql)) {
+                ps.setString(1, UUID.randomUUID().toString());
+                ps.setString(2, requestId);
+                ps.setString(3, "10000000-0000-0000-0000-000000000001");
+                ps.setString(4, "20000000-0000-0000-0000-000000000001");
+                ps.setString(5, "30000000-0000-0000-0000-000000000001");
+                ps.executeUpdate();
+            }
+            try (var rs = connection.createStatement().executeQuery(
+                    "SELECT COUNT(*) FROM member_deactivation_command_outbox")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getInt(1)).isEqualTo(1);
+            }
+        }
+    }
+
     private static void insertRequest(java.sql.Connection connection, String sql, String id,
                                       String tenantId, String memberId) throws SQLException {
         try (var ps = connection.prepareStatement(sql)) {

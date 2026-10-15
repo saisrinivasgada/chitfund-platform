@@ -436,10 +436,245 @@ class ChitfundRequestServiceTest {
                 .hasMessageContaining("SUSPENDED");
     }
 
+    // ─── SMS provider behavior ────────────────────────────────────────────────
+
+    @Test
+    void completingSetupWithSmsDeliveredRequiresPhoneOtp() {
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        com.chitfund.userservice.domain.entity.AccountSetupToken token =
+                com.chitfund.userservice.domain.entity.AccountSetupToken.builder()
+                        .userId(userId).chitfundRequestId(requestId)
+                        .expiresAt(LocalDateTime.now().plusHours(1)).build();
+        ChitfundAccessRequest request = ChitfundAccessRequest.builder()
+                .id(requestId).tenantId(tenantId).memberId(memberId)
+                .candidateUserId(userId).requestedPhone("9876543210").phoneCountryCode("+91")
+                .requestKind(ChitfundRequestKind.NEW_ACCOUNT).status(ChitfundRequestStatus.PENDING_MEMBER)
+                .expiresAt(LocalDateTime.now().plusHours(1)).lastSentAt(LocalDateTime.now())
+                .build();
+        com.chitfund.userservice.domain.entity.User user =
+                com.chitfund.userservice.domain.entity.User.builder()
+                        .id(userId).role(Role.MEMBER)
+                        .phone("9876543210").phoneCountryCode("+91")
+                        .email("m@test.com").username("mtest").build();
+
+        when(setupTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(token));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        // SMS provider delivered — phone OTP is required
+        when(otpService.getDeliveryStatus(any(), any(), any()))
+                .thenReturn(com.chitfund.userservice.domain.enums.SmsDeliveryStatus.DELIVERED);
+
+        com.chitfund.userservice.dto.request.SetupAccountRequest input =
+                new com.chitfund.userservice.dto.request.SetupAccountRequest();
+        input.setToken("raw-token");
+        // Phone OTP missing — must throw
+        input.setPhoneOtp(null);
+        input.setNewPassword("Secure@123");
+
+        assertThatThrownBy(() -> service.completeSetup(input))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("Phone OTP");
+        // OTP verification must not be called without value
+        verify(otpService, never()).verifyOtp(any(), any(), any(), any());
+    }
+
+    @Test
+    void publicDetailsShowsPhoneVerificationPendingWhenSmsNotConfigured() {
+        UUID requestId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        ChitfundAccessRequest request = existingRequestFull(requestId, userId, tenantId,
+                ChitfundRequestStatus.PENDING_MEMBER);
+        com.chitfund.userservice.domain.entity.User user =
+                com.chitfund.userservice.domain.entity.User.builder()
+                        .id(userId).role(Role.MEMBER).build();
+
+        when(requestRepository.findByMemberActionTokenHash(any())).thenReturn(Optional.of(request));
+        when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.empty());
+        when(otpService.isSmsProviderConfigured()).thenReturn(false);
+
+        var pub = service.publicDetails("raw-action-token");
+
+        assertThat(pub.isPhoneVerificationPending()).isTrue();
+    }
+
+    @Test
+    void publicDetailsNoPhoneVerificationPendingWhenSmsConfigured() {
+        UUID requestId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        ChitfundAccessRequest request = existingRequestFull(requestId, userId, tenantId,
+                ChitfundRequestStatus.PENDING_MEMBER);
+        com.chitfund.userservice.domain.entity.User user =
+                com.chitfund.userservice.domain.entity.User.builder()
+                        .id(userId).role(Role.MEMBER).build();
+
+        when(requestRepository.findByMemberActionTokenHash(any())).thenReturn(Optional.of(request));
+        when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.empty());
+        when(otpService.isSmsProviderConfigured()).thenReturn(true);
+
+        var pub = service.publicDetails("raw-action-token");
+
+        assertThat(pub.isPhoneVerificationPending()).isFalse();
+    }
+
+    // ─── Suspension token-scope isolation ────────────────────────────────────
+
+    @Test
+    void suspendOnlyRevokesTokensForTheSuspendedTenantNotAll() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, userId, ChitfundRequestStatus.ACTIVE);
+        request.setTenantId(tenantId);
+        request.setMemberId(memberId);
+        com.chitfund.userservice.domain.entity.MemberUserLink link =
+                com.chitfund.userservice.domain.entity.MemberUserLink.builder()
+                        .userId(userId).tenantId(tenantId).memberId(memberId).build();
+        com.chitfund.userservice.domain.entity.User user =
+                com.chitfund.userservice.domain.entity.User.builder()
+                        .id(userId).role(Role.MEMBER).hasAppAccess(true).build();
+
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(memberLinkRepository.findByMemberIdAndTenantId(memberId, tenantId)).thenReturn(Optional.of(link));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(memberLinkRepository.existsByUserId(userId)).thenReturn(true); // still linked to other tenants
+        lenient().when(userRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        service.suspend(requestId, UUID.randomUUID(), "Test");
+
+        // Must revoke tokens only for this tenant, not all
+        verify(refreshTokenRepository).revokeAllActiveByUserAndTenant(user, tenantId.toString());
+        verify(refreshTokenRepository, never()).revokeAllActiveByUser(any());
+        // hasAppAccess must NOT be cleared because user still has links to other tenants
+        assertThat(user.isHasAppAccess()).isTrue();
+    }
+
+    // ─── Request-create idempotency ────────────────────────────────────────────
+
+    @Test
+    void phoneNormalizationStripsSpacesBeforeMatchingAndSaving() {
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull("9876543210", "+91"))
+                .thenReturn(List.of());
+        when(userRepository.save(any())).thenAnswer(call -> {
+            com.chitfund.userservice.domain.entity.User u = call.getArgument(0);
+            u.setId(userId);
+            return u;
+        });
+        when(passwordEncoder.encode(any())).thenReturn("hash");
+        when(authService.generateSetupToken(any(), any())).thenReturn("token");
+
+        // Phone entered with spaces — must be normalized to 9876543210
+        var response = service.create(tenantId, memberId, "98765 43210", "+91",
+                "m@example.com", UUID.randomUUID());
+
+        assertThat(response.getRequestKind()).isEqualTo(ChitfundRequestKind.NEW_ACCOUNT);
+        // Verify OTP was sent to normalized phone
+        verify(otpService).sendOtp("9876543210", "+91", "APP_ACCESS_SETUP", response.getId().toString());
+    }
+
+    @Test
+    void resendIsRateLimitedAfterFirstSend() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, UUID.randomUUID(), ChitfundRequestStatus.PENDING_MEMBER);
+        request.setTenantId(tenantId);
+        // lastSentAt just now — within the rate limit window
+        request.setLastSentAt(LocalDateTime.now());
+        request.setResendCount(0);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+
+        // Expect rate-limit exception
+        assertThatThrownBy(() -> service.resend(requestId, UUID.randomUUID()))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class);
+        verify(requestRepository, never()).save(any());
+    }
+
+    // ─── Audit correctness ────────────────────────────────────────────────────
+
+    @Test
+    void auditEntryIsPersistedOnRequestCreate() {
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(any(), any())).thenReturn(List.of());
+        when(userRepository.save(any())).thenAnswer(call -> {
+            com.chitfund.userservice.domain.entity.User u = call.getArgument(0);
+            u.setId(userId);
+            return u;
+        });
+        when(passwordEncoder.encode(any())).thenReturn("hash");
+        when(authService.generateSetupToken(any(), any())).thenReturn("token");
+
+        service.create(tenantId, memberId, "9000000001", "+91", "m@example.com", UUID.randomUUID());
+
+        verify(requestAuditRepository).save(
+                argThat(a -> "REQUEST_CREATED".equals(
+                        ((com.chitfund.userservice.domain.entity.ChitfundRequestAudit) a).getAction())));
+    }
+
+    @Test
+    void auditEntryIsPersistedOnSuspend() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, userId, ChitfundRequestStatus.ACTIVE);
+        request.setTenantId(tenantId);
+        request.setMemberId(memberId);
+        com.chitfund.userservice.domain.entity.User user =
+                com.chitfund.userservice.domain.entity.User.builder()
+                        .id(userId).role(Role.MEMBER).hasAppAccess(true).build();
+
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(memberLinkRepository.findByMemberIdAndTenantId(memberId, tenantId)).thenReturn(Optional.empty());
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(memberLinkRepository.existsByUserId(userId)).thenReturn(false);
+        when(userRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        service.suspend(requestId, UUID.randomUUID(), "Policy violation");
+
+        verify(requestAuditRepository).save(
+                argThat(a -> "ACCESS_SUSPENDED".equals(
+                        ((com.chitfund.userservice.domain.entity.ChitfundRequestAudit) a).getAction())));
+    }
+
     private static ChitfundAccessRequest existingRequest(UUID requestId, UUID userId,
                                                          ChitfundRequestStatus status) {
         return ChitfundAccessRequest.builder()
                 .id(requestId).tenantId(UUID.randomUUID()).memberId(UUID.randomUUID())
+                .candidateUserId(userId).requestedPhone("9876543210").phoneCountryCode("+91")
+                .requestKind(ChitfundRequestKind.LINK_EXISTING).status(status)
+                .expiresAt(LocalDateTime.now().plusHours(1)).lastSentAt(LocalDateTime.now())
+                .build();
+    }
+
+    private static ChitfundAccessRequest existingRequestFull(UUID requestId, UUID userId, UUID tenantId,
+                                                              ChitfundRequestStatus status) {
+        return ChitfundAccessRequest.builder()
+                .id(requestId).tenantId(tenantId).memberId(UUID.randomUUID())
                 .candidateUserId(userId).requestedPhone("9876543210").phoneCountryCode("+91")
                 .requestKind(ChitfundRequestKind.LINK_EXISTING).status(status)
                 .expiresAt(LocalDateTime.now().plusHours(1)).lastSentAt(LocalDateTime.now())
