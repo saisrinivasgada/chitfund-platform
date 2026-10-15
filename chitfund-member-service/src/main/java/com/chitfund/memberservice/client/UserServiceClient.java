@@ -75,63 +75,6 @@ public class UserServiceClient {
         return response.getBody();
     }
 
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> grantAppAccessSendOtp(String tenantId, UUID memberId,
-                                                      String phone, String phoneCountryCode) {
-        try {
-            Map<String, String> body = new HashMap<>();
-            body.put("tenantId", tenantId);
-            body.put("memberId", memberId.toString());
-            body.put("phone", phone);
-            body.put("phoneCountryCode", phoneCountryCode != null ? phoneCountryCode : "+91");
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Key", internalKey);
-            ResponseEntity<Map> response = restTemplate.exchange(
-                    userServiceUrl + "/internal/users/grant-app-access/send-otp", HttpMethod.POST,
-                    new HttpEntity<>(body, headers), Map.class);
-            return response.getBody();
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            String body = e.getResponseBodyAsString();
-            log.warn("grant-app-access/send-otp failed for member {}: {}", memberId, body);
-            // Surface rate-limit and other user-facing errors
-            try {
-                Map<?, ?> err = new com.fasterxml.jackson.databind.ObjectMapper().readValue(body, Map.class);
-                String msg = err.get("error") != null ? String.valueOf(err.get("error")) : null;
-                if (msg != null) throw new RuntimeException(msg);
-            } catch (RuntimeException re) { throw re; }
-            catch (Exception ignored) { }
-            return null;
-        } catch (RestClientException e) {
-            log.warn("grant-app-access/send-otp failed for member {}: {}", memberId, e.getMessage());
-            return null;
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    public java.util.UUID grantAppAccessVerify(String tenantId, UUID memberId,
-                                      String phone, String phoneCountryCode, String otp) {
-        Map<String, String> body = new HashMap<>();
-        body.put("tenantId", tenantId);
-        body.put("memberId", memberId.toString());
-        body.put("phone", phone);
-        body.put("phoneCountryCode", phoneCountryCode != null ? phoneCountryCode : "+91");
-        body.put("otp", otp);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-Internal-Key", internalKey);
-        ResponseEntity<Map> response = restTemplate.exchange(
-                userServiceUrl + "/internal/users/grant-app-access/verify", HttpMethod.POST,
-                new HttpEntity<>(body, headers), Map.class);
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            String errMsg = response.getBody() != null
-                    ? String.valueOf(response.getBody().get("error")) : "OTP verification failed";
-            throw new RuntimeException(errMsg);
-        }
-        String userIdStr = response.getBody() != null ? String.valueOf(response.getBody().get("userId")) : null;
-        return userIdStr != null && !"null".equals(userIdStr) ? java.util.UUID.fromString(userIdStr) : null;
-    }
-
     public void revokeAppAccess(String tenantId, UUID memberId) {
         Map<String, String> body = new HashMap<>();
         body.put("tenantId", tenantId);

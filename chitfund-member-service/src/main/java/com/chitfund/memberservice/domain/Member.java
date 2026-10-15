@@ -58,6 +58,11 @@ public class Member {
     // Nullable — only set when member has an app login in user-service; non-null means access granted
     private UUID userId;
 
+    // Legacy mirror column — kept for rolling-deployment compatibility; not the source of truth.
+    // Truth is: userId != null. Do not use hasAppAccess as the authoritative access check.
+    @Column(name = "has_app_access", nullable = false)
+    private boolean hasAppAccess;
+
     // Admin-only notes: "Pays on 5th of every month", "Contact via WhatsApp only"
     @Column(columnDefinition = "text")
     private String notes;

@@ -9,9 +9,10 @@ import {
   getMemberSettlements, recordSettlementTransaction, voidSettlement,
   getMemberPaymentHistoryByChit, requestMemberAppAccess,
   getMemberChitfundRequests, resendChitfundRequest, revokeChitfundRequest, confirmChitfundRequest,
+  suspendChitfundRequest, revokeAfterSuspension,
   adminUpdateUserPhone,
   sendReminder, getRemindersForMember, getReminderForAdmin, removeReminder,
-  grantAppAccessSendOtp, grantAppAccessVerify, revokeAppAccess,
+  revokeAppAccess,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -173,7 +174,7 @@ function StatusSwitcher({ member, disabled }) {
 }
 
 // ─── More actions dropdown ────────────────────────────────────────────────────
-function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogin, onAccountAccess, onReminder, onWhatsApp, onDelete, onHistory, onLock, onUnlock, onGrantAccess, onRevokeAccess, reminderPending, whatsappPending, lockPending, unlockPending }) {
+function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogin, onAccountAccess, onReminder, onWhatsApp, onDelete, onHistory, onLock, onUnlock, onRevokeAccess, reminderPending, whatsappPending, lockPending, unlockPending }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const ref = useRef(null);
@@ -262,12 +263,6 @@ function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogi
             <>
               <MenuButton
                 icon={<UserPlus size={14} />}
-                onClick={() => { onGrantAccess(); setOpen(false); }}
-              >
-                Grant App Access (OTP)
-              </MenuButton>
-              <MenuButton
-                icon={<UserPlus size={14} className="text-gray-400" />}
                 onClick={() => { onCreateLogin(); setOpen(false); }}
               >
                 Send Chitfund Request
@@ -558,98 +553,6 @@ function CreateLoginModal({ member, onClose }) {
   );
 }
 
-// ─── Admin-driven OTP-gated grant modal ───────────────────────────────────────
-function GrantAppAccessOtpModal({ member, onClose, onGranted }) {
-  const toast = useToastContext();
-  const qc = useQueryClient();
-  const [step, setStep] = useState('confirm'); // confirm | otp
-  const [maskedPhone, setMaskedPhone] = useState('');
-  const [otp, setOtp] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  async function handleSendOtp() {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await grantAppAccessSendOtp(member.id);
-      setMaskedPhone(result?.maskedPhone ?? formatPhone(member.phoneCountryCode ?? '+91', member.phone));
-      setStep('otp');
-    } catch (err) {
-      setError(err.response?.data?.message ?? 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleVerify() {
-    if (otp.length !== 6) return;
-    setLoading(true);
-    setError('');
-    try {
-      await grantAppAccessVerify({ memberId: member.id, otp });
-      qc.invalidateQueries({ queryKey: ['member', member.id] });
-      qc.invalidateQueries({ queryKey: ['members'] });
-      toast.success('App access granted to ' + member.fullName);
-      onGranted?.();
-      onClose();
-    } catch (err) {
-      setError(err.response?.data?.message ?? 'OTP incorrect or expired');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (step === 'confirm') {
-    return (
-      <Modal title="Grant App Access" onClose={onClose} size="sm">
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Granting app access to <strong>{member.fullName}</strong> at{' '}
-            <strong>{formatPhone(member.phoneCountryCode ?? '+91', member.phone)}</strong>.
-          </p>
-          <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
-            An OTP will be sent to this number. Ask the member to read it out to you and enter it on the next screen. This confirms you have the right phone.
-          </div>
-          {error && <p className="text-xs text-red-500">{error}</p>}
-          <div className="flex gap-3 pt-1">
-            <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-            <Button type="button" className="flex-1" loading={loading} onClick={handleSendOtp}>
-              <ShieldCheckIcon size={14} /> Send OTP
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    );
-  }
-
-  return (
-    <Modal title="Enter OTP" onClose={onClose} size="sm">
-      <div className="space-y-4">
-        <p className="text-sm text-gray-600">OTP sent to <strong>{maskedPhone}</strong>.</p>
-        <p className="text-sm text-gray-500">Ask the member to read out the 6-digit code and enter it below.</p>
-        <div>
-          <Input
-            value={otp}
-            onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
-            placeholder="6-digit OTP"
-            maxLength={6}
-            inputMode="numeric"
-            autoFocus
-          />
-          {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
-        </div>
-        <div className="flex gap-3 pt-1">
-          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button type="button" className="flex-1" loading={loading} disabled={otp.length !== 6} onClick={handleVerify}>
-            Verify & Grant
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 // ─── Account-access support ticket ────────────────────────────────────────────
 function AccountAccessTicketModal({ member, onClose }) {
   const toast = useToastContext();
@@ -703,6 +606,7 @@ const REQUEST_STATUS = {
   MEMBER_VERIFIED: ['Member verified', 'bg-blue-50 text-blue-700 border-blue-200'],
   AWAITING_ADMIN: ['Pending activation', 'bg-blue-50 text-blue-700 border-blue-200'],
   ACTIVE: ['App access active', 'bg-green-50 text-green-700 border-green-200'],
+  SUSPENDED: ['Suspended', 'bg-orange-50 text-orange-700 border-orange-200'],
   DECLINED: ['Declined', 'bg-gray-50 text-gray-600 border-gray-200'],
   EXPIRED: ['Expired', 'bg-red-50 text-red-700 border-red-200'],
   REVOKED: ['Revoked', 'bg-gray-50 text-gray-600 border-gray-200'],
@@ -733,6 +637,8 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
   }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not resend request') });
   const revoke = useMutation({ mutationFn: () => revokeChitfundRequest(latest.id), onSuccess: () => { refresh(); toast.success('Chitfund Request revoked'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not revoke request') });
   const confirm = useMutation({ mutationFn: () => confirmChitfundRequest(latest.id), onSuccess: () => { refresh(); toast.success('Member app access activated'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not activate app access') });
+  const suspend = useMutation({ mutationFn: () => suspendChitfundRequest({ requestId: latest.id, reason: 'Suspended by admin' }), onSuccess: () => { refresh(); toast.success('App access suspended'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not suspend') });
+  const revokeAfter = useMutation({ mutationFn: () => revokeAfterSuspension({ requestId: latest.id, reason: 'Revoked after suspension' }), onSuccess: () => { refresh(); toast.success('App access permanently revoked'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not revoke') });
   if (isLoading || (!latest && member.appAccessGranted)) return null;
   if (!latest) return (
     <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4">
@@ -742,6 +648,7 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
   );
   const [label, style] = REQUEST_STATUS[latest.status] ?? [latest.status, 'bg-gray-50 text-gray-600 border-gray-200'];
   const open = ['PENDING_MEMBER', 'MEMBER_VERIFIED', 'AWAITING_ADMIN'].includes(latest.status);
+  const closed = ['DECLINED', 'EXPIRED', 'REVOKED'].includes(latest.status);
   return (
     <div className="rounded-xl border border-gray-200 bg-white px-5 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -753,7 +660,10 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
           {latest.status === 'AWAITING_ADMIN' && isAdmin && <Button onClick={() => confirm.mutate()} loading={confirm.isPending}><ShieldCheck size={14} /> Confirm Access</Button>}
           {open && <Button variant="secondary" onClick={() => resend.mutate()} loading={resend.isPending}>Resend</Button>}
           {open && <Button variant="secondary" onClick={() => revoke.mutate()} loading={revoke.isPending}>Revoke</Button>}
-          {!open && !member.appAccessGranted && <Button onClick={onSend}><UserPlus size={14} /> New Request</Button>}
+          {latest.status === 'ACTIVE' && isAdmin && <Button variant="warning" onClick={() => suspend.mutate()} loading={suspend.isPending}><ShieldOff size={14} /> Suspend</Button>}
+          {latest.status === 'SUSPENDED' && isAdmin && <Button variant="danger" onClick={() => revokeAfter.mutate()} loading={revokeAfter.isPending}><ShieldOff size={14} /> Permanently Revoke</Button>}
+          {latest.status === 'SUSPENDED' && isAdmin && <Button onClick={onSend} variant="secondary"><UserPlus size={14} /> New Request</Button>}
+          {closed && <Button onClick={onSend}><UserPlus size={14} /> New Request</Button>}
         </div>
       </div>
       {resentLink && <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 p-2">
@@ -2467,7 +2377,6 @@ export default function MemberDetailPage() {
   const [showCreateLogin, setShowCreateLogin] = useState(false);
   const [showAccountAccess, setShowAccountAccess] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showGrantAccess, setShowGrantAccess] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [showProfileHistory, setShowProfileHistory] = useState(false);
   const [showReferralEdit, setShowReferralEdit] = useState(false);
@@ -2789,7 +2698,6 @@ export default function MemberDetailPage() {
               onHistory={() => setShowProfileHistory(true)}
               onLock={() => lockMemberMut.mutate()}
               onUnlock={() => unlockMemberMut.mutate()}
-              onGrantAccess={() => setShowGrantAccess(true)}
               onRevokeAccess={() => setShowRevokeConfirm(true)}
               reminderPending={reminderMutation.isPending}
               whatsappPending={whatsappMutation.isPending}
@@ -2996,9 +2904,6 @@ export default function MemberDetailPage() {
       )}
       {showReminderModal && (
         <ReminderModal memberId={id} appAccessGranted={member?.appAccessGranted} onClose={() => setShowReminderModal(false)} />
-      )}
-      {showGrantAccess && (
-        <GrantAppAccessOtpModal member={member} onClose={() => setShowGrantAccess(false)} />
       )}
       {showRevokeConfirm && (
         <ConfirmDialog

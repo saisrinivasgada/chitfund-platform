@@ -36,4 +36,9 @@ public class LoginResponse {
 
     // Populated after OTP verified with rememberDevice=true (web only)
     private String deviceToken;
+
+    // Only populated in local/dev environments (app.email.enabled=false or app.sms.enabled=false)
+    // so developers can complete OTP flows without a real email or SMS provider.
+    // Never populated in production.
+    private String devOtp;
 }

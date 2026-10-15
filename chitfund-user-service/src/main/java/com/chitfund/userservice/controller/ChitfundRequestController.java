@@ -54,7 +54,7 @@ public class ChitfundRequestController {
     public ResponseEntity<ApiResponse<ChitfundRequestResponse>> completeSetup(
             @Valid @RequestBody SetupAccountRequest request) {
         return ResponseEntity.ok(ApiResponse.success(service.completeSetup(request),
-                "Account verified. Your organization must confirm app access."));
+                "Account verified. ChitWise App Access is now active."));
     }
 
     @GetMapping("/mine")
@@ -81,7 +81,7 @@ public class ChitfundRequestController {
             Authentication authentication) {
         User user = (User) authentication.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(service.accept(requestId, user.getId(), request.getCode()),
-                "Request verified. Waiting for organization confirmation."));
+                "Verified. ChitWise App Access is now active."));
     }
 
     @PostMapping("/{requestId}/decline")
@@ -119,5 +119,31 @@ public class ChitfundRequestController {
         User user = (User) authentication.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(service.confirm(requestId, user.getId()),
                 "Member app access activated"));
+    }
+
+    @PostMapping("/{requestId}/suspend")
+    @PreAuthorize("hasAnyAuthority('ADMIN','MANAGER')")
+    public ResponseEntity<ApiResponse<ChitfundRequestResponse>> suspend(
+            @PathVariable UUID requestId,
+            @RequestBody(required = false) java.util.Map<String, String> body,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(ApiResponse.success(
+                service.suspend(requestId, user.getId(), reason),
+                "Member app access suspended. Tenant link removed immediately."));
+    }
+
+    @PostMapping("/{requestId}/revoke-after-suspension")
+    @PreAuthorize("hasAnyAuthority('ADMIN','MANAGER')")
+    public ResponseEntity<ApiResponse<ChitfundRequestResponse>> revokeAfterSuspension(
+            @PathVariable UUID requestId,
+            @RequestBody(required = false) java.util.Map<String, String> body,
+            Authentication authentication) {
+        User user = (User) authentication.getPrincipal();
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(ApiResponse.success(
+                service.revokeAfterSuspension(requestId, user.getId(), reason),
+                "Member app access permanently revoked."));
     }
 }

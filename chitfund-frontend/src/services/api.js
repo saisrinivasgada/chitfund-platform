@@ -615,13 +615,9 @@ export const requestMemberAppAccess = async (memberId) => {
   return res.data.data;
 };
 
-export const grantAppAccessSendOtp = async (memberId) => {
-  const res = await api.post(`/members/${memberId}/grant-app-access/send-otp`);
-  return res.data.data; // { maskedPhone }
-};
-
-export const grantAppAccessVerify = async ({ memberId, otp }) => {
-  await api.post(`/members/${memberId}/grant-app-access/verify`, { otp });
+export const requestMemberAppAccess = async (memberId) => {
+  const res = await api.post(`/members/${memberId}/app-access-request`);
+  return res.data.data;
 };
 
 export const revokeAppAccess = async (memberId) => {
@@ -634,6 +630,8 @@ export const getMemberChitfundRequests = async (memberId) => {
 export const resendChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/resend`)).data.data;
 export const revokeChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/revoke`)).data.data;
 export const confirmChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/confirm`)).data.data;
+export const suspendChitfundRequest = async ({ requestId, reason }) => (await api.post(`/chitfund-requests/${requestId}/suspend`, { reason })).data.data;
+export const revokeAfterSuspension = async ({ requestId, reason }) => (await api.post(`/chitfund-requests/${requestId}/revoke-after-suspension`, { reason })).data.data;
 export const getMyChitfundRequests = async () => (await api.get('/chitfund-requests/mine')).data.data ?? [];
 export const sendChitfundRequestOtp = async (requestId) => { await api.post(`/chitfund-requests/${requestId}/otp`); };
 export const acceptChitfundRequest = async ({ requestId, code }) => (await api.post(`/chitfund-requests/${requestId}/accept`, { code })).data.data;

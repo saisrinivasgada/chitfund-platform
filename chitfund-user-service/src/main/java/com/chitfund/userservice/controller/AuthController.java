@@ -104,15 +104,17 @@ public class AuthController {
     }
 
     @PostMapping("/resend-login-email-otp")
-    public ResponseEntity<ApiResponse<Void>> resendLoginEmailOtp(
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> resendLoginEmailOtp(
             @RequestBody java.util.Map<String, String> body,
             HttpServletRequest httpRequest) {
         if (!rateLimiter.tryConsumeLogin(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error(
                     "RATE_LIMIT_001", "Too many attempts. Please try again later."));
         }
-        authService.resendLoginEmailOtp(body.get("emailVerificationToken"));
-        return ResponseEntity.ok(ApiResponse.success(null, "Email OTP regenerated"));
+        String devOtp = authService.resendLoginEmailOtp(body.get("emailVerificationToken"));
+        java.util.Map<String, String> result = devOtp != null
+                ? java.util.Map.of("devOtp", devOtp) : java.util.Collections.emptyMap();
+        return ResponseEntity.ok(ApiResponse.success(result, "Email OTP regenerated"));
     }
 
     @PostMapping("/verify-login-email-otp")

@@ -143,51 +143,6 @@ public class InternalUserController {
                 "message", "Resend the active Chitfund Request"));
     }
 
-    // ── Admin-initiated OTP-gated app access grant/revoke ────────────────────
-
-    @PostMapping("/grant-app-access/send-otp")
-    public ResponseEntity<?> grantAppAccessSendOtp(
-            @RequestHeader(value = "X-Internal-Key", required = true) String key,
-            @RequestBody Map<String, String> body) {
-        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
-        String phone     = body.get("phone");
-        String cc        = body.getOrDefault("phoneCountryCode", "+91");
-        String memberIdS = body.get("memberId");
-        if (phone == null || memberIdS == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "phone and memberId are required"));
-        }
-        try {
-            String maskedPhone = appAccessGrantService.sendOtp(phone, cc, UUID.fromString(memberIdS));
-            return ResponseEntity.ok(Map.of("maskedPhone", maskedPhone));
-        } catch (com.chitfund.common.exception.BusinessException ex) {
-            return ResponseEntity.status(ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", ex.getMessage()));
-        }
-    }
-
-    @PostMapping("/grant-app-access/verify")
-    public ResponseEntity<?> grantAppAccessVerify(
-            @RequestHeader(value = "X-Internal-Key", required = true) String key,
-            @RequestBody Map<String, String> body) {
-        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
-        String phone     = body.get("phone");
-        String cc        = body.getOrDefault("phoneCountryCode", "+91");
-        String memberIdS = body.get("memberId");
-        String tenantIdS = body.get("tenantId");
-        String otp       = body.get("otp");
-        if (phone == null || memberIdS == null || tenantIdS == null || otp == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "phone, memberId, tenantId and otp are required"));
-        }
-        try {
-            UUID userId = appAccessGrantService.verifyAndGrant(phone, cc,
-                    UUID.fromString(memberIdS), UUID.fromString(tenantIdS), otp);
-            return ResponseEntity.ok(Map.of("status", "GRANTED", "userId", userId.toString()));
-        } catch (com.chitfund.common.exception.BusinessException ex) {
-            return ResponseEntity.status(ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", ex.getMessage()));
-        }
-    }
-
     @PostMapping("/revoke-app-access")
     public ResponseEntity<?> revokeAppAccess(
             @RequestHeader(value = "X-Internal-Key", required = true) String key,

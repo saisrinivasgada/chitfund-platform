@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, adminForgotPassword, adminVerifyResetOtp, adminResetPassword, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
 import Button from '../components/ui/Button';
+import DevOtpBanner from '../components/ui/DevOtpBanner';
 import { Input } from '../components/ui/FormField';
 import PhoneInput from '../components/ui/PhoneInput';
 import OtpCodeInput from '../components/ui/OtpCodeInput';
@@ -595,6 +596,7 @@ export default function LoginPage() {
       setLoginEmailState({
         emailVerificationToken: loginResponse.emailVerificationToken,
         maskedEmail: loginResponse.maskedEmail,
+        devOtp: loginResponse.devOtp ?? null,
       });
       setLoginEmailOtp('');
       setStep('login-email-otp');
@@ -714,7 +716,8 @@ export default function LoginPage() {
   async function handleResendLoginEmailOtp() {
     setError(''); setLoading(true);
     try {
-      await resendLoginEmailOtp({ emailVerificationToken: loginEmailState.emailVerificationToken });
+      const resendData = await resendLoginEmailOtp({ emailVerificationToken: loginEmailState.emailVerificationToken });
+      if (resendData?.devOtp) setLoginEmailState(prev => ({ ...prev, devOtp: resendData.devOtp }));
       setLoginEmailOtp('');
     } catch (err) {
       setError(err.response?.data?.message ?? 'Could not regenerate the email OTP.');
@@ -1039,6 +1042,7 @@ export default function LoginPage() {
                   <form onSubmit={handleLoginEmailOtpSubmit} className="space-y-5">
                     <OtpCodeInput value={loginEmailOtp} onChange={(value) => { setLoginEmailOtp(value); setError(''); }}
                       autoFocus ariaLabel="Email verification OTP" />
+                    <DevOtpBanner otp={loginEmailState?.devOtp} />
                     {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}
                     <Button type="submit" loading={loading} disabled={loginEmailOtp.length !== 6} className="w-full">
                       Verify Email &amp; Continue

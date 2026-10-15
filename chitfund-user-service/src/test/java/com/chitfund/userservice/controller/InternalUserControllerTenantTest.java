@@ -5,6 +5,7 @@ import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.service.AuthService;
 import com.chitfund.userservice.service.ChitfundRequestService;
+import com.chitfund.userservice.service.AppAccessGrantService;
 import com.chitfund.userservice.service.IdentityReassignmentService;
 import com.chitfund.userservice.service.TenantService;
 import org.junit.jupiter.api.Test;
@@ -27,7 +28,7 @@ class InternalUserControllerTenantTest {
         InternalUserController controller = new InternalUserController(
                 users, mock(TenantService.class), mock(AuthService.class),
                 mock(PasswordEncoder.class), mock(ChitfundRequestService.class),
-                mock(IdentityReassignmentService.class));
+                mock(IdentityReassignmentService.class), mock(AppAccessGrantService.class));
         ReflectionTestUtils.setField(controller, "internalKey", "secret");
         UUID adminId = UUID.randomUUID();
         when(users.findByTenantIdAndRoleInAndDeletedAtIsNull("tenant-a", List.of(Role.ADMIN)))
@@ -44,7 +45,7 @@ class InternalUserControllerTenantTest {
         InternalUserController controller = new InternalUserController(
                 mock(UserRepository.class), mock(TenantService.class), mock(AuthService.class),
                 mock(PasswordEncoder.class), mock(ChitfundRequestService.class),
-                mock(IdentityReassignmentService.class));
+                mock(IdentityReassignmentService.class), mock(AppAccessGrantService.class));
         ReflectionTestUtils.setField(controller, "internalKey", "secret");
 
         assertThat(controller.getUserIdsByRole("ADMIN", "", "secret").getStatusCode().value())

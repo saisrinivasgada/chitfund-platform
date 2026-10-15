@@ -364,49 +364,6 @@ public class MemberService {
         return result;
     }
 
-    /** Step 1: admin sends OTP to the member's phone — returns masked phone string. */
-    @Transactional(readOnly = true)
-    public java.util.Map<String, Object> grantAppAccessSendOtp(UUID memberId) {
-        Member member = findOrThrowScoped(memberId);
-        if (member.getPhone() == null || member.getPhone().isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "This member has no phone number on record. Add a phone number first.");
-        }
-        java.util.Map<String, Object> result;
-        try {
-            result = userServiceClient.grantAppAccessSendOtp(
-                    tenantId(), memberId, member.getPhone(), member.getPhoneCountryCode());
-        } catch (RuntimeException e) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, e.getMessage() != null ? e.getMessage() : "Could not send OTP", HttpStatus.BAD_REQUEST);
-        }
-        if (result == null) {
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "Could not send OTP", HttpStatus.SERVICE_UNAVAILABLE);
-        }
-        return result;
-    }
-
-    /** Step 2: admin enters OTP (read by member) — creates account and grants access. */
-    @Transactional
-    public void grantAppAccessVerify(UUID memberId, String otp) {
-        Member member = findOrThrowScoped(memberId);
-        java.util.UUID userId;
-        try {
-            userId = userServiceClient.grantAppAccessVerify(
-                    tenantId(), memberId, member.getPhone(), member.getPhoneCountryCode(), otp);
-        } catch (RuntimeException e) {
-            String msg = e.getMessage();
-            if (msg != null && (msg.contains("expired") || msg.contains("not found") || msg.contains("Invalid"))) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Invalid or expired OTP", HttpStatus.BAD_REQUEST);
-            }
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Could not verify OTP", HttpStatus.SERVICE_UNAVAILABLE);
-        }
-        if (userId != null && member.getUserId() == null) {
-            member.setUserId(userId);
-        }
-        memberRepository.save(member);
-    }
-
     /** Revoke per-org app access for this member. */
     @Transactional
     public void revokeAppAccess(UUID memberId) {

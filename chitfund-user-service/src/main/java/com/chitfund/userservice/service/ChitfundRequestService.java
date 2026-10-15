@@ -235,10 +235,12 @@ public class ChitfundRequestService {
         otpService.verifyOtp(request.getRequestedPhone(), ACCEPT_OTP, request.getId().toString(), code);
         ChitfundRequestStatus previous = request.getStatus();
         request.setMemberVerifiedAt(LocalDateTime.now());
-        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
+        request.setStatus(ChitfundRequestStatus.MEMBER_VERIFIED);
         requestRepository.save(request);
-        audit(request, "MEMBER_VERIFIED", previous, request.getStatus(), userId,
+        audit(request, "MEMBER_VERIFIED", previous, ChitfundRequestStatus.MEMBER_VERIFIED, userId,
                 "MEMBER", "Existing account accepted with a fresh phone OTP");
+        // Admin initiated; no second confirmation needed — activate immediately.
+        activateAccess(request, userId, "MEMBER", "Auto-activated after existing account accepted");
         return toResponse(request, null);
     }
 
@@ -317,6 +319,64 @@ public class ChitfundRequestService {
                 request.getTenantId(),
                 tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
                 List.of(), null, null, request.getRequestedEmail()));
+        return toResponse(request, null);
+    }
+
+    /**
+     * Immediately suspends an ACTIVE request. Deletes the tenant link so the member
+     * can no longer log in to this organization. The global account and other orgs
+     * are unaffected. Idempotent: suspending an already-suspended request is a no-op.
+     */
+    @Transactional
+    public ChitfundRequestResponse suspend(UUID requestId, UUID adminId, String reason) {
+        ChitfundAccessRequest request = tenantRequestForUpdate(requestId);
+        if (request.getStatus() == ChitfundRequestStatus.SUSPENDED) return toResponse(request, null);
+        if (request.getStatus() != ChitfundRequestStatus.ACTIVE) {
+            throw conflict("Only an ACTIVE request can be suspended");
+        }
+        // Immediately remove the tenant link — this is the authoritative access denial.
+        memberLinkRepository.findByMemberIdAndTenantId(request.getMemberId(), request.getTenantId())
+                .ifPresent(memberLinkRepository::delete);
+        // Clear hasAppAccess if no other tenant links remain and the account is MEMBER role.
+        userRepository.findById(request.getCandidateUserId()).ifPresent(u -> {
+            if (u.getRole() == com.chitfund.userservice.domain.enums.Role.MEMBER
+                    && !memberLinkRepository.existsByUserId(u.getId())) {
+                u.setHasAppAccess(false);
+                userRepository.save(u);
+            }
+        });
+        ChitfundRequestStatus previous = request.getStatus();
+        request.setStatus(ChitfundRequestStatus.SUSPENDED);
+        request.setMemberActionTokenHash(null);
+        requestRepository.save(request);
+        audit(request, "ACCESS_SUSPENDED", previous, ChitfundRequestStatus.SUSPENDED,
+                adminId, "ORG_ADMIN",
+                reason != null && !reason.isBlank() ? reason : "Organization suspended member app access");
+        eventPublisher.publishEvent(new IdentityNotificationEvent(
+                IdentityNotificationEvent.Type.CHITFUND_REQUEST_REVOKED,
+                request.getCandidateUserId(), request.getId(),
+                request.getTenantId(),
+                tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
+                List.of(), null, null, request.getRequestedEmail()));
+        return toResponse(request, null);
+    }
+
+    /**
+     * Permanently revokes a SUSPENDED request. All history is preserved.
+     */
+    @Transactional
+    public ChitfundRequestResponse revokeAfterSuspension(UUID requestId, UUID adminId, String reason) {
+        ChitfundAccessRequest request = tenantRequestForUpdate(requestId);
+        if (request.getStatus() == ChitfundRequestStatus.REVOKED) return toResponse(request, null);
+        if (request.getStatus() != ChitfundRequestStatus.SUSPENDED) {
+            throw conflict("Only a SUSPENDED request can be permanently revoked this way; use revoke() for open requests");
+        }
+        ChitfundRequestStatus previous = request.getStatus();
+        request.setStatus(ChitfundRequestStatus.REVOKED);
+        requestRepository.save(request);
+        audit(request, "ACCESS_REVOKED", previous, ChitfundRequestStatus.REVOKED,
+                adminId, "ORG_ADMIN",
+                reason != null && !reason.isBlank() ? reason : "Organization permanently revoked member app access");
         return toResponse(request, null);
     }
 
@@ -428,12 +488,14 @@ public class ChitfundRequestService {
         token.setUsedAt(LocalDateTime.now());
         setupTokenRepository.save(token);
         request.setMemberVerifiedAt(LocalDateTime.now());
-        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
+        // Admin initiated this request; member verification is the final step —
+        // activate immediately without a second admin confirmation.
+        request.setStatus(ChitfundRequestStatus.MEMBER_VERIFIED);
         requestRepository.save(request);
         audit(request, "ACCOUNT_SETUP_VERIFIED", ChitfundRequestStatus.PENDING_MEMBER,
-                request.getStatus(), user.getId(), "MEMBER",
+                ChitfundRequestStatus.MEMBER_VERIFIED, user.getId(), "MEMBER",
                 "New account completed phone and recovery-email verification");
-        ChitfundRequestResponse response = toResponse(request, null);
+        activateAccess(request, user.getId(), "MEMBER", "Auto-activated after member completed setup");
         requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(user.getId(), OPEN)
                 .stream()
                 .filter(other -> !other.getId().equals(request.getId()))
@@ -443,7 +505,7 @@ public class ChitfundRequestService {
                     audit(other, "REQUEST_KIND_RECLASSIFIED", other.getStatus(), other.getStatus(),
                             user.getId(), "SYSTEM", "Candidate now has an established ChitWise account");
                 });
-        return response;
+        return toResponse(request, null);
     }
 
     private void verifyEmailOtp(User user, String email, String code) {
