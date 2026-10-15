@@ -71,24 +71,9 @@ present. The schemas were then discarded and rebuilt from empty.
 
 ### 1.2c (superseded) Original blocked note
 
-Your rule keys on presence in production `flyway_schema_history`. I cannot read it — SSH is blocked
-by a safety classifier in this session — and you instructed me not to guess.
-
-**Please run this. It is read-only and touches no business data:**
-
-```bash
-ssh -i chitfund-key.pem ec2-user@3.21.196.51 \
- 'H=$(sed -n "s/^DB_HOST=//p" /app/.env|head -1); P=$(sed -n "s/^DB_PASSWORD=//p" /app/.env|head -1);
-  for db in chitfund_payment chitfund_user chitwise_management; do
-    echo "=== $db ===";
-    mysql -h "$H" -u chitfund -p"$P" "$db" -e \
-      "SELECT installed_rank,version,description,checksum,success,installed_on
-       FROM flyway_schema_history ORDER BY installed_rank;" 2>/dev/null || echo "(no such schema)";
-  done'
-```
-
-With that output I can complete the audit and state, per migration, whether the original must be
-restored.
+This historical blocker is resolved. Production access and deployments now use AWS Systems
+Manager in Mumbai; direct SSH, local private keys, and host-specific deployment commands are not
+part of the supported operating model.
 
 ### 1.3 Revised action
 

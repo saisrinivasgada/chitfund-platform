@@ -23,7 +23,7 @@ public class EmailService {
     @Value("${app.otp.logging-enabled:false}")
     private boolean otpLoggingEnabled;
 
-    public EmailService(@Value("${app.email.region:${spring.cloud.aws.region.static:us-east-2}}") String region) {
+    public EmailService(@Value("${app.email.region:${spring.cloud.aws.region.static:ap-south-1}}") String region) {
         this.sesClient = SesClient.builder()
                 .region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create())
