@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.UUID;
 
@@ -21,18 +20,17 @@ class SetupEmailRelayTest {
     @Mock SetupEmailOutbox store;
     @Mock AuthService authService;
     @Mock EmailService emailService;
-    @Mock JdbcTemplate jdbcTemplate;
     SetupEmailRelay relay;
 
     @BeforeEach
     void setUp() {
-        relay = new SetupEmailRelay(store, authService, emailService, jdbcTemplate,
+        relay = new SetupEmailRelay(store, authService, emailService,
                 new SimpleMeterRegistry(), "https://app.thechitwise.com", 50, 5,
                 java.time.Duration.ofSeconds(30));
     }
 
     @Test
-    void successPath_sendsEmailAndMarksCompleted() {
+    void successPath_sendsEmailAndMarksCompletedAndDelivered() {
         UUID requestId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         String leaseToken = UUID.randomUUID().toString();
@@ -41,7 +39,7 @@ class SetupEmailRelayTest {
                 "m@example.com", "Alice", "AcmeCo", 0, leaseToken);
 
         when(authService.generateSetupToken(userId, requestId)).thenReturn("raw-token-abc");
-        when(store.markCompleted(cmd)).thenReturn(true);
+        when(store.markCompletedAndDelivered(cmd)).thenReturn(true);
 
         relay.execute(cmd);
 
@@ -49,9 +47,8 @@ class SetupEmailRelayTest {
                 eq("m@example.com"), eq("Alice"),
                 contains("https://app.thechitwise.com/setup?token="),
                 eq("AcmeCo"));
-        verify(store).markCompleted(cmd);
-        // Request status updated to SENT
-        verify(jdbcTemplate).update(contains("setup_email_status='SENT'"), eq(requestId.toString()));
+        verify(store).markCompletedAndDelivered(cmd);
+        verify(store, never()).markCompleted(any());
     }
 
     @Test
@@ -63,7 +60,7 @@ class SetupEmailRelayTest {
                 "m@example.com", "Bob", "OrgX", 0, "lease");
 
         when(authService.generateSetupToken(userId, requestId)).thenReturn("tok123");
-        when(store.markCompleted(any())).thenReturn(true);
+        when(store.markCompletedAndDelivered(any())).thenReturn(true);
 
         relay.execute(cmd);
 
@@ -72,7 +69,7 @@ class SetupEmailRelayTest {
     }
 
     @Test
-    void emailFailure_schedulesRetry_doesNotMarkFailed() {
+    void emailFailure_nonTerminal_schedulesRetry() {
         UUID requestId = UUID.randomUUID();
         SetupEmailCommand cmd = new SetupEmailCommand(
                 UUID.randomUUID().toString(), requestId, UUID.randomUUID(),
@@ -86,14 +83,16 @@ class SetupEmailRelayTest {
 
         relay.execute(cmd);
 
-        verify(store).markFailed(eq(cmd), eq(5), any(), eq("RuntimeException"),
-                contains("SES throttle"));
-        verify(store, never()).markCompleted(any());
+        // attempts=1, nextAttempts=2, maxAttempts=5 → not terminal → markFailed
+        verify(store).markFailed(eq(cmd), eq(5), any(), eq("RuntimeException"), contains("SES throttle"));
+        verify(store, never()).markTerminalFailure(any(), anyInt(), any(), any(), any());
+        verify(store, never()).markCompletedAndDelivered(any());
     }
 
     @Test
-    void terminalFailure_updatesRequestStatusToFailed() {
+    void terminalFailure_callsMarkTerminalFailure() {
         UUID requestId = UUID.randomUUID();
+        // attempts=4, nextAttempts=5, maxAttempts=5 → terminal
         SetupEmailCommand cmd = new SetupEmailCommand(
                 UUID.randomUUID().toString(), requestId, UUID.randomUUID(),
                 "m@example.com", "Dave", "OrgZ", 4, "lease");
@@ -101,12 +100,12 @@ class SetupEmailRelayTest {
         when(authService.generateSetupToken(any(), any())).thenReturn("tok");
         doThrow(new RuntimeException("permanent error")).when(emailService).sendFirstTimeSetupEmail(
                 any(), any(), any(), any());
-        when(store.markFailed(any(), anyInt(), any(), any(), any()))
-                .thenReturn(new SetupEmailOutbox.FailureResult(true, true, 5));
+        when(store.markTerminalFailure(any(), anyInt(), any(), any(), any())).thenReturn(true);
 
         relay.execute(cmd);
 
-        verify(jdbcTemplate).update(contains("setup_email_status='FAILED'"), eq(requestId.toString()));
+        verify(store).markTerminalFailure(eq(cmd), eq(5), any(), eq("RuntimeException"), contains("permanent error"));
+        verify(store, never()).markFailed(any(), anyInt(), any(), any(), any());
     }
 
     @Test

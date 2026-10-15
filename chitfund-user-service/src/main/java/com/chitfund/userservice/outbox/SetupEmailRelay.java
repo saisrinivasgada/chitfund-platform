@@ -7,7 +7,6 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -27,7 +26,6 @@ public class SetupEmailRelay {
     private final SetupEmailOutbox store;
     private final AuthService authService;
     private final EmailService emailService;
-    private final JdbcTemplate jdbcTemplate;
     private final String frontendUrl;
     private final int batchSize;
     private final int maxAttempts;
@@ -43,7 +41,6 @@ public class SetupEmailRelay {
             SetupEmailOutbox store,
             AuthService authService,
             EmailService emailService,
-            JdbcTemplate jdbcTemplate,
             MeterRegistry meterRegistry,
             @Value("${app.frontend-url}") String frontendUrl,
             @Value("${chitwise.setup-email-outbox.batch-size:50}") int batchSize,
@@ -52,7 +49,6 @@ public class SetupEmailRelay {
         this.store = store;
         this.authService = authService;
         this.emailService = emailService;
-        this.jdbcTemplate = jdbcTemplate;
         this.frontendUrl = frontendUrl;
         this.batchSize = Math.max(1, Math.min(batchSize, 500));
         this.maxAttempts = Math.max(1, maxAttempts);
@@ -81,7 +77,6 @@ public class SetupEmailRelay {
 
     void execute(SetupEmailCommand command) {
         try {
-            // Generate a fresh single-use token for this delivery attempt.
             // generateSetupToken() invalidates any prior unused tokens for this request,
             // so the member always receives the most recently issued link.
             // The raw token is never logged — only delivery_id and request_id appear in logs.
@@ -90,46 +85,36 @@ public class SetupEmailRelay {
             String setupLink = frontendUrl + "/setup?token=" + rawToken;
             emailService.sendFirstTimeSetupEmail(
                     command.toEmail(), command.fullName(), setupLink, command.orgName());
-            markRequestDelivered(command);
-            if (store.markCompleted(command)) completed.increment();
+            if (store.markCompletedAndDelivered(command)) completed.increment();
             else staleFinalizations.increment();
             log.info("Setup email delivered: delivery_id={} request_id={}",
                     command.deliveryId(), command.requestId());
         } catch (Exception exception) {
             int exponent = Math.min(command.attempts(), 8);
             long delaySeconds = Math.min(300, 1L << exponent);
-            var result = store.markFailed(command, maxAttempts,
-                    LocalDateTime.now(ZoneOffset.UTC).plusSeconds(delaySeconds),
-                    exception.getClass().getSimpleName(), sanitize(exception.getMessage()));
-            if (!result.updated()) {
-                staleFinalizations.increment();
-            } else if (result.terminal()) {
-                failed.increment();
-                markRequestFailed(command);
-                log.error("SETUP_EMAIL_FAILURE: request {} permanently failed after {} attempts",
-                        command.requestId(), result.attempts());
+            int nextAttempts = command.attempts() + 1;
+            boolean terminal = nextAttempts >= maxAttempts;
+            LocalDateTime retryAt = LocalDateTime.now(ZoneOffset.UTC).plusSeconds(delaySeconds);
+            String errorCode = exception.getClass().getSimpleName();
+            String errorMsg = sanitize(exception.getMessage());
+            if (terminal) {
+                boolean updated = store.markTerminalFailure(command, nextAttempts, retryAt, errorCode, errorMsg);
+                if (!updated) staleFinalizations.increment();
+                else {
+                    failed.increment();
+                    log.error("SETUP_EMAIL_FAILURE: request {} permanently failed after {} attempts",
+                            command.requestId(), nextAttempts);
+                }
             } else {
-                retried.increment();
-                log.warn("Setup email delivery {} failed; retry {} scheduled in {}s",
-                        command.deliveryId(), result.attempts(), delaySeconds);
+                var result = store.markFailed(command, maxAttempts, retryAt, errorCode, errorMsg);
+                if (!result.updated()) staleFinalizations.increment();
+                else {
+                    retried.increment();
+                    log.warn("Setup email delivery {} failed; retry {} scheduled in {}s",
+                            command.deliveryId(), result.attempts(), delaySeconds);
+                }
             }
         }
-    }
-
-    private void markRequestDelivered(SetupEmailCommand command) {
-        jdbcTemplate.update("""
-                UPDATE chitfund_access_requests
-                SET setup_email_status='SENT', setup_email_sent_at=UTC_TIMESTAMP(6)
-                WHERE id=? AND setup_email_status IN ('PENDING','FAILED')
-                """, command.requestId().toString());
-    }
-
-    private void markRequestFailed(SetupEmailCommand command) {
-        jdbcTemplate.update("""
-                UPDATE chitfund_access_requests
-                SET setup_email_status='FAILED'
-                WHERE id=? AND setup_email_status='PENDING'
-                """, command.requestId().toString());
     }
 
     private void refreshMetrics() {

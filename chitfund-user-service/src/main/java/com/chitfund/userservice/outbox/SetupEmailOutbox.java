@@ -21,7 +21,12 @@ import java.util.UUID;
 public class SetupEmailOutbox {
     private final JdbcTemplate jdbcTemplate;
 
-    /** Enqueue a setup email delivery. ON DUPLICATE KEY is idempotent per request. */
+    /**
+     * Enqueue a new setup email delivery. Each call creates a distinct row so
+     * resend history is preserved. The generated-column unique index on
+     * active_request_guard prevents two concurrent PENDING/IN_FLIGHT rows for
+     * the same request — call supersede() first when replacing an active delivery.
+     */
     public void enqueue(UUID requestId, UUID candidateUserId, String toEmail,
                         String fullName, String orgName) {
         Instant now = Instant.now();
@@ -30,7 +35,6 @@ public class SetupEmailOutbox {
                     delivery_id, request_id, candidate_user_id, to_email, full_name, org_name,
                     status, attempts, available_at, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'PENDING', 0, ?, ?)
-                ON DUPLICATE KEY UPDATE request_id=request_id
                 """, UUID.randomUUID().toString(), requestId.toString(),
                 candidateUserId.toString(), toEmail, fullName, orgName,
                 Timestamp.from(now), Timestamp.from(now));
@@ -123,6 +127,52 @@ public class SetupEmailOutbox {
                 Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)),
                 errorCode, error, command.deliveryId(), command.leaseToken());
         return new FailureResult(updated == 1, terminal, attempts);
+    }
+
+    /**
+     * Atomically marks the delivery COMPLETED and updates setup_email_status on
+     * the request to SENT. Both updates run in a single REQUIRES_NEW transaction
+     * so a crash between them is impossible — either both commit or neither does.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean markCompletedAndDelivered(SetupEmailCommand command) {
+        int outboxUpdated = jdbcTemplate.update("""
+                UPDATE setup_email_outbox
+                SET status='COMPLETED', completed_at=UTC_TIMESTAMP(6),
+                    lease_token=NULL, claimed_until=NULL, last_error_code=NULL, last_error=NULL
+                WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
+                """, command.deliveryId(), command.leaseToken());
+        if (outboxUpdated == 0) return false;
+        jdbcTemplate.update("""
+                UPDATE chitfund_access_requests
+                SET setup_email_status='SENT', setup_email_sent_at=UTC_TIMESTAMP(6)
+                WHERE id=? AND setup_email_status IN ('PENDING','FAILED')
+                """, command.requestId().toString());
+        return true;
+    }
+
+    /**
+     * Atomically marks a terminal delivery failure and updates setup_email_status
+     * on the request to FAILED. Both updates run in a single REQUIRES_NEW
+     * transaction.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean markTerminalFailure(SetupEmailCommand command, int attempts,
+                                       LocalDateTime retryAt, String errorCode, String error) {
+        int updated = jdbcTemplate.update("""
+                UPDATE setup_email_outbox
+                SET status='FAILED', attempts=?, available_at=?,
+                    lease_token=NULL, claimed_until=NULL, last_error_code=?, last_error=?
+                WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
+                """, attempts, Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)),
+                errorCode, error, command.deliveryId(), command.leaseToken());
+        if (updated == 0) return false;
+        jdbcTemplate.update("""
+                UPDATE chitfund_access_requests
+                SET setup_email_status='FAILED'
+                WHERE id=? AND setup_email_status IN ('PENDING','SENT')
+                """, command.requestId().toString());
+        return true;
     }
 
     public long countByStatus(String status) {
