@@ -50,10 +50,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
                 authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
-                if ("HUB_SUPER_ADMIN".equals(scope)) {
+                // Add bare SUPER_ADMIN authority so hasAuthority('SUPER_ADMIN') works
+                // (matches chit-service filter behavior)
+                if ("SUPER_ADMIN".equals(role)) {
                     authorities.add(new SimpleGrantedAuthority("SUPER_ADMIN"));
                 }
-
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                         userId, username, authorities);
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

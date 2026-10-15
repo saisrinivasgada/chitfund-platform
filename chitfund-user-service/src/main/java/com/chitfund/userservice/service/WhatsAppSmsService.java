@@ -2,6 +2,7 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.domain.enums.SmsDeliveryStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -63,7 +64,7 @@ public class WhatsAppSmsService implements SmsService {
     }
 
     @Override
-    public void sendOtp(String phone, String countryCode, String otp) {
+    public SmsDeliveryStatus sendOtp(String phone, String countryCode, String otp) {
         String to = normalizeRecipient(phone, countryCode);
         String url = "%s/%s/%s/messages".formatted(graphApiBaseUrl, apiVersion, phoneNumberId);
 
@@ -87,15 +88,21 @@ public class WhatsAppSmsService implements SmsService {
         try {
             restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), Map.class);
             log.info("WhatsApp OTP sent, phone ending {}", maskedSuffix(phone));
+            return SmsDeliveryStatus.DELIVERED;
         } catch (HttpStatusCodeException exception) {
             log.error("WhatsApp OTP provider rejected phone ending {} with status {}",
                     maskedSuffix(phone), exception.getStatusCode().value());
-            throw deliveryFailure();
+            return SmsDeliveryStatus.DELIVERY_FAILED;
         } catch (RestClientException e) {
             log.error("WhatsApp OTP provider unavailable for phone ending {} ({})",
                     maskedSuffix(phone), e.getClass().getSimpleName());
-            throw deliveryFailure();
+            return SmsDeliveryStatus.DELIVERY_FAILED;
         }
+    }
+
+    @Override
+    public boolean isConfigured() {
+        return true;
     }
 
     private String normalizeRecipient(String phone, String countryCode) {
@@ -114,11 +121,6 @@ public class WhatsAppSmsService implements SmsService {
                     "A valid mobile number is required", HttpStatus.BAD_REQUEST);
         }
         return phoneDigits;
-    }
-
-    private BusinessException deliveryFailure() {
-        return new BusinessException(ErrorCode.OTP_DELIVERY_FAILED,
-                ErrorCode.OTP_DELIVERY_FAILED.getDefaultMessage(), HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     private static String requireConfigured(String value, String setting) {

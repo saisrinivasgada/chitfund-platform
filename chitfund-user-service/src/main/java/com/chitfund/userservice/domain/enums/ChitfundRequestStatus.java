@@ -5,6 +5,7 @@ public enum ChitfundRequestStatus {
     MEMBER_VERIFIED,
     AWAITING_ADMIN,
     ACTIVE,
+    SUSPENDED,
     DECLINED,
     EXPIRED,
     REVOKED,

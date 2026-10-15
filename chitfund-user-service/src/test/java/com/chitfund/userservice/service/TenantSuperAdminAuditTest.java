@@ -33,7 +33,7 @@ class TenantSuperAdminAuditTest {
     @Mock MemberUserLinkRepository memberLinkRepository;
     @Mock TenantCustomLimitsRepository customLimitsRepository;
     @Mock PlanLimitsRepository planLimitsRepository;
-    @Mock PlanCapabilityDefRepository capabilityDefRepository;
+    @Mock PlanAddOnDefRepository addOnDefRepository;
     @Mock PromotionRepository promotionRepository;
     @Mock PasswordEncoder passwordEncoder;
     @Mock PromotionService promotionService;

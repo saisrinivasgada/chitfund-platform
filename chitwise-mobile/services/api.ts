@@ -132,9 +132,9 @@ api.interceptors.response.use(
     if (err.response?.data?.errorCode === 'PLAN_002') {
       useUIStore.getState().showPlanExpired();
     }
-    if (err.response?.data?.errorCode === 'CAPABILITY_REQUIRED') {
-      const key = err.response?.data?.capabilityKey ?? err.response?.data?.data?.capabilityKey;
-      if (key) useUIStore.getState().showCapabilityGate(key);
+    if (err.response?.data?.errorCode === 'ADD_ON_REQUIRED') {
+      const key = err.response?.data?.addOnKey ?? err.response?.data?.data?.addOnKey;
+      if (key) useUIStore.getState().showAddOnGate(key);
     }
     return Promise.reject(err);
   }
@@ -399,7 +399,7 @@ export const sendChitfundSetupEmailOtp = async (token: string, email: string) =>
 };
 export const completeChitfundAccountSetup = async (body: {
   token: string; username: string; newPassword: string; fullName?: string;
-  phoneOtp: string; email: string; emailOtp: string; termsAccepted: boolean;
+  phoneOtp?: string; email: string; emailOtp: string; termsAccepted: boolean;
 }) => unwrapObj(await api.post('/chitfund-requests/setup', body));
 
 // ── Staff ──────────────────────────────────────────────────────────────────────
@@ -450,6 +450,9 @@ export const getMember = async (id: string) => unwrapObj(await api.get(`/members
 export const createMember = async (body: any) => unwrapObj(await api.post('/members', body));
 export const requestMemberAppAccess = async (memberId: string) =>
   unwrapObj(await api.post(`/members/${memberId}/app-access-request`));
+export const revokeAppAccess = async (memberId: string): Promise<void> => {
+  await api.post(`/members/${memberId}/revoke-app-access`);
+};
 export const getMemberChitfundRequests = async (memberId: string) =>
   unwrapList(await api.get(`/chitfund-requests/admin/member/${memberId}`));
 export const resendChitfundRequest = async (requestId: string) =>
@@ -458,6 +461,10 @@ export const revokeChitfundRequest = async (requestId: string) =>
   unwrapObj(await api.post(`/chitfund-requests/${requestId}/revoke`));
 export const confirmChitfundRequest = async (requestId: string) =>
   unwrapObj(await api.post(`/chitfund-requests/${requestId}/confirm`));
+export const suspendChitfundRequest = async (requestId: string, reason?: string) =>
+  unwrapObj(await api.post(`/chitfund-requests/${requestId}/suspend`, { reason }));
+export const revokeAfterSuspension = async (requestId: string, reason?: string) =>
+  unwrapObj(await api.post(`/chitfund-requests/${requestId}/revoke-after-suspension`, { reason }));
 export const getMyChitfundRequests = async () =>
   unwrapList(await api.get('/chitfund-requests/mine'));
 export const sendChitfundRequestOtp = async (requestId: string) => { await api.post(`/chitfund-requests/${requestId}/otp`); };
@@ -812,8 +819,8 @@ export const getMyTenantLimits = async () => {
 export const getPublicPlans = async () => {
   try { return unwrapList(await api.get('/plans/public')); } catch { return []; }
 };
-export const getCapabilityGateInfo = async (key: string): Promise<any> =>
-  unwrapObj(await api.get('/plans/capability-gate', { params: { key } }));
+export const getAddOnGateInfo = async (key: string): Promise<any> =>
+  unwrapObj(await api.get('/plans/add-on-gate', { params: { key } }));
 export const requestRenewal = async () =>
   unwrapObj(await api.post('/plans/renewal-request'));
 export const requestPlanUpgrade = async (toPlan: string) =>
@@ -891,12 +898,12 @@ export const superAdminCreatePlan = async (body: any) =>
 export const superAdminUpdatePlan2 = async (code: string, body: any, reason?: string) =>
   unwrapObj(await api.put(`/super-admin/plans/${code}`, body,
     reason ? { headers: { 'X-Change-Reason': reason } } : undefined));
-export const superAdminListCapabilities = async () =>
-  unwrapList(await api.get('/super-admin/capabilities'));
-export const superAdminAddCapability = async (label: string) =>
-  unwrapObj(await api.post('/super-admin/capabilities', { label }));
-export const superAdminDeleteCapability = async (key: string, reason: string) =>
-  api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
+export const superAdminListAddOns = async () =>
+  unwrapList(await api.get('/super-admin/add-ons'));
+export const superAdminCreateAddOn = async (label: string) =>
+  unwrapObj(await api.post('/super-admin/add-ons', { label }));
+export const superAdminDeleteAddOn = async (key: string, reason: string) =>
+  api.delete(`/super-admin/add-ons/${key}`, { headers: { 'X-Change-Reason': reason } });
 // SA Billing
 export const billingListPayments = async (params: any = {}) =>
   unwrapList(await api.get('/super-admin/billing/payments', { params }));

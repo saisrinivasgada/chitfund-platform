@@ -17,4 +17,5 @@ public class ChitfundRequestPublicResponse {
     private ChitfundRequestStatus status;
     private LocalDateTime expiresAt;
     private boolean emailRecoveryAvailable;
+    private boolean phoneVerificationPending;
 }

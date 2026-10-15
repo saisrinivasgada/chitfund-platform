@@ -46,7 +46,7 @@ class MemberServiceIdentityOwnershipTest {
                 userServiceClient, planLimitChecker);
         member = Member.builder().id(UUID.randomUUID()).tenantId(TENANT).fullName("Member One")
                 .phone("9876543210").phoneCountryCode("+91").email("contact@example.com")
-                .city("Hyderabad").hasAppAccess(true).build();
+                .city("Hyderabad").userId(UUID.randomUUID()).build();
         lenient().when(memberRepository.findByIdAndTenantId(member.getId(), TENANT))
                 .thenReturn(Optional.of(member));
     }
@@ -79,7 +79,7 @@ class MemberServiceIdentityOwnershipTest {
 
     @Test
     void sparseOperationalUpdateDoesNotEraseOmittedProfileFields() {
-        member.setHasAppAccess(false);
+        member.setUserId(null);
         UpdateMemberRequest request = new UpdateMemberRequest();
         request.setNotes("Updated note only");
         when(memberRepository.save(any())).thenAnswer(call -> call.getArgument(0));
@@ -96,7 +96,7 @@ class MemberServiceIdentityOwnershipTest {
     @Test
     void explicitNullReferralClearsItButOmissionPreservesIt() {
         UUID referrer = UUID.randomUUID();
-        member.setHasAppAccess(false);
+        member.setUserId(null);
         member.setReferredById(referrer);
         when(memberRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         when(memberRepository.findByIdAndTenantId(referrer, TENANT)).thenReturn(Optional.empty());
@@ -190,7 +190,7 @@ class MemberServiceIdentityOwnershipTest {
     @Test
     void memberStatusAuditKeepsBlacklistReasonAndActor() {
         member.setStatus(MemberStatus.ACTIVE);
-        member.setHasAppAccess(false);
+        member.setUserId(null);
         when(memberRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         UpdateStatusRequest request = new UpdateStatusRequest();
         request.setStatus(MemberStatus.BLACKLISTED);

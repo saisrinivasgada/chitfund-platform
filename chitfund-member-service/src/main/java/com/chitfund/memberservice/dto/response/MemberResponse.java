@@ -25,7 +25,7 @@ public class MemberResponse {
     private String bankIfsc;
     private MemberStatus status;
     private UUID userId;            // null if member has no app login
-    private boolean hasAppAccess;   // convenience flag: userId != null
+    private boolean appAccessGranted;
     private String setupToken;      // only present on initial member creation (new user was auto-created)
     private String actionToken;     // one-time existing-account request link; never a login credential
     private String appAccessRequestId;

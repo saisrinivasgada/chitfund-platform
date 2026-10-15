@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { installAuthenticatedApp, expectAuthenticatedShell } from './fixtures';
 
-test('direct URLs remain visibly locked when the plan lacks capabilities', async ({ page }) => {
+test('direct URLs remain visibly locked when the plan lacks addOns', async ({ page }) => {
   await installAuthenticatedApp(page, { analyticsEnabled: false, settlementEnabled: false });
 
   await page.goto('/reports');

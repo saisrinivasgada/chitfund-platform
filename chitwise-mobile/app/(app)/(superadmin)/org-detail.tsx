@@ -23,7 +23,7 @@ import {
   billingRecordPayment,
   superAdminGetEffectiveLimits,
   superAdminSetCustomLimits,
-  superAdminListCapabilities,
+  superAdminListAddOns,
   superAdminListPlans,
   superAdminSetPlanExpiry,
   superAdminCancelTenant,
@@ -128,9 +128,9 @@ export default function OrgDetailPage() {
     queryFn: superAdminListPlans,
     staleTime: 300_000,
   });
-  const { data: capDefs = [] } = useQuery({
-    queryKey: ['super-capabilities'],
-    queryFn: superAdminListCapabilities,
+  const { data: addOnDefs = [] } = useQuery({
+    queryKey: ['super-add-ons'],
+    queryFn: superAdminListAddOns,
     staleTime: 300_000,
   });
   const { data: discount, refetch: refetchDiscount } = useQuery({
@@ -888,7 +888,7 @@ export default function OrgDetailPage() {
           tenantId={tenantId!}
           existing={effectiveLimits as any}
           plans={plans as any[]}
-          capDefs={capDefs as any[]}
+          addOnDefs={addOnDefs as any[]}
           onClose={() => setShowCustomLimits(false)}
           onSaved={() => { setShowCustomLimits(false); refetchOrg(); refetchLimits(); toast.saved('Custom limits saved'); }}
         />
@@ -1442,11 +1442,11 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
 }
 
 // ── Set Custom Limits Modal ───────────────────────────────────────────────────
-function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onSaved }: {
+function SetCustomLimitsModal({ tenantId, existing, plans, addOnDefs, onClose, onSaved }: {
   tenantId: string;
   existing: any;
   plans: any[];
-  capDefs: any[];
+  addOnDefs: any[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1460,7 +1460,7 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
   const [maxMembers,  setMaxMembers]  = useState(String(existing?.maxMembers ?? 100));
   const [maxStaff,    setMaxStaff]    = useState(String(existing?.maxStaff ?? 3));
   const [allowedTypes, setAllowedTypes] = useState<string[]>(existingAllowedTypes);
-  const [enabledCaps, setEnabledCaps]   = useState<string[]>(existing?.enabledCapabilities ?? []);
+  const [enabledAddOns, setEnabledAddOns]   = useState<string[]>(existing?.enabledAddOns ?? []);
   const [priceStr,    setPriceStr]    = useState(existing?.priceMonthlyInr ? String(existing.priceMonthlyInr / 100) : '0');
   const [notes,       setNotes]       = useState(existing?.notes ?? '');
   const [reason,      setReason]      = useState('');
@@ -1471,7 +1471,7 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
       maxMembers:     Number(maxMembers),
       maxStaff:       Number(maxStaff),
       allowedChitTypes: allowedTypes.join(','),
-      enabledCapabilities: enabledCaps,
+      enabledAddOns: enabledAddOns,
       priceMonthlyInr: Math.round(Number(priceStr) * 100),
       notes: notes || null,
     }, reason.trim()),
@@ -1483,7 +1483,7 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
     setAllowedTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   }
   function toggleCap(key: string) {
-    setEnabledCaps(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+    setEnabledAddOns(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   }
 
   return (
@@ -1523,16 +1523,16 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
             </View>
           </View>
 
-          {/* Capabilities */}
-          {capDefs.length > 0 && (
+          {/* AddOns */}
+          {addOnDefs.length > 0 && (
             <View>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>CAPABILITIES</Text>
-              {capDefs.map((cap: any) => (
-                <TouchableOpacity key={cap.key} onPress={() => toggleCap(cap.key)}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: enabledCaps.includes(cap.key) ? '#F0FDF4' : C.gray50, borderRadius: 12, padding: 14, marginBottom: 8 }}>
-                  <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
-                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: enabledCaps.includes(cap.key) ? '#059669' : C.gray300, alignItems: 'center', justifyContent: 'center' }}>
-                    {enabledCaps.includes(cap.key) && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>ADD-ONS</Text>
+              {addOnDefs.map((addOn: any) => (
+                <TouchableOpacity key={addOn.key} onPress={() => toggleCap(addOn.key)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: enabledAddOns.includes(addOn.key) ? '#F0FDF4' : C.gray50, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 14, color: C.gray900 }}>{addOn.label}</Text>
+                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: enabledAddOns.includes(addOn.key) ? '#059669' : C.gray300, alignItems: 'center', justifyContent: 'center' }}>
+                    {enabledAddOns.includes(addOn.key) && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
                   </View>
                 </TouchableOpacity>
               ))}

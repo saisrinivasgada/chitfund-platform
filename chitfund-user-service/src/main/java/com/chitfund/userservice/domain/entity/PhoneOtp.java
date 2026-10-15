@@ -1,5 +1,6 @@
 package com.chitfund.userservice.domain.entity;
 
+import com.chitfund.userservice.domain.enums.SmsDeliveryStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -41,6 +42,10 @@ public class PhoneOtp {
 
     @Column(nullable = false)
     private boolean verified;
+
+    @Column(name = "delivery_status", length = 30)
+    @Enumerated(EnumType.STRING)
+    private SmsDeliveryStatus deliveryStatus;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

@@ -332,7 +332,7 @@ export default function TermsPage() {
           <S id="s13" title="13. Free Plan & Pricing" icon={Globe} r={sectionRefs}>
             <p>
               ChitWise offers a permanently free Basic plan — no payment method is required to start.
-              Paid plans unlock higher limits and additional capabilities. Your data is preserved if you
+              Paid plans unlock higher limits and additional add-ons. Your data is preserved if you
               upgrade or downgrade. We reserve the right to modify plan pricing and features for new
               subscriptions with reasonable notice.
             </p>

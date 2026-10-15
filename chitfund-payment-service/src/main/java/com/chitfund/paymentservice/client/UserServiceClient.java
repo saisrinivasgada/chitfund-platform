@@ -49,18 +49,18 @@ public class UserServiceClient {
     }
 
     /**
-     * Returns the capability keys enabled for the given tenant.
+     * Returns the add-on keys enabled for the given tenant.
      * Returns null when user-service is unreachable. Authorization callers must
      * treat null as unverified and deny the operation.
      */
     @SuppressWarnings("unchecked")
-    public List<String> getTenantCapabilities(String tenantId) {
+    public List<String> getTenantAddOns(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return null;
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
             ResponseEntity<List> resp = restTemplate.exchange(
-                    userServiceUrl + "/internal/capabilities/tenants/" + tenantId,
+                    userServiceUrl + "/internal/add-ons/tenants/" + tenantId,
                     HttpMethod.GET,
                     new HttpEntity<>(headers),
                     List.class);
@@ -68,7 +68,7 @@ public class UserServiceClient {
                 return new ArrayList<>(resp.getBody());
             }
         } catch (RestClientException e) {
-            log.warn("Could not fetch capabilities for tenant {}: {}", tenantId, e.getMessage());
+            log.warn("Could not fetch add-ons for tenant {}: {}", tenantId, e.getMessage());
         }
         return null;
     }

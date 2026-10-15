@@ -23,7 +23,7 @@ public class EmailService {
     @Value("${app.otp.logging-enabled:false}")
     private boolean otpLoggingEnabled;
 
-    public EmailService(@Value("${app.email.region:${spring.cloud.aws.region.static:us-east-2}}") String region) {
+    public EmailService(@Value("${app.email.region:${spring.cloud.aws.region.static:ap-south-1}}") String region) {
         this.sesClient = SesClient.builder()
                 .region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create())
@@ -80,6 +80,77 @@ public class EmailService {
                 — The ChitWise Team
                 """.formatted(name, otp);
         send(toEmail, subject, text, html);
+    }
+
+    // ── First-time account setup link ────────────────────────────────────────
+
+    public void sendFirstTimeSetupEmail(String toEmail, String memberName,
+                                         String setupLink, String orgName) {
+        if (!emailEnabled) {
+            if (otpLoggingEnabled) log.warn("LOCAL setup-link for {} → {}", maskEmail(toEmail), setupLink);
+            else log.info("First-time setup email generated; email delivery disabled");
+            return;
+        }
+        String name = memberName != null && !memberName.isBlank() ? memberName : "there";
+        String org  = orgName   != null && !orgName.isBlank()    ? orgName    : "your organization";
+        String subject = "Set up your ChitWise account";
+        String html = firstTimeSetupHtml(name, org, setupLink);
+        String text = """
+                Hi %s,
+
+                %s has invited you to join ChitWise. Click the link below to set up your account:
+
+                %s
+
+                This link expires in 72 hours. Do not share it with anyone.
+
+                If you were not expecting this invitation, ignore this email or contact help@thechitwise.com.
+
+                — The ChitWise Team
+                """.formatted(name, org, setupLink);
+        send(toEmail, subject, text, html);
+    }
+
+    private static String firstTimeSetupHtml(String name, String orgName, String setupLink) {
+        String hero = statusHero(
+            "#EFF6FF",
+            "<svg width=\"40\" height=\"40\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">" +
+            "<circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"#2563EB\"/>" +
+            "<path d=\"M12 8v4l3 3\" stroke=\"white\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+            "You're Invited!",
+            "#DBEAFE", "#1E40AF", "&#128274; Action Required"
+        );
+        String body = hero + """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  <strong>%s</strong> has invited you to join ChitWise. Click the button below to
+                  set up your account — this link is valid for <strong>72 hours</strong>.
+                </p>
+                <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+                  <tr>
+                    <td style="border-radius:8px;background:#2563EB;">
+                      <a href="%s" style="display:inline-block;padding:14px 32px;color:#FFFFFF;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">
+                        Set Up My Account &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0 0 16px;">
+                  If the button doesn't work, copy and paste this link into your browser:
+                </p>
+                <p style="word-break:break-all;font-size:12px;color:#2563EB;margin:0 0 20px;">
+                  <a href="%s" style="color:#2563EB;text-decoration:none;">%s</a>
+                </p>
+                <div style="background:#FFF7ED;border-left:4px solid #F97316;border-radius:0 8px 8px 0;padding:12px 16px;margin:0 0 20px;">
+                  <p style="color:#9A3412;font-size:13px;margin:0;line-height:1.5;">
+                    <strong>Keep this link private</strong> — it is single-use and grants access to your account setup.
+                  </p>
+                </div>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Not expecting this? Contact <a href="mailto:help@thechitwise.com" style="color:#2563EB;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
+                </p>
+                """.formatted(name, orgName, setupLink, setupLink, setupLink);
+        return baseTemplate(LOGO_URL, ICON_ROCKET, "Account Setup", "#2563EB", body);
     }
 
     // ── Internal send ─────────────────────────────────────────────────────────

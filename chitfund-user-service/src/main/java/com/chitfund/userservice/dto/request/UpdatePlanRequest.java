@@ -30,6 +30,6 @@ public class UpdatePlanRequest {
     private Integer displayOrder;
     @Min(-1)
     private Integer maxStaff;
-    private List<String> enabledCapabilities;
+    private List<String> enabledAddOns;
     private String badges; // raw JSON array: [{text,color,enabled}]
 }

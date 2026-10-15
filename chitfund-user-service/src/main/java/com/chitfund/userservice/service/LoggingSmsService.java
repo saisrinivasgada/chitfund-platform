@@ -1,5 +1,6 @@
 package com.chitfund.userservice.service;
 
+import com.chitfund.userservice.domain.enums.SmsDeliveryStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -14,12 +15,18 @@ public class LoggingSmsService implements SmsService {
     private boolean otpLoggingEnabled;
 
     @Override
-    public void sendOtp(String phone, String countryCode, String otp) {
+    public SmsDeliveryStatus sendOtp(String phone, String countryCode, String otp) {
         if (otpLoggingEnabled) {
             log.info("[LOCAL-TEST OTP] Phone ending {} -> OTP: {}", maskedSuffix(phone), otp);
         } else {
             log.debug("SMS delivery is disabled; OTP was not emitted to logs");
         }
+        return SmsDeliveryStatus.PROVIDER_NOT_CONFIGURED;
+    }
+
+    @Override
+    public boolean isConfigured() {
+        return false;
     }
 
     private String maskedSuffix(String phone) {

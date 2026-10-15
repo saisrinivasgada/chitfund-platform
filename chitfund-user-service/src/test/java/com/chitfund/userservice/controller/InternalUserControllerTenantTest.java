@@ -2,9 +2,11 @@ package com.chitfund.userservice.controller;
 
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.service.AuthService;
 import com.chitfund.userservice.service.ChitfundRequestService;
+import com.chitfund.userservice.service.AppAccessGrantService;
 import com.chitfund.userservice.service.IdentityReassignmentService;
 import com.chitfund.userservice.service.TenantService;
 import org.junit.jupiter.api.Test;
@@ -25,9 +27,9 @@ class InternalUserControllerTenantTest {
     void roleFanoutReturnsOnlyUsersInRequestedTenant() {
         UserRepository users = mock(UserRepository.class);
         InternalUserController controller = new InternalUserController(
-                users, mock(TenantService.class), mock(AuthService.class),
+                users, mock(MemberUserLinkRepository.class), mock(TenantService.class), mock(AuthService.class),
                 mock(PasswordEncoder.class), mock(ChitfundRequestService.class),
-                mock(IdentityReassignmentService.class));
+                mock(IdentityReassignmentService.class), mock(AppAccessGrantService.class));
         ReflectionTestUtils.setField(controller, "internalKey", "secret");
         UUID adminId = UUID.randomUUID();
         when(users.findByTenantIdAndRoleInAndDeletedAtIsNull("tenant-a", List.of(Role.ADMIN)))
@@ -42,9 +44,9 @@ class InternalUserControllerTenantTest {
     @Test
     void roleFanoutRejectsMissingTenant() {
         InternalUserController controller = new InternalUserController(
-                mock(UserRepository.class), mock(TenantService.class), mock(AuthService.class),
+                mock(UserRepository.class), mock(MemberUserLinkRepository.class), mock(TenantService.class), mock(AuthService.class),
                 mock(PasswordEncoder.class), mock(ChitfundRequestService.class),
-                mock(IdentityReassignmentService.class));
+                mock(IdentityReassignmentService.class), mock(AppAccessGrantService.class));
         ReflectionTestUtils.setField(controller, "internalKey", "secret");
 
         assertThat(controller.getUserIdsByRole("ADMIN", "", "secret").getStatusCode().value())

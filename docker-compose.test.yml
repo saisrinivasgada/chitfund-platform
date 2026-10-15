@@ -29,6 +29,7 @@ x-test-common: &test-common
   SPRING_PROFILES_ACTIVE: test
   OTP_LOGGING_ENABLED: "true"
   OTP_COOLDOWN_ENABLED: "false"
+  APP_DEV_OTP_EXPOSURE_ENABLED: "true"
   # The disposable event overlay runs eight Spring services against one MySQL
   # instance. Four connections per service are ample for its two-worker tests
   # and avoid an 80-connection default footprint on 4 GB Docker hosts.
@@ -89,6 +90,7 @@ services:
       <<: [*test-common, *test-db]
       DB_NAME: chitfund_user
       MEMBER_SERVICE_URL: http://member-service:8083
+      APP_DEV_OTP_EXPOSURE_ENABLED: "true"
     ports:
       - "127.0.0.1:9081:8081"
     depends_on:

@@ -110,7 +110,7 @@ class InternalMemberControllerTest {
         String tenantId = UUID.randomUUID().toString();
         Member member = Member.builder().id(memberId).tenantId(tenantId)
                 .fullName("Tenant Member").phone("9876543210").phoneCountryCode("+91")
-                .userId(userId).hasAppAccess(true).build();
+                .userId(userId).build();
         when(memberRepository.findByIdAndTenantId(memberId, tenantId)).thenReturn(Optional.of(member));
 
         var response = controller.getNotificationContact(memberId, "test-key", tenantId);

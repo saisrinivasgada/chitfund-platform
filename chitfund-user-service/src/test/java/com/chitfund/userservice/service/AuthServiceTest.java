@@ -3,6 +3,8 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.entity.RefreshToken;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.LoginRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
@@ -197,7 +199,7 @@ class AuthServiceTest {
     }
 
     @Test
-    void tenantSelectionRevalidatesStatusAndCapabilitiesBeforeIssuingScopedToken() {
+    void tenantSelectionRevalidatesStatusAndAddOnsBeforeIssuingScopedToken() {
         UUID userId = UUID.randomUUID();
         String tenantId = UUID.randomUUID().toString();
         User user = User.builder().id(userId).username("admin.one").role(Role.ADMIN).build();
@@ -347,5 +349,157 @@ class AuthServiceTest {
         verify(passwordValidator).validate("NewPassword@1");
         verify(refreshTokenRepository).revokeAllActiveByUser(user);
         verify(trustedDeviceRepository).deleteByUserId(userId);
+    }
+
+    @Test
+    void loginReturnsDevOtpWhenExposureEnabled() throws Exception {
+        // When app.dev.otp-exposure.enabled=true, the devOtp field in LoginResponse
+        // must contain the OTP so developers can complete email-OTP flows without a real mailbox.
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).username("org.admin")
+                .passwordHash("hash").role(Role.ADMIN).tenantId("tenant-1")
+                .email("admin@test.com")
+                .emailVerificationRequired(true)
+                .build();
+        LoginRequest request = new LoginRequest();
+        request.setUsername("org.admin");
+        request.setPassword("pass");
+        when(userRepository.findByUsername("org.admin")).thenReturn(Optional.of(user));
+        Authentication auth = new UsernamePasswordAuthenticationToken(user, "pass", user.getAuthorities());
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
+        when(userRepository.save(any())).thenReturn(user);
+        when(accountEmailOtpService.send(any(), any(), any(), any())).thenReturn("654321");
+        when(jwtTokenProvider.generateEmailVerificationToken(user)).thenReturn("ev-jwt");
+
+        var field = AuthService.class.getDeclaredField("devOtpExposureEnabled");
+        field.setAccessible(true);
+        field.set(authService, true);
+
+        var response = authService.login(request, null);
+
+        assertThat(response.isRequiresEmailVerification()).isTrue();
+        assertThat(response.getDevOtp()).isEqualTo("654321");
+
+        field.set(authService, false); // restore
+    }
+
+    @Test
+    void loginDoesNotExposeDevOtpByDefault() throws Exception {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).username("org.admin2")
+                .passwordHash("hash").role(Role.ADMIN).tenantId("tenant-1")
+                .email("admin2@test.com")
+                .emailVerificationRequired(true)
+                .build();
+        LoginRequest request = new LoginRequest();
+        request.setUsername("org.admin2");
+        request.setPassword("pass");
+        when(userRepository.findByUsername("org.admin2")).thenReturn(Optional.of(user));
+        Authentication auth = new UsernamePasswordAuthenticationToken(user, "pass", user.getAuthorities());
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
+        when(userRepository.save(any())).thenReturn(user);
+        when(accountEmailOtpService.send(any(), any(), any(), any())).thenReturn("999999");
+        when(jwtTokenProvider.generateEmailVerificationToken(user)).thenReturn("ev-jwt");
+        // devOtpExposureEnabled defaults to false — no reflection needed
+
+        var response = authService.login(request, null);
+
+        assertThat(response.isRequiresEmailVerification()).isTrue();
+        assertThat(response.getDevOtp()).isNull();
+    }
+
+    @Test
+    void devOtpExposureGuardThrowsOnProdProfile() {
+        var guard = new com.chitfund.userservice.config.DevOtpExposureGuard(
+                new org.springframework.mock.env.MockEnvironment()
+                        .withProperty("spring.profiles.active", "prod"));
+        try {
+            var field = com.chitfund.userservice.config.DevOtpExposureGuard.class
+                    .getDeclaredField("devOtpExposureEnabled");
+            field.setAccessible(true);
+            field.set(guard, true);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        // MockEnvironment doesn't auto-activate profiles from property; set directly
+        org.springframework.mock.env.MockEnvironment env = new org.springframework.mock.env.MockEnvironment();
+        env.setActiveProfiles("prod");
+        var guard2 = new com.chitfund.userservice.config.DevOtpExposureGuard(env);
+        try {
+            var field = com.chitfund.userservice.config.DevOtpExposureGuard.class
+                    .getDeclaredField("devOtpExposureEnabled");
+            field.setAccessible(true);
+            field.set(guard2, true);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> guard2.validate());
+    }
+
+    @Test
+    void devOtpExposureGuardDoesNotThrowOnNonProdWithExposureDisabled() {
+        org.springframework.mock.env.MockEnvironment env = new org.springframework.mock.env.MockEnvironment();
+        env.setActiveProfiles("prod");
+        var guard = new com.chitfund.userservice.config.DevOtpExposureGuard(env);
+        // devOtpExposureEnabled defaults to false — should not throw even on prod
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
+
+    // ─── OTP logging guard ────────────────────────────────────────────────────
+
+    private com.chitfund.userservice.config.OtpLoggingGuard loggingGuardWith(
+            boolean enabled, String... profiles) {
+        org.springframework.mock.env.MockEnvironment env =
+                new org.springframework.mock.env.MockEnvironment();
+        if (profiles.length > 0) env.setActiveProfiles(profiles);
+        var guard = new com.chitfund.userservice.config.OtpLoggingGuard(env);
+        try {
+            var field = com.chitfund.userservice.config.OtpLoggingGuard.class
+                    .getDeclaredField("otpLoggingEnabled");
+            field.setAccessible(true);
+            field.set(guard, enabled);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return guard;
+    }
+
+    @Test
+    void otpLoggingGuardThrowsOnProdProfileWhenEnabled() {
+        var guard = loggingGuardWith(true, "prod");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardThrowsOnProductionProfileWhenEnabled() {
+        var guard = loggingGuardWith(true, "production");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowOnProdWhenDisabled() {
+        var guard = loggingGuardWith(false, "prod");
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowOnLocalWhenEnabled() {
+        var guard = loggingGuardWith(true, "local");
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowOnTestWhenEnabled() {
+        var guard = loggingGuardWith(true, "test");
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowWithNoProfileWhenEnabled() {
+        var guard = loggingGuardWith(true /* no profiles */);
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
     }
 }

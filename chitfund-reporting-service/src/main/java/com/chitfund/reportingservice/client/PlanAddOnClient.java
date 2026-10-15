@@ -13,20 +13,20 @@ import org.springframework.web.client.RestTemplate;
 import java.util.List;
 
 /**
- * Calls user-service internal API to check what capabilities a tenant's plan grants.
+ * Calls user-service internal API to check what add-ons a tenant's plan grants.
  *
  * Fail-closed: if user-service is unreachable, returns false (deny access).
- * This prevents capability checks from being bypassed during an outage.
+ * This prevents add-on checks from being bypassed during an outage.
  */
 @Component
 @Slf4j
-public class PlanCapabilityClient {
+public class PlanAddOnClient {
 
     private final RestTemplate restTemplate;
     private final String userServiceUrl;
     private final String internalKey;
 
-    public PlanCapabilityClient(
+    public PlanAddOnClient(
             RestTemplate restTemplate,
             @Value("${user-service.url:http://user-service:8081}") String userServiceUrl,
             @Value("${reporting.internal-key:chitfund-internal-service-key}") String internalKey) {
@@ -36,27 +36,27 @@ public class PlanCapabilityClient {
     }
 
     /**
-     * Returns true if the tenant's plan has the given capability key enabled.
-     * Example capability keys: "full_analytics", "digital_payments"
+     * Returns true if the tenant's plan has the given add-on key enabled.
+     * Example add-on keys: "full_analytics", "digital_payments"
      */
-    public boolean hasCapability(String tenantId, String capabilityKey) {
+    public boolean hasAddOn(String tenantId, String addOnKey) {
         if (tenantId == null || tenantId.isBlank()) return false;
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
 
             ResponseEntity<List<String>> response = restTemplate.exchange(
-                    userServiceUrl + "/internal/capabilities/tenants/" + tenantId,
+                    userServiceUrl + "/internal/add-ons/tenants/" + tenantId,
                     HttpMethod.GET,
                     new HttpEntity<>(headers),
                     new ParameterizedTypeReference<List<String>>() {}
             );
 
-            List<String> caps = response.getBody();
-            return caps != null && caps.contains(capabilityKey);
+            List<String> addOns = response.getBody();
+            return addOns != null && addOns.contains(addOnKey);
         } catch (Exception e) {
-            log.warn("Could not verify plan capability '{}' for tenant {}: {}",
-                    capabilityKey, tenantId, e.getMessage());
+            log.warn("Could not verify plan add-on '{}' for tenant {}: {}",
+                    addOnKey, tenantId, e.getMessage());
             return false;
         }
     }

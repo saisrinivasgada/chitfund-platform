@@ -40,7 +40,7 @@ spring:
 cloud:
   aws:
     region:
-      static: ${AWS_REGION:us-east-2}
+      static: ${AWS_REGION:ap-south-1}
 
 server:
   port: 8081

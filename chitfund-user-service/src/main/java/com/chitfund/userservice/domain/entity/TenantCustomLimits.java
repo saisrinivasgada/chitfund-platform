@@ -26,8 +26,8 @@ public class TenantCustomLimits {
     @Column(name = "max_staff", nullable = false)
     private int maxStaff;
 
-    @Column(name = "capabilities", columnDefinition = "text")
-    private String capabilities;
+    @Column(name = "add_ons", columnDefinition = "text")
+    private String addOns;
 
     @Column(name = "allowed_chit_types", nullable = false, length = 200)
     private String allowedChitTypes;

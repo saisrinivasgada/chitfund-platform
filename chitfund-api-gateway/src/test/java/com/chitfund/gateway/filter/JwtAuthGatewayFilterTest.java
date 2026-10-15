@@ -1,6 +1,7 @@
 package com.chitfund.gateway.filter;
 
 import com.chitfund.gateway.client.HubIdentityClient;
+import com.chitfund.gateway.client.MemberAccessClient;
 import com.chitfund.gateway.client.TenantEntitlementClient;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -33,12 +34,14 @@ class JwtAuthGatewayFilterTest {
     private JwtAuthGatewayFilter factory;
     private HubIdentityClient hubIdentityClient;
     private TenantEntitlementClient tenantEntitlementClient;
+    private MemberAccessClient memberAccessClient;
 
     @BeforeEach
     void setUp() {
         hubIdentityClient = mock(HubIdentityClient.class);
         tenantEntitlementClient = mock(TenantEntitlementClient.class);
-        factory = new JwtAuthGatewayFilter(hubIdentityClient, tenantEntitlementClient);
+        memberAccessClient = mock(MemberAccessClient.class);
+        factory = new JwtAuthGatewayFilter(hubIdentityClient, tenantEntitlementClient, memberAccessClient);
         ReflectionTestUtils.setField(factory, "jwtSecret", SECRET);
         ReflectionTestUtils.setField(factory, "internalServiceKey", "trusted-internal-key");
     }
@@ -100,7 +103,7 @@ class JwtAuthGatewayFilterTest {
     }
 
     @Test
-    void acceptsCurrentEmployeeWithExplicitPlatformConsoleCapability() {
+    void acceptsCurrentEmployeeWithExplicitPlatformConsoleAddOn() {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
                 new HubIdentityClient.HubAuthState(
@@ -117,7 +120,7 @@ class JwtAuthGatewayFilterTest {
     }
 
     @Test
-    void rejectsSupportEmployeeWithoutPlatformConsoleCapability() {
+    void rejectsSupportEmployeeWithoutPlatformConsoleAddOn() {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
                 new HubIdentityClient.HubAuthState(
@@ -284,6 +287,89 @@ class JwtAuthGatewayFilterTest {
 
         verify(tenantEntitlementClient, never()).getEffectiveEntitlement(any());
         verify(chain, org.mockito.Mockito.times(4)).filter(any());
+    }
+
+    @Test
+    void activeMemberTokenIsForwardedToDownstreamService() {
+        String token = memberToken("member-1", "tenant-1");
+        when(memberAccessClient.isMemberActive("member-1", "tenant-1")).thenReturn(Mono.just(true));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any())).thenReturn(Mono.empty());
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/chits")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        verify(chain).filter(any());
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
+    void suspendedMemberTokenIsRejectedImmediately() {
+        String token = memberToken("member-1", "tenant-1");
+        when(memberAccessClient.isMemberActive("member-1", "tenant-1")).thenReturn(Mono.just(false));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/chits")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void memberAccessAuthorityUnavailableFailsClosed() {
+        String token = memberToken("member-1", "tenant-1");
+        when(memberAccessClient.isMemberActive("member-1", "tenant-1"))
+                .thenReturn(Mono.error(new IllegalStateException("user-service unavailable")));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/chits")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(exchange.getResponse().getBodyAsString().block()).contains("MEMBER_ACCESS_UNAVAILABLE");
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void suspensionInOrgADoesNotAffectOrgBToken() {
+        // Org A token: suspended
+        String orgAToken = memberToken("member-1", "org-A");
+        when(memberAccessClient.isMemberActive("member-1", "org-A")).thenReturn(Mono.just(false));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any())).thenReturn(Mono.empty());
+        var orgAExchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/chits")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + orgAToken));
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(orgAExchange, chain).block();
+        assertThat(orgAExchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        // Org B token for same user: still active
+        String orgBToken = memberToken("member-1", "org-B");
+        when(memberAccessClient.isMemberActive("member-1", "org-B")).thenReturn(Mono.just(true));
+        var orgBExchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/chits")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + orgBToken));
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(orgBExchange, chain).block();
+        assertThat(orgBExchange.getResponse().getStatusCode()).isNull();
+        verify(chain).filter(any());
+    }
+
+    private String memberToken(String subject, String tenantId) {
+        return Jwts.builder()
+                .subject(subject)
+                .claim("role", "MEMBER")
+                .claim("tenantId", tenantId)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .compact();
     }
 
     private String token(String subject, String role, String scope) {

@@ -1230,7 +1230,7 @@ export default function ReportsScreen() {
   const router = useRouter();
   const [activeReport, setActiveReport] = useState<ReportType>('Overview');
   const analyticsEnabled = useAuthStore((state) => state.user?.analyticsEnabled === true);
-  const showCapabilityGate = useUIStore((state) => state.showCapabilityGate);
+  const showAddOnGate = useUIStore((state) => state.showAddOnGate);
 
   // More-screen visibility is not authorization. A stale deep link must not
   // mount report queries when the refreshed tenant entitlement excludes them.
@@ -1248,7 +1248,7 @@ export default function ReportsScreen() {
             Review the available plans to unlock analytics and downloadable reports.
           </Text>
           <TouchableOpacity
-            onPress={() => showCapabilityGate('full_analytics')}
+            onPress={() => showAddOnGate('full_analytics')}
             style={{ backgroundColor: C.navy, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 13 }}
           >
             <Text style={{ color: C.white, fontSize: 14, fontWeight: '800' }}>View plan options</Text>

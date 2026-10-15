@@ -53,6 +53,21 @@ public class IdentityNotificationListener {
                             EmailService.buildApprovalText(name, org));
                 }
             }
+            case CHITFUND_ACCESS_SUSPENDED -> {
+                String suspOrg = event.organizationName() == null ? "The organization" : event.organizationName();
+                eventPublisher.publishInApp(
+                        event.tenantId().toString(), event.recipientUserId(), "App Access Suspended",
+                        suspOrg + " has suspended your ChitWise app access for this organisation.",
+                        "CHITFUND_REQUEST", null, "/member/chitfund-requests");
+                String suspEmail = resolveEmail(event);
+                if (suspEmail != null) {
+                    String name = resolveDisplayName(event);
+                    eventPublisher.publishEmail(suspEmail,
+                            "Your ChitWise app access has been suspended — " + suspOrg,
+                            EmailService.buildSuspensionEmailHtml(name, suspOrg),
+                            EmailService.buildSuspensionEmailText(name, suspOrg));
+                }
+            }
             case CHITFUND_REQUEST_REVOKED -> {
                 eventPublisher.publishInApp(
                         event.tenantId().toString(), event.recipientUserId(), "App Access Request Cancelled",

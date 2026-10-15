@@ -51,27 +51,27 @@ public class SettlementController {
     private final SettlementTransactionService settlementTransactionService;
     private final UserServiceClient userServiceClient;
 
-    /** Default-deny capability guard: settlement is allowed only when entitlement is proven. */
-    private boolean settlementCapabilityDenied() {
+    /** Default-deny add-on guard: settlement is allowed only when entitlement is proven. */
+    private boolean settlementAddOnDenied() {
         String tenantId = TenantContext.get();
         if (tenantId == null || tenantId.isBlank()) return true;
         try {
-            List<String> caps = userServiceClient.getTenantCapabilities(tenantId);
-            return caps == null || !caps.contains("settlement");
+            List<String> addOns = userServiceClient.getTenantAddOns(tenantId);
+            return addOns == null || !addOns.contains("settlement");
         } catch (Exception e) {
-            log.warn("Settlement capability check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
+            log.warn("Settlement add-on check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
             return true;
         }
     }
 
     private static final ResponseEntity<ApiResponse<java.util.Map<String, String>>> SETTLEMENT_DENIED =
             ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiResponse.error("CAPABILITY_REQUIRED",
+                    .body(ApiResponse.error("ADD_ON_REQUIRED",
                             "Settlement is not included in your current plan. Contact support to upgrade.",
-                            java.util.Map.of("capabilityKey", "settlement")));
+                            java.util.Map.of("addOnKey", "settlement")));
 
     /*
-     * Capability policy:
+     * Add-on policy:
      * - preview/confirm create a new settlement obligation and require the entitlement;
      * - history stays readable after downgrade;
      * - transactions, pending obligations and void/reversal stay actionable so a
@@ -89,7 +89,7 @@ public class SettlementController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<?> preview(
             @Valid @RequestBody SettlementPreviewRequest request) {
-        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
+        if (settlementAddOnDenied()) return SETTLEMENT_DENIED;
         return ResponseEntity.ok(ApiResponse.success(settlementService.preview(request)));
     }
 
@@ -104,7 +104,7 @@ public class SettlementController {
             @Valid @RequestBody ConfirmSettlementRequest request,
             @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
-        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
+        if (settlementAddOnDenied()) return SETTLEMENT_DENIED;
         UUID adminId = (UUID) auth.getPrincipal();
         SettlementResponse response = settlementService.confirm(request, adminId, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response, "Settlement confirmed"));

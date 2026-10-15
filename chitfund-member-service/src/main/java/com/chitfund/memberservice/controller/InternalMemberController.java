@@ -101,7 +101,7 @@ public class InternalMemberController {
                     contact.put("phone", member.getPhone() != null ? member.getPhone() : "");
                     contact.put("phoneCountryCode", member.getPhoneCountryCode() != null
                             ? member.getPhoneCountryCode() : "");
-                    if (member.getUserId() != null && member.isHasAppAccess()) {
+                    if (member.getUserId() != null) {
                         contact.put("userId", member.getUserId().toString());
                     }
                     return ResponseEntity.ok(contact);
@@ -230,7 +230,6 @@ public class InternalMemberController {
                         .body(Map.<String, Object>of("success", false, "reason", "user is linked to another member"));
             }
             member.setUserId(requestedUserId);
-            member.setHasAppAccess(true);
             memberRepository.save(member);
             return ResponseEntity.ok(Map.<String, Object>of("success", true));
         }).orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)

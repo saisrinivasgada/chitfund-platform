@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { View, Text, FlatList, RefreshControl, TextInput, Modal, ScrollView, TouchableOpacity, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, RefreshControl, TextInput, Modal, ScrollView, TouchableOpacity, Linking, ActivityIndicator, Alert } from 'react-native';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMembersPage, getMemberTotalBalance, getChitsForMember, getMemberBalance } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate, Button } from '../../../components/ui';
+import { toast } from '../../../components/Toast';
 
 function MemberBalance({ memberId }: { memberId: string }) {
   const { data: bal } = useQuery({
@@ -48,6 +49,7 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
     staleTime: 60_000,
   });
   const bal = Number(totalBalance ?? 0);
+
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -114,6 +116,18 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
                 <Text style={{ fontSize: 13, color: C.gray900 }}>{fmtDate(member.joinedAt)}</Text>
               </View>
             )}
+          </Card>
+
+          {/* App access — read-only for managers; grant/suspend is admin-only */}
+          <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: member.appAccessGranted ? '#86EFAC' : C.gray200 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900, marginBottom: 4 }}>
+              {member.appAccessGranted ? 'App Access Active' : 'App Access'}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
+              {member.appAccessGranted
+                ? 'This member has active access to the ChitWise app.'
+                : 'No active app access. Contact an admin to send an access request.'}
+            </Text>
           </Card>
 
           {/* Enrolled chits */}

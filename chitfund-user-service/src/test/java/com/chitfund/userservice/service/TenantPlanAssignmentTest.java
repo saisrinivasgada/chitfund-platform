@@ -39,7 +39,7 @@ class TenantPlanAssignmentTest {
     @Mock MemberUserLinkRepository memberLinkRepository;
     @Mock TenantCustomLimitsRepository customLimitsRepository;
     @Mock PlanLimitsRepository planLimitsRepository;
-    @Mock PlanCapabilityDefRepository capabilityDefRepository;
+    @Mock PlanAddOnDefRepository addOnDefRepository;
     @Mock PromotionRepository promotionRepository;
     @Mock PasswordEncoder passwordEncoder;
     @Mock PromotionService promotionService;
@@ -56,7 +56,7 @@ class TenantPlanAssignmentTest {
         PlanLimits growth = PlanLimits.builder()
                 .plan("GROWTH").displayName("Growth").isActive(true)
                 .maxActiveChits(20).maxMembers(500).maxStaff(10)
-                .capabilities("[\"live_chat\"]")
+                .addOns("[\"live_chat\"]")
                 .allowedChitTypes("RESERVATION,AUCTION")
                 .priceMonthlyInr(49900).build();
         when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
@@ -77,7 +77,7 @@ class TenantPlanAssignmentTest {
         assertThat(saved.getMaxActiveChits()).isEqualTo(20);
         assertThat(saved.getMaxMembers()).isEqualTo(500);
         assertThat(saved.getMaxStaff()).isEqualTo(10);
-        assertThat(saved.getCapabilities()).isEqualTo("[\"live_chat\"]");
+        assertThat(saved.getAddOns()).isEqualTo("[\"live_chat\"]");
         assertThat(saved.getAllowedChitTypes()).isEqualTo("RESERVATION,AUCTION");
         verify(auditClient).log(org.mockito.ArgumentMatchers.eq("TENANT"),
                 org.mockito.ArgumentMatchers.eq(tenantId.toString()),
@@ -132,31 +132,31 @@ class TenantPlanAssignmentTest {
 
         assertThat(response.getTenantStatus()).isEqualTo("SUSPENDED");
         assertThat(response.getMaxMembers()).isEqualTo(100);
-        assertThat(response.getEnabledCapabilities()).isEmpty();
+        assertThat(response.getEnabledAddOns()).isEmpty();
     }
 
     @Test
-    void omittedCustomCapabilitiesDefaultToNoAccessInsteadOfInheritingTheOldPlan() {
+    void omittedCustomAddOnsDefaultToNoAccessInsteadOfInheritingTheOldPlan() {
         UUID tenantId = UUID.randomUUID();
         Tenant tenant = Tenant.builder().id(tenantId).plan("GROWTH").status("ACTIVE")
                 .planExpiresAt(LocalDateTime.of(9999, 12, 31, 23, 59, 59)).build();
         TenantCustomLimits existing = TenantCustomLimits.builder()
                 .tenantId(tenantId.toString()).planCode("GROWTH")
-                .capabilities("[\"live_chat\",\"settlement\"]").build();
+                .addOns("[\"live_chat\",\"settlement\"]").build();
         SetCustomLimitsRequest request = new SetCustomLimitsRequest();
         request.setMaxActiveChits(5);
         request.setMaxMembers(100);
         request.setMaxStaff(3);
         request.setAllowedChitTypes("RESERVATION");
         request.setPriceMonthlyInr(10_000);
-        request.setEnabledCapabilities(null);
+        request.setEnabledAddOns(null);
         when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
         when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.of(existing));
 
         tenantService.setCustomLimits(tenantId, request, "owner-1", "Approved custom contract");
 
         assertThat(existing.getPlanCode()).isEqualTo("CUSTOM");
-        assertThat(existing.getCapabilities()).isEqualTo("[]");
+        assertThat(existing.getAddOns()).isEqualTo("[]");
         assertThat(tenant.getPlan()).isEqualTo("CUSTOM");
         assertThat(tenant.getPlanExpiresAt()).isBetween(
                 LocalDateTime.now().plusDays(29), LocalDateTime.now().plusDays(31));
@@ -169,7 +169,7 @@ class TenantPlanAssignmentTest {
                 .planExpiresAt(LocalDateTime.now().plusDays(5)).build();
         PlanLimits basic = PlanLimits.builder().plan("BASIC").displayName("Basic").isActive(true)
                 .maxActiveChits(1).maxMembers(25).maxStaff(0)
-                .capabilities("[]").allowedChitTypes("RESERVATION").priceMonthlyInr(0).build();
+                .addOns("[]").allowedChitTypes("RESERVATION").priceMonthlyInr(0).build();
         when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
         when(planLimitsRepository.findById("BASIC")).thenReturn(Optional.of(basic));
         when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.empty());
@@ -250,7 +250,7 @@ class TenantPlanAssignmentTest {
         PlanLimits growth = PlanLimits.builder()
                 .plan("GROWTH").displayName("Growth").isActive(true).isPublic(true)
                 .maxActiveChits(20).maxMembers(500).maxStaff(10)
-                .capabilities("[\"live_chat\"]").allowedChitTypes("RESERVATION,AUCTION")
+                .addOns("[\"live_chat\"]").allowedChitTypes("RESERVATION,AUCTION")
                 .priceMonthlyInr(49_900).build();
         User admin = User.builder().id(UUID.randomUUID()).username("test.admin")
                 .fullName("Test Admin").build();
@@ -294,7 +294,7 @@ class TenantPlanAssignmentTest {
         Tenant tenant = Tenant.builder().id(tenantId).plan("GROWTH").status("ACTIVE").build();
         TenantCustomLimits limits = TenantCustomLimits.builder()
                 .tenantId(tenantId.toString()).planCode("BASIC")
-                .capabilities("[\"live_chat\"]").build();
+                .addOns("[\"live_chat\"]").build();
         when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.of(limits));
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
 
@@ -306,17 +306,17 @@ class TenantPlanAssignmentTest {
     }
 
     @Test
-    void missingPlanNeverInheritsBasicCapabilities() {
+    void missingPlanNeverInheritsBasicAddOns() {
         UUID tenantId = UUID.randomUUID();
         Tenant tenant = Tenant.builder().id(tenantId).status("ACTIVE").plan(" ").build();
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
 
-        assertThat(tenantService.resolveCapabilitiesForTenant(tenantId.toString())).isEmpty();
+        assertThat(tenantService.resolveAddOnsForTenant(tenantId.toString())).isEmpty();
         verify(planLimitsRepository, never()).findById("BASIC");
     }
 
     @Test
-    void suspendedOrExpiredTenantHasNoEffectiveCapabilities() {
+    void suspendedOrExpiredTenantHasNoEffectiveAddOns() {
         UUID suspendedId = UUID.randomUUID();
         UUID expiredId = UUID.randomUUID();
         Tenant suspended = Tenant.builder().id(suspendedId).status("SUSPENDED").plan("GROWTH").build();
@@ -325,8 +325,8 @@ class TenantPlanAssignmentTest {
         when(tenantRepository.findById(suspendedId)).thenReturn(Optional.of(suspended));
         when(tenantRepository.findById(expiredId)).thenReturn(Optional.of(expired));
 
-        assertThat(tenantService.resolveCapabilitiesForTenant(suspendedId.toString())).isEmpty();
-        assertThat(tenantService.resolveCapabilitiesForTenant(expiredId.toString())).isEmpty();
+        assertThat(tenantService.resolveAddOnsForTenant(suspendedId.toString())).isEmpty();
+        assertThat(tenantService.resolveAddOnsForTenant(expiredId.toString())).isEmpty();
         verify(planLimitsRepository, never()).findById("GROWTH");
     }
 }

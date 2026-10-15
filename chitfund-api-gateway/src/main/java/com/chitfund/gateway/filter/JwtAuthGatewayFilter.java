@@ -1,6 +1,7 @@
 package com.chitfund.gateway.filter;
 
 import com.chitfund.gateway.client.HubIdentityClient;
+import com.chitfund.gateway.client.MemberAccessClient;
 import com.chitfund.gateway.client.TenantEntitlementClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -50,6 +51,7 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
 
     private final HubIdentityClient hubIdentityClient;
     private final TenantEntitlementClient tenantEntitlementClient;
+    private final MemberAccessClient memberAccessClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final Set<String> ACCOUNT_WRITE_PATHS = Set.of(
@@ -62,10 +64,12 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
     );
 
     public JwtAuthGatewayFilter(HubIdentityClient hubIdentityClient,
-                                TenantEntitlementClient tenantEntitlementClient) {
+                                TenantEntitlementClient tenantEntitlementClient,
+                                MemberAccessClient memberAccessClient) {
         super(Config.class);
         this.hubIdentityClient = hubIdentityClient;
         this.tenantEntitlementClient = tenantEntitlementClient;
+        this.memberAccessClient = memberAccessClient;
     }
 
     @Override
@@ -133,6 +137,22 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
     private Mono<Void> forward(ServerWebExchange exchange, GatewayFilterChain chain,
                                Claims claims, String role) {
         String tenantId = claims.get("tenantId", String.class);
+        String userId = claims.getSubject();
+
+        if ("MEMBER".equals(role) && tenantId != null && !tenantId.isBlank()) {
+            return memberAccessClient.isMemberActive(userId, tenantId)
+                    .flatMap(active -> active
+                            ? forwardWithEntitlement(exchange, chain, claims, role, tenantId)
+                            : unauthorized(exchange, "Member access has been revoked for this organization"))
+                    .onErrorResume(ex -> error(exchange, HttpStatus.SERVICE_UNAVAILABLE,
+                            "MEMBER_ACCESS_UNAVAILABLE",
+                            "Member access could not be verified. Please try again."));
+        }
+        return forwardWithEntitlement(exchange, chain, claims, role, tenantId);
+    }
+
+    private Mono<Void> forwardWithEntitlement(ServerWebExchange exchange, GatewayFilterChain chain,
+                                              Claims claims, String role, String tenantId) {
         if (requiresLiveEntitlement(exchange, tenantId, role)) {
             return tenantEntitlementClient.getEffectiveEntitlement(tenantId)
                     .map(this::evaluateEntitlement)

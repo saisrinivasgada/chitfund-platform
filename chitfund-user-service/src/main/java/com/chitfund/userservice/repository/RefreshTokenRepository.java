@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.repository.query.Param;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
 
@@ -29,4 +30,9 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     @Transactional
     @Query("UPDATE RefreshToken rt SET rt.revoked = true WHERE rt.user = :user AND rt.revoked = false")
     void revokeAllActiveByUser(User user);
+
+    @Modifying
+    @Transactional
+    @Query("UPDATE RefreshToken rt SET rt.revoked = true WHERE rt.user = :user AND rt.tenantId = :tenantId AND rt.revoked = false")
+    void revokeAllActiveByUserAndTenant(User user, @Param("tenantId") String tenantId);
 }
