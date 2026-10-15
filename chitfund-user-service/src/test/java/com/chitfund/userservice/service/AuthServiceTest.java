@@ -445,4 +445,61 @@ class AuthServiceTest {
         // devOtpExposureEnabled defaults to false — should not throw even on prod
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
     }
+
+    // ─── OTP logging guard ────────────────────────────────────────────────────
+
+    private com.chitfund.userservice.config.OtpLoggingGuard loggingGuardWith(
+            boolean enabled, String... profiles) {
+        org.springframework.mock.env.MockEnvironment env =
+                new org.springframework.mock.env.MockEnvironment();
+        if (profiles.length > 0) env.setActiveProfiles(profiles);
+        var guard = new com.chitfund.userservice.config.OtpLoggingGuard(env);
+        try {
+            var field = com.chitfund.userservice.config.OtpLoggingGuard.class
+                    .getDeclaredField("otpLoggingEnabled");
+            field.setAccessible(true);
+            field.set(guard, enabled);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return guard;
+    }
+
+    @Test
+    void otpLoggingGuardThrowsOnProdProfileWhenEnabled() {
+        var guard = loggingGuardWith(true, "prod");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardThrowsOnProductionProfileWhenEnabled() {
+        var guard = loggingGuardWith(true, "production");
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowOnProdWhenDisabled() {
+        var guard = loggingGuardWith(false, "prod");
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowOnLocalWhenEnabled() {
+        var guard = loggingGuardWith(true, "local");
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowOnTestWhenEnabled() {
+        var guard = loggingGuardWith(true, "test");
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
+
+    @Test
+    void otpLoggingGuardDoesNotThrowWithNoProfileWhenEnabled() {
+        var guard = loggingGuardWith(true /* no profiles */);
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
+    }
 }
