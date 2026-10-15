@@ -399,7 +399,7 @@ export const sendChitfundSetupEmailOtp = async (token: string, email: string) =>
 };
 export const completeChitfundAccountSetup = async (body: {
   token: string; username: string; newPassword: string; fullName?: string;
-  phoneOtp: string; email: string; emailOtp: string; termsAccepted: boolean;
+  phoneOtp?: string; email: string; emailOtp: string; termsAccepted: boolean;
 }) => unwrapObj(await api.post('/chitfund-requests/setup', body));
 
 // ── Staff ──────────────────────────────────────────────────────────────────────

@@ -40,6 +40,7 @@ class ChitfundRequestServiceTest {
     @Mock TenantRepository tenantRepository;
     @Mock AccountSetupTokenRepository setupTokenRepository;
     @Mock AccountEmailOtpService emailOtpService;
+    @Mock EmailService emailService;
     @Mock PasswordEncoder passwordEncoder;
     @Mock PasswordValidator passwordValidator;
     @Mock OtpService otpService;
@@ -55,10 +56,12 @@ class ChitfundRequestServiceTest {
     @BeforeEach
     void setUp() {
         service = new ChitfundRequestService(requestRepository, userRepository, memberLinkRepository,
-                tenantRepository, setupTokenRepository, emailOtpService, passwordEncoder,
+                tenantRepository, setupTokenRepository, emailOtpService, emailService, passwordEncoder,
                 passwordValidator, otpService, authService, tenantService,
                 requestStateService, requestAuditRepository, eventPublisher,
                 refreshTokenRepository, deactivationOutbox);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "devOtpExposureEnabled", false);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "frontendUrl", "https://app.thechitwise.com");
         lenient().when(requestRepository.findFirstByTenantIdAndMemberIdAndStatusInOrderByCreatedAtDesc(any(), any(), any()))
                 .thenReturn(Optional.empty());
         lenient().when(requestRepository.saveAndFlush(any())).thenAnswer(call -> {
@@ -74,7 +77,7 @@ class ChitfundRequestServiceTest {
     }
 
     @Test
-    void newAccountSetupTokenAndPhoneOtpAreBoundToExactRequest() {
+    void newAccountSetupEmailSentAndPhoneOtpAreBoundToExactRequest() {
         UUID tenantId = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -87,15 +90,47 @@ class ChitfundRequestServiceTest {
         });
         when(passwordEncoder.encode(any())).thenReturn("encoded");
         when(authService.generateSetupToken(eq(userId), any())).thenReturn("setup-token");
+        when(otpService.isSmsProviderConfigured()).thenReturn(false);
 
         var response = service.create(tenantId, memberId, "98765 43210", "+91",
                 "member@example.com", UUID.randomUUID());
 
         assertThat(response.getRequestKind()).isEqualTo(ChitfundRequestKind.NEW_ACCOUNT);
-        assertThat(response.getSetupToken()).isEqualTo("setup-token");
+        // setupToken is null in production mode (devOtpExposureEnabled = false in setUp)
+        assertThat(response.getSetupToken()).isNull();
+        assertThat(response.isSetupEmailSent()).isTrue();
+        // SMS not configured → phone verification not required or pending
+        assertThat(response.isPhoneVerificationPending()).isFalse();
         verify(authService).generateSetupToken(userId, response.getId());
         verify(otpService).sendOtp("9876543210", "+91", "APP_ACCESS_SETUP", response.getId().toString());
+        verify(emailService).sendFirstTimeSetupEmail(
+                eq("member@example.com"), any(), contains("setup-token"), any());
         verifyNoInteractions(memberLinkRepository);
+    }
+
+    @Test
+    void newAccountSetupTokenExposedWhenDevModeEnabled() {
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "devOtpExposureEnabled", true);
+        when(userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull("9876543210", "+91"))
+                .thenReturn(List.of());
+        when(userRepository.save(any())).thenAnswer(call -> {
+            User user = call.getArgument(0);
+            user.setId(userId);
+            return user;
+        });
+        when(passwordEncoder.encode(any())).thenReturn("encoded");
+        when(authService.generateSetupToken(eq(userId), any())).thenReturn("setup-token");
+        when(otpService.isSmsProviderConfigured()).thenReturn(true);
+
+        var response = service.create(tenantId, memberId, "9876543210", "+91",
+                "member@example.com", UUID.randomUUID());
+
+        // In dev mode the raw token is exposed AND phone verification pending when SMS configured
+        assertThat(response.getSetupToken()).isEqualTo("setup-token");
+        assertThat(response.isPhoneVerificationPending()).isTrue();
     }
 
     @Test
@@ -186,6 +221,7 @@ class ChitfundRequestServiceTest {
             return user;
         });
         when(passwordEncoder.encode(any())).thenReturn("encoded");
+        when(otpService.isSmsProviderConfigured()).thenReturn(false);
         doThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate active slot"))
                 .when(requestRepository).saveAndFlush(any());
 
@@ -215,6 +251,7 @@ class ChitfundRequestServiceTest {
                 .thenReturn(List.of(replacementUser));
         when(userRepository.findById(newUserId)).thenReturn(Optional.of(replacementUser));
         when(authService.generateSetupToken(eq(newUserId), any())).thenReturn("new-setup-token");
+        when(otpService.isSmsProviderConfigured()).thenReturn(false);
         java.util.List<ChitfundAccessRequest> saved = new java.util.ArrayList<>();
         doAnswer(call -> {
             ChitfundAccessRequest request = call.getArgument(0);
@@ -233,7 +270,9 @@ class ChitfundRequestServiceTest {
 
         assertThat(old.getStatus()).isEqualTo(ChitfundRequestStatus.REVOKED);
         assertThat(response.getRequestKind()).isEqualTo(ChitfundRequestKind.NEW_ACCOUNT);
-        assertThat(response.getSetupToken()).isEqualTo("new-setup-token");
+        // setupToken is not exposed in production mode (devOtpExposureEnabled = false in setUp)
+        assertThat(response.getSetupToken()).isNull();
+        assertThat(response.isSetupEmailSent()).isTrue();
         assertThat(saved).hasSize(2);
         assertThat(saved.get(1).getCandidateUserId()).isEqualTo(newUserId);
     }
@@ -485,12 +524,13 @@ class ChitfundRequestServiceTest {
     }
 
     @Test
-    void publicDetailsShowsPhoneVerificationPendingWhenSmsNotConfigured() {
+    void publicDetailsShowsPhoneVerificationPendingFromPersistedState() {
         UUID requestId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
         ChitfundAccessRequest request = existingRequestFull(requestId, userId, tenantId,
                 ChitfundRequestStatus.PENDING_MEMBER);
+        request.setPhoneVerificationPending(true);
         com.chitfund.userservice.domain.entity.User user =
                 com.chitfund.userservice.domain.entity.User.builder()
                         .id(userId).role(Role.MEMBER).build();
@@ -499,7 +539,6 @@ class ChitfundRequestServiceTest {
         when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.empty());
-        when(otpService.isSmsProviderConfigured()).thenReturn(false);
 
         var pub = service.publicDetails("raw-action-token");
 
@@ -507,12 +546,13 @@ class ChitfundRequestServiceTest {
     }
 
     @Test
-    void publicDetailsNoPhoneVerificationPendingWhenSmsConfigured() {
+    void publicDetailsPhoneVerificationNotPendingWhenAlreadyVerified() {
         UUID requestId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
         ChitfundAccessRequest request = existingRequestFull(requestId, userId, tenantId,
                 ChitfundRequestStatus.PENDING_MEMBER);
+        // phoneVerificationPending defaults to false — already cleared or never required
         com.chitfund.userservice.domain.entity.User user =
                 com.chitfund.userservice.domain.entity.User.builder()
                         .id(userId).role(Role.MEMBER).build();
@@ -521,7 +561,6 @@ class ChitfundRequestServiceTest {
         when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.empty());
-        when(otpService.isSmsProviderConfigured()).thenReturn(true);
 
         var pub = service.publicDetails("raw-action-token");
 

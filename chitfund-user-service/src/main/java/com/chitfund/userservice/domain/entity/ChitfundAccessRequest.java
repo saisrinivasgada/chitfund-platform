@@ -63,6 +63,15 @@ public class ChitfundAccessRequest {
     @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
 
+    @Column(name = "phone_verification_required", nullable = false)
+    private boolean phoneVerificationRequired;
+
+    @Column(name = "phone_verified_at")
+    private LocalDateTime phoneVerifiedAt;
+
+    @Column(name = "phone_verification_pending", nullable = false)
+    private boolean phoneVerificationPending;
+
     @Column(name = "resend_count", nullable = false)
     private int resendCount;
 

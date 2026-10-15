@@ -296,7 +296,7 @@ export default function AdminMembersScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
       qc.invalidateQueries({ queryKey: ['m-member', selected?.id] });
-      toast.success('App access revoked for ' + selected?.fullName);
+      toast.cancelled('App access revoked for ' + selected?.fullName);
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to revoke access'),
   });

@@ -23,6 +23,8 @@ public class ChitfundRequestResponse {
     private LocalDateTime memberVerifiedAt;
     private LocalDateTime adminConfirmedAt;
     private boolean emailVerified;
+    private boolean phoneVerificationPending;
+    private boolean setupEmailSent;
     private String setupToken;
     private String actionToken;
 }

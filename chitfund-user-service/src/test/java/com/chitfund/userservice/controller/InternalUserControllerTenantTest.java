@@ -2,6 +2,7 @@ package com.chitfund.userservice.controller;
 
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.service.AuthService;
 import com.chitfund.userservice.service.ChitfundRequestService;
@@ -26,7 +27,7 @@ class InternalUserControllerTenantTest {
     void roleFanoutReturnsOnlyUsersInRequestedTenant() {
         UserRepository users = mock(UserRepository.class);
         InternalUserController controller = new InternalUserController(
-                users, mock(TenantService.class), mock(AuthService.class),
+                users, mock(MemberUserLinkRepository.class), mock(TenantService.class), mock(AuthService.class),
                 mock(PasswordEncoder.class), mock(ChitfundRequestService.class),
                 mock(IdentityReassignmentService.class), mock(AppAccessGrantService.class));
         ReflectionTestUtils.setField(controller, "internalKey", "secret");
@@ -43,7 +44,7 @@ class InternalUserControllerTenantTest {
     @Test
     void roleFanoutRejectsMissingTenant() {
         InternalUserController controller = new InternalUserController(
-                mock(UserRepository.class), mock(TenantService.class), mock(AuthService.class),
+                mock(UserRepository.class), mock(MemberUserLinkRepository.class), mock(TenantService.class), mock(AuthService.class),
                 mock(PasswordEncoder.class), mock(ChitfundRequestService.class),
                 mock(IdentityReassignmentService.class), mock(AppAccessGrantService.class));
         ReflectionTestUtils.setField(controller, "internalKey", "secret");

@@ -11,6 +11,7 @@ import com.chitfund.userservice.dto.response.ChitfundRequestPublicResponse;
 import com.chitfund.userservice.outbox.MemberDeactivationCommandOutbox;
 import com.chitfund.userservice.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -39,6 +40,7 @@ public class ChitfundRequestService {
     private final TenantRepository tenantRepository;
     private final AccountSetupTokenRepository setupTokenRepository;
     private final AccountEmailOtpService accountEmailOtpService;
+    private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final PasswordValidator passwordValidator;
     private final OtpService otpService;
@@ -49,6 +51,12 @@ public class ChitfundRequestService {
     private final ApplicationEventPublisher eventPublisher;
     private final RefreshTokenRepository refreshTokenRepository;
     private final MemberDeactivationCommandOutbox deactivationOutbox;
+
+    @Value("${app.dev.otp-exposure.enabled:false}")
+    private boolean devOtpExposureEnabled;
+
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
 
     @Transactional
     public ChitfundRequestResponse create(UUID tenantId, UUID memberId, String phone,
@@ -101,6 +109,7 @@ public class ChitfundRequestService {
 
         LocalDateTime now = LocalDateTime.now();
         String actionToken = newActionToken();
+        boolean smsConfigured = kind == ChitfundRequestKind.NEW_ACCOUNT && otpService.isSmsProviderConfigured();
         ChitfundAccessRequest request;
         try {
             request = requestRepository.saveAndFlush(ChitfundAccessRequest.builder()
@@ -116,6 +125,8 @@ public class ChitfundRequestService {
                 .requestedBy(requestedBy)
                 .expiresAt(now.plusHours(72))
                 .lastSentAt(now)
+                .phoneVerificationRequired(smsConfigured)
+                .phoneVerificationPending(smsConfigured)
                 .build());
         } catch (DataIntegrityViolationException ex) {
             // The generated-column unique key is the final guard when two
@@ -127,9 +138,14 @@ public class ChitfundRequestService {
                 requestedBy, "ORG_ADMIN", "App-access request created");
 
         String setupToken = null;
+        boolean setupEmailSent = false;
         if (kind == ChitfundRequestKind.NEW_ACCOUNT) {
             setupToken = authService.generateSetupToken(candidate.getId(), request.getId());
             otpService.sendOtp(normalizedPhone, cc, SETUP_OTP, request.getId().toString());
+            String orgName = tenantRepository.findById(tenantId).map(Tenant::getName).orElse("Organization");
+            String setupLink = frontendUrl + "/setup?token=" + setupToken;
+            emailService.sendFirstTimeSetupEmail(normalizedEmail, candidate.getFullName(), setupLink, orgName);
+            setupEmailSent = true;
         }
         if (kind == ChitfundRequestKind.LINK_EXISTING) {
             eventPublisher.publishEvent(new IdentityNotificationEvent(
@@ -139,7 +155,7 @@ public class ChitfundRequestService {
                     tenantRepository.findById(tenantId).map(Tenant::getName).orElse("Organization"),
                     List.of(), null, null, null));
         }
-        return toResponse(request, setupToken, actionToken);
+        return toResponse(request, devOtpExposureEnabled ? setupToken : null, actionToken, setupEmailSent);
     }
 
     /**
@@ -278,6 +294,7 @@ public class ChitfundRequestService {
         request.setExpiresAt(now.plusHours(72));
         request.setRequestedBy(adminId);
         String setupToken = null;
+        boolean setupEmailSent = false;
         String actionToken = newActionToken();
         request.setMemberActionTokenHash(AuthService.sha256Value(actionToken));
         User candidate = userRepository.findById(request.getCandidateUserId())
@@ -287,9 +304,16 @@ public class ChitfundRequestService {
             request.setRequestKind(ChitfundRequestKind.LINK_EXISTING);
         }
         if (request.getRequestKind() == ChitfundRequestKind.NEW_ACCOUNT) {
+            boolean smsConfigured = otpService.isSmsProviderConfigured();
+            request.setPhoneVerificationRequired(smsConfigured);
+            request.setPhoneVerificationPending(smsConfigured);
             setupToken = authService.generateSetupToken(request.getCandidateUserId(), request.getId());
             otpService.sendOtp(request.getRequestedPhone(), request.getPhoneCountryCode(),
                     SETUP_OTP, request.getId().toString());
+            String orgName = tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization");
+            String setupLink = frontendUrl + "/setup?token=" + setupToken;
+            emailService.sendFirstTimeSetupEmail(request.getRequestedEmail(), candidate.getFullName(), setupLink, orgName);
+            setupEmailSent = true;
         }
         requestRepository.save(request);
         audit(request, "REQUEST_RESENT", request.getStatus(), request.getStatus(), adminId,
@@ -302,7 +326,7 @@ public class ChitfundRequestService {
                     tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
                     List.of(), null, null, null));
         }
-        return toResponse(request, setupToken, actionToken);
+        return toResponse(request, devOtpExposureEnabled ? setupToken : null, actionToken, setupEmailSent);
     }
 
     @Transactional
@@ -476,9 +500,10 @@ public class ChitfundRequestService {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Phone OTP is required");
             }
             otpService.verifyOtp(request.getRequestedPhone(), SETUP_OTP, request.getId().toString(), input.getPhoneOtp());
+            request.setPhoneVerifiedAt(LocalDateTime.now());
+            request.setPhoneVerificationPending(false);
         }
-        // When SMS provider is not configured: skip phone verification.
-        // phoneVerifiedAt stays null — phone verification pending until SMS is available.
+        // When SMS provider is not configured: skip phone verification; pending stays as-is.
         passwordValidator.validate(input.getNewPassword());
         if (input.getUsername() != null && !input.getUsername().isBlank()
                 && !input.getUsername().equalsIgnoreCase(user.getUsername())) {
@@ -552,7 +577,7 @@ public class ChitfundRequestService {
                 .expiresAt(request.getExpiresAt())
                 .emailRecoveryAvailable(request.getRequestKind() == ChitfundRequestKind.LINK_EXISTING
                         && user.getEmail() != null && user.getEmailVerifiedAt() != null)
-                .phoneVerificationPending(!otpService.isSmsProviderConfigured())
+                .phoneVerificationPending(request.isPhoneVerificationPending())
                 .build();
     }
 
@@ -684,10 +709,15 @@ public class ChitfundRequestService {
     }
 
     private ChitfundRequestResponse toResponse(ChitfundAccessRequest r, String setupToken) {
-        return toResponse(r, setupToken, null);
+        return toResponse(r, setupToken, null, false);
     }
 
     private ChitfundRequestResponse toResponse(ChitfundAccessRequest r, String setupToken, String actionToken) {
+        return toResponse(r, setupToken, actionToken, false);
+    }
+
+    private ChitfundRequestResponse toResponse(ChitfundAccessRequest r, String setupToken,
+                                                String actionToken, boolean setupEmailSent) {
         User user = userRepository.findById(r.getCandidateUserId()).orElse(null);
         String organization = tenantRepository.findById(r.getTenantId()).map(Tenant::getName).orElse("Organization");
         return ChitfundRequestResponse.builder()
@@ -697,6 +727,8 @@ public class ChitfundRequestService {
                 .requestKind(r.getRequestKind()).status(r.getStatus()).expiresAt(r.getExpiresAt())
                 .memberVerifiedAt(r.getMemberVerifiedAt()).adminConfirmedAt(r.getAdminConfirmedAt())
                 .emailVerified(user != null && user.getEmailVerifiedAt() != null)
+                .phoneVerificationPending(r.isPhoneVerificationPending())
+                .setupEmailSent(setupEmailSent)
                 .setupToken(setupToken).actionToken(actionToken).build();
     }
 
