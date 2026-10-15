@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { setupAccount, sendSetupEmailOtp } from '../services/api';
+import { useQuery } from '@tanstack/react-query';
+import { setupAccount, sendSetupEmailOtp, getPublicChitfundRequest } from '../services/api';
 import { BookOpen, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
@@ -26,6 +27,14 @@ export default function SetupAccountPage() {
   const [done, setDone]                   = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
+  const { data: requestDetails } = useQuery({
+    queryKey: ['chitfund-request-public-setup', token],
+    queryFn: () => getPublicChitfundRequest(token),
+    enabled: !!token,
+    retry: false,
+  });
+  const phoneOtpRequired = requestDetails ? !requestDetails.phoneVerificationPending : true;
+
   if (!token) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
@@ -43,7 +52,7 @@ export default function SetupAccountPage() {
     e.preventDefault();
     if (newPassword !== confirmPass) { setError("Passwords don't match"); return; }
     if (username.trim().length < 3) { setError('Choose a username with at least 3 characters'); return; }
-    if (phoneOtp.length !== 6) { setError('Enter the 6-digit OTP sent to the member’s phone'); return; }
+    if (phoneOtpRequired && phoneOtp.length !== 6) { setError("Enter the 6-digit OTP sent to the member's phone"); return; }
     if (!email || !emailOtpSent || emailOtp.length !== 6) { setError('Enter and verify your recovery email before continuing'); return; }
     if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
     if (!termsAccepted) { setError('Please accept the Terms of Service to continue.'); return; }
@@ -51,7 +60,7 @@ export default function SetupAccountPage() {
     setLoading(true);
     try {
       await setupAccount({ token, username: username.trim(), newPassword, fullName: fullName || undefined,
-        phoneOtp, email, emailOtp, termsAccepted });
+        phoneOtp: phoneOtpRequired ? phoneOtp : undefined, email, emailOtp, termsAccepted });
       setDone(true);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Setup failed. The link may have expired.');
@@ -121,11 +130,21 @@ export default function SetupAccountPage() {
               placeholder="Choose your username" required />
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-gray-700">Phone OTP</label>
-            <p className="text-xs text-gray-500">Enter the code sent to the member’s phone.</p>
-            <OtpCodeInput value={phoneOtp} onChange={setPhoneOtp} length={6} />
-          </div>
+          {phoneOtpRequired ? (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-gray-700">Phone OTP</label>
+              <p className="text-xs text-gray-500">Enter the code sent to {requestDetails?.maskedPhone ?? 'your phone'}.</p>
+              <OtpCodeInput value={phoneOtp} onChange={setPhoneOtp} length={6} />
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-800">Phone verification pending</p>
+              <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                SMS delivery is not yet configured. Your phone number will be verified once it becomes available.
+                You can complete your account setup now using email verification only.
+              </p>
+            </div>
+          )}
 
           <div className="rounded-xl border border-gray-200 p-4 space-y-3">
             <div>

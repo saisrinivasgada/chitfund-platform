@@ -189,6 +189,15 @@ function RequestCard({
         </Text>
       )}
 
+      {r.status === 'ACTIVE' && r.phoneVerificationPending && (
+        <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400E' }}>Phone verification pending</Text>
+          <Text style={{ fontSize: 12, color: '#78350F', lineHeight: 18, marginTop: 4 }}>
+            Your phone number will be verified once SMS is available. Your access is active in the meantime.
+          </Text>
+        </View>
+      )}
+
       {isPending && (
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity

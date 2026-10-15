@@ -4,6 +4,7 @@ import { getMyChitfundRequests, sendChitfundRequestOtp, acceptChitfundRequest, d
 import OtpCodeInput from '../../components/ui/OtpCodeInput';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Building2, CheckCircle, XCircle, AlertTriangle, Clock, Ban } from 'lucide-react';
 
 const STATUS_CFG = {
@@ -33,6 +34,7 @@ const STATUS_DESC = {
 export default function ChitfundRequestsPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState(null);
+  const [declineTarget, setDeclineTarget] = useState(null);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
 
@@ -105,6 +107,15 @@ export default function ChitfundRequestsPage() {
                   {r.expiresAt && isPending && (
                     <p className="text-xs text-gray-400 mt-1">Expires {new Date(r.expiresAt).toLocaleString()}</p>
                   )}
+                  {r.status === 'ACTIVE' && r.phoneVerificationPending && (
+                    <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                      <p className="text-xs font-semibold text-amber-800">Phone verification pending</p>
+                      <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                        Your phone number has not yet been verified — this will be completed automatically once SMS is available.
+                        Your access is active in the meantime.
+                      </p>
+                    </div>
+                  )}
                   {isSuspended && (
                     <div className="mt-3 p-3 bg-orange-50 rounded-lg border border-orange-100">
                       <p className="text-xs text-orange-800">
@@ -117,9 +128,7 @@ export default function ChitfundRequestsPage() {
                 </div>
                 {isPending && (
                   <div className="flex flex-col gap-2 flex-shrink-0">
-                    <Button variant="secondary" onClick={() => {
-                      if (window.confirm(`Decline the request from ${r.organizationName}?`)) decline.mutate(r.id);
-                    }}>
+                    <Button variant="secondary" onClick={() => setDeclineTarget(r)}>
                       <XCircle size={14} /> Decline
                     </Button>
                     <Button onClick={() => begin.mutate(r)} loading={begin.isPending}>
@@ -153,6 +162,17 @@ export default function ChitfundRequestsPage() {
             </Button>
           </div>
         </Modal>
+      )}
+
+      {declineTarget && (
+        <ConfirmDialog
+          title="Decline access request"
+          description={`Decline the request from ${declineTarget.organizationName}? You can ask the organisation to resend it if you change your mind.`}
+          actionLabel="Decline"
+          loading={decline.isPending}
+          onConfirm={() => { decline.mutate(declineTarget.id); setDeclineTarget(null); }}
+          onClose={() => setDeclineTarget(null)}
+        />
       )}
     </div>
   );
