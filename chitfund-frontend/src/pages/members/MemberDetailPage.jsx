@@ -29,7 +29,7 @@ import {
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
   Layers, ExternalLink, ClipboardList, TrendingUp, TrendingDown, ArrowRight,
-  Lock, LockOpen, ShieldOff, ShieldCheck as ShieldCheckIcon,
+  Lock, LockOpen, ShieldOff,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 

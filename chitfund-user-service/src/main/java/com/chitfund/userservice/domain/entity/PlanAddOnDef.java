@@ -4,12 +4,12 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "plan_capability_defs")
+@Table(name = "plan_add_on_defs")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PlanCapabilityDef {
+public class PlanAddOnDef {
 
     @Id
     @Column(name = "`key`", length = 80)

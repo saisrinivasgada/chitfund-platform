@@ -1,11 +1,11 @@
 package com.chitfund.userservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
-import com.chitfund.userservice.dto.request.CreateCapabilityDefRequest;
+import com.chitfund.userservice.dto.request.CreateAddOnDefRequest;
 import com.chitfund.userservice.dto.request.CreatePlanRequest;
 import com.chitfund.userservice.dto.request.SetTenantDiscountRequest;
 import com.chitfund.userservice.dto.request.UpdatePlanRequest;
-import com.chitfund.userservice.dto.response.CapabilityDefResponse;
+import com.chitfund.userservice.dto.response.AddOnDefResponse;
 import com.chitfund.userservice.dto.response.PlanResponse;
 import com.chitfund.userservice.dto.response.TenantDiscountResponse;
 import com.chitfund.userservice.service.PlanService;
@@ -63,29 +63,29 @@ public class SuperAdminPlanController {
         return ResponseEntity.ok(ApiResponse.success(null, "Plan deactivated"));
     }
 
-    // ── Capability definitions ─────────────────────────────────────────────────
+    // ── Add-on definitions ────────────────────────────────────────────────
 
-    @GetMapping("/api/super-admin/capabilities")
-    public ResponseEntity<ApiResponse<List<CapabilityDefResponse>>> listCapabilities() {
-        return ResponseEntity.ok(ApiResponse.success(planService.getCapabilityDefs()));
+    @GetMapping("/api/super-admin/add-ons")
+    public ResponseEntity<ApiResponse<List<AddOnDefResponse>>> listAddOns() {
+        return ResponseEntity.ok(ApiResponse.success(planService.getAddOnDefs()));
     }
 
-    @PostMapping("/api/super-admin/capabilities")
-    public ResponseEntity<ApiResponse<CapabilityDefResponse>> addCapability(
-            @Valid @RequestBody CreateCapabilityDefRequest req,
+    @PostMapping("/api/super-admin/add-ons")
+    public ResponseEntity<ApiResponse<AddOnDefResponse>> createAddOn(
+            @Valid @RequestBody CreateAddOnDefRequest req,
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(
-                        planService.addCapabilityDef(req, principal.getId().toString()), "Capability added"));
+                        planService.createAddOnDef(req, principal.getId().toString()), "Add-on added"));
     }
 
-    @DeleteMapping("/api/super-admin/capabilities/{key}")
-    public ResponseEntity<ApiResponse<Void>> deleteCapability(
+    @DeleteMapping("/api/super-admin/add-ons/{key}")
+    public ResponseEntity<ApiResponse<Void>> deleteAddOn(
             @PathVariable String key,
             @RequestHeader("X-Change-Reason") String reason,
             @AuthenticationPrincipal User principal) {
-        planService.deleteCapabilityDef(key, principal.getId().toString(), reason);
-        return ResponseEntity.ok(ApiResponse.success(null, "Capability removed"));
+        planService.deleteAddOnDef(key, principal.getId().toString(), reason);
+        return ResponseEntity.ok(ApiResponse.success(null, "Add-on removed"));
     }
 
     // ── Per-tenant discount ────────────────────────────────────────────────────

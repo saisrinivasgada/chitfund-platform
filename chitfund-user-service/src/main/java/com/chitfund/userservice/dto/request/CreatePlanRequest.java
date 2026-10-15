@@ -37,5 +37,5 @@ public class CreatePlanRequest {
     private int displayOrder = 99;
     @Min(-1)
     private int maxStaff = 0;
-    private List<String> enabledCapabilities;
+    private List<String> enabledAddOns;
 }

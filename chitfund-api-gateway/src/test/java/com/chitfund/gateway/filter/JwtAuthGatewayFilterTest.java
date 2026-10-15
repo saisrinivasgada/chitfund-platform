@@ -103,7 +103,7 @@ class JwtAuthGatewayFilterTest {
     }
 
     @Test
-    void acceptsCurrentEmployeeWithExplicitPlatformConsoleCapability() {
+    void acceptsCurrentEmployeeWithExplicitPlatformConsoleAddOn() {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
                 new HubIdentityClient.HubAuthState(
@@ -120,7 +120,7 @@ class JwtAuthGatewayFilterTest {
     }
 
     @Test
-    void rejectsSupportEmployeeWithoutPlatformConsoleCapability() {
+    void rejectsSupportEmployeeWithoutPlatformConsoleAddOn() {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
                 new HubIdentityClient.HubAuthState(

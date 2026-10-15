@@ -18,7 +18,7 @@ public class SetCustomLimitsRequest {
     @Min(-1)
     private int maxStaff;         // -1 = unlimited
 
-    private List<String> enabledCapabilities;
+    private List<String> enabledAddOns;
 
     @NotBlank
     private String allowedChitTypes; // comma-separated: RESERVATION,LOTTERY,AUCTION

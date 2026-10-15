@@ -176,10 +176,10 @@ public class AuthService {
                     "You are not a member of this organization");
         }
 
-        // Re-read the tenant membership, status, plan and capabilities. The
+        // Re-read the tenant membership, status, plan and addOns. The
         // pre-scope token is valid for five minutes; trusting its embedded
         // snapshot would let a recently suspended/downgraded tenant mint a
-        // stale ACTIVE token or retain removed capabilities.
+        // stale ACTIVE token or retain removed addOns.
         TenantInfo selected = tenantService.buildTenantInfoList(user.getId()).stream()
                 .filter(t -> t.getTenantId().equals(request.getTenantId()))
                 .findFirst()

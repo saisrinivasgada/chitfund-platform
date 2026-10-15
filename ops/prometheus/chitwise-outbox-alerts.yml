@@ -8,7 +8,7 @@ groups:
           severity: critical
         annotations:
           summary: "{{ $labels.service }} has failed financial-event deliveries"
-          runbook: "ops/runbooks/outbox.md"
+          runbook: "Private ChitWise documents: runbooks/outbox.md"
 
       - alert: ChitwiseOutboxBacklogStale
         expr: chitwise_outbox_oldest_unpublished_seconds > 300
@@ -17,7 +17,7 @@ groups:
           severity: critical
         annotations:
           summary: "{{ $labels.service }} outbox has been blocked for over five minutes"
-          runbook: "ops/runbooks/outbox.md"
+          runbook: "Private ChitWise documents: runbooks/outbox.md"
 
       - alert: ChitwiseOutboxLeaseContention
         expr: increase(chitwise_outbox_stale_finalize_total[10m]) > 0
@@ -25,7 +25,7 @@ groups:
           severity: warning
         annotations:
           summary: "{{ $labels.service }} finalized an expired or reclaimed outbox lease"
-          runbook: "ops/runbooks/outbox.md"
+          runbook: "Private ChitWise documents: runbooks/outbox.md"
 
       - alert: ChitwiseAuditOutboxDeliveryFailed
         expr: chitwise_audit_outbox_failed_current > 0
@@ -112,7 +112,7 @@ groups:
           severity: critical
         annotations:
           summary: "{{ $labels.table }} decimal and paise values disagree"
-          runbook: "ops/runbooks/admin-wallet-paise-migration.md"
+          runbook: "Private ChitWise documents: runbooks/admin-wallet-paise-migration.md"
 
       - alert: ChitwiseMoneyShadowIncompleteAfterBackfill
         expr: chitwise_money_shadow_missing{required="true"} > 0
@@ -121,4 +121,4 @@ groups:
           severity: critical
         annotations:
           summary: "{{ $labels.table }} has missing paise values after completeness was required"
-          runbook: "ops/runbooks/admin-wallet-paise-migration.md"
+          runbook: "Private ChitWise documents: runbooks/admin-wallet-paise-migration.md"

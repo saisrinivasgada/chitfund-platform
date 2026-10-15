@@ -17,15 +17,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class ChatCapabilityEnforcementTest {
+class ChatAddOnEnforcementTest {
 
     @Test
-    void unverifiedCapabilityBlocksEveryGroupChatMutation() {
+    void unverifiedAddOnBlocksEveryGroupChatMutation() {
         GroupChatService service = mock(GroupChatService.class);
         TenantSupportClient client = mock(TenantSupportClient.class);
         GroupChatController controller = new GroupChatController(service, client);
         HttpServletRequest admin = request("ADMIN");
-        when(client.getCapabilities("tenant-a")).thenReturn(null);
+        when(client.getAddOns("tenant-a")).thenReturn(null);
 
         assertEquals(HttpStatus.FORBIDDEN, controller.createGroup(admin, new CreateGroupRequest()).getStatusCode());
         assertEquals(HttpStatus.FORBIDDEN, controller.addMember(admin, "group-1", new AddGroupMemberRequest()).getStatusCode());
@@ -36,13 +36,13 @@ class ChatCapabilityEnforcementTest {
     }
 
     @Test
-    void unverifiedCapabilityBlocksEveryConversationCreationOrContentMutation() {
+    void unverifiedAddOnBlocksEveryConversationCreationOrContentMutation() {
         ConversationService service = mock(ConversationService.class);
         TenantSupportClient client = mock(TenantSupportClient.class);
         OrgConversationController controller = new OrgConversationController(service, client);
         HttpServletRequest admin = request("ADMIN");
         HttpServletRequest member = request("MEMBER");
-        when(client.getCapabilities("tenant-a")).thenReturn(null);
+        when(client.getAddOns("tenant-a")).thenReturn(null);
 
         assertEquals(HttpStatus.FORBIDDEN, controller.startConversation(admin, new StartConversationRequest()).getStatusCode());
         assertEquals(HttpStatus.FORBIDDEN, controller.myConversation(member).getStatusCode());

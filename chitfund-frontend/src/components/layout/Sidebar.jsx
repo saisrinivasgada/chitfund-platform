@@ -51,10 +51,10 @@ const ALL_NAV = [
   { to: '/payments',  icon: CreditCard,      label: 'Payments',    roles: ['ADMIN', 'MANAGER'] },
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
   { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
-  { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'], capability: 'analytics' },
+  { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'], addOn: 'analytics' },
   { to: '/activity',  icon: Activity,        label: 'Activity',    roles: ['ADMIN', 'MANAGER'] },
   { to: '/treasury',   icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
-  { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'], capability: 'settlement' },
+  { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'], addOn: 'settlement' },
   { to: '/myorg',      icon: Building2,       label: 'My Organization', roles: ['ADMIN', 'MANAGER'] },
 ];
 
@@ -580,12 +580,12 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
   const memberAccount = lookup?.accounts?.find((a) => a.role === 'MEMBER');
   const altPhone = me?.phone;
 
-  const capabilityEnabled = { analytics: analyticsEnabled, settlement: settlementEnabled };
+  const addOnEnabled = { analytics: analyticsEnabled, settlement: settlementEnabled };
   const nav = ALL_NAV
     .filter((item) => !item.roles || item.roles.includes(role))
     .map((item) => ({
       ...item,
-      locked: item.capability ? !capabilityEnabled[item.capability] : false,
+      locked: item.addOn ? !addOnEnabled[item.addOn] : false,
     }));
 
   return (

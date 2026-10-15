@@ -28,7 +28,7 @@ import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
-import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
+import com.chitfund.userservice.repository.PlanAddOnDefRepository;
 import com.chitfund.userservice.repository.TenantCreditAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -37,7 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.chitfund.userservice.util.CapabilityJson;
+import com.chitfund.userservice.util.AddOnJson;
 import com.chitfund.userservice.util.PlanInputValidator;
 import java.util.List;
 import java.util.Optional;
@@ -61,7 +61,7 @@ public class TenantService {
     private final MemberUserLinkRepository memberLinkRepository;
     private final TenantCustomLimitsRepository customLimitsRepository;
     private final PlanLimitsRepository planLimitsRepository;
-    private final PlanCapabilityDefRepository capabilityDefRepository;
+    private final PlanAddOnDefRepository addOnDefRepository;
     private final PromotionRepository promotionRepository;
     private final PasswordEncoder passwordEncoder;
     private final PromotionService promotionService;
@@ -186,7 +186,7 @@ public class TenantService {
         Tenant t = tenantRepository.findById(tenantId).orElse(null);
         if (t == null) return null;
         String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
-        java.util.List<String> caps = resolveCapabilitiesForTenant(t.getId().toString());
+        java.util.List<String> addOns = resolveAddOnsForTenant(t.getId().toString());
         return TenantInfo.builder()
                 .tenantId(t.getId().toString())
                 .name(t.getName())
@@ -196,9 +196,9 @@ public class TenantService {
                 .planExpiresAt(t.getPlanExpiresAt())
                 .role(role)
                 .memberId(memberId)
-                .analyticsEnabled(caps.contains("full_analytics"))
-                .chatEnabled(caps.contains("live_chat"))
-                .settlementEnabled(caps.contains("settlement"))
+                .analyticsEnabled(addOns.contains("full_analytics"))
+                .chatEnabled(addOns.contains("live_chat"))
+                .settlementEnabled(addOns.contains("settlement"))
                 .adminPhone(t.getContactPhone())
                 .adminEmail(t.getContactEmail())
                 .build();
@@ -741,11 +741,11 @@ public class TenantService {
         limits.setPlanCode("CUSTOM");
         limits.setNotes(req.getNotes());
         // A custom plan is an explicit allow-list. Omitting the field must not
-        // inherit capabilities copied from the tenant's previous standard plan.
-        java.util.List<String> validatedCapabilities = req.getEnabledCapabilities() != null
-                ? validateCapabilityKeys(req.getEnabledCapabilities())
+        // inherit add-ons copied from the tenant's previous standard plan.
+        java.util.List<String> validatedAddOns = req.getEnabledAddOns() != null
+                ? validateAddOnKeys(req.getEnabledAddOns())
                 : java.util.List.of();
-        limits.setCapabilities(serializeCapabilityKeys(validatedCapabilities));
+        limits.setAddOns(serializeAddOnKeys(validatedAddOns));
         customLimitsRepository.save(limits);
 
         // Automatically set plan to CUSTOM
@@ -761,7 +761,7 @@ public class TenantService {
                 tenantId.toString(), auditReason);
 
         return toEffectiveLimits(limits, t.getStatus(), t.getPlanExpiresAt(),
-                validatedCapabilities);
+                validatedAddOns);
     }
 
     public void removeCustomLimits(UUID tenantId, String fallbackPlan, String actorId, String reason) {
@@ -808,7 +808,7 @@ public class TenantService {
             snapshot.put("maxStaff", limits.getMaxStaff());
             snapshot.put("allowedChitTypes", limits.getAllowedChitTypes());
             snapshot.put("priceMonthlyInr", limits.getPriceMonthlyInr());
-            snapshot.put("capabilities", limits.getCapabilities());
+            snapshot.put("addOns", limits.getAddOns());
         }
         return snapshot;
     }
@@ -834,36 +834,36 @@ public class TenantService {
         snapshot.put("maxStaff", plan.getMaxStaff());
         snapshot.put("allowedChitTypes", plan.getAllowedChitTypes());
         snapshot.put("priceMonthlyInr", plan.getPriceMonthlyInr());
-        snapshot.put("capabilities", plan.getCapabilities());
+        snapshot.put("addOns", plan.getAddOns());
         return snapshot;
     }
 
-    private java.util.List<String> validateCapabilityKeys(java.util.List<String> requested) {
+    private java.util.List<String> validateAddOnKeys(java.util.List<String> requested) {
         java.util.List<String> normalized = requested.stream()
                 .filter(java.util.Objects::nonNull)
                 .map(value -> value.trim().toLowerCase(java.util.Locale.ROOT))
                 .filter(value -> !value.isBlank())
                 .distinct()
                 .toList();
-        java.util.Set<String> known = capabilityDefRepository.findAllById(normalized).stream()
-                .map(com.chitfund.userservice.domain.entity.PlanCapabilityDef::getKey)
+        java.util.Set<String> known = addOnDefRepository.findAllById(normalized).stream()
+                .map(com.chitfund.userservice.domain.entity.PlanAddOnDef::getKey)
                 .collect(java.util.stream.Collectors.toSet());
         java.util.List<String> unknown = normalized.stream()
                 .filter(key -> !known.contains(key)).toList();
         if (!unknown.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Unknown capability keys: " + String.join(", ", unknown));
+                    "Unknown add-on keys: " + String.join(", ", unknown));
         }
         return normalized;
     }
 
-    private String serializeCapabilityKeys(java.util.List<String> capabilities) {
-        if (capabilities == null || capabilities.isEmpty()) return "[]";
+    private String serializeAddOnKeys(java.util.List<String> addOns) {
+        if (addOns == null || addOns.isEmpty()) return "[]";
         try {
-            return objectMapper.writeValueAsString(capabilities);
+            return objectMapper.writeValueAsString(addOns);
         } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Capabilities could not be saved safely");
+                    "Add-ons could not be saved safely");
         }
     }
 
@@ -884,8 +884,8 @@ public class TenantService {
         boolean activeSubscription = "ACTIVE".equalsIgnoreCase(tenant.getStatus())
                 && (tenant.getPlanExpiresAt() == null
                     || !tenant.getPlanExpiresAt().isBefore(java.time.LocalDateTime.now()));
-        java.util.List<String> caps = activeSubscription ? resolveCaps(limits) : java.util.List.of();
-        return toEffectiveLimits(limits, tenant.getStatus(), tenant.getPlanExpiresAt(), caps);
+        java.util.List<String> addOns = activeSubscription ? resolveAddOns(limits) : java.util.List.of();
+        return toEffectiveLimits(limits, tenant.getStatus(), tenant.getPlanExpiresAt(), addOns);
     }
 
     @Transactional(readOnly = true)
@@ -902,7 +902,7 @@ public class TenantService {
 
     private EffectiveLimitsResponse toEffectiveLimits(TenantCustomLimits c, String tenantStatus,
                                                       java.time.LocalDateTime planExpiresAt,
-                                                      java.util.List<String> caps) {
+                                                      java.util.List<String> addOns) {
         return EffectiveLimitsResponse.builder()
                 .plan(c.getPlanCode())
                 .tenantStatus(tenantStatus)
@@ -910,11 +910,11 @@ public class TenantService {
                 .maxActiveChits(c.getMaxActiveChits())
                 .maxMembers(c.getMaxMembers())
                 .maxStaff(c.getMaxStaff())
-                .enabledCapabilities(caps)
-                .analyticsEnabled(caps.contains("full_analytics"))
-                .prioritySupport(caps.contains("priority_support"))
-                .chatEnabled(caps.contains("live_chat"))
-                .settlementEnabled(caps.contains("settlement"))
+                .enabledAddOns(addOns)
+                .analyticsEnabled(addOns.contains("full_analytics"))
+                .prioritySupport(addOns.contains("priority_support"))
+                .chatEnabled(addOns.contains("live_chat"))
+                .settlementEnabled(addOns.contains("settlement"))
                 .allowedChitTypes(c.getAllowedChitTypes())
                 .priceMonthlyInr(c.getPriceMonthlyInr())
                 .notes(c.getNotes())
@@ -922,18 +922,18 @@ public class TenantService {
                 .build();
     }
 
-    /** Resolves capabilities for a tenant_custom_limits row.
-     *  CUSTOM plan: use the row's own capabilities.
-     *  All other plans: use plan_limits.capabilities so that plan edits auto-apply. */
-    private java.util.List<String> resolveCaps(TenantCustomLimits c) {
-        if ("CUSTOM".equals(c.getPlanCode())) return CapabilityJson.parse(c.getCapabilities(), objectMapper);
+    /** Resolves add-ons for a tenant_custom_limits row.
+     *  CUSTOM plan: use the row's own add-ons.
+     *  All other plans: use plan_limits.add_ons so that plan edits auto-apply. */
+    private java.util.List<String> resolveAddOns(TenantCustomLimits c) {
+        if ("CUSTOM".equals(c.getPlanCode())) return AddOnJson.parse(c.getAddOns(), objectMapper);
         return planLimitsRepository.findById(c.getPlanCode())
-                .map(p -> CapabilityJson.parse(p.getCapabilities(), objectMapper))
+                .map(p -> AddOnJson.parse(p.getAddOns(), objectMapper))
                 .orElse(java.util.List.of());
     }
 
-    /** Single authoritative resolution point used by buildTenantInfo and InternalCapabilityController. */
-    public java.util.List<String> resolveCapabilitiesForTenant(String tenantId) {
+    /** Single authoritative resolution point used by buildTenantInfo and InternalAddOnController. */
+    public java.util.List<String> resolveAddOnsForTenant(String tenantId) {
         Tenant t = tenantRepository.findById(java.util.UUID.fromString(tenantId)).orElse(null);
         if (t == null) return java.util.List.of();
         if (!"ACTIVE".equalsIgnoreCase(t.getStatus())) return java.util.List.of();
@@ -944,11 +944,11 @@ public class TenantService {
         String planCode = t.getPlan().trim().toUpperCase(java.util.Locale.ROOT);
         if ("CUSTOM".equals(planCode)) {
             return customLimitsRepository.findById(tenantId)
-                    .map(c -> CapabilityJson.parse(c.getCapabilities(), objectMapper))
+                    .map(c -> AddOnJson.parse(c.getAddOns(), objectMapper))
                     .orElse(java.util.List.of());
         }
         return planLimitsRepository.findById(planCode)
-                .map(p -> CapabilityJson.parse(p.getCapabilities(), objectMapper))
+                .map(p -> AddOnJson.parse(p.getAddOns(), objectMapper))
                 .orElse(java.util.List.of());
     }
 
@@ -958,7 +958,7 @@ public class TenantService {
         limits.setMaxActiveChits(plan.getMaxActiveChits());
         limits.setMaxMembers(plan.getMaxMembers());
         limits.setMaxStaff(plan.getMaxStaff());
-        limits.setCapabilities(plan.getCapabilities());
+        limits.setAddOns(plan.getAddOns());
         limits.setAllowedChitTypes(plan.getAllowedChitTypes());
         limits.setPriceMonthlyInr(plan.getPriceMonthlyInr());
         limits.setPlanCode(plan.getPlan());

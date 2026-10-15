@@ -83,7 +83,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    void acceptsSupportEmployeeWithExplicitPlatformConsoleCapability() throws Exception {
+    void acceptsSupportEmployeeWithExplicitPlatformConsoleAddOn() throws Exception {
         Claims claims = mock(Claims.class);
         when(tokenProvider.validateToken("hub-saas-token")).thenReturn(true);
         when(tokenProvider.extractScope("hub-saas-token")).thenReturn("HUB_SUPER_ADMIN");
@@ -104,7 +104,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    void rejectsSupportEmployeeWithoutPlatformConsoleCapability() throws Exception {
+    void rejectsSupportEmployeeWithoutPlatformConsoleAddOn() throws Exception {
         Claims claims = mock(Claims.class);
         when(tokenProvider.validateToken("hub-saas-token")).thenReturn(true);
         when(tokenProvider.extractScope("hub-saas-token")).thenReturn("HUB_SUPER_ADMIN");

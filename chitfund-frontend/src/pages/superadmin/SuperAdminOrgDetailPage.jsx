@@ -29,7 +29,7 @@ import {
   superAdminProxyAs,
   lockUser,
   unlockUser,
-  superAdminListCapabilities,
+  superAdminListAddOns,
   superAdminCancelTenant,
   superAdminResumeTenant,
 } from '../../services/api';
@@ -463,7 +463,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
     maxActiveChits: existing?.maxActiveChits ?? 5,
     maxMembers: existing?.maxMembers ?? 100,
     maxStaff: existing?.maxStaff ?? 3,
-    enabledCapabilities: existing?.enabledCapabilities ?? [],
+    enabledAddOns: existing?.enabledAddOns ?? [],
     allowedChitTypes: existing?.allowedChitTypes
       ? existing.allowedChitTypes.split(',').map((s) => s.trim()).filter(t => ['RESERVATION','LOTTERY','AUCTION'].includes(t))
       : ['RESERVATION'],
@@ -477,7 +477,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   const [resetting, setResetting] = useState(false);
   const { data: rawPlans = [] } = useQuery({ queryKey: ['super-plans'], queryFn: superAdminListPlans });
   const plans = rawPlans.filter(p => p.isPublic && p.isActive);
-  const { data: capDefs = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
+  const { data: addOnDefs = [] } = useQuery({ queryKey: ['super-add-ons'], queryFn: superAdminListAddOns });
 
   async function handleReset() {
     if (reason.trim().length < 5) { setError('Enter a reason of at least 5 characters'); return; }
@@ -517,7 +517,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
         maxActiveChits: Number(form.maxActiveChits),
         maxMembers: Number(form.maxMembers),
         maxStaff: Number(form.maxStaff),
-        enabledCapabilities: form.enabledCapabilities,
+        enabledAddOns: form.enabledAddOns,
         allowedChitTypes: form.allowedChitTypes.join(','),
         priceMonthlyInr: Math.round(Number(form.priceMonthlyInr) * 100),
         notes: form.notes || null,
@@ -574,30 +574,30 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
             ))}
           </div>
 
-          {/* Capability toggles */}
-          {capDefs.length > 0 && (
+          {/* AddOn toggles */}
+          {addOnDefs.length > 0 && (
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-2">Capabilities</label>
+              <label className="block text-xs font-medium text-gray-600 mb-2">Add-ons</label>
               <div className="flex flex-wrap gap-2">
-                {capDefs.map((cap) => {
-                  const on = form.enabledCapabilities.includes(cap.key);
+                {addOnDefs.map((addOn) => {
+                  const on = form.enabledAddOns.includes(addOn.key);
                   return (
                     <button
-                      key={cap.key}
+                      key={addOn.key}
                       type="button"
                       onClick={() => setForm(f => {
-                        const isOn = f.enabledCapabilities.includes(cap.key);
+                        const isOn = f.enabledAddOns.includes(addOn.key);
                         return {
                           ...f,
-                          enabledCapabilities: isOn
-                            ? f.enabledCapabilities.filter(k => k !== cap.key)
-                            : [...f.enabledCapabilities, cap.key],
+                          enabledAddOns: isOn
+                            ? f.enabledAddOns.filter(k => k !== addOn.key)
+                            : [...f.enabledAddOns, addOn.key],
                         };
                       })}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${on ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-400 hover:bg-gray-50'}`}
                     >
                       <div className={`w-3 h-3 rounded-full ${on ? 'bg-green-500' : 'bg-gray-300'}`} />
-                      {cap.label}
+                      {addOn.label}
                     </button>
                   );
                 })}

@@ -21,7 +21,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
-class SettlementControllerCapabilityTest {
+class SettlementControllerAddOnTest {
 
     private final SettlementService settlementService = mock(SettlementService.class);
     private final SettlementTransactionService transactionService = mock(SettlementTransactionService.class);
@@ -35,24 +35,24 @@ class SettlementControllerCapabilityTest {
     }
 
     @Test
-    void missingTenantCannotBypassSettlementCapability() {
+    void missingTenantCannotBypassSettlementAddOn() {
         assertEquals(HttpStatus.FORBIDDEN, controller.preview(request()).getStatusCode());
         verifyNoInteractions(settlementService, transactionService, userServiceClient);
     }
 
     @Test
-    void unverifiedCapabilitiesCannotBypassSettlementCapability() {
+    void unverifiedAddOnsCannotBypassSettlementAddOn() {
         TenantContext.set("tenant-a");
-        when(userServiceClient.getTenantCapabilities("tenant-a")).thenReturn(null);
+        when(userServiceClient.getTenantAddOns("tenant-a")).thenReturn(null);
 
         assertEquals(HttpStatus.FORBIDDEN, controller.preview(request()).getStatusCode());
         verifyNoInteractions(settlementService, transactionService);
     }
 
     @Test
-    void capabilityLookupExceptionCannotBypassSettlementCapability() {
+    void addOnLookupExceptionCannotBypassSettlementAddOn() {
         TenantContext.set("tenant-a");
-        when(userServiceClient.getTenantCapabilities("tenant-a"))
+        when(userServiceClient.getTenantAddOns("tenant-a"))
                 .thenThrow(new IllegalStateException("user-service unavailable"));
 
         assertEquals(HttpStatus.FORBIDDEN, controller.preview(request()).getStatusCode());

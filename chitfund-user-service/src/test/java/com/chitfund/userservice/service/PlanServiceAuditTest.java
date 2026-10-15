@@ -2,15 +2,15 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.userservice.client.AuditClient;
-import com.chitfund.userservice.domain.entity.PlanCapabilityDef;
+import com.chitfund.userservice.domain.entity.PlanAddOnDef;
 import com.chitfund.userservice.domain.entity.PlanLimits;
 import com.chitfund.userservice.domain.entity.TenantCustomLimits;
-import com.chitfund.userservice.dto.request.CreateCapabilityDefRequest;
+import com.chitfund.userservice.dto.request.CreateAddOnDefRequest;
 import com.chitfund.userservice.dto.request.CreatePlanRequest;
 import com.chitfund.userservice.dto.request.UpdatePlanRequest;
 import com.chitfund.userservice.dto.request.SetTenantDiscountRequest;
 import com.chitfund.userservice.domain.entity.Tenant;
-import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
+import com.chitfund.userservice.repository.PlanAddOnDefRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
 import com.chitfund.userservice.repository.TenantDiscountRepository;
@@ -41,7 +41,7 @@ import static org.mockito.Mockito.when;
 class PlanServiceAuditTest {
 
     @Mock PlanLimitsRepository planRepo;
-    @Mock PlanCapabilityDefRepository capabilityRepo;
+    @Mock PlanAddOnDefRepository addOnRepo;
     @Mock TenantDiscountRepository discountRepo;
     @Mock TenantCustomLimitsRepository customLimitsRepo;
     @Mock TenantRepository tenantRepository;
@@ -51,36 +51,36 @@ class PlanServiceAuditTest {
 
     @BeforeEach
     void setUp() {
-        service = new PlanService(planRepo, capabilityRepo, discountRepo, customLimitsRepo,
+        service = new PlanService(planRepo, addOnRepo, discountRepo, customLimitsRepo,
                 tenantRepository, userRepository, new ObjectMapper(), auditClient);
     }
 
     @Test
-    void newCapabilityIsOnlyCataloguedAndAuditedNotGrantedToPlans() {
-        CreateCapabilityDefRequest request = new CreateCapabilityDefRequest();
+    void newAddOnIsOnlyCataloguedAndAuditedNotGrantedToPlans() {
+        CreateAddOnDefRequest request = new CreateAddOnDefRequest();
         request.setLabel("Advanced Collections");
-        when(capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()).thenReturn(List.of());
-        when(capabilityRepo.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(addOnRepo.findAllByOrderBySortOrderAscLabelAsc()).thenReturn(List.of());
+        when(addOnRepo.save(any())).thenAnswer(call -> call.getArgument(0));
 
-        var created = service.addCapabilityDef(request, "owner-1");
+        var created = service.createAddOnDef(request, "owner-1");
 
         assertThat(created.getKey()).isEqualTo("advanced_collections");
         assertThat(created.isEnforced()).isFalse();
         verify(planRepo, never()).save(any());
         verify(customLimitsRepo, never()).save(any());
-        verify(auditClient).log(eq("CAPABILITY"), eq("advanced_collections"), eq("CREATED"),
+        verify(auditClient).log(eq("ADD_ON"), eq("advanced_collections"), eq("CREATED"),
                 eq("owner-1"), eq("SUPER_ADMIN"),
                 org.mockito.ArgumentMatchers.isNull(), any(), eq("PLATFORM"));
     }
 
     @Test
-    void cataloguedCapabilityCannotBeAssignedBeforeCodeEnforcesIt() {
+    void cataloguedAddOnCannotBeAssignedBeforeCodeEnforcesIt() {
         CreatePlanRequest request = new CreatePlanRequest();
         request.setPlan("FUTURE");
         request.setDisplayName("Future Plan");
-        request.setEnabledCapabilities(List.of("advanced_collections"));
-        when(capabilityRepo.findAllById(List.of("advanced_collections"))).thenReturn(List.of(
-                PlanCapabilityDef.builder()
+        request.setEnabledAddOns(List.of("advanced_collections"));
+        when(addOnRepo.findAllById(List.of("advanced_collections"))).thenReturn(List.of(
+                PlanAddOnDef.builder()
                         .key("advanced_collections").label("Advanced Collections").build()));
 
         assertThatThrownBy(() -> service.createPlan(request, "owner-1"))
@@ -92,22 +92,22 @@ class PlanServiceAuditTest {
     }
 
     @Test
-    void implementedCapabilityIsReportedAsEnforcedAndCanBeAssigned() {
+    void implementedAddOnIsReportedAsEnforcedAndCanBeAssigned() {
         CreatePlanRequest request = new CreatePlanRequest();
         request.setPlan("CHAT");
         request.setDisplayName("Chat Plan");
-        request.setEnabledCapabilities(List.of("live_chat"));
-        PlanCapabilityDef liveChat = PlanCapabilityDef.builder()
+        request.setEnabledAddOns(List.of("live_chat"));
+        PlanAddOnDef liveChat = PlanAddOnDef.builder()
                 .key("live_chat").label("Live Chat").sortOrder(3).build();
-        when(capabilityRepo.findAllById(List.of("live_chat"))).thenReturn(List.of(liveChat));
+        when(addOnRepo.findAllById(List.of("live_chat"))).thenReturn(List.of(liveChat));
         when(planRepo.save(any())).thenAnswer(call -> call.getArgument(0));
 
-        assertThat(service.createPlan(request, "owner-1").getEnabledCapabilities())
+        assertThat(service.createPlan(request, "owner-1").getEnabledAddOns())
                 .containsExactly("live_chat");
 
-        when(capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()).thenReturn(List.of(liveChat));
-        assertThat(service.getCapabilityDefs()).singleElement()
-                .satisfies(capability -> assertThat(capability.isEnforced()).isTrue());
+        when(addOnRepo.findAllByOrderBySortOrderAscLabelAsc()).thenReturn(List.of(liveChat));
+        assertThat(service.getAddOnDefs()).singleElement()
+                .satisfies(addOn -> assertThat(addOn.isEnforced()).isTrue());
     }
 
     @Test
@@ -124,18 +124,18 @@ class PlanServiceAuditTest {
     }
 
     @Test
-    void assignedCapabilityCannotBeDeletedAndLeftInvisibleButEnabled() {
+    void assignedAddOnCannotBeDeletedAndLeftInvisibleButEnabled() {
         String key = "live_chat";
-        when(capabilityRepo.findById(key)).thenReturn(Optional.of(
-                PlanCapabilityDef.builder().key(key).label("Live Chat").sortOrder(1).build()));
+        when(addOnRepo.findById(key)).thenReturn(Optional.of(
+                PlanAddOnDef.builder().key(key).label("Live Chat").sortOrder(1).build()));
         when(planRepo.findAll()).thenReturn(List.of(
-                PlanLimits.builder().plan("GROWTH").capabilities("[\"live_chat\"]").build()));
+                PlanLimits.builder().plan("GROWTH").addOns("[\"live_chat\"]").build()));
 
-        assertThatThrownBy(() -> service.deleteCapabilityDef(key, "owner-1", "Catalog cleanup"))
+        assertThatThrownBy(() -> service.deleteAddOnDef(key, "owner-1", "Catalog cleanup"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("every standard and custom plan");
 
-        verify(capabilityRepo, never()).delete(any());
+        verify(addOnRepo, never()).delete(any());
         verifyNoInteractions(auditClient);
     }
 
@@ -144,9 +144,9 @@ class PlanServiceAuditTest {
         CreatePlanRequest request = new CreatePlanRequest();
         request.setPlan("FIELD");
         request.setDisplayName("Field Plan");
-        request.setEnabledCapabilities(List.of("live_chat"));
-        when(capabilityRepo.findAllById(List.of("live_chat"))).thenReturn(List.of(
-                PlanCapabilityDef.builder().key("live_chat").label("Live Chat").build()));
+        request.setEnabledAddOns(List.of("live_chat"));
+        when(addOnRepo.findAllById(List.of("live_chat"))).thenReturn(List.of(
+                PlanAddOnDef.builder().key("live_chat").label("Live Chat").build()));
         when(planRepo.save(any())).thenAnswer(call -> call.getArgument(0));
 
         var created = service.createPlan(request, "owner-1");
@@ -158,16 +158,16 @@ class PlanServiceAuditTest {
     }
 
     @Test
-    void unknownCapabilityIsRejectedInsteadOfAccidentallyGranted() {
+    void unknownAddOnIsRejectedInsteadOfAccidentallyGranted() {
         CreatePlanRequest request = new CreatePlanRequest();
         request.setPlan("BROKEN");
         request.setDisplayName("Broken Plan");
-        request.setEnabledCapabilities(List.of("unknown_future_feature"));
-        when(capabilityRepo.findAllById(List.of("unknown_future_feature"))).thenReturn(List.of());
+        request.setEnabledAddOns(List.of("unknown_future_feature"));
+        when(addOnRepo.findAllById(List.of("unknown_future_feature"))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.createPlan(request, "owner-1"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Unknown capability keys");
+                .hasMessageContaining("Unknown add-on keys");
 
         verify(planRepo, never()).save(any());
         verifyNoInteractions(auditClient);
@@ -233,12 +233,12 @@ class PlanServiceAuditTest {
         PlanLimits growth = PlanLimits.builder()
                 .plan("GROWTH").displayName("Growth").isActive(true)
                 .maxActiveChits(5).maxMembers(100).maxStaff(3)
-                .capabilities("[\"live_chat\"]")
+                .addOns("[\"live_chat\"]")
                 .allowedChitTypes("RESERVATION").priceMonthlyInr(39900).build();
         TenantCustomLimits tenantLimits = TenantCustomLimits.builder()
                 .tenantId("tenant-1").planCode("GROWTH")
                 .maxActiveChits(5).maxMembers(100).maxStaff(3)
-                .capabilities("[\"live_chat\"]")
+                .addOns("[\"live_chat\"]")
                 .allowedChitTypes("RESERVATION").priceMonthlyInr(39900).build();
         UpdatePlanRequest request = new UpdatePlanRequest();
         request.setMaxMembers(250);
@@ -287,21 +287,21 @@ class PlanServiceAuditTest {
     }
 
     @Test
-    void unassignedCapabilityDeletionAuditsTheProvidedReason() {
+    void unassignedAddOnDeletionAuditsTheProvidedReason() {
         String key = "advanced_collections";
-        PlanCapabilityDef definition = PlanCapabilityDef.builder()
+        PlanAddOnDef definition = PlanAddOnDef.builder()
                 .key(key).label("Advanced Collections").sortOrder(9).build();
-        when(capabilityRepo.findById(key)).thenReturn(Optional.of(definition));
+        when(addOnRepo.findById(key)).thenReturn(Optional.of(definition));
         when(planRepo.findAll()).thenReturn(List.of());
         when(customLimitsRepo.findAll()).thenReturn(List.of());
 
-        service.deleteCapabilityDef(key, "owner-1", "Remove abandoned capability");
+        service.deleteAddOnDef(key, "owner-1", "Remove abandoned addOn");
 
-        verify(capabilityRepo).delete(definition);
-        verify(auditClient).log(eq("CAPABILITY"), eq(key), eq("DELETED"),
+        verify(addOnRepo).delete(definition);
+        verify(auditClient).log(eq("ADD_ON"), eq(key), eq("DELETED"),
                 eq("owner-1"), eq("SUPER_ADMIN"), any(),
                 org.mockito.ArgumentMatchers.isNull(), eq("PLATFORM"),
-                eq("Remove abandoned capability"));
+                eq("Remove abandoned addOn"));
     }
 
     @Test

@@ -48,7 +48,7 @@ public class OrgConversationController {
             @Valid @RequestBody StartConversationRequest body) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminOrManager(ctx);
-        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
+        if (chatAddOnDenied(ctx.getTenantId())) return chatDenied();
         return ResponseEntity.ok(conversationService.startOrGetConversation(
                 ctx.getTenantId(), ctx.getUserId(), body));
     }
@@ -69,7 +69,7 @@ public class OrgConversationController {
     public ResponseEntity<ConversationResponse> myConversation(HttpServletRequest req) {
         OrgRequestContext ctx = orgCtx(req);
         requireMember(ctx);
-        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (chatAddOnDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return ResponseEntity.ok(conversationService.getOrCreateMemberConversation(
                 ctx.getTenantId(), ctx.getUserId(), ctx.getUserName()));
     }
@@ -105,7 +105,7 @@ public class OrgConversationController {
             @Valid @RequestBody SendChatMessageRequest body) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminManagerOrMember(ctx);
-        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
+        if (chatAddOnDenied(ctx.getTenantId())) return chatDenied();
         boolean isMember = "MEMBER".equals(ctx.getRole());
         return ResponseEntity.ok(conversationService.sendMessage(
                 id, ctx.getTenantId(), ctx.getUserId(), ctx.getUserName(),
@@ -119,7 +119,7 @@ public class OrgConversationController {
             @PathVariable String msgId) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminManagerOrMember(ctx);
-        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (chatAddOnDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         boolean isMember = "MEMBER".equals(ctx.getRole());
         conversationService.softDeleteMessage(id, msgId, ctx.getTenantId(), ctx.getUserId(), isMember);
         return ResponseEntity.noContent().build();
@@ -161,20 +161,20 @@ public class OrgConversationController {
         }
     }
 
-    private boolean chatCapabilityDenied(String tenantId) {
+    private boolean chatAddOnDenied(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return true;
         try {
-            List<String> caps = tenantSupportClient.getCapabilities(tenantId);
-            return caps == null || !caps.contains("live_chat");
+            List<String> addOns = tenantSupportClient.getAddOns(tenantId);
+            return addOns == null || !addOns.contains("live_chat");
         } catch (Exception e) {
-            log.warn("live_chat capability check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
+            log.warn("live_chat add-on check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
             return true;
         }
     }
 
     private static ResponseEntity<Map<String, String>> chatDenied() {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(Map.of("error", "CAPABILITY_REQUIRED",
+                .body(Map.of("error", "ADD_ON_REQUIRED",
                         "message", "Live chat is not included in your current plan."));
     }
 }

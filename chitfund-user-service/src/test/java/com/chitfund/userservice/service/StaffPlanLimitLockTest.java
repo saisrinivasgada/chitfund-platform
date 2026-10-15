@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StaffPlanLimitLockTest {
 
     @Mock PlanLimitsRepository planRepo;
-    @Mock PlanCapabilityDefRepository capabilityRepo;
+    @Mock PlanAddOnDefRepository addOnRepo;
     @Mock TenantDiscountRepository discountRepo;
     @Mock TenantCustomLimitsRepository customLimitsRepo;
     @Mock TenantRepository tenantRepository;

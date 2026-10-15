@@ -30,7 +30,7 @@ test('renders audited activity values and sends exact filter parameters', async 
       actorRole: 'MANAGER',
       source: 'WEB',
       outcome: 'DENIED',
-      reason: 'Capability not included in plan',
+      reason: 'AddOn not included in plan',
       occurredAt: '2026-10-12T08:00:00Z',
       createdAt: '2026-10-12T08:00:01Z',
     },

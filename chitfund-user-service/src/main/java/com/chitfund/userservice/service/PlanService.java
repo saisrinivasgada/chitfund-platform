@@ -2,26 +2,26 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
-import com.chitfund.userservice.domain.entity.PlanCapabilityDef;
+import com.chitfund.userservice.domain.entity.PlanAddOnDef;
 import com.chitfund.userservice.domain.entity.PlanLimits;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.TenantDiscount;
 import com.chitfund.userservice.domain.enums.Role;
-import com.chitfund.userservice.dto.request.CreateCapabilityDefRequest;
+import com.chitfund.userservice.dto.request.CreateAddOnDefRequest;
 import com.chitfund.userservice.dto.request.CreatePlanRequest;
 import com.chitfund.userservice.dto.request.SetTenantDiscountRequest;
 import com.chitfund.userservice.dto.request.UpdatePlanRequest;
-import com.chitfund.userservice.dto.response.CapabilityDefResponse;
-import com.chitfund.userservice.dto.response.CapabilityGateResponse;
+import com.chitfund.userservice.dto.response.AddOnDefResponse;
+import com.chitfund.userservice.dto.response.AddOnGateResponse;
 import com.chitfund.userservice.dto.response.PlanResponse;
 import com.chitfund.userservice.dto.response.TenantDiscountResponse;
-import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
+import com.chitfund.userservice.repository.PlanAddOnDefRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.TenantDiscountRepository;
 import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
 import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.UserRepository;
-import com.chitfund.userservice.util.CapabilityJson;
+import com.chitfund.userservice.util.AddOnJson;
 import com.chitfund.userservice.util.PlanInputValidator;
 import com.chitfund.userservice.client.AuditClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
 public class PlanService {
 
     private final PlanLimitsRepository planRepo;
-    private final PlanCapabilityDefRepository capabilityRepo;
+    private final PlanAddOnDefRepository addOnRepo;
     private final TenantDiscountRepository discountRepo;
     private final TenantCustomLimitsRepository customLimitsRepo;
     private final TenantRepository tenantRepository;
@@ -59,10 +59,10 @@ public class PlanService {
     /**
      * A database definition is only a catalogue entry. It must not become an
      * entitlement until every authoritative server path implements the gate.
-     * Adding a future capability is therefore a code-reviewed change to this
+     * Adding a future add-on is therefore a code-reviewed change to this
      * registry, not a label typed into the Super Admin UI.
      */
-    private static final Set<String> ENFORCED_CAPABILITIES = Set.of(
+    private static final Set<String> ENFORCED_ADD_ONS = Set.of(
             "full_analytics", "priority_support", "live_chat", "settlement");
 
     public void checkStaffLimit(String tenantId) {
@@ -140,14 +140,14 @@ public class PlanService {
     @Transactional
     public PlanResponse createPlan(CreatePlanRequest req, String actorId) {
         String code = req.getPlan().toUpperCase();
-        List<String> caps = req.getEnabledCapabilities() != null
-                ? validateCapabilityKeys(req.getEnabledCapabilities()) : List.of();
+        List<String> addOns = req.getEnabledAddOns() != null
+                ? validateAddOnKeys(req.getEnabledAddOns()) : List.of();
         PlanLimits p = PlanLimits.builder()
                 .plan(code)
                 .displayName(req.getDisplayName())
                 .tagline(req.getTagline())
                 .features(serializeFeatures(req.getFeatures()))
-                .capabilities(serializeFeatures(caps))
+                .addOns(serializeFeatures(addOns))
                 .maxActiveChits(req.getMaxActiveChits())
                 .maxMembers(req.getMaxMembers())
                 .allowedChitTypes(PlanInputValidator.normalizeAllowedChitTypes(
@@ -186,8 +186,8 @@ public class PlanService {
         if (req.getIsActive() != null) p.setActive(req.getIsActive());
         if (req.getDisplayOrder() != null) p.setDisplayOrder(req.getDisplayOrder());
         if (req.getMaxStaff() != null) p.setMaxStaff(req.getMaxStaff());
-        if (req.getEnabledCapabilities() != null)
-            p.setCapabilities(serializeFeatures(validateCapabilityKeys(req.getEnabledCapabilities())));
+        if (req.getEnabledAddOns() != null)
+            p.setAddOns(serializeFeatures(validateAddOnKeys(req.getEnabledAddOns())));
         if (req.getBadges() != null) p.setBadges(req.getBadges().isBlank() ? null : req.getBadges());
         PlanResponse after = toResponse(p);
         if (before.equals(after)) {
@@ -288,54 +288,54 @@ public class PlanService {
         return planRepo.findById(code != null ? code.toUpperCase() : "BASIC");
     }
 
-    // ── Capability definitions ───────────────────────────────────────────────────
+    // ── Add-on definitions ──────────────────────────────────────────────────
 
-    public List<CapabilityDefResponse> getCapabilityDefs() {
-        return capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()
-                .stream().map(this::toCapabilityResponse).toList();
+    public List<AddOnDefResponse> getAddOnDefs() {
+        return addOnRepo.findAllByOrderBySortOrderAscLabelAsc()
+                .stream().map(this::toAddOnResponse).toList();
     }
 
     @Transactional
-    public CapabilityDefResponse addCapabilityDef(CreateCapabilityDefRequest req) {
-        return addCapabilityDef(req, null);
+    public AddOnDefResponse createAddOnDef(CreateAddOnDefRequest req) {
+        return createAddOnDef(req, null);
     }
 
     @Transactional
-    public CapabilityDefResponse addCapabilityDef(CreateCapabilityDefRequest req, String actorId) {
+    public AddOnDefResponse createAddOnDef(CreateAddOnDefRequest req, String actorId) {
         String label = req.getLabel().trim();
-        if (capabilityRepo.existsByLabel(label)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Capability \"" + label + "\" already exists");
+        if (addOnRepo.existsByLabel(label)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Add-on \"" + label + "\" already exists");
         }
         String key = label.toLowerCase().replaceAll("[^a-z0-9]+", "_");
-        if (capabilityRepo.existsById(key)) key = key + "_" + System.currentTimeMillis();
-        int maxOrder = capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()
-                .stream().mapToInt(PlanCapabilityDef::getSortOrder).max().orElse(0);
-        PlanCapabilityDef def = PlanCapabilityDef.builder()
+        if (addOnRepo.existsById(key)) key = key + "_" + System.currentTimeMillis();
+        int maxOrder = addOnRepo.findAllByOrderBySortOrderAscLabelAsc()
+                .stream().mapToInt(PlanAddOnDef::getSortOrder).max().orElse(0);
+        PlanAddOnDef def = PlanAddOnDef.builder()
                 .key(key).label(label).sortOrder(maxOrder + 1).build();
-        CapabilityDefResponse created = toCapabilityResponse(capabilityRepo.save(def));
-        auditClient.log("CAPABILITY", key, "CREATED", actorId, "SUPER_ADMIN",
+        AddOnDefResponse created = toAddOnResponse(addOnRepo.save(def));
+        auditClient.log("ADD_ON", key, "CREATED", actorId, "SUPER_ADMIN",
                 null, created, PLATFORM_AUDIT_TENANT);
         return created;
     }
 
     @Transactional
-    public void deleteCapabilityDef(String key, String actorId, String reason) {
+    public void deleteAddOnDef(String key, String actorId, String reason) {
         String auditReason = requireChangeReason(reason,
-                "A reason is required to delete a capability definition");
-        PlanCapabilityDef definition = capabilityRepo.findById(key)
+                "A reason is required to delete an add-on definition");
+        PlanAddOnDef definition = addOnRepo.findById(key)
                 .orElseThrow(() -> new BusinessException(
-                        ErrorCode.RESOURCE_NOT_FOUND, "Capability not found: " + key));
+                        ErrorCode.RESOURCE_NOT_FOUND, "Add-on not found: " + key));
         boolean assignedToPlan = planRepo.findAll().stream()
-                .anyMatch(plan -> CapabilityJson.parse(plan.getCapabilities(), objectMapper).contains(key));
+                .anyMatch(plan -> AddOnJson.parse(plan.getAddOns(), objectMapper).contains(key));
         boolean assignedToCustomPlan = customLimitsRepo.findAll().stream()
-                .anyMatch(custom -> CapabilityJson.parse(custom.getCapabilities(), objectMapper).contains(key));
+                .anyMatch(custom -> AddOnJson.parse(custom.getAddOns(), objectMapper).contains(key));
         if (assignedToPlan || assignedToCustomPlan) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Remove this capability from every standard and custom plan before deleting it");
+                    "Remove this add-on from every standard and custom plan before deleting it");
         }
-        CapabilityDefResponse before = toCapabilityResponse(definition);
-        capabilityRepo.delete(definition);
-        auditClient.log("CAPABILITY", key, "DELETED", actorId, "SUPER_ADMIN",
+        AddOnDefResponse before = toAddOnResponse(definition);
+        addOnRepo.delete(definition);
+        auditClient.log("ADD_ON", key, "DELETED", actorId, "SUPER_ADMIN",
                 before, null, PLATFORM_AUDIT_TENANT,
                 auditReason);
     }
@@ -349,7 +349,7 @@ public class PlanService {
                 || req.getIsPublic() != null
                 || req.getIsActive() != null
                 || req.getMaxStaff() != null
-                || req.getEnabledCapabilities() != null;
+                || req.getEnabledAddOns() != null;
     }
 
     private static boolean hasEffectiveLimitChange(UpdatePlanRequest req) {
@@ -358,7 +358,7 @@ public class PlanService {
                 || req.getAllowedChitTypes() != null
                 || req.getPriceMonthlyInr() != null
                 || req.getMaxStaff() != null
-                || req.getEnabledCapabilities() != null;
+                || req.getEnabledAddOns() != null;
     }
 
     private static String requireChangeReason(String reason, String message) {
@@ -373,10 +373,10 @@ public class PlanService {
         return reason == null || reason.isBlank() ? null : reason.trim();
     }
 
-    private CapabilityDefResponse toCapabilityResponse(PlanCapabilityDef d) {
-        return CapabilityDefResponse.builder()
+    private AddOnDefResponse toAddOnResponse(PlanAddOnDef d) {
+        return AddOnDefResponse.builder()
                 .key(d.getKey()).label(d.getLabel()).sortOrder(d.getSortOrder())
-                .enforced(ENFORCED_CAPABILITIES.contains(d.getKey()))
+                .enforced(ENFORCED_ADD_ONS.contains(d.getKey()))
                 .build();
     }
 
@@ -387,8 +387,8 @@ public class PlanService {
                 .plan(p.getPlan())
                 .displayName(p.getDisplayName())
                 .tagline(p.getTagline())
-                .features(CapabilityJson.parse(p.getFeatures(), objectMapper))
-                .enabledCapabilities(CapabilityJson.parse(p.getCapabilities(), objectMapper))
+                .features(AddOnJson.parse(p.getFeatures(), objectMapper))
+                .enabledAddOns(AddOnJson.parse(p.getAddOns(), objectMapper))
                 .maxActiveChits(p.getMaxActiveChits())
                 .maxMembers(p.getMaxMembers())
                 .allowedChitTypes(p.getAllowedChitTypes())
@@ -420,15 +420,15 @@ public class PlanService {
         return p.subtract(disc).longValue();
     }
 
-    public List<String> getAllCapabilityKeys() {
-        return capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()
-                .stream().map(PlanCapabilityDef::getKey).toList();
+    public List<String> getAllAddOnKeys() {
+        return addOnRepo.findAllByOrderBySortOrderAscLabelAsc()
+                .stream().map(PlanAddOnDef::getKey).toList();
     }
 
-    public CapabilityGateResponse getCapabilityGate(String capKey, String tenantId) {
-        PlanCapabilityDef def = capabilityRepo.findById(capKey)
+    public AddOnGateResponse getAddOnGate(String addOnKey, String tenantId) {
+        PlanAddOnDef def = addOnRepo.findById(addOnKey)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
-                        "Unknown capability: " + capKey));
+                        "Unknown add-on: " + addOnKey));
 
         long currentPlanPrice = 0;
         if (tenantId != null) {
@@ -444,15 +444,15 @@ public class PlanService {
         List<PlanResponse> upgradePlans = planRepo.findByIsPublicTrueAndIsActiveTrueOrderByDisplayOrderAsc()
                 .stream()
                 .filter(p -> {
-                    boolean hasCapability = CapabilityJson.parse(p.getCapabilities(), objectMapper).contains(capKey);
+                    boolean hasAddOn = AddOnJson.parse(p.getAddOns(), objectMapper).contains(addOnKey);
                     boolean aboveCurrentPrice = p.getPriceMonthlyInr() > threshold || "CUSTOM".equalsIgnoreCase(p.getPlan());
-                    return hasCapability && aboveCurrentPrice;
+                    return hasAddOn && aboveCurrentPrice;
                 })
                 .map(this::toResponse)
                 .toList();
 
-        return CapabilityGateResponse.builder()
-                .capabilityKey(capKey)
+        return AddOnGateResponse.builder()
+                .addOnKey(addOnKey)
                 .name(def.getLabel())
                 .description(def.getDescription())
                 .importance(def.getImportance())
@@ -469,25 +469,25 @@ public class PlanService {
         }
     }
 
-    private List<String> validateCapabilityKeys(List<String> requested) {
+    private List<String> validateAddOnKeys(List<String> requested) {
         List<String> normalized = requested.stream()
                 .filter(java.util.Objects::nonNull)
                 .map(value -> value.trim().toLowerCase(Locale.ROOT))
                 .filter(value -> !value.isBlank())
                 .distinct()
                 .toList();
-        Set<String> known = capabilityRepo.findAllById(normalized).stream()
-                .map(PlanCapabilityDef::getKey).collect(Collectors.toSet());
+        Set<String> known = addOnRepo.findAllById(normalized).stream()
+                .map(PlanAddOnDef::getKey).collect(Collectors.toSet());
         List<String> unknown = normalized.stream().filter(key -> !known.contains(key)).toList();
         if (!unknown.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Unknown capability keys: " + String.join(", ", unknown));
+                    "Unknown add-on keys: " + String.join(", ", unknown));
         }
         List<String> unenforced = normalized.stream()
-                .filter(key -> !ENFORCED_CAPABILITIES.contains(key)).toList();
+                .filter(key -> !ENFORCED_ADD_ONS.contains(key)).toList();
         if (!unenforced.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Capabilities are catalogued but not implemented for enforcement: "
+                    "Add-ons are catalogued but not implemented for enforcement: "
                             + String.join(", ", unenforced));
         }
         return normalized;
@@ -500,7 +500,7 @@ public class PlanService {
             limits.setMaxActiveChits(plan.getMaxActiveChits());
             limits.setMaxMembers(plan.getMaxMembers());
             limits.setMaxStaff(plan.getMaxStaff());
-            limits.setCapabilities(plan.getCapabilities());
+            limits.setAddOns(plan.getAddOns());
             limits.setAllowedChitTypes(plan.getAllowedChitTypes());
             limits.setPriceMonthlyInr(plan.getPriceMonthlyInr());
             var after = limitSnapshot(limits);
@@ -520,7 +520,7 @@ public class PlanService {
         snapshot.put("maxActiveChits", limits.getMaxActiveChits());
         snapshot.put("maxMembers", limits.getMaxMembers());
         snapshot.put("maxStaff", limits.getMaxStaff());
-        snapshot.put("capabilities", limits.getCapabilities());
+        snapshot.put("addOns", limits.getAddOns());
         snapshot.put("allowedChitTypes", limits.getAllowedChitTypes());
         snapshot.put("priceMonthlyInr", limits.getPriceMonthlyInr());
         return snapshot;

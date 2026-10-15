@@ -66,7 +66,7 @@ class BillingEffectiveLimitsTest {
         PlanLimits growth = PlanLimits.builder()
                 .plan("GROWTH").displayName("Growth").isActive(true)
                 .maxActiveChits(20).maxMembers(500).maxStaff(10)
-                .capabilities("[\"live_chat\"]")
+                .addOns("[\"live_chat\"]")
                 .allowedChitTypes("RESERVATION,AUCTION")
                 .priceMonthlyInr(49900).build();
         TenantCustomLimits existing = TenantCustomLimits.builder()

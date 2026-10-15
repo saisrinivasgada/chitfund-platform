@@ -440,17 +440,17 @@ export const superAdminDeletePlanDef = async (code, reason) => {
   await api.delete(`/super-admin/plans/${code}`, { headers: { 'X-Change-Reason': reason } });
 };
 
-// ─── Capability definitions ────────────────────────────────────────────────
-export const superAdminListCapabilities = async () => {
-  const res = await api.get('/super-admin/capabilities');
+// ─── Add-on definitions ───────────────────────────────────────────────
+export const superAdminListAddOns = async () => {
+  const res = await api.get('/super-admin/add-ons');
   return res.data.data ?? [];
 };
-export const superAdminAddCapability = async (label) => {
-  const res = await api.post('/super-admin/capabilities', { label });
+export const superAdminCreateAddOn = async (label) => {
+  const res = await api.post('/super-admin/add-ons', { label });
   return res.data.data;
 };
-export const superAdminDeleteCapability = async (key, reason) => {
-  await api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
+export const superAdminDeleteAddOn = async (key, reason) => {
+  await api.delete(`/super-admin/add-ons/${key}`, { headers: { 'X-Change-Reason': reason } });
 };
 
 // ─── Per-org discount ──────────────────────────────────────────────────────

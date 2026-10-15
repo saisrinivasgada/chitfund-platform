@@ -132,9 +132,9 @@ api.interceptors.response.use(
     if (err.response?.data?.errorCode === 'PLAN_002') {
       useUIStore.getState().showPlanExpired();
     }
-    if (err.response?.data?.errorCode === 'CAPABILITY_REQUIRED') {
-      const key = err.response?.data?.capabilityKey ?? err.response?.data?.data?.capabilityKey;
-      if (key) useUIStore.getState().showCapabilityGate(key);
+    if (err.response?.data?.errorCode === 'ADD_ON_REQUIRED') {
+      const key = err.response?.data?.addOnKey ?? err.response?.data?.data?.addOnKey;
+      if (key) useUIStore.getState().showAddOnGate(key);
     }
     return Promise.reject(err);
   }
@@ -819,8 +819,8 @@ export const getMyTenantLimits = async () => {
 export const getPublicPlans = async () => {
   try { return unwrapList(await api.get('/plans/public')); } catch { return []; }
 };
-export const getCapabilityGateInfo = async (key: string): Promise<any> =>
-  unwrapObj(await api.get('/plans/capability-gate', { params: { key } }));
+export const getAddOnGateInfo = async (key: string): Promise<any> =>
+  unwrapObj(await api.get('/plans/add-on-gate', { params: { key } }));
 export const requestRenewal = async () =>
   unwrapObj(await api.post('/plans/renewal-request'));
 export const requestPlanUpgrade = async (toPlan: string) =>
@@ -898,12 +898,12 @@ export const superAdminCreatePlan = async (body: any) =>
 export const superAdminUpdatePlan2 = async (code: string, body: any, reason?: string) =>
   unwrapObj(await api.put(`/super-admin/plans/${code}`, body,
     reason ? { headers: { 'X-Change-Reason': reason } } : undefined));
-export const superAdminListCapabilities = async () =>
-  unwrapList(await api.get('/super-admin/capabilities'));
-export const superAdminAddCapability = async (label: string) =>
-  unwrapObj(await api.post('/super-admin/capabilities', { label }));
-export const superAdminDeleteCapability = async (key: string, reason: string) =>
-  api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
+export const superAdminListAddOns = async () =>
+  unwrapList(await api.get('/super-admin/add-ons'));
+export const superAdminCreateAddOn = async (label: string) =>
+  unwrapObj(await api.post('/super-admin/add-ons', { label }));
+export const superAdminDeleteAddOn = async (key: string, reason: string) =>
+  api.delete(`/super-admin/add-ons/${key}`, { headers: { 'X-Change-Reason': reason } });
 // SA Billing
 export const billingListPayments = async (params: any = {}) =>
   unwrapList(await api.get('/super-admin/billing/payments', { params }));

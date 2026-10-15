@@ -36,7 +36,7 @@ public class GroupChatController {
             @Valid @RequestBody CreateGroupRequest body) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminOrManager(ctx);
-        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
+        if (chatAddOnDenied(ctx.getTenantId())) return chatDenied();
         String name = ctx.getUserName() != null ? ctx.getUserName() : ctx.getUserId();
         ChatGroupResponse group = groupChatService.createGroup(
                 ctx.getTenantId(), ctx.getUserId(), name, ctx.getRole(), body);
@@ -66,7 +66,7 @@ public class GroupChatController {
             @PathVariable String id,
             @Valid @RequestBody AddGroupMemberRequest body) {
         OrgRequestContext ctx = orgCtx(req);
-        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (chatAddOnDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(groupChatService.addMember(id, ctx.getTenantId(), ctx.getUserId(), ctx.getRole(), body));
     }
@@ -77,7 +77,7 @@ public class GroupChatController {
             @PathVariable String id,
             @PathVariable String userId) {
         OrgRequestContext ctx = orgCtx(req);
-        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (chatAddOnDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         groupChatService.removeMember(id, ctx.getTenantId(), userId, ctx.getUserId(), ctx.getRole());
         return ResponseEntity.noContent().build();
     }
@@ -107,7 +107,7 @@ public class GroupChatController {
             @PathVariable String id,
             @Valid @RequestBody SendGroupMessageRequest body) {
         OrgRequestContext ctx = orgCtx(req);
-        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
+        if (chatAddOnDenied(ctx.getTenantId())) return chatDenied();
         String name = ctx.getUserName() != null ? ctx.getUserName() : ctx.getUserId();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(groupChatService.sendMessage(
@@ -120,7 +120,7 @@ public class GroupChatController {
             @PathVariable String id,
             @PathVariable String msgId) {
         OrgRequestContext ctx = orgCtx(req);
-        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (chatAddOnDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         groupChatService.softDeleteMessage(id, msgId, ctx.getTenantId(), ctx.getUserId());
         return ResponseEntity.noContent().build();
     }
@@ -140,20 +140,20 @@ public class GroupChatController {
     }
 
     /** Default deny: live chat is allowed only when user-service proves entitlement. */
-    private boolean chatCapabilityDenied(String tenantId) {
+    private boolean chatAddOnDenied(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return true;
         try {
-            List<String> caps = tenantSupportClient.getCapabilities(tenantId);
-            return caps == null || !caps.contains("live_chat");
+            List<String> addOns = tenantSupportClient.getAddOns(tenantId);
+            return addOns == null || !addOns.contains("live_chat");
         } catch (Exception e) {
-            log.warn("live_chat capability check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
+            log.warn("live_chat add-on check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
             return true;
         }
     }
 
     private static ResponseEntity<Map<String, String>> chatDenied() {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(Map.of("error", "CAPABILITY_REQUIRED",
+                .body(Map.of("error", "ADD_ON_REQUIRED",
                         "message", "Live chat is not included in your current plan."));
     }
 }

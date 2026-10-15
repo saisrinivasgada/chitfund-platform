@@ -5,9 +5,9 @@ import {
   superAdminCreatePlanDef,
   superAdminUpdatePlanDef,
   superAdminDeletePlanDef,
-  superAdminListCapabilities,
-  superAdminAddCapability,
-  superAdminDeleteCapability,
+  superAdminListAddOns,
+  superAdminCreateAddOn,
+  superAdminDeleteAddOn,
 } from '../../services/api';
 import {
   Plus, Edit2, Trash2, X, RefreshCw, Tag,
@@ -28,7 +28,7 @@ function StaffLabel({ max }) {
   return <span className="text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">{max} staff</span>;
 }
 
-function CapBadge({ on, label, icon: Icon }) {
+function AddOnBadge({ on, label, icon: Icon }) {
   if (!on) return null;
   return (
     <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
@@ -190,7 +190,7 @@ function PlanPreviewModal({ plans, onClose }) {
   );
 }
 
-// Capability keys that are also enforced by the backend (shown as "(enforced)" hint)
+// Add-on keys that are also enforced by the backend (shown as "(enforced)" hint)
 const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support', 'live_chat', 'settlement']);
 
 function PlanModal({ plan, onSave, onClose }) {
@@ -200,7 +200,7 @@ function PlanModal({ plan, onSave, onClose }) {
     displayName:            plan?.displayName ?? '',
     tagline:                plan?.tagline ?? '',
     featuresText:           (plan?.features ?? []).join('\n'),
-    enabledCapabilityKeys:  plan?.enabledCapabilities ?? [],
+    enabledAddOnKeys:  plan?.enabledAddOns ?? [],
     priceRupees:            plan?.priceMonthlyInr != null ? String(plan.priceMonthlyInr / 100) : '0',
     globalDiscountPct:      plan?.globalDiscountPct != null ? String(plan.globalDiscountPct) : '',
     maxActiveChits:         plan?.maxActiveChits != null ? String(plan.maxActiveChits) : '1',
@@ -237,66 +237,66 @@ function PlanModal({ plan, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
-  const [newCapLabel, setNewCapLabel] = useState('');
-  const [addingCap, setAddingCap] = useState(false);
-  const [showAddCap, setShowAddCap] = useState(false);
+  const [newAddOnLabel, setNewAddOnLabel] = useState('');
+  const [addingAddOn, setAddingAddOn] = useState(false);
+  const [showAddOnForm, setShowAddOnForm] = useState(false);
   const queryClient = useQueryClient();
-  const { data: capDefs = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
+  const { data: addOnDefs = [] } = useQuery({ queryKey: ['super-add-ons'], queryFn: superAdminListAddOns });
 
   const isLive = isEdit && plan.isPublic && plan.isActive;
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
-  function toggleCapability(label, checked, key) {
+  function toggleAddOn(label, checked, key) {
     setForm(p => {
       const lines = p.featuresText.split('\n').map(s => s.trim()).filter(Boolean);
-      const capLabelSet = new Set(capDefs.map(c => c.label));
-      const nonCapFeatures = lines.filter(l => !capLabelSet.has(l));
-      const checkedCapLabels = lines.filter(l => capLabelSet.has(l));
-      const newCheckedCapLabels = checked
-        ? [...new Set([...checkedCapLabels, label])]
-        : checkedCapLabels.filter(l => l !== label);
-      // Keep caps in sort_order defined by capDefs
-      const sortedCaps = capDefs.filter(c => newCheckedCapLabels.includes(c.label)).map(c => c.label);
+      const addOnLabelSet = new Set(addOnDefs.map(c => c.label));
+      const nonAddOnFeatures = lines.filter(l => !addOnLabelSet.has(l));
+      const checkedAddOnLabels = lines.filter(l => addOnLabelSet.has(l));
+      const newCheckedAddOnLabels = checked
+        ? [...new Set([...checkedAddOnLabels, label])]
+        : checkedAddOnLabels.filter(l => l !== label);
+      // Keep add-ons in sort_order defined by addOnDefs
+      const sortedAddOns = addOnDefs.filter(c => newCheckedAddOnLabels.includes(c.label)).map(c => c.label);
 
-      // Update enforcement keys (the capability key, not the display label)
+      // Update enforcement keys (the add-on key, not the display label)
       const newKeys = key
         ? checked
-          ? [...new Set([...p.enabledCapabilityKeys, key])]
-          : p.enabledCapabilityKeys.filter(k => k !== key)
-        : p.enabledCapabilityKeys;
+          ? [...new Set([...p.enabledAddOnKeys, key])]
+          : p.enabledAddOnKeys.filter(k => k !== key)
+        : p.enabledAddOnKeys;
 
       return {
         ...p,
-        featuresText: [...nonCapFeatures, ...sortedCaps].join('\n'),
-        enabledCapabilityKeys: newKeys,
+        featuresText: [...nonAddOnFeatures, ...sortedAddOns].join('\n'),
+        enabledAddOnKeys: newKeys,
       };
     });
   }
 
-  async function handleAddCapability() {
-    const label = newCapLabel.trim();
+  async function handleCreateAddOn() {
+    const label = newAddOnLabel.trim();
     if (!label) return;
-    setAddingCap(true);
+    setAddingAddOn(true);
     try {
-      const created = await superAdminAddCapability(label);
-      queryClient.setQueryData(['super-capabilities'], (prev = []) => [...prev, created]);
-      setNewCapLabel('');
-      setShowAddCap(false);
+      const created = await superAdminCreateAddOn(label);
+      queryClient.setQueryData(['super-add-ons'], (prev = []) => [...prev, created]);
+      setNewAddOnLabel('');
+      setShowAddOnForm(false);
     } catch (err) {
-      setError(err.response?.data?.message ?? 'Failed to add capability');
+      setError(err.response?.data?.message ?? 'Failed to add add-on');
     } finally {
-      setAddingCap(false);
+      setAddingAddOn(false);
     }
   }
 
-  async function handleDeleteCapability(key, label) {
-    if (!window.confirm(`Remove capability "${label}" from the master list? It will disappear from all plan edit pages (existing features text is not changed).`)) return;
-    const reason = window.prompt('Why is this capability being removed? (minimum 5 characters)');
+  async function handleDeleteAddOn(key, label) {
+    if (!window.confirm(`Remove add-on "${label}" from the master list? It will disappear from all plan edit pages (existing features text is not changed).`)) return;
+    const reason = window.prompt('Why is this add-on being removed? (minimum 5 characters)');
     if (!reason || reason.trim().length < 5) { setError('A reason of at least 5 characters is required'); return; }
     try {
-      await superAdminDeleteCapability(key, reason.trim());
-      queryClient.setQueryData(['super-capabilities'], (prev = []) => prev.filter(c => c.key !== key));
-    } catch { setError('Failed to remove capability'); }
+      await superAdminDeleteAddOn(key, reason.trim());
+      queryClient.setQueryData(['super-add-ons'], (prev = []) => prev.filter(c => c.key !== key));
+    } catch { setError('Failed to remove add-on'); }
   }
 
   async function handleSave() {
@@ -314,7 +314,7 @@ function PlanModal({ plan, onSave, onClose }) {
         displayName:         form.displayName,
         tagline:             form.tagline || null,
         features,
-        enabledCapabilities: form.enabledCapabilityKeys,
+        enabledAddOns: form.enabledAddOnKeys,
         priceMonthlyInr:     priceInPaise,
         globalDiscountPct:   form.globalDiscountPct ? parseFloat(form.globalDiscountPct) : null,
         badges:              badges.filter(b => b.text.trim()).length ? JSON.stringify(badges.filter(b => b.text.trim())) : null,
@@ -452,48 +452,48 @@ function PlanModal({ plan, onSave, onClose }) {
 
           <div className="bg-gray-50 rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-gray-600">Capabilities</p>
-              <button type="button" onClick={() => setShowAddCap(v => !v)}
+              <p className="text-xs font-semibold text-gray-600">Add-ons</p>
+              <button type="button" onClick={() => setShowAddOnForm(v => !v)}
                 className="text-xs text-[#1E3A5F] font-semibold hover:underline cursor-pointer">
-                + Add capability
+                + Add add-on
               </button>
             </div>
-            {showAddCap && (
+            {showAddOnForm && (
               <div className="flex gap-2 mb-2">
                 <input
                   className={`${INPUT} flex-1`}
                   placeholder="e.g. SMS notifications"
-                  value={newCapLabel}
-                  onChange={e => setNewCapLabel(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddCapability()}
+                  value={newAddOnLabel}
+                  onChange={e => setNewAddOnLabel(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleCreateAddOn()}
                   autoFocus
                 />
-                <button type="button" onClick={handleAddCapability} disabled={addingCap || !newCapLabel.trim()}
+                <button type="button" onClick={handleCreateAddOn} disabled={addingAddOn || !newAddOnLabel.trim()}
                   className="px-3 py-2 rounded-xl text-white text-xs font-semibold disabled:opacity-50 cursor-pointer"
                   style={{ backgroundColor: '#1E3A5F' }}>
-                  {addingCap ? '…' : 'Add'}
+                  {addingAddOn ? '…' : 'Add'}
                 </button>
               </div>
             )}
-            {capDefs.length === 0 && <p className="text-xs text-gray-400 italic">No capabilities defined yet — click "+ Add capability"</p>}
-            {capDefs.map(cap => (
-              <div key={cap.key} className="flex items-center justify-between group">
-                <label className={`flex items-center gap-3 flex-1 ${cap.enforced === false && !form.enabledCapabilityKeys.includes(cap.key) ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+            {addOnDefs.length === 0 && <p className="text-xs text-gray-400 italic">No add-ons defined yet — click "+ Add add-on"</p>}
+            {addOnDefs.map(addOn => (
+              <div key={addOn.key} className="flex items-center justify-between group">
+                <label className={`flex items-center gap-3 flex-1 ${addOn.enforced === false && !form.enabledAddOnKeys.includes(addOn.key) ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                   <input type="checkbox"
-                    checked={form.enabledCapabilityKeys.includes(cap.key)}
-                    disabled={cap.enforced === false && !form.enabledCapabilityKeys.includes(cap.key)}
-                    onChange={e => toggleCapability(cap.label, e.target.checked, cap.key)}
+                    checked={form.enabledAddOnKeys.includes(addOn.key)}
+                    disabled={addOn.enforced === false && !form.enabledAddOnKeys.includes(addOn.key)}
+                    onChange={e => toggleAddOn(addOn.label, e.target.checked, addOn.key)}
                     className="rounded accent-[#1E3A5F]" />
-                  <span className="text-sm text-gray-700">{cap.label}</span>
-                  {(cap.enforced ?? ENFORCED_KEYS.has(cap.key)) ? (
+                  <span className="text-sm text-gray-700">{addOn.label}</span>
+                  {(addOn.enforced ?? ENFORCED_KEYS.has(addOn.key)) ? (
                     <span className="text-xs text-blue-500">(enforced)</span>
                   ) : (
                     <span className="text-xs text-amber-600">
-                      {form.enabledCapabilityKeys.includes(cap.key) ? '(not enforced · remove before saving)' : '(planned · not assignable yet)'}
+                      {form.enabledAddOnKeys.includes(addOn.key) ? '(not enforced · remove before saving)' : '(planned · not assignable yet)'}
                     </span>
                   )}
                 </label>
-                <button type="button" onClick={() => handleDeleteCapability(cap.key, cap.label)}
+                <button type="button" onClick={() => handleDeleteAddOn(addOn.key, addOn.label)}
                   title="Remove from master list"
                   className="text-gray-300 hover:text-red-500 cursor-pointer transition-colors flex-shrink-0">
                   <Trash2 size={13} />
@@ -512,7 +512,7 @@ function PlanModal({ plan, onSave, onClose }) {
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason for change <span className="text-red-400">*</span></label>
               <textarea className={`${INPUT} resize-none`} rows={2} value={form.changeReason}
                 onChange={e => set('changeReason', e.target.value)}
-                placeholder="Explain why limits, pricing or capabilities are changing" />
+                placeholder="Explain why limits, pricing or add-ons are changing" />
             </div>
           )}
 
@@ -697,7 +697,7 @@ export default function SuperAdminPlansPage() {
                     <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Plan</th>
                     <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Price</th>
                     <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Limits</th>
-                    <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Capabilities</th>
+                    <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Add-ons</th>
                     <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Status</th>
                     <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide w-52">Actions</th>
                   </tr>
@@ -758,12 +758,12 @@ export default function SuperAdminPlansPage() {
                             </div>
                           </div>
                         </td>
-                        {/* Capabilities */}
+                        {/* AddOns */}
                         <td className="px-5 py-4">
                           <div className="flex flex-col gap-1.5">
                             <StaffLabel max={plan.maxStaff} />
-                            <CapBadge on={plan.enabledCapabilities?.includes('full_analytics')} label="Analytics" icon={BarChart2} />
-                            <CapBadge on={plan.enabledCapabilities?.includes('priority_support')} label="Priority support" icon={HeadphonesIcon} />
+                            <AddOnBadge on={plan.enabledAddOns?.includes('full_analytics')} label="Analytics" icon={BarChart2} />
+                            <AddOnBadge on={plan.enabledAddOns?.includes('priority_support')} label="Priority support" icon={HeadphonesIcon} />
                           </div>
                         </td>
                         {/* Status — fixed: isActive === false (not falsy) means inactive */}

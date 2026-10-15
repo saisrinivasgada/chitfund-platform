@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useUIStore } from '../store/uiStore';
 import { useAuthStore } from '../store/authStore';
-import { getCapabilityGateInfo } from '../services/api';
+import { getAddOnGateInfo } from '../services/api';
 import { C } from './ui';
 
 function fmtPaise(p: number) {
@@ -11,16 +11,16 @@ function fmtPaise(p: number) {
   return '₹' + (p / 100).toLocaleString('en-IN');
 }
 
-export default function CapabilityGateModal() {
-  const { capabilityGateKey, hideCapabilityGate } = useUIStore();
+export default function AddOnGateModal() {
+  const { addOnGateKey, hideAddOnGate } = useUIStore();
   const role = useAuthStore((state) => state.user?.role);
   const canManagePlan = role === 'ADMIN';
   const router = useRouter();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['capability-gate', capabilityGateKey],
-    queryFn: () => getCapabilityGateInfo(capabilityGateKey!),
-    enabled: !!capabilityGateKey,
+    queryKey: ['add-on-gate', addOnGateKey],
+    queryFn: () => getAddOnGateInfo(addOnGateKey!),
+    enabled: !!addOnGateKey,
     staleTime: 300_000,
   });
 
@@ -28,14 +28,14 @@ export default function CapabilityGateModal() {
 
   return (
     <Modal
-      visible={!!capabilityGateKey}
+      visible={!!addOnGateKey}
       transparent
       animationType="slide"
-      onRequestClose={hideCapabilityGate}
+      onRequestClose={hideAddOnGate}
     >
       <Pressable
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}
-        onPress={hideCapabilityGate}
+        onPress={hideAddOnGate}
       >
         <Pressable
           style={{
@@ -125,7 +125,7 @@ export default function CapabilityGateModal() {
               {canManagePlan ? (
                 <TouchableOpacity
                   onPress={() => {
-                    hideCapabilityGate();
+                    hideAddOnGate();
                     router.push('/(app)/(admin)/billing');
                   }}
                   style={{
@@ -142,7 +142,7 @@ export default function CapabilityGateModal() {
                   </Text>
                 </View>
               )}
-              <TouchableOpacity onPress={hideCapabilityGate} style={{ paddingVertical: 12, alignItems: 'center' }}>
+              <TouchableOpacity onPress={hideAddOnGate} style={{ paddingVertical: 12, alignItems: 'center' }}>
                 <Text style={{ fontSize: 14, color: C.gray400 }}>Maybe later</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -156,7 +156,7 @@ export default function CapabilityGateModal() {
               </Text>
               {canManagePlan ? (
                 <TouchableOpacity
-                  onPress={() => { hideCapabilityGate(); router.push('/(app)/(admin)/billing'); }}
+                  onPress={() => { hideAddOnGate(); router.push('/(app)/(admin)/billing'); }}
                   style={{ backgroundColor: C.gold, borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
                 >
                   <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>View Plans</Text>
@@ -166,7 +166,7 @@ export default function CapabilityGateModal() {
                   Ask your organization admin to review the plan options.
                 </Text>
               )}
-              <TouchableOpacity onPress={hideCapabilityGate} style={{ paddingVertical: 12, alignItems: 'center' }}>
+              <TouchableOpacity onPress={hideAddOnGate} style={{ paddingVertical: 12, alignItems: 'center' }}>
                 <Text style={{ fontSize: 14, color: C.gray400 }}>Maybe later</Text>
               </TouchableOpacity>
             </View>

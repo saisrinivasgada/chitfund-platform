@@ -199,7 +199,7 @@ class AuthServiceTest {
     }
 
     @Test
-    void tenantSelectionRevalidatesStatusAndCapabilitiesBeforeIssuingScopedToken() {
+    void tenantSelectionRevalidatesStatusAndAddOnsBeforeIssuingScopedToken() {
         UUID userId = UUID.randomUUID();
         String tenantId = UUID.randomUUID().toString();
         User user = User.builder().id(userId).username("admin.one").role(Role.ADMIN).build();

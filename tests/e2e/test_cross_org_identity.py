@@ -37,16 +37,16 @@ def _seed_tenant_and_admin(db, tenant_id: str, label: str) -> str:
     db.query(
         "chitfund_user",
         """INSERT INTO tenant_custom_limits
-           (tenant_id,max_active_chits,max_members,max_staff,capabilities,
+           (tenant_id,max_active_chits,max_members,max_staff,add_ons,
             allowed_chit_types,price_monthly_inr,notes,created_at,updated_at,plan_code)
-           SELECT %s,max_active_chits,max_members,max_staff,capabilities,
+           SELECT %s,max_active_chits,max_members,max_staff,add_ons,
                   allowed_chit_types,price_monthly_inr,NULL,
                   UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),plan
            FROM plan_limits WHERE plan='GROWTH'
            ON DUPLICATE KEY UPDATE
              max_active_chits=VALUES(max_active_chits),
              max_members=VALUES(max_members), max_staff=VALUES(max_staff),
-             capabilities=VALUES(capabilities),
+             add_ons=VALUES(add_ons),
              allowed_chit_types=VALUES(allowed_chit_types),
              price_monthly_inr=VALUES(price_monthly_inr), plan_code=VALUES(plan_code),
              updated_at=UTC_TIMESTAMP(6)""",

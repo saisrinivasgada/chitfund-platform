@@ -587,7 +587,7 @@ public class BillingService {
         limits.setMaxActiveChits(plan.getMaxActiveChits());
         limits.setMaxMembers(plan.getMaxMembers());
         limits.setMaxStaff(plan.getMaxStaff());
-        limits.setCapabilities(plan.getCapabilities());
+        limits.setAddOns(plan.getAddOns());
         limits.setAllowedChitTypes(plan.getAllowedChitTypes());
         limits.setPriceMonthlyInr(plan.getPriceMonthlyInr());
         limits.setPlanCode(plan.getPlan());

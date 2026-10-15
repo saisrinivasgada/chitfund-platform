@@ -3,7 +3,7 @@ import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert, TextIn
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { superAdminListPlans, superAdminCreatePlan, superAdminUpdatePlan2, superAdminListCapabilities, superAdminAddCapability, superAdminDeleteCapability } from '../../../services/api';
+import { superAdminListPlans, superAdminCreatePlan, superAdminUpdatePlan2, superAdminListAddOns, superAdminCreateAddOn, superAdminDeleteAddOn } from '../../../services/api';
 import { C } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import ReasonModal from '../../../components/superadmin/ReasonModal';
@@ -33,43 +33,43 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const [maxChits,    setMaxChits]    = useState(String(plan?.maxActiveChits ?? 1));
   const [maxStaff,    setMaxStaff]    = useState(String(plan?.maxStaff ?? 0));
   const [featuresStr,         setFeaturesStr]         = useState((plan?.features ?? []).join('\n'));
-  const [enabledCapabilities, setEnabledCapabilities] = useState<string[]>(plan?.enabledCapabilities ?? []);
+  const [enabledAddOns, setEnabledAddOns] = useState<string[]>(plan?.enabledAddOns ?? []);
   const [isActive,            setIsActive]            = useState<boolean>(plan?.isActive ?? true);
-  const [newCapLabel, setNewCapLabel] = useState('');
-  const [showAddCap, setShowAddCap] = useState(false);
-  const [addingCap, setAddingCap] = useState(false);
+  const [newAddOnLabel, setNewAddOnLabel] = useState('');
+  const [showAddOnForm, setShowAddOnForm] = useState(false);
+  const [addingAddOn, setAddingAddOn] = useState(false);
   const [changeReason, setChangeReason] = useState('');
 
   const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support', 'live_chat', 'settlement']);
 
   const qc = useQueryClient();
-  const { data: capDefsQuery = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
-  const capDefs = capDefsQuery as any[];
+  const { data: addOnDefsQuery = [] } = useQuery({ queryKey: ['super-add-ons'], queryFn: superAdminListAddOns });
+  const addOnDefs = addOnDefsQuery as any[];
 
 
-  function toggleCapability(label: string, checked: boolean, key?: string) {
+  function toggleAddOn(label: string, checked: boolean, key?: string) {
     const lines = featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean);
     const without = lines.filter((l: string) => l !== label);
     setFeaturesStr(checked ? [...without, label].join('\n') : without.join('\n'));
     if (key) {
-      setEnabledCapabilities(prev =>
+      setEnabledAddOns(prev =>
         checked ? [...new Set([...prev, key])] : prev.filter(k => k !== key)
       );
     }
   }
 
-  async function handleAddCapability() {
-    const label = newCapLabel.trim();
+  async function handleCreateAddOn() {
+    const label = newAddOnLabel.trim();
     if (!label) return;
-    setAddingCap(true);
+    setAddingAddOn(true);
     try {
-      const created = await superAdminAddCapability(label);
-      qc.setQueryData(['super-capabilities'], (prev: any[] = []) => [...prev, created]);
-      setNewCapLabel('');
-      setShowAddCap(false);
+      const created = await superAdminCreateAddOn(label);
+      qc.setQueryData(['super-add-ons'], (prev: any[] = []) => [...prev, created]);
+      setNewAddOnLabel('');
+      setShowAddOnForm(false);
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.message ?? 'Failed to add capability');
-    } finally { setAddingCap(false); }
+      Alert.alert('Error', e.response?.data?.message ?? 'Failed to add add-on');
+    } finally { setAddingAddOn(false); }
   }
 
   const mut = useMutation({
@@ -84,7 +84,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
         maxMembers: Number(maxMembers),
         maxStaff: Number(maxStaff),
         features: featuresStr.split('\n').map((f: string) => f.trim()).filter(Boolean),
-        enabledCapabilities,
+        enabledAddOns,
         isActive,
       };
       return isEdit
@@ -179,42 +179,42 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.8 }}>CAPABILITIES</Text>
-            <TouchableOpacity onPress={() => setShowAddCap(v => !v)}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.8 }}>ADD-ONS</Text>
+            <TouchableOpacity onPress={() => setShowAddOnForm(v => !v)}>
               <Text style={{ fontSize: 12, color: C.navy, fontWeight: '700' }}>+ Add</Text>
             </TouchableOpacity>
           </View>
 
-          {showAddCap && (
+          {showAddOnForm && (
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TextInput value={newCapLabel} onChangeText={setNewCapLabel}
+              <TextInput value={newAddOnLabel} onChangeText={setNewAddOnLabel}
                 placeholder="e.g. SMS notifications" autoFocus
                 style={{ flex: 1, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 13, color: C.gray900 }} />
-              <TouchableOpacity onPress={handleAddCapability} disabled={addingCap || !newCapLabel.trim()}
-                style={{ backgroundColor: C.navy, borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center', opacity: addingCap || !newCapLabel.trim() ? 0.5 : 1 }}>
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>{addingCap ? '…' : 'Add'}</Text>
+              <TouchableOpacity onPress={handleCreateAddOn} disabled={addingAddOn || !newAddOnLabel.trim()}
+                style={{ backgroundColor: C.navy, borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center', opacity: addingAddOn || !newAddOnLabel.trim() ? 0.5 : 1 }}>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>{addingAddOn ? '…' : 'Add'}</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {capDefs.length === 0 && (
-            <Text style={{ fontSize: 12, color: C.gray400, fontStyle: 'italic' }}>No capabilities yet — tap + Add</Text>
+          {addOnDefs.length === 0 && (
+            <Text style={{ fontSize: 12, color: C.gray400, fontStyle: 'italic' }}>No add-ons yet — tap + Add</Text>
           )}
 
-          {capDefs.map((cap: any) => (
-            <View key={cap.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
+          {addOnDefs.map((addOn: any) => (
+            <View key={addOn.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
               <View>
-                <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
-                {(cap.enforced ?? ENFORCED_KEYS.has(cap.key))
+                <Text style={{ fontSize: 14, color: C.gray900 }}>{addOn.label}</Text>
+                {(addOn.enforced ?? ENFORCED_KEYS.has(addOn.key))
                   ? <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>
                   : <Text style={{ fontSize: 11, color: C.amber }}>
-                      {enabledCapabilities.includes(cap.key) ? 'not enforced · remove before saving' : 'planned · not assignable yet'}
+                      {enabledAddOns.includes(addOn.key) ? 'not enforced · remove before saving' : 'planned · not assignable yet'}
                     </Text>}
               </View>
               <Switch
-                value={enabledCapabilities.includes(cap.key)}
-                disabled={cap.enforced === false && !enabledCapabilities.includes(cap.key)}
-                onValueChange={v => toggleCapability(cap.label, v, cap.key)}
+                value={enabledAddOns.includes(addOn.key)}
+                disabled={addOn.enforced === false && !enabledAddOns.includes(addOn.key)}
+                onValueChange={v => toggleAddOn(addOn.label, v, addOn.key)}
                 trackColor={{ true: C.navy }}
               />
             </View>
@@ -229,7 +229,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
             <View>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Reason for change *</Text>
               <TextInput value={changeReason} onChangeText={setChangeReason} multiline numberOfLines={3}
-                placeholder="Explain why limits, pricing or capabilities are changing"
+                placeholder="Explain why limits, pricing or add-ons are changing"
                 style={{ minHeight: 84, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, textAlignVertical: 'top' }} />
             </View>
           )}
