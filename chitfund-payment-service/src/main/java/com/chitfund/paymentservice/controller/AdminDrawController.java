@@ -110,8 +110,8 @@ public class AdminDrawController {
     }
 
     /**
-     * Deletes an accidentally-opened cycle and all its payment records.
-     * Blocked if any member has already paid — admin must void those batches first.
+     * Discards only an accidentally-opened, pristine draw. Any financial or lifecycle
+     * history blocks physical deletion and must be handled by an audited reversal flow.
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
@@ -173,7 +173,7 @@ public class AdminDrawController {
         drawService.applyAuctionDividend(
                 request.getChitId(), request.getMonthNumber(),
                 request.getGrossInstallmentAmount(), request.getDividendPerSpot(),
-                memberSpots, tenantId, request.getDistributableDiscount());
+                memberSpots, tenantId, request.getDistributableDiscount(), request.getActorId());
         return ResponseEntity.ok().build();
     }
 
@@ -192,7 +192,8 @@ public class AdminDrawController {
         }
         UUID chitId = UUID.fromString((String) body.get("chitId"));
         Integer monthNumber = (Integer) body.get("monthNumber");
-        drawService.reverseAuctionDividend(chitId, monthNumber, tenantId);
+        UUID actorId = body.get("actorId") == null ? null : UUID.fromString((String) body.get("actorId"));
+        drawService.reverseAuctionDividend(chitId, monthNumber, tenantId, actorId);
         return ResponseEntity.ok().build();
     }
 
@@ -204,11 +205,12 @@ public class AdminDrawController {
     @PreAuthorize("true")
     public ResponseEntity<Void> closeDrawsForChit(
             @PathVariable UUID chitId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        drawService.closeOpenDrawsForChit(chitId);
+        drawService.closeOpenDrawsForChit(chitId, tenantId);
         return ResponseEntity.ok().build();
     }
 }

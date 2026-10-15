@@ -1,0 +1,496 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Low-cost ChitWise production infrastructure in ap-south-1. Creates one
+  public application host, a private encrypted MySQL database, dead-letter
+  queues for the existing consolidated SQS queues, deployment storage,
+  Systems Manager access, and a branch-scoped GitHub Actions deployment role.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chitwise-prod
+    AllowedPattern: '[a-z0-9-]+'
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.medium, t3.large]
+  RootVolumeSize:
+    Type: Number
+    Default: 35
+    MinValue: 20
+  DatabaseInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues: [db.t3.micro, db.t3.small]
+  DatabaseAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+  ProductionSecretName:
+    Type: String
+    Default: chitwise/prod
+    Description: >-
+      Existing ap-south-1 secret containing DB_PASSWORD and the production
+      application configuration. The stack never prints its value.
+  CertbotSecretName:
+    Type: String
+    Default: chitwise/certbot-godaddy
+    Description: GoDaddy DNS credential used only during certificate renewal.
+  GitHubRepository:
+    Type: String
+    Default: saisrinivasgada/chitfund-platform
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-vpc'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-igw'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  ApplicationSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.20.1.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-app-1a'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  DatabaseSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.20.10.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-1a'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  DatabaseSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.20.11.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-1b'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  ApplicationRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-public-routes'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  DefaultInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref ApplicationRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  ApplicationRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref ApplicationRouteTable
+      SubnetId: !Ref ApplicationSubnet
+
+  ApplicationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public HTTPS and Certbot HTTP validation only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP redirect and Certbot validation
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS application traffic
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-app-sg'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MySQL from the ChitWise application host only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+          Description: ChitWise services
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-sg'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldReleases
+            Status: Enabled
+            ExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  ApplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: ChitWiseRuntime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue, secretsmanager:DescribeSecret]
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProductionSecretName}-*'
+                  - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${CertbotSecretName}-*'
+              - Effect: Allow
+                Action: [sqs:SendMessage, sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:GetQueueUrl, sqs:ChangeMessageVisibility]
+                Resource: !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:chitfund-*'
+              - Effect: Allow
+                Action: [ses:SendEmail, ses:SendRawEmail]
+                Resource: '*'
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub '${DeploymentBucket.Arn}/*'
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  ApplicationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref ApplicationRole]
+
+  ApplicationInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref ApplicationInstanceProfile
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      NetworkInterfaces:
+        # The temporary address lets first-boot package installation reach the
+        # internet. It is automatically replaced by the stable Elastic IP.
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: '0'
+          GroupSet: [!Ref ApplicationSecurityGroup]
+          SubnetId: !Ref ApplicationSubnet
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf update -y
+          dnf install -y docker nginx certbot python3-certbot-nginx mariadb105
+          # The service stack contains multiple JVMs. A small encrypted swap
+          # file absorbs simultaneous startup peaks without paying for a larger
+          # instance while traffic is low. RAM remains preferred during normal
+          # operation.
+          fallocate -l 4G /swapfile
+          chmod 0600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >>/etc/fstab
+          echo 'vm.swappiness=10' >/etc/sysctl.d/90-chitwise-swap.conf
+          sysctl --system
+          install -d -m 0755 /usr/local/lib/docker/cli-plugins
+          curl -fsSL \
+            https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          echo '40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a  /usr/local/lib/docker/cli-plugins/docker-compose' \
+            | sha256sum --check --strict
+          chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+          systemctl enable --now docker
+          systemctl enable amazon-ssm-agent
+          systemctl restart amazon-ssm-agent
+          systemctl enable nginx
+          systemctl enable --now certbot-renew.timer
+          usermod -aG docker ec2-user
+          install -d -o ec2-user -g ec2-user -m 0750 /app
+          install -d -o nginx -g nginx -m 0755 /var/www/chitfund
+          cat >/etc/chitwise-environment <<'EOF'
+          AWS_REGION=${AWS::Region}
+          CHITWISE_SECRET_ID=${ProductionSecretName}
+          CHITWISE_CERTBOT_SECRET_ID=${CertbotSecretName}
+          EOF
+          chmod 0644 /etc/chitwise-environment
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-server'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  ApplicationElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-eip'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  ApplicationElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ApplicationElasticIp.AllocationId
+      InstanceId: !Ref ApplicationInstance
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private Mumbai subnets for ChitWise MySQL
+      SubnetIds: [!Ref DatabaseSubnetA, !Ref DatabaseSubnetB]
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-subnets'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  DatabaseParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: ChitWise MySQL 8.4 parameters
+      Family: mysql8.4
+      Parameters:
+        log_bin_trust_function_creators: '1'
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub '${EnvironmentName}-db'
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      Engine: mysql
+      EngineVersion: 8.4.10
+      MasterUsername: chitfund
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${ProductionSecretName}:SecretString:DB_PASSWORD}}'
+      AllocatedStorage: !Ref DatabaseAllocatedStorage
+      MaxAllocatedStorage: 50
+      StorageType: gp3
+      StorageEncrypted: true
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      AutoMinorVersionUpgrade: true
+      EnablePerformanceInsights: false
+      DBParameterGroupName: !Ref DatabaseParameterGroup
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  AuditDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: chitfund-audit-events-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  NotificationDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: chitfund-notification-events-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  ReportingDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: chitfund-reporting-events-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList: [6938fd4d98bab03faadb97b34396831e3780aea1]
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-github-deploy'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Federated: !Ref GitHubOidcProvider}
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:ref:refs/heads/main'
+      Policies:
+        - PolicyName: DeployChitWise
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub '${DeploymentBucket.Arn}/releases/*'
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript'
+                  - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${ApplicationInstance}'
+              - Effect: Allow
+                Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations]
+                Resource: '*'
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
+  InstanceStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: ChitWise EC2 instance failed a status check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions: [{Name: InstanceId, Value: !Ref ApplicationInstance}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+
+  DatabaseStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: ChitWise RDS free storage is below 2 GiB
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions: [{Name: DBInstanceIdentifier, Value: !Ref Database}]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 2147483648
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+
+Outputs:
+  ApplicationInstanceId:
+    Value: !Ref ApplicationInstance
+  ApplicationPublicIp:
+    Value: !Ref ApplicationElasticIp
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  DeploymentBucketName:
+    Value: !Ref DeploymentBucket
+  GitHubDeployRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
+  ProductionSecretName:
+    Value: !Ref ProductionSecretName
+  CertbotSecretName:
+    Value: !Ref CertbotSecretName
+  AuditDeadLetterQueueArn:
+    Value: !GetAtt AuditDeadLetterQueue.Arn
+  NotificationDeadLetterQueueArn:
+    Value: !GetAtt NotificationDeadLetterQueue.Arn
+  ReportingDeadLetterQueueArn:
+    Value: !GetAtt ReportingDeadLetterQueue.Arn

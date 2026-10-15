@@ -16,27 +16,13 @@ import pytest
 pytestmark = pytest.mark.concurrency
 
 
-def _create_chit_and_partial_payment(api, token, payment_amount=400):
+def _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory, payment_amount=400):
     """Create a real chit enrollment with one ₹1,000 due and a payment."""
     admin = token("ADMIN")
-    member_id = str(uuid.uuid4())
+    member_id = member_factory(admin)
 
-    created = api.as_role("POST", f"{api.chit}/api/chits", admin, json={
-        "chitType": "RESERVATION",
-        "name": f"Phase B acceptance {uuid.uuid4()}",
-        "chitValue": 2000,
-        "installmentAmount": 1000,
-        "numberOfMonths": 2,
-        "numberOfMembers": 2,
-        "monthlyDueDate": 1,
-    })
-    assert created.status_code == 201, created.text[:500]
-    chit_id = created.json()["data"]["id"]
-
-    enrolled = api.as_role(
-        "POST", f"{api.chit}/api/chits/{chit_id}/enrollments", admin,
-        json={"memberId": member_id})
-    assert enrolled.status_code == 201, enrolled.text[:500]
+    chit_id = active_chit(admin, [member_id], months=2)
 
     opened = api.as_role("POST", f"{api.payment}/admin/draws/open", admin, json={
         "chitId": chit_id,
@@ -95,8 +81,10 @@ def _record_disbursement(api, fixture, settlement_id, amount="250"):
     return response.json()["data"]["id"]
 
 
-def test_partial_money_supersession_reverses_and_replaces_exactly(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token)
+def test_partial_money_supersession_reverses_and_replaces_exactly(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_data = first.json()["data"]
@@ -206,8 +194,9 @@ def test_partial_money_supersession_reverses_and_replaces_exactly(api, token, db
     [("250", "PARTIALLY_COLLECTED"), ("400", "FULLY_COLLECTED")],
 )
 def test_collected_money_is_reversed_before_replacement(
-        api, token, db, amount, expected_status):
-    fixture = _create_chit_and_partial_payment(api, token)
+        api, token, db, active_chit, member_factory, amount, expected_status):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory)
     first = _confirm(api, fixture, adjustment=800)
     assert first.status_code == 201, first.text[:500]
     first_id = first.json()["data"]["id"]
@@ -249,8 +238,10 @@ def test_collected_money_is_reversed_before_replacement(
     assert signed_total == Decimal("0.00")
 
 
-def test_fully_disbursed_money_is_reversed_before_replacement(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token)
+def test_fully_disbursed_money_is_reversed_before_replacement(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_id = first.json()["data"]["id"]
@@ -278,8 +269,10 @@ def test_fully_disbursed_money_is_reversed_before_replacement(api, token, db):
     assert Decimal(str(reversal["amount"])) == Decimal("400.00")
 
 
-def test_consumed_credit_is_restored_then_carried_into_replacement(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token, payment_amount=1200)
+def test_consumed_credit_is_restored_then_carried_into_replacement(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory, payment_amount=1200)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_data = first.json()["data"]
@@ -319,8 +312,10 @@ def test_consumed_credit_is_restored_then_carried_into_replacement(api, token, d
     assert {Decimal(str(row["amount"])) for row in credit} == {Decimal("200.00")}
 
 
-def test_supersede_before_money_moves_restores_outstanding_snapshot(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token, payment_amount=None)
+def test_supersede_before_money_moves_restores_outstanding_snapshot(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory, payment_amount=None)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_id = first.json()["data"]["id"]
@@ -350,8 +345,10 @@ def test_supersede_before_money_moves_restores_outstanding_snapshot(api, token, 
     assert wallet_count == 0
 
 
-def test_later_payment_record_mutation_blocks_automatic_supersession(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token)
+def test_later_payment_record_mutation_blocks_automatic_supersession(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_id = first.json()["data"]["id"]
@@ -377,8 +374,10 @@ def test_later_payment_record_mutation_blocks_automatic_supersession(api, token,
     assert rows[0]["reversal_completed_at"] is None
 
 
-def test_concurrent_new_credit_is_neither_lost_nor_double_consumed(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token, payment_amount=1200)
+def test_concurrent_new_credit_is_neither_lost_nor_double_consumed(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory, payment_amount=1200)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_id = first.json()["data"]["id"]
@@ -424,8 +423,10 @@ def test_concurrent_new_credit_is_neither_lost_nor_double_consumed(api, token, d
     assert final_balance >= 0
 
 
-def test_v38_allows_voided_history_and_exactly_one_live_replacement(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token)
+def test_v38_allows_voided_history_and_exactly_one_live_replacement(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_id = first.json()["data"]["id"]
@@ -455,8 +456,10 @@ def test_v38_allows_voided_history_and_exactly_one_live_replacement(api, token, 
     assert rows[1]["supersedes_id"] == first_id
 
 
-def test_concurrent_supersession_creates_exactly_one_replacement(api, token, db):
-    fixture = _create_chit_and_partial_payment(api, token)
+def test_concurrent_supersession_creates_exactly_one_replacement(
+        api, token, db, active_chit, member_factory):
+    fixture = _create_chit_and_partial_payment(
+        api, token, active_chit, member_factory)
     first = _confirm(api, fixture)
     assert first.status_code == 201, first.text[:500]
     first_id = first.json()["data"]["id"]

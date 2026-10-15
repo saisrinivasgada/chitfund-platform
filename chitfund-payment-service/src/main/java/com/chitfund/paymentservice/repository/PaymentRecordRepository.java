@@ -17,36 +17,40 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
 
     Optional<PaymentRecord> findByIdAndTenantId(UUID id, String tenantId);
 
-    // FIFO query — oldest month first, only OUTSTANDING or PARTIALLY_PAID
-    List<PaymentRecord> findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-            UUID memberId, UUID chitId, List<PaymentRecordStatus> statuses);
+    List<PaymentRecord> findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+            String tenantId, UUID memberId, UUID chitId, List<PaymentRecordStatus> statuses);
 
     // Locked FIFO queries — acquire row-level write locks before applying FIFO allocation
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT r FROM PaymentRecord r WHERE r.memberId = :memberId AND r.chitId = :chitId AND r.status IN :statuses ORDER BY r.monthNumber ASC")
-    List<PaymentRecord> findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-            @Param("memberId") UUID memberId,
-            @Param("chitId") UUID chitId,
-            @Param("statuses") List<PaymentRecordStatus> statuses);
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT r FROM PaymentRecord r WHERE r.memberId = :memberId AND r.chitId <> :excludeChitId AND r.status IN :statuses ORDER BY r.dueDate ASC, r.monthNumber ASC")
-    List<PaymentRecord> findOutstandingAcrossOtherChitsForUpdate(
-            @Param("memberId") UUID memberId,
-            @Param("excludeChitId") UUID excludeChitId,
-            @Param("statuses") List<PaymentRecordStatus> statuses);
-
     // All records for a member in a chit — includes SETTLED and WAIVED
-    List<PaymentRecord> findByMemberIdAndChitIdOrderByMonthNumberAsc(UUID memberId, UUID chitId);
+    List<PaymentRecord> findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+            String tenantId, UUID memberId, UUID chitId);
 
     // All records for a given cycle (used in dashboard stats)
-    List<PaymentRecord> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
+    List<PaymentRecord> findByTenantIdAndChitIdAndMonthNumber(
+            String tenantId, UUID chitId, int monthNumber);
 
-    // Single record lookup for mark/revert payout-deducted operations
-    Optional<PaymentRecord> findByChitIdAndMemberIdAndMonthNumber(UUID chitId, UUID memberId, int monthNumber);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId AND r.chitId=:chitId "
+            + "AND r.memberId=:memberId AND r.monthNumber=:monthNumber")
+    Optional<PaymentRecord> findByTenantIdAndChitIdAndMemberIdAndMonthNumberForUpdate(
+            @Param("tenantId") String tenantId, @Param("chitId") UUID chitId,
+            @Param("memberId") UUID memberId, @Param("monthNumber") int monthNumber);
 
-    // All records withheld by a specific payout — used to revert across chits in one call
-    List<PaymentRecord> findBySettledByPayoutId(UUID settledByPayoutId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId "
+            + "AND r.settledByPayoutId=:settledByPayoutId ORDER BY r.id")
+    List<PaymentRecord> findByTenantIdAndSettledByPayoutIdForUpdate(
+            @Param("tenantId") String tenantId,
+            @Param("settledByPayoutId") UUID settledByPayoutId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId AND r.memberId=:memberId "
+            + "AND r.chitId=:chitId AND r.status IN :statuses AND r.settledByPayoutId IS NULL "
+            + "ORDER BY r.monthNumber ASC")
+    List<PaymentRecord> findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+            @Param("tenantId") String tenantId, @Param("memberId") UUID memberId,
+            @Param("chitId") UUID chitId,
+            @Param("statuses") List<PaymentRecordStatus> statuses);
 
     // All SETTLEMENT_CLEARED records for a member — used when voiding a settlement
     List<PaymentRecord> findByTenantIdAndMemberIdAndStatusIn(
@@ -59,30 +63,32 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
             @Param("ids") List<UUID> ids);
 
     // Used to verify enrollment before accepting payment from admin-held slot holders (non-member UUIDs)
-    boolean existsByMemberIdAndChitId(UUID memberId, UUID chitId);
+    boolean existsByTenantIdAndMemberIdAndChitId(String tenantId, UUID memberId, UUID chitId);
 
-    void deleteByChitIdAndMonthNumber(UUID chitId, int monthNumber);
+    void deleteByTenantIdAndChitIdAndMonthNumber(String tenantId, UUID chitId, int monthNumber);
 
-    // Cross-chit FIFO: all outstanding records for a member across every chit EXCEPT the one being paid.
-    // Ordered by dueDate so the oldest debt across all chits clears first.
-    @Query("SELECT r FROM PaymentRecord r WHERE r.memberId = :memberId AND r.chitId <> :excludeChitId AND r.status IN :statuses ORDER BY r.dueDate ASC, r.monthNumber ASC")
-    List<PaymentRecord> findOutstandingAcrossOtherChits(
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId = :tenantId AND r.memberId = :memberId "
+            + "AND r.chitId <> :excludeChitId AND r.status IN :statuses ORDER BY r.dueDate ASC, r.monthNumber ASC")
+    List<PaymentRecord> findOutstandingAcrossOtherChitsForUpdateByTenant(
+            @Param("tenantId") String tenantId,
             @Param("memberId") UUID memberId,
             @Param("excludeChitId") UUID excludeChitId,
             @Param("statuses") List<PaymentRecordStatus> statuses);
 
-    // Total outstanding across all chits for a single member
-    @Query("SELECT COALESCE(SUM(r.amountDue - r.amountPaid), 0) FROM PaymentRecord r WHERE r.memberId = :memberId AND r.status IN :statuses")
-    BigDecimal findTotalOutstandingByMemberId(@Param("memberId") UUID memberId, @Param("statuses") List<PaymentRecordStatus> statuses);
+    @Query("SELECT COALESCE(SUM(r.amountDue - r.amountPaid), 0) FROM PaymentRecord r WHERE r.tenantId = :tenantId AND r.memberId = :memberId AND r.status IN :statuses")
+    BigDecimal findTotalOutstandingByTenantIdAndMemberId(@Param("tenantId") String tenantId,
+            @Param("memberId") UUID memberId, @Param("statuses") List<PaymentRecordStatus> statuses);
 
-    // Bulk: outstanding per member, for a list of memberIds — returns [memberId, total] pairs
-    @Query("SELECT r.memberId, COALESCE(SUM(r.amountDue - r.amountPaid), 0) FROM PaymentRecord r WHERE r.memberId IN :memberIds AND r.status IN :statuses GROUP BY r.memberId")
-    List<Object[]> findTotalOutstandingByMemberIds(@Param("memberIds") List<UUID> memberIds, @Param("statuses") List<PaymentRecordStatus> statuses);
+    @Query("SELECT r.memberId, COALESCE(SUM(r.amountDue - r.amountPaid), 0) FROM PaymentRecord r WHERE r.tenantId = :tenantId AND r.memberId IN :memberIds AND r.status IN :statuses GROUP BY r.memberId")
+    List<Object[]> findTotalOutstandingByTenantIdAndMemberIds(@Param("tenantId") String tenantId,
+            @Param("memberIds") List<UUID> memberIds, @Param("statuses") List<PaymentRecordStatus> statuses);
 
-    // Chit-level outstanding summary: total amount owed + distinct member count with dues
-    @Query("SELECT COALESCE(SUM(r.amountDue - r.amountPaid), 0) FROM PaymentRecord r WHERE r.chitId = :chitId AND r.status IN :statuses")
-    BigDecimal findTotalOutstandingByChitId(@Param("chitId") UUID chitId, @Param("statuses") List<PaymentRecordStatus> statuses);
+    @Query("SELECT COALESCE(SUM(r.amountDue - r.amountPaid), 0) FROM PaymentRecord r WHERE r.tenantId = :tenantId AND r.chitId = :chitId AND r.status IN :statuses")
+    BigDecimal findTotalOutstandingByTenantIdAndChitId(@Param("tenantId") String tenantId,
+            @Param("chitId") UUID chitId, @Param("statuses") List<PaymentRecordStatus> statuses);
 
-    @Query("SELECT COUNT(DISTINCT r.memberId) FROM PaymentRecord r WHERE r.chitId = :chitId AND r.status IN :statuses AND (r.amountDue - r.amountPaid) > 0")
-    long countDistinctMembersWithOutstandingByChitId(@Param("chitId") UUID chitId, @Param("statuses") List<PaymentRecordStatus> statuses);
+    @Query("SELECT COUNT(DISTINCT r.memberId) FROM PaymentRecord r WHERE r.tenantId = :tenantId AND r.chitId = :chitId AND r.status IN :statuses AND (r.amountDue - r.amountPaid) > 0")
+    long countDistinctMembersWithOutstandingByTenantIdAndChitId(@Param("tenantId") String tenantId,
+            @Param("chitId") UUID chitId, @Param("statuses") List<PaymentRecordStatus> statuses);
 }

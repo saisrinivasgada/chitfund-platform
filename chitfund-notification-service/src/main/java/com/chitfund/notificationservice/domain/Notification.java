@@ -21,6 +21,9 @@ public class Notification {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "tenant_id", length = 36, updatable = false)
+    private String tenantId;
+
     @Column(nullable = false)
     private UUID recipientId;
 

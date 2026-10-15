@@ -49,6 +49,8 @@ public class AuthService {
     private final OtpService otpService;
     private final PasswordValidator passwordValidator;
     private final AccountEmailOtpService accountEmailOtpService;
+    private final AuthenticationSecurityService authenticationSecurityService;
+    private final PlanService planService;
 
     private static final String LOGIN_EMAIL_VERIFICATION = "LOGIN_EMAIL_VERIFY";
 
@@ -80,7 +82,12 @@ public class AuthService {
 
     public LoginResponse login(LoginRequest request, String deviceToken) {
         User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+                .orElse(null);
+        if (user == null) {
+            authenticationSecurityService.recordUnknownLoginAttempt(request.getUsername());
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS,
+                    "Invalid credentials", HttpStatus.UNAUTHORIZED);
+        }
 
         rejectLegacySuperAdminLogin(user);
 
@@ -104,8 +111,10 @@ public class AuthService {
         List<User> accounts = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(
                 request.getPhone(), request.getPhoneCountryCode());
         if (accounts.isEmpty()) {
-            throw new BusinessException(ErrorCode.USER_NOT_FOUND,
-                    "Invalid credentials");
+            authenticationSecurityService.recordUnknownLoginAttempt(
+                    request.getPhoneCountryCode() + request.getPhone());
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS,
+                    "Invalid credentials", HttpStatus.UNAUTHORIZED);
         }
         User user;
         if (accounts.size() == 1) {
@@ -156,8 +165,19 @@ public class AuthService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         rejectLegacySuperAdminLogin(user);
 
-        List<TenantInfo> tenants = jwtTokenProvider.extractTenants(request.getLoginToken());
-        TenantInfo selected = tenants.stream()
+        List<TenantInfo> authorizedAtLogin = jwtTokenProvider.extractTenants(request.getLoginToken());
+        boolean wasAuthorized = authorizedAtLogin.stream()
+                .anyMatch(t -> t.getTenantId().equals(request.getTenantId()));
+        if (!wasAuthorized) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "You are not a member of this organization");
+        }
+
+        // Re-read the tenant membership, status, plan and capabilities. The
+        // pre-scope token is valid for five minutes; trusting its embedded
+        // snapshot would let a recently suspended/downgraded tenant mint a
+        // stale ACTIVE token or retain removed capabilities.
+        TenantInfo selected = tenantService.buildTenantInfoList(user.getId()).stream()
                 .filter(t -> t.getTenantId().equals(request.getTenantId()))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN,
@@ -285,6 +305,9 @@ public class AuthService {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "Organization context is required", HttpStatus.FORBIDDEN);
         }
+        if (role != Role.ADMIN) {
+            planService.checkStaffLimit(tenantId);
+        }
 
         User user = User.builder()
                 .username(request.getUsername())
@@ -410,7 +433,7 @@ public class AuthService {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(sha256(tokenValue))
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
         if (refreshToken.isRevoked()) {
-            refreshTokenRepository.revokeAllActiveByUser(refreshToken.getUser());
+            authenticationSecurityService.recordRefreshTokenReplay(refreshToken.getUser().getId());
             throw new BusinessException(ErrorCode.TOKEN_INVALID);
         }
         if (refreshToken.isExpired()) {
@@ -427,7 +450,11 @@ public class AuthService {
                     .filter(t -> tenantId.equals(t.getTenantId()))
                     .findFirst()
                     .map(tenant -> buildScopedAuthResponse(user, tenant))
-                    .orElseGet(() -> buildAuthResponse(user, null));
+                    // A removed membership must terminate the scoped session.
+                    // Falling back to an unscoped role token would turn a
+                    // tenant revocation into a different authenticated session.
+                    .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN,
+                            "You are no longer a member of this organization"));
         }
         if (user.getRole() != null && user.getRole().name().equals("SUPER_ADMIN")) {
             return buildSuperAdminAuthResponse(user);
@@ -734,10 +761,9 @@ public class AuthService {
                 .build();
     }
 
-    private static final int MAX_FAILED_ATTEMPTS = 5;
-
     private User authenticateUser(User user, String password) {
         if (user.isLocked()) {
+            authenticationSecurityService.recordLockedLoginAttempt(user.getId());
             throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
                     "Your account has been locked due to too many failed login attempts. Please contact your administrator.");
         }
@@ -758,17 +784,14 @@ public class AuthService {
                 user.setFailedLoginAttempts(0);
                 userRepository.save(user);
             } catch (Exception e) {
-                int attempts = user.getFailedLoginAttempts() + 1;
-                user.setFailedLoginAttempts(attempts);
-                if (attempts >= MAX_FAILED_ATTEMPTS) {
-                    user.setLocked(true);
-                }
-                userRepository.save(user);
-                if (user.isLocked()) {
+                boolean locked = authenticationSecurityService.recordFailedLoginAttempt(user.getId());
+                if (locked) {
                     throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
-                            "Your account has been locked after " + MAX_FAILED_ATTEMPTS + " failed attempts. Contact your administrator.");
+                            "Your account has been locked after "
+                                    + AuthenticationSecurityService.MAX_FAILED_ATTEMPTS
+                                    + " failed attempts. Contact your administrator.");
                 }
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                throw new BusinessException(ErrorCode.INVALID_CREDENTIALS,
                         "Invalid credentials", HttpStatus.UNAUTHORIZED);
             }
         }
@@ -823,6 +846,7 @@ public class AuthService {
                 .tokenType("Bearer")
                 .expiresIn(accessTokenExpiryMs / 1000)
                 .user(userMapper.toResponse(user))
+                .tenant(tenant)
                 .build();
     }
 

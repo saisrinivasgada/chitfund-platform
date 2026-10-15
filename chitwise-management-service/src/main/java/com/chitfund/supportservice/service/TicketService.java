@@ -24,6 +24,7 @@ import com.chitfund.supportservice.repository.TicketMessageRepository;
 import com.chitfund.supportservice.repository.TicketNumberSeqRepository;
 import com.chitfund.supportservice.websocket.TicketWebSocketController;
 import com.chitfund.supportservice.client.TenantSupportClient;
+import com.chitfund.supportservice.client.AuditClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,16 +35,33 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.time.Year;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class TicketService {
+
+    private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
+    private static final Map<TicketStatus, Set<TicketStatus>> ALLOWED_STATUS_TRANSITIONS = Map.of(
+            TicketStatus.OPEN, EnumSet.of(TicketStatus.IN_PROGRESS, TicketStatus.ON_HOLD,
+                    TicketStatus.RESOLVED, TicketStatus.CLOSED),
+            TicketStatus.IN_PROGRESS, EnumSet.of(TicketStatus.ON_HOLD,
+                    TicketStatus.RESOLVED, TicketStatus.CLOSED),
+            TicketStatus.ON_HOLD, EnumSet.of(TicketStatus.IN_PROGRESS,
+                    TicketStatus.RESOLVED, TicketStatus.CLOSED),
+            TicketStatus.RESOLVED, EnumSet.of(TicketStatus.IN_PROGRESS, TicketStatus.CLOSED),
+            TicketStatus.CLOSED, EnumSet.of(TicketStatus.IN_PROGRESS));
 
     private final SupportTicketRepository ticketRepository;
     private final TicketMessageRepository messageRepository;
@@ -52,6 +70,7 @@ public class TicketService {
     private final TicketNumberSeqRepository seqRepository;
     private final TenantSupportClient tenantSupportClient;
     private final IdentityCaseService identityCaseService;
+    private final AuditClient auditClient;
 
     // Self-reference through the proxy so @Transactional on createTicketTransactional is applied
     // when called from the non-transactional createTicket (which performs the HTTP call first).
@@ -62,6 +81,11 @@ public class TicketService {
 
     public TicketResponse createTicket(String userId, String userName, String tenantId,
                                        CreateTicketRequest request) {
+        return createTicket(userId, userName, "ORG_USER", tenantId, request);
+    }
+
+    public TicketResponse createTicket(String userId, String userName, String actorRole,
+                                       String tenantId, CreateTicketRequest request) {
         if (request.getType() == TicketType.ACCOUNT && request.getAccountCaseSubtype() == null) {
             throw new IllegalArgumentException("Account case subtype is required for Account tickets");
         }
@@ -69,11 +93,12 @@ public class TicketService {
             throw new IllegalArgumentException("Account case subtype is valid only for Account tickets");
         }
         TenantSupportClient.SupportContext support = tenantSupportClient.getSupportContext(tenantId);
-        return self.createTicketTransactional(userId, userName, tenantId, request, support);
+        return self.createTicketTransactional(userId, userName, actorRole, tenantId, request, support);
     }
 
     @Transactional
-    public TicketResponse createTicketTransactional(String userId, String userName, String tenantId,
+    public TicketResponse createTicketTransactional(String userId, String userName, String actorRole,
+                                                       String tenantId,
                                                        CreateTicketRequest request,
                                                        TenantSupportClient.SupportContext support) {
         String ticketNumber = generateTicketNumber();
@@ -101,7 +126,15 @@ public class TicketService {
             identityCaseService.openForTicket(ticket);
         }
 
-        wsController.notifyNewTicket(ticket);
+        auditClient.log(ticket.getId(), "CREATED", userId, actorRole,
+                null, java.util.Map.of(
+                        "status", ticket.getStatus().name(),
+                        "type", ticket.getType().name(),
+                        "priority", ticket.getPriority().name(),
+                        "source", ticket.getSource().name()),
+                java.util.Map.of("ticketNumber", ticket.getTicketNumber()), tenantId, null);
+
+        notifyNewTicketAfterCommit(ticket);
 
         return toResponse(ticket, 0);
     }
@@ -109,6 +142,12 @@ public class TicketService {
     @Transactional
     public TicketResponse createTicketByHub(String employeeId, String employeeName,
                                             CreateHubTicketRequest request) {
+        return createTicketByHub(employeeId, employeeName, "HUB_EMPLOYEE", request);
+    }
+
+    @Transactional
+    public TicketResponse createTicketByHub(String employeeId, String employeeName,
+                                            String actorRole, CreateHubTicketRequest request) {
         String desc = request.getDescription() != null ? request.getDescription().trim() : "";
         if (request.getCallerName() != null && !request.getCallerName().isBlank()) {
             String callerLine = "Caller: " + request.getCallerName().trim();
@@ -130,7 +169,15 @@ public class TicketService {
                 .description(desc.isEmpty() ? null : desc)
                 .build();
         ticket = ticketRepository.save(ticket);
-        wsController.notifyNewTicket(ticket);
+        auditClient.log(ticket.getId(), "CREATED", employeeId, actorRole,
+                null, java.util.Map.of(
+                        "status", ticket.getStatus().name(),
+                        "type", ticket.getType().name(),
+                        "priority", ticket.getPriority().name(),
+                        "source", ticket.getSource().name()),
+                java.util.Map.of("ticketNumber", ticket.getTicketNumber()),
+                ticket.getTenantId(), null);
+        notifyNewTicketAfterCommit(ticket);
         return toResponse(ticket, 0);
     }
 
@@ -151,7 +198,15 @@ public class TicketService {
                 .priority(TicketPriority.NORMAL)
                 .build();
         ticket = ticketRepository.save(ticket);
-        wsController.notifyNewTicket(ticket);
+        auditClient.log(ticket.getId(), "CREATED", null, "PUBLIC",
+                null, java.util.Map.of(
+                        "status", ticket.getStatus().name(),
+                        "type", ticket.getType().name(),
+                        "priority", ticket.getPriority().name(),
+                        "source", ticket.getSource().name()),
+                java.util.Map.of("ticketNumber", ticket.getTicketNumber()),
+                PLATFORM_AUDIT_TENANT, null);
+        notifyNewTicketAfterCommit(ticket);
         return toResponse(ticket, 0);
     }
 
@@ -172,10 +227,20 @@ public class TicketService {
     @Transactional(readOnly = true)
     public PagedResponse<TicketResponse> listAll(int page, int size, TicketStatus status,
                                                  TicketType type, TicketPriority priority,
-                                                 Instant from, Instant toExclusive, String query) {
+                                                 Instant from, Instant toExclusive, String query,
+                                                 java.util.Set<TicketType> allowedTypes) {
         page = Math.max(0, page);
+        java.util.Set<TicketType> effectiveTypes = allowedTypes == null
+                ? java.util.EnumSet.allOf(TicketType.class) : allowedTypes;
+        if (effectiveTypes.isEmpty()) {
+            return PagedResponse.<TicketResponse>builder()
+                    .items(List.of()).page(page).size(Math.min(Math.max(size, 1), 100))
+                    .totalElements(0).totalPages(0).hasNext(false).build();
+        }
+        boolean allTypes = effectiveTypes.size() == TicketType.values().length;
         Page<SupportTicket> tickets = ticketRepository.searchForHub(
-                status, type, priority, from, toExclusive, escapeLikeParam(blankToNull(query)),
+                status, type, allTypes, effectiveTypes, priority, from, toExclusive,
+                escapeLikeParam(blankToNull(query)),
                 PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
 
         return PagedResponse.<TicketResponse>builder()
@@ -191,21 +256,30 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public TicketResponse getTicket(String ticketId, String tenantId, boolean isHub) {
-        SupportTicket ticket = findTicketSecure(ticketId, tenantId, isHub);
+    public TicketResponse getTicket(String ticketId, String tenantId, boolean isHub,
+                                    String requesterId, boolean restrictToCreator) {
+        SupportTicket ticket = findTicketSecure(
+                ticketId, tenantId, isHub, requesterId, restrictToCreator);
         return toResponse(ticket, countUnread(ticketId, isHub));
     }
 
     @Transactional(readOnly = true)
     public PagedResponse<TicketMessageResponse> getMessages(String ticketId, String tenantId,
-                                                             boolean isHub, String cursor, int limit) {
-        findTicketSecure(ticketId, tenantId, isHub);
+                                                             boolean isHub, String requesterId,
+                                                             boolean restrictToCreator,
+                                                             String cursor, int limit) {
+        findTicketSecure(ticketId, tenantId, isHub, requesterId, restrictToCreator);
 
-        limit = Math.min(limit, 50);
+        limit = Math.min(Math.max(limit, 1), 50);
         List<TicketMessage> messages;
 
         if (cursor != null) {
-            Instant before = Instant.parse(cursor);
+            Instant before;
+            try {
+                before = Instant.parse(cursor);
+            } catch (DateTimeParseException exception) {
+                throw new IllegalArgumentException("Invalid message cursor");
+            }
             messages = messageRepository.findByTicketIdAndCreatedAtBeforeOrderByCreatedAtDesc(
                     ticketId, before, PageRequest.of(0, limit));
         } else {
@@ -229,13 +303,17 @@ public class TicketService {
     public TicketMessageResponse sendMessage(String ticketId, String tenantId, boolean isHub,
                                               String senderId, String senderName,
                                               SenderType senderType, SendMessageRequest request) {
-        SupportTicket ticket = findTicketSecure(ticketId, tenantId, isHub);
+        boolean restrictToCreator = !isHub && senderType == SenderType.ORG_MEMBER;
+        SupportTicket ticket = findTicketSecure(
+                ticketId, tenantId, isHub, senderId, restrictToCreator);
 
         if (ticket.getStatus() == TicketStatus.CLOSED || ticket.getStatus() == TicketStatus.RESOLVED) {
             throw new IllegalStateException("Cannot message on a " + ticket.getStatus().name().toLowerCase() + " ticket");
         }
 
-        if (senderType != SenderType.ORG_ADMIN && ticket.getFirstResponseAt() == null) {
+        boolean isHubResponse = senderType == SenderType.SUPER_ADMIN
+                || senderType == SenderType.SUPPORT_AGENT;
+        if (isHubResponse && ticket.getFirstResponseAt() == null) {
             ticket.setFirstResponseAt(Instant.now());
             ticket.setStatus(TicketStatus.IN_PROGRESS);
             ticketRepository.save(ticket);
@@ -251,16 +329,21 @@ public class TicketService {
                 .build();
 
         message = messageRepository.save(message);
+        auditClient.log(ticketId, "MESSAGE_SENT", senderId, senderType.name(),
+                null, java.util.Map.of("messageId", message.getId()),
+                java.util.Map.of("senderType", senderType.name()), ticket.getTenantId(), null);
         TicketMessageResponse response = toMessageResponse(message);
-        wsController.sendTicketMessage(ticketId, response);
+        afterCommit(() -> wsController.sendTicketMessage(ticketId, response));
 
         return response;
     }
 
     @Transactional
     public void softDeleteMessage(String ticketId, String messageId, String senderId,
-                                   String tenantId, boolean isHub) {
-        findTicketSecure(ticketId, tenantId, isHub);
+                                  String actorRole, String tenantId, boolean isHub) {
+        boolean restrictToCreator = !isHub && "MEMBER".equals(actorRole);
+        SupportTicket ticket = findTicketSecure(
+                ticketId, tenantId, isHub, senderId, restrictToCreator);
 
         TicketMessage message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new IllegalArgumentException("Message not found"));
@@ -286,12 +369,18 @@ public class TicketService {
         message.setContent("[deleted]");
         messageRepository.save(message);
 
-        wsController.sendMessageDeleted(ticketId, messageId);
+        auditClient.log(ticketId, "MESSAGE_DELETED", senderId, actorRole,
+                java.util.Map.of("messageId", messageId, "deleted", false),
+                java.util.Map.of("messageId", messageId, "deleted", true),
+                null, ticket.getTenantId(), "Sender removed the message within the allowed window");
+
+        afterCommit(() -> wsController.sendMessageDeleted(ticketId, messageId));
     }
 
     @Transactional
-    public void markRead(String ticketId, String tenantId, boolean isHub) {
-        findTicketSecure(ticketId, tenantId, isHub);
+    public void markRead(String ticketId, String tenantId, boolean isHub,
+                         String requesterId, boolean restrictToCreator) {
+        findTicketSecure(ticketId, tenantId, isHub, requesterId, restrictToCreator);
         if (isHub) {
             messageRepository.markReadByHandler(ticketId);
         } else {
@@ -300,14 +389,19 @@ public class TicketService {
     }
 
     @Transactional
-    public TicketResponse assignTicket(String ticketId, String assignedById, AssignTicketRequest req,
+    public TicketResponse assignTicket(String ticketId, String assignedById, String assignedByRole,
+                                        AssignTicketRequest req,
                                         EmployeeService employeeService) {
+        if (blankToNull(req.getNote()) == null) {
+            throw new IllegalArgumentException("Assignment reason is required");
+        }
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
         com.chitfund.supportservice.domain.entity.Employee assignee =
                 employeeService.getById(req.getAssigneeId());
 
+        String previousAssignee = ticket.getAssignedTo();
         ticket.setAssignedTo(assignee.getId());
         ticket.setAssignedToName(assignee.getFullName());
         ticket = ticketRepository.save(ticket);
@@ -320,32 +414,60 @@ public class TicketService {
                 .note(req.getNote())
                 .build());
 
-        wsController.notifyStatusChange(ticketId, ticket.getStatus().name());
+        auditClient.log(ticketId, "ASSIGNED", assignedById, assignedByRole,
+                java.util.Map.of("assignedTo", previousAssignee != null ? previousAssignee : "UNASSIGNED"),
+                java.util.Map.of("assignedTo", assignee.getId()),
+                req.getNote() != null && !req.getNote().isBlank()
+                        ? java.util.Map.of("assignmentNotePresent", true) : null,
+                ticket.getTenantId(), req.getNote());
+
+        notifyStatusAfterCommit(ticketId, ticket.getStatus());
         return toResponse(ticket, 0);
     }
 
     @Transactional
     public TicketResponse updateStatus(String ticketId, UpdateStatusRequest request) {
+        return updateStatus(ticketId, request, null, "HUB_EMPLOYEE");
+    }
+
+    @Transactional
+    public TicketResponse updateStatus(String ticketId, UpdateStatusRequest request,
+                                       String actorId, String actorRole) {
+        if (blankToNull(request.getNote()) == null) {
+            throw new IllegalArgumentException("Status change reason is required");
+        }
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
         validateStatusTransition(ticket.getStatus(), request.getStatus());
 
+        TicketStatus previousStatus = ticket.getStatus();
         if (request.getStatus() == TicketStatus.RESOLVED) {
             ticket.setResolvedAt(Instant.now());
         }
         ticket.setStatus(request.getStatus());
         ticket = ticketRepository.save(ticket);
 
-        wsController.notifyStatusChange(ticketId, request.getStatus().name());
+        auditClient.log(ticketId, "STATUS_CHANGED", actorId, actorRole,
+                java.util.Map.of("status", previousStatus.name()),
+                java.util.Map.of("status", request.getStatus().name()),
+                null, ticket.getTenantId(), blankToNull(request.getNote()));
+
+        notifyStatusAfterCommit(ticketId, request.getStatus());
         return toResponse(ticket, 0);
     }
 
-    private SupportTicket findTicketSecure(String ticketId, String tenantId, boolean isHub) {
+    private SupportTicket findTicketSecure(String ticketId, String tenantId, boolean isHub,
+                                           String requesterId, boolean restrictToCreator) {
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
         if (!isHub && !java.util.Objects.equals(ticket.getTenantId(), tenantId)) {
+            throw new IllegalArgumentException("Ticket not found");
+        }
+        if (!isHub && restrictToCreator
+                && !java.util.Objects.equals(ticket.getCreatedBy(), requesterId)) {
+            // Deliberately indistinguishable from an unknown ticket to avoid identifier probing.
             throw new IllegalArgumentException("Ticket not found");
         }
         return ticket;
@@ -360,12 +482,42 @@ public class TicketService {
     }
 
     private void validateStatusTransition(TicketStatus current, TicketStatus next) {
-        if (current == TicketStatus.CLOSED) {
-            throw new IllegalStateException("Cannot change status of a closed ticket");
-        }
         if (current == next) {
             throw new IllegalStateException("Ticket is already " + current.name());
         }
+        if (!ALLOWED_STATUS_TRANSITIONS.getOrDefault(current, Set.of()).contains(next)) {
+            throw new IllegalStateException(
+                    "Cannot change ticket status from " + current.name() + " to " + next.name());
+        }
+    }
+
+    private void notifyNewTicketAfterCommit(SupportTicket ticket) {
+        afterCommit(() -> wsController.notifyNewTicket(ticket));
+    }
+
+    private void notifyStatusAfterCommit(String ticketId, TicketStatus status) {
+        afterCommit(() -> wsController.notifyStatusChange(ticketId, status.name()));
+    }
+
+    private void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    action.run();
+                } catch (RuntimeException exception) {
+                    // WebSocket delivery is a live-view optimization. Database state and
+                    // polling remain authoritative, so a post-commit socket failure must
+                    // not make the already-committed API operation appear to have failed.
+                    log.warn("Ticket WebSocket publication failed after commit: {}",
+                            exception.getMessage());
+                }
+            }
+        });
     }
 
     @Transactional

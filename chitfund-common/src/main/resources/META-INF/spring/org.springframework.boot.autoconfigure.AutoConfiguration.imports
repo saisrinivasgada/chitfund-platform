@@ -1,1 +1,2 @@
 com.chitfund.common.logging.LoggingAutoConfiguration
+com.chitfund.common.outbox.OutboxOperationsAutoConfiguration

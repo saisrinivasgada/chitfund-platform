@@ -30,7 +30,8 @@ function ToggleSwitch({ on, onToggle, disabled = false }) {
  *   memberId            — UUID of the winning member
  *   monthNumber         — draw month number
  *   defaultWinningAmount — pre-filled winning amount
- *   defaultAdjustment   — pre-filled manual adjustment (e.g. from winner.discountAmount)
+ *   defaultAdjustment   — optional admin-entered deduction; never the auction discount,
+ *                         which is already reflected in the recorded winning amount
  *   editableAmount      — if true, winning amount shown as editable input (default false)
  *   onSuccess(payout)   — called after successful creation; parent handles cache cleanup
  */
@@ -56,6 +57,7 @@ export default function PayoutCreationForm({
   const [installmentOverride, setInstallmentOverride] = useState('');
   const [crossChitCollect,    setCrossChitCollect]    = useState({});
   const [sameChitOtherCollect, setSameChitOtherCollect] = useState({});
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // All chits this member is enrolled in
   const { data: memberChits = [] } = useQuery({
@@ -160,15 +162,10 @@ export default function PayoutCreationForm({
 
   const mutation = useMutation({
     mutationFn: async () => {
-      // Same-chit other-month deductions (FIFO-cleared by backend per chitId)
-      const sameChitDeduction = sameChitDed > 0
-        ? [{ chitId: String(chitId), amount: sameChitDed }]
-        : [];
       // Other-chit deductions
       const otherChitDeductions = Object.entries(crossChitCollect)
         .filter(([, v]) => v.enabled && Number(v.amount) > 0)
         .map(([xChitId, v]) => ({ chitId: xChitId, amount: Number(v.amount) }));
-      const allDeductions = [...sameChitDeduction, ...otherChitDeductions];
 
       // Per-draw breakdown of installmentSettlement (month + amount)
       const instBreakdown = [
@@ -181,6 +178,7 @@ export default function PayoutCreationForm({
       ].sort((a, b) => a.month - b.month);
 
       return createPayout({
+        idempotencyKey,
         chitId,
         memberId,
         monthNumber,
@@ -192,10 +190,11 @@ export default function PayoutCreationForm({
         manualAdjustment:               manualNum || undefined,
         notes:                          notes || undefined,
         collectCurrentMonthInstallment: collectCurrentMonth && installmentAmount > 0,
-        crossChitDeductions:            allDeductions.length > 0 ? allDeductions : undefined,
+        crossChitDeductions:            otherChitDeductions.length > 0 ? otherChitDeductions : undefined,
       });
     },
     onSuccess: (payout) => {
+      setIdempotencyKey(crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['memberBalancesAllChits', memberId] });
       const anySettlement = currentMonthDed > 0 || crossDed > 0 || sameChitDed > 0;
       const msg = anySettlement

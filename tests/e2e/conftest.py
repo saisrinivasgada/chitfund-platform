@@ -15,6 +15,7 @@ rows that decide what a member actually owes.
 from __future__ import annotations
 
 import os
+import uuid
 from decimal import Decimal
 
 import pytest
@@ -179,6 +180,83 @@ def api():
             return requests.request(method, url, headers=headers, timeout=20, **kw)
 
     return Api()
+
+
+@pytest.fixture
+def member_factory(api):
+    """Create real tenant-scoped member profiles for financial scenarios."""
+    created_members: list[tuple[str, str]] = []
+
+    def create(admin: str) -> str:
+        marker = uuid.uuid4().hex
+        created = api.as_role("POST", f"{api.member}/members", admin, json={
+            "fullName": f"Acceptance Member {marker[:8]}",
+            "phone": str(10**9 + (int(marker[:12], 16) % (9 * 10**9))),
+            "phoneCountryCode": "+91",
+            "email": f"acceptance-{marker}@example.test",
+            "sendAppAccess": False,
+        })
+        assert created.status_code == 201, created.text[:500]
+        member_id = created.json()["data"]["id"]
+        created_members.append((member_id, admin))
+        return member_id
+
+    yield create
+
+    # Soft-delete through the application so disposable tests exercise normal
+    # cleanup and do not consume the next test's plan member allowance.
+    for member_id, admin in created_members:
+        api.as_role("DELETE", f"{api.member}/members/{member_id}", admin)
+
+
+@pytest.fixture
+def active_chit(api):
+    """Create, enroll and activate a real reservation chit for API tests.
+
+    Payment-service deliberately rejects unknown or draft chit IDs.  Financial
+    tests must therefore follow the same lifecycle as the app instead of
+    inserting payment rows for invented identifiers.
+    """
+    created_chits: list[tuple[str, str]] = []
+
+    def create(admin: str, member_ids: list[str], *, months: int = 12) -> str:
+        created = api.as_role("POST", f"{api.chit}/api/chits", admin, json={
+            "chitType": "RESERVATION",
+            "name": f"Disposable acceptance {uuid.uuid4()}",
+            "chitValue": 1000 * months,
+            "installmentAmount": 1000,
+            "numberOfMonths": months,
+            "numberOfMembers": max(2, len(member_ids)),
+            "monthlyDueDate": 1,
+            "reservationSchedule": [
+                {
+                    "reservationMonth": f"2026-{index + 1:02d}-01",
+                    "memberId": member_id,
+                    "payoutAmount": 1000,
+                }
+                for index, member_id in enumerate(member_ids)
+            ],
+        })
+        assert created.status_code == 201, created.text[:500]
+        chit_id = created.json()["data"]["id"]
+
+        activated = api.as_role(
+            "PUT", f"{api.chit}/api/chits/{chit_id}/status", admin,
+            json={"status": "ACTIVE", "startDate": "2026-01-01"})
+        assert activated.status_code == 200, activated.text[:500]
+        assert activated.json()["data"]["status"] == "ACTIVE"
+        created_chits.append((chit_id, admin))
+        return chit_id
+
+    yield create
+
+    # Plan limits are intentionally active in the disposable stack. Complete
+    # each test's chit through the public API so one test cannot consume the
+    # next test's active-chit allowance.
+    for chit_id, admin in created_chits:
+        api.as_role(
+            "PUT", f"{api.chit}/api/chits/{chit_id}/status", admin,
+            json={"status": "COMPLETED"})
 
 
 @pytest.fixture(scope="session", autouse=True)

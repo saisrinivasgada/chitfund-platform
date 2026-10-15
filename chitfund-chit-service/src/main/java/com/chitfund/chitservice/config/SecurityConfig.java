@@ -33,7 +33,7 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 // SockJS handshake is public; STOMP CONNECT is authenticated by WebSocketConfig.
                 .requestMatchers("/ws/auction/**").permitAll()
                 .requestMatchers("/internal/**").permitAll()

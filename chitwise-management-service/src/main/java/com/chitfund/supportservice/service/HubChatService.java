@@ -1,5 +1,6 @@
 package com.chitfund.supportservice.service;
 
+import com.chitfund.supportservice.client.AuditClient;
 import com.chitfund.supportservice.domain.entity.*;
 import com.chitfund.supportservice.dto.request.CreateHubGroupRequest;
 import com.chitfund.supportservice.dto.request.SendHubMessageRequest;
@@ -30,6 +31,9 @@ public class HubChatService {
     private final HubGroupMessageRepository groupMsgRepo;
     private final EmployeeRepository employeeRepo;
     private final HubChatWebSocketController wsController;
+    private final AuditClient auditClient;
+
+    private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
 
     @Value("${app.message-delete-window-seconds:300}")
     private long deleteWindowSeconds;
@@ -82,10 +86,11 @@ public class HubChatService {
     public PagedResponse<HubMessageResponse> getDmMessages(String convId, String employeeId,
                                                             String cursor, int limit) {
         HubConversation conv = findDmSecure(convId, employeeId);
-        limit = Math.min(limit, 50);
+        limit = Math.min(Math.max(limit, 1), 50);
+        Instant before = parseCursor(cursor);
 
-        List<HubConversationMessage> msgs = cursor != null
-                ? dmMsgRepo.findBeforeCursor(convId, Instant.parse(cursor), PageRequest.of(0, limit))
+        List<HubConversationMessage> msgs = before != null
+                ? dmMsgRepo.findBeforeCursor(convId, before, PageRequest.of(0, limit))
                 : dmMsgRepo.findByConversationIdOrderByCreatedAtDesc(convId, PageRequest.of(0, limit));
 
         String nextCursor = msgs.size() == limit
@@ -134,7 +139,12 @@ public class HubChatService {
         dmRepo.updatePreview(convId, msg.getCreatedAt(), preview);
 
         HubMessageResponse response = toDmMessageResponse(msg);
-        wsController.sendDmMessage(convId, response);
+        auditClient.logEntity("HUB_CONVERSATION", convId, "MESSAGE_SENT",
+                senderId, "HUB_EMPLOYEE", null,
+                java.util.Map.of("messageId", msg.getId()), null,
+                PLATFORM_AUDIT_TENANT, null);
+        PostCommitAction.run("Hub DM WebSocket publication",
+                () -> wsController.sendDmMessage(convId, response));
         return response;
     }
 
@@ -157,7 +167,13 @@ public class HubChatService {
         msg.setDeletedAt(Instant.now());
         msg.setContent("[deleted]");
         dmMsgRepo.save(msg);
-        wsController.sendDmMessageDeleted(convId, msgId);
+        auditClient.logEntity("HUB_CONVERSATION", convId, "MESSAGE_DELETED",
+                callerId, "HUB_EMPLOYEE",
+                java.util.Map.of("messageId", msgId, "deleted", false),
+                java.util.Map.of("messageId", msgId, "deleted", true), null,
+                PLATFORM_AUDIT_TENANT, "Sender deleted the message within the allowed window");
+        PostCommitAction.run("Hub DM delete WebSocket publication",
+                () -> wsController.sendDmMessageDeleted(convId, msgId));
     }
 
     @Transactional
@@ -205,6 +221,10 @@ public class HubChatService {
         long count = groupMemberRepo.countByGroupId(group.getId());
         group.setMemberCount((int) count);
         group = groupRepo.save(group);
+        auditClient.logEntity("HUB_CHAT_GROUP", group.getId(), "CREATED",
+                creatorId, "HUB_EMPLOYEE", null,
+                java.util.Map.of("name", group.getName(), "memberCount", group.getMemberCount()),
+                null, PLATFORM_AUDIT_TENANT, null);
         return toGroupResponse(group);
     }
 
@@ -234,6 +254,10 @@ public class HubChatService {
         String name = employee.getFullName();
         addGroupMemberInternal(groupId, employeeId, name);
         groupRepo.incrementMemberCount(groupId);
+        auditClient.logEntity("HUB_CHAT_GROUP", groupId, "MEMBER_ADDED",
+                callerId, callerRole, null,
+                java.util.Map.of("employeeId", employeeId), null,
+                PLATFORM_AUDIT_TENANT, null);
     }
 
     @Transactional
@@ -251,16 +275,21 @@ public class HubChatService {
                 .orElseThrow(() -> new IllegalArgumentException("Not a member"));
         groupMemberRepo.delete(member);
         groupRepo.decrementMemberCount(groupId);
+        auditClient.logEntity("HUB_CHAT_GROUP", groupId, "MEMBER_REMOVED",
+                callerId, callerRole,
+                java.util.Map.of("employeeId", employeeId), null, null,
+                PLATFORM_AUDIT_TENANT, "Hub employee removed from chat group");
     }
 
     @Transactional(readOnly = true)
     public PagedResponse<HubMessageResponse> getHubGroupMessages(String groupId, String employeeId,
                                                                    String cursor, int limit) {
         requireHubGroupMember(groupId, employeeId);
-        limit = Math.min(limit, 50);
+        limit = Math.min(Math.max(limit, 1), 50);
+        Instant before = parseCursor(cursor);
 
-        List<HubGroupMessage> msgs = cursor != null
-                ? groupMsgRepo.findBeforeCursor(groupId, Instant.parse(cursor), PageRequest.of(0, limit))
+        List<HubGroupMessage> msgs = before != null
+                ? groupMsgRepo.findBeforeCursor(groupId, before, PageRequest.of(0, limit))
                 : groupMsgRepo.findByGroupIdOrderByCreatedAtDesc(groupId, PageRequest.of(0, limit));
 
         String nextCursor = msgs.size() == limit
@@ -304,7 +333,12 @@ public class HubChatService {
         groupRepo.save(group);
 
         HubMessageResponse response = toGroupMessageResponse(msg);
-        wsController.sendGroupMessage(groupId, response);
+        auditClient.logEntity("HUB_CHAT_GROUP", groupId, "MESSAGE_SENT",
+                senderId, "HUB_EMPLOYEE", null,
+                java.util.Map.of("messageId", msg.getId()), null,
+                PLATFORM_AUDIT_TENANT, null);
+        PostCommitAction.run("Hub group message WebSocket publication",
+                () -> wsController.sendGroupMessage(groupId, response));
         return response;
     }
 
@@ -327,7 +361,13 @@ public class HubChatService {
         msg.setDeletedAt(Instant.now());
         msg.setContent("[deleted]");
         groupMsgRepo.save(msg);
-        wsController.sendGroupMessageDeleted(groupId, msgId);
+        auditClient.logEntity("HUB_CHAT_GROUP", groupId, "MESSAGE_DELETED",
+                callerId, "HUB_EMPLOYEE",
+                java.util.Map.of("messageId", msgId, "deleted", false),
+                java.util.Map.of("messageId", msgId, "deleted", true), null,
+                PLATFORM_AUDIT_TENANT, "Sender deleted the message within the allowed window");
+        PostCommitAction.run("Hub group delete WebSocket publication",
+                () -> wsController.sendGroupMessageDeleted(groupId, msgId));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -339,6 +379,15 @@ public class HubChatService {
             throw new SecurityException("Access denied to this conversation");
         }
         return conv;
+    }
+
+    private Instant parseCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) return null;
+        try {
+            return Instant.parse(cursor);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Invalid message cursor");
+        }
     }
 
     private void requireHubGroupMember(String groupId, String employeeId) {

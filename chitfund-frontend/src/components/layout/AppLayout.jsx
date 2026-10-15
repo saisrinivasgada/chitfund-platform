@@ -64,6 +64,7 @@ export default function AppLayout() {
       ['/payouts', 'Payouts'],
       ['/draws', 'Draws'],
       ['/reports', 'Reports'],
+      ['/activity', 'Organization Activity'],
       ['/treasury', 'Treasury'],
       ['/settlement', 'Settlement'],
       ['/team', 'Team'],

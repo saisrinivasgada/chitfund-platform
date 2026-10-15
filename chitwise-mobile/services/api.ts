@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
 import { accountStorageId, useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
 
@@ -9,12 +10,14 @@ const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 const hubApi = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
 api.interceptors.request.use(async (config) => {
+  config.headers['X-Client-Source'] = 'MOBILE';
   const token = await SecureStore.getItemAsync('chitwise_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
 hubApi.interceptors.request.use(async (config) => {
+  config.headers['X-Client-Source'] = 'MOBILE';
   const token = await SecureStore.getItemAsync('chitwise_hub_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
@@ -37,6 +40,7 @@ async function refreshHubSession() {
       refreshToken: data.refreshToken,
       role: data.role,
       mustChangePassword: data.mustChangePassword === true,
+      customPermissions: data.customPermissions ?? current.customPermissions,
     });
     return data;
   })().finally(() => { hubRefreshing = null; });
@@ -95,11 +99,24 @@ api.interceptors.response.use(
         const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
         if (!refreshToken) throw new Error('no_refresh');
         const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-        const { accessToken, refreshToken: newRefresh } = resp.data?.data ?? resp.data;
+        const authData = resp.data?.data ?? resp.data;
+        const { accessToken, refreshToken: newRefresh } = authData;
         await SecureStore.setItemAsync('chitwise_token', accessToken);
         if (newRefresh) await SecureStore.setItemAsync('chitwise_refresh_token', newRefresh);
         const { user } = useAuthStore.getState();
-        if (user) await useAuthStore.getState().updateTokenForAccount(accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION'), accessToken, newRefresh);
+        if (user) {
+          const refreshed = parseAuthResponse(authData);
+          await useAuthStore.getState().setUser({
+            ...user,
+            token: accessToken,
+            refreshToken: newRefresh ?? user.refreshToken,
+            tenantId: refreshed.tenantId ?? user.tenantId,
+            tenantName: refreshed.tenantName ?? user.tenantName,
+            analyticsEnabled: refreshed.analyticsEnabled,
+            chatEnabled: refreshed.chatEnabled,
+            settlementEnabled: refreshed.settlementEnabled,
+          });
+        }
         processQueue(null, accessToken);
         original.headers.Authorization = `Bearer ${accessToken}`;
         return api(original);
@@ -137,6 +154,7 @@ function unwrapObj(res: any): any {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export interface TenantOption {
   tenantId: string; name: string; slug: string; plan: string; role: string; status?: string;
+  analyticsEnabled?: boolean; chatEnabled?: boolean; settlementEnabled?: boolean;
 }
 export interface LoginResponse {
   token: string;
@@ -149,6 +167,10 @@ export interface LoginResponse {
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
   tenantId?: string;
+  tenantName?: string;
+  analyticsEnabled?: boolean;
+  chatEnabled?: boolean;
+  settlementEnabled?: boolean;
   // set when requiresTenantSelection = true
   requiresTenantSelection?: boolean;
   loginToken?: string;
@@ -175,6 +197,7 @@ export interface HubLoginResponse {
   mustChangePassword: boolean;
   canManageIdentityCases: boolean;
   platformOwner: boolean;
+  customPermissions?: string[];
 }
 
 export const hubLogin = async (username: string, password: string): Promise<HubLoginResponse> => {
@@ -209,7 +232,7 @@ export const hubListTickets = async ({ page = 0, size = 20, status, type, priori
 export const hubGetTicket = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}`));
 export const hubGetTicketMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}/messages`));
 export const hubSendTicketMessage = async (id: string, content: string) => unwrapObj(await hubApi.post(`/hub/tickets/${id}/messages`, { content }));
-export const hubUpdateTicketStatus = async (id: string, status: string) => unwrapObj(await hubApi.put(`/hub/tickets/${id}/status`, { status }));
+export const hubUpdateTicketStatus = async (id: string, status: string, note: string) => unwrapObj(await hubApi.put(`/hub/tickets/${id}/status`, { status, note }));
 export const hubMarkTicketRead = async (id: string) => hubApi.put(`/hub/tickets/${id}/read`);
 export const hubGetIdentityCaseByTicket = async (ticketId: string) => unwrapObj(await hubApi.get(`/hub/identity-cases/ticket/${ticketId}`));
 export const hubPrepareIdentityCase = async (caseId: string, body: any) => unwrapObj(await hubApi.put(`/hub/identity-cases/${caseId}/prepare`, body));
@@ -221,12 +244,12 @@ export const hubListEmployees = async () => {
   return response.data?.data ?? [];
 };
 export const hubInviteEmployee = async (body: { fullName: string; email: string; role: string }) => unwrapObj(await hubApi.post('/hub/employees/invite', body));
-export const hubChangeEmployeeRole = async (id: string, role: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/role`, { role }));
-export const hubDeactivateEmployee = async (id: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/deactivate`));
-export const hubReactivateEmployee = async (id: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/reactivate`));
+export const hubChangeEmployeeRole = async (id: string, role: string, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/role`, { role, reason }));
+export const hubDeactivateEmployee = async (id: string, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/deactivate`, { reason }));
+export const hubReactivateEmployee = async (id: string, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/reactivate`, { reason }));
 export const hubResendEmployeeInvite = async (id: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/resend-invite`));
-export const hubResetEmployeePassword = async (id: string, temporaryPassword: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword }));
-export const hubUpdateIdentityPermissions = async (id: string, canManageIdentityCases: boolean) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/identity-permissions`, { canManageIdentityCases }));
+export const hubResetEmployeePassword = async (id: string, temporaryPassword: string, reason: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword, reason }));
+export const hubUpdateIdentityPermissions = async (id: string, canManageIdentityCases: boolean, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/identity-permissions`, { canManageIdentityCases, reason }));
 export const hubEmployeeDirectory = async (): Promise<any[]> => {
   const response = await hubApi.get('/hub/employees/directory');
   return response.data?.data ?? [];
@@ -278,6 +301,10 @@ function parseAuthResponse(auth: any): LoginResponse {
     role: auth.user.role,
     mustChangePassword: auth.user.mustChangePassword ?? false,
     tenantId,
+    tenantName: auth.tenant?.name,
+    analyticsEnabled: auth.tenant?.analyticsEnabled === true,
+    chatEnabled: auth.tenant?.chatEnabled === true,
+    settlementEnabled: auth.tenant?.settlementEnabled === true,
   };
 }
 
@@ -391,10 +418,10 @@ export const getUserById = async (userId: string) =>
   unwrapObj(await api.get(`/users/${userId}`));
 export const resendSetupLink = async (userId: string) =>
   unwrapObj(await api.post(`/users/${userId}/resend-setup-link`));
-export const sendPaymentReminder = async (userId: string) =>
-  unwrapObj(await api.post(`/notifications/reminder/${userId}`));
-export const sendWhatsAppReminder = async (body: { userId: string; phone?: string; memberName?: string; outstandingAmount?: string; chitName?: string }) =>
-  (await api.post(`/notifications/whatsapp/${body.userId}`, body)).data;
+export const sendPaymentReminder = async (memberId: string) =>
+  unwrapObj(await api.post(`/notifications/reminder/${memberId}`));
+export const sendWhatsAppReminder = async (memberId: string) =>
+  (await api.post(`/notifications/whatsapp/${memberId}`)).data;
 
 // ── Members ───────────────────────────────────────────────────────────────────
 export const getMembers = async (params: any = {}) =>
@@ -470,6 +497,10 @@ export const getChit = async (id: string) => unwrapObj(await api.get(`/chits/${i
 export const createChit = async (body: any) => unwrapObj(await api.post('/chits', body));
 export const updateChitStatus = async (id: string, status: string, startDate?: string) =>
   unwrapObj(await api.put(`/chits/${id}/status`, { status, startDate: startDate ?? null }));
+export const getChitLifecycleSync = async (id: string) =>
+  unwrapObj(await api.get(`/chits/${id}/lifecycle-sync`));
+export const retryChitLifecycleSync = async (id: string) =>
+  unwrapObj(await api.post(`/chits/${id}/lifecycle-sync/retry`));
 export const updateChitName = async (id: string, name: string, description?: string) =>
   unwrapObj(await api.patch(`/chits/${id}/name`, { name, description }));
 export const updateChitDetails = async (id: string, body: any) =>
@@ -617,8 +648,12 @@ export const memberApproveCashRequest = async (requestId: string, approved: bool
   unwrapObj(await api.patch(`/payments/requests/${requestId}/member-approve`, { approved, reason }));
 
 // ── Payment Intimations ───────────────────────────────────────────────────────
-export const createPaymentIntimation = async (items: Array<{ chitId: string; claimedAmount: number }>, notes?: string) =>
-  unwrapObj(await api.post('/payments/intimations', { items, notes }));
+export const createPaymentIntimation = async (
+  items: Array<{ chitId: string; claimedAmount: number }>,
+  paymentMode: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
+  paymentReference?: string,
+  notes?: string,
+) => unwrapObj(await api.post('/payments/intimations', { items, paymentMode, paymentReference, notes }));
 export const withdrawPaymentIntimation = async (id: string) =>
   unwrapObj(await api.post(`/payments/intimations/${id}/withdraw`));
 export const getMyIntimations = async () =>
@@ -642,9 +677,16 @@ export const getPayoutById = async (payoutId: string) =>
   unwrapObj(await api.get(`/payouts/${payoutId}`));
 export const getPayoutsForMember = async (memberId: string) =>
   unwrapList(await api.get(`/payouts/member/${memberId}`));
-export const createPayout = async (body: any) => unwrapObj(await api.post('/payouts', body));
-export const disbursePayout = async (id: string, body: any) =>
-  unwrapObj(await api.post(`/payouts/${id}/disburse`, body));
+export const createPayout = async (body: any) => {
+  const { idempotencyKey, ...payload } = body ?? {};
+  return unwrapObj(await api.post('/payouts', payload, {
+    headers: { 'X-Idempotency-Key': idempotencyKey },
+  }));
+};
+export const disbursePayout = async (id: string, body: any, idempotencyKey: string) =>
+  unwrapObj(await api.post(`/payouts/${id}/disburse`, body, {
+    headers: { 'X-Idempotency-Key': idempotencyKey },
+  }));
 export const cancelPayout = async (id: string, reason: string) =>
   unwrapObj(await api.post(`/payouts/${id}/cancel`, { reason }));
 export const voidPayout = async (id: string, reason: string) =>
@@ -661,7 +703,24 @@ export const redeemMemberCredit = async (body: any) => unwrapObj(await api.post(
 
 // ── Audit ──────────────────────────────────────────────────────────────────────
 export const getAuditLogs = async (params: any = {}) => {
-  try { return unwrapList(await api.get('/audit/logs', { params })); } catch { return []; }
+  return unwrapList(await api.get('/audit/logs', { params }));
+};
+export const getAuditLogPage = async (params: any = {}) => {
+  const response = await api.get('/audit/logs', { params });
+  const data = response.data?.data ?? response.data ?? {};
+  if (Array.isArray(data)) {
+    const page = Number(params.page ?? 0);
+    const size = Number(params.size ?? (data.length || 1));
+    return {
+      content: data,
+      number: page,
+      totalPages: data.length < size ? page + 1 : page + 2,
+      totalElements: data.length,
+      first: page === 0,
+      last: data.length < size,
+    };
+  }
+  return data;
 };
 export const getPaginatedAuditLogs = async (params: any = {}) =>
   unwrapList(await api.get('/audit/logs', { params }));
@@ -690,10 +749,10 @@ export const getAllCashRequests = async (params: any = {}) => {
   });
 };
 export const getEntityAuditHistory = async (entityType: string, entityId: string) => {
-  try { return unwrapList(await api.get(`/audit/logs/${entityType}/${entityId}`)); } catch { return []; }
+  return unwrapList(await api.get(`/audit/logs/${entityType}/${entityId}`));
 };
 export const getChitAuditHistory = async (chitId: string) => {
-  try { return unwrapList(await api.get(`/audit/logs/chit/${chitId}`)); } catch { return []; }
+  return unwrapList(await api.get(`/audit/logs/chit/${chitId}`));
 };
 
 // ── Settlement ────────────────────────────────────────────────────────────────
@@ -779,8 +838,10 @@ export const superAdminSetTenantStatus = async (tenantId: string, status: string
   unwrapObj(await api.patch(`/super-admin/tenants/${tenantId}/status`, null, { params: { status } }));
 export const superAdminReactivateTenant = async (tenantId: string, newSlug?: string) =>
   unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/reactivate`, null, newSlug ? { params: { newSlug } } : {}));
-export const superAdminUpdatePlan = async (tenantId: string, plan: string) =>
-  unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/plan`, null, { params: { plan } }));
+export const superAdminUpdatePlan = async (tenantId: string, plan: string, reason: string) =>
+  unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/plan`, null, {
+    params: { plan }, headers: { 'X-Change-Reason': reason },
+  }));
 export const superAdminListOrgUsers = async (tenantId: string) =>
   unwrapList(await api.get(`/super-admin/tenants/${tenantId}/users`));
 export const superAdminAddOrgUser = async (tenantId: string, body: any) =>
@@ -795,14 +856,20 @@ export const superAdminListRenewalRequests = async () =>
   unwrapList(await api.get('/super-admin/tenants/renewal-requests'));
 export const superAdminClearRenewalRequest = async (tenantId: string) =>
   api.delete(`/super-admin/tenants/${tenantId}/renewal-request`);
-export const superAdminSetPlanExpiry = async (tenantId: string, expiresAt: string) =>
-  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, { params: { expiresAt } }));
+export const superAdminSetPlanExpiry = async (tenantId: string, expiresAt: string, reason: string) =>
+  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, {
+    params: { expiresAt }, headers: { 'X-Change-Reason': reason },
+  }));
 export const superAdminGetAllLimitsBulk = async () =>
   unwrapList(await api.get('/super-admin/tenants/limits-bulk'));
 export const superAdminGetEffectiveLimits = async (tenantId: string) =>
   unwrapObj(await api.get(`/super-admin/tenants/${tenantId}/effective-limits`));
-export const superAdminSetCustomLimits = async (tenantId: string, data: any) =>
-  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data));
+export const getMyEffectiveLimits = async () =>
+  unwrapObj(await api.get('/users/me/effective-limits'));
+export const superAdminSetCustomLimits = async (tenantId: string, data: any, reason: string) =>
+  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data, {
+    headers: { 'X-Change-Reason': reason },
+  }));
 export const superAdminGetAdminCredentials = async (tenantId: string) =>
   unwrapObj(await api.get(`/super-admin/tenants/${tenantId}/credentials`));
 // Promotions
@@ -821,19 +888,40 @@ export const superAdminListPlans = async () =>
   unwrapList(await api.get('/super-admin/plans'));
 export const superAdminCreatePlan = async (body: any) =>
   unwrapObj(await api.post('/super-admin/plans', body));
-export const superAdminUpdatePlan2 = async (code: string, body: any) =>
-  unwrapObj(await api.put(`/super-admin/plans/${code}`, body));
+export const superAdminUpdatePlan2 = async (code: string, body: any, reason?: string) =>
+  unwrapObj(await api.put(`/super-admin/plans/${code}`, body,
+    reason ? { headers: { 'X-Change-Reason': reason } } : undefined));
 export const superAdminListCapabilities = async () =>
   unwrapList(await api.get('/super-admin/capabilities'));
 export const superAdminAddCapability = async (label: string) =>
   unwrapObj(await api.post('/super-admin/capabilities', { label }));
-export const superAdminDeleteCapability = async (key: string) =>
-  api.delete(`/super-admin/capabilities/${key}`);
+export const superAdminDeleteCapability = async (key: string, reason: string) =>
+  api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
 // SA Billing
 export const billingListPayments = async (params: any = {}) =>
   unwrapList(await api.get('/super-admin/billing/payments', { params }));
-export const billingRecordPayment = async (payload: any) =>
-  unwrapObj(await api.post('/super-admin/billing/payments', payload));
+const pendingBillingKeys = new Map<string, string>();
+
+function stableBillingSignature(kind: string, payload: any): string {
+  const ordered = Object.keys(payload ?? {}).sort().reduce((result: any, key) => {
+    result[key] = payload[key];
+    return result;
+  }, {});
+  return `${kind}:${JSON.stringify(ordered)}`;
+}
+
+async function postBillingIdempotently(kind: string, url: string, payload: any): Promise<any> {
+  const { idempotencyKey: suppliedKey, ...body } = payload ?? {};
+  const signature = stableBillingSignature(kind, body);
+  const key = suppliedKey ?? pendingBillingKeys.get(signature) ?? Crypto.randomUUID();
+  if (!suppliedKey) pendingBillingKeys.set(signature, key);
+  const result = unwrapObj(await api.post(url, { ...body, idempotencyKey: key }));
+  if (!suppliedKey) pendingBillingKeys.delete(signature);
+  return result;
+}
+
+export const billingRecordPayment = (payload: any) =>
+  postBillingIdempotently('payment', '/super-admin/billing/payments', payload);
 export const billingUpgradePreview = async (tenantId: string, newPlan: string) =>
   unwrapObj(await api.get('/super-admin/billing/upgrade-preview', { params: { tenantId, newPlan } }));
 
@@ -1241,10 +1329,8 @@ export const superAdminResumeTenant = async (tenantId: string): Promise<any> => 
   return res.data.data;
 };
 
-export const billingRecordUpgrade = async (payload: any): Promise<any> => {
-  const res = await api.post('/super-admin/billing/payments/upgrade', payload);
-  return res.data.data;
-};
+export const billingRecordUpgrade = (payload: any): Promise<any> =>
+  postBillingIdempotently('upgrade', '/super-admin/billing/payments/upgrade', payload);
 
 export const superAdminSetPromotionVisibility = async (id: string, isPublic: boolean): Promise<any> => {
   const res = await api.patch(`/superadmin/promotions/${id}/visibility`, { isPublic });
@@ -1300,8 +1386,8 @@ export const billingGetPayment = async (paymentId: string): Promise<any> => {
 };
 
 export const billingRecordRefund = async (paymentId: string, payload: any): Promise<any> => {
-  const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);
-  return res.data.data;
+  return postBillingIdempotently(`refund:${paymentId}`,
+    `/super-admin/billing/payments/${paymentId}/refund`, payload);
 };
 
 export const updateOrgDetails = async (payload: { orgName?: string; businessRegNumber?: string; address?: string }): Promise<any> => {
@@ -1320,10 +1406,11 @@ export const resumeSubscription = async (): Promise<any> => {
   return res.data.data;
 };
 
-export const applyDowngrade = async (toPlan: string): Promise<any> => {
-  const res = await api.post('/billing/downgrade', null, { params: { toPlan } });
-  return res.data.data;
-};
+export const applyDowngrade = (toPlan: string): Promise<any> =>
+  postBillingIdempotently('downgrade', '/billing/downgrade', {
+    toPlan,
+    reason: 'Organization admin requested immediate downgrade',
+  });
 
 // ── Account lockout (admin unlocks staff locked out by failed logins) ─────────
 export const lockUser = async (id: string): Promise<any> => {
@@ -1360,8 +1447,12 @@ export const superAdminRemoveDiscount = async (tenantId: string): Promise<void> 
   await api.delete(`/super-admin/tenants/${tenantId}/discount`);
 };
 
-export const superAdminRemoveCustomLimits = async (tenantId: string, fallbackPlan = 'BASIC'): Promise<any> => {
-  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, { params: { fallbackPlan } });
+export const superAdminRemoveCustomLimits = async (
+  tenantId: string, fallbackPlan: string, reason: string,
+): Promise<any> => {
+  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, {
+    params: { fallbackPlan }, headers: { 'X-Change-Reason': reason },
+  });
   return res.data;
 };
 
@@ -1431,15 +1522,13 @@ export const getMyReferral = async (): Promise<any> => {
 };
 
 // ── Super-admin: tenant credits ───────────────────────────────────────────────
-export const superAdminAddTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminAddTenantCredit = (tenantId: string, amountInr: number, notes?: string): Promise<any> =>
+  postBillingIdempotently(`credit:add:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
 
-export const superAdminDeductTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminDeductTenantCredit = (tenantId: string, amountInr: number, notes?: string): Promise<any> =>
+  postBillingIdempotently(`credit:deduct:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
 
 // Soft delete — the chit is hidden from lists but still readable via /chits/deleted.
 export const deleteChit = async (id: string): Promise<any> => {

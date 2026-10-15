@@ -63,6 +63,9 @@ app:
     from: ${MAIL_FROM:noreply@thechitwise.com}
   email:
     enabled: ${EMAIL_ENABLED:false}
+    # SES identities and production-access approvals are regional. This may
+    # deliberately differ from AWS_REGION, which controls Mumbai SQS.
+    region: ${SES_REGION:${AWS_REGION:ap-south-1}}
   sms:
     enabled: ${SMS_ENABLED:false}
   otp:
@@ -74,6 +77,7 @@ app:
 whatsapp:
   phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:NOT_CONFIGURED}
   access-token: ${WHATSAPP_ACCESS_TOKEN:NOT_CONFIGURED}
+  api-version: ${WHATSAPP_API_VERSION:NOT_CONFIGURED}
   otp-template-name: ${WHATSAPP_OTP_TEMPLATE_NAME:otp_verification}
   otp-template-lang: ${WHATSAPP_OTP_TEMPLATE_LANG:en_US}
 
@@ -81,7 +85,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: when-authorized

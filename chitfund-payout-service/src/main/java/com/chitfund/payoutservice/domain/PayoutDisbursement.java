@@ -17,7 +17,6 @@ import java.util.UUID;
 public class PayoutDisbursement {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(nullable = false)
@@ -41,4 +40,10 @@ public class PayoutDisbursement {
 
     @Column(nullable = false)
     private LocalDateTime disbursedAt;
+
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
+    @Column(name = "idempotency_request_hash", length = 64, columnDefinition = "char(64)")
+    private String idempotencyRequestHash;
 }

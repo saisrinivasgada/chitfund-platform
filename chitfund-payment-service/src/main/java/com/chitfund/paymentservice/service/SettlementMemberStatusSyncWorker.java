@@ -25,7 +25,8 @@ public class SettlementMemberStatusSyncWorker {
             if (claimed.isEmpty()) continue;
             try {
                 var sync = claimed.get();
-                memberServiceClient.setMemberStatus(sync.getMemberId(), sync.getDesiredStatus());
+                memberServiceClient.setMemberStatus(
+                        sync.getMemberId(), sync.getDesiredStatus(), sync.getTenantId());
                 store.complete(id, sync.getClaimToken());
             } catch (Exception error) {
                 log.warn("Member status sync {} failed; it will retry", id);

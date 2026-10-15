@@ -97,7 +97,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     if (hubIdentity == null
                             || !hubIdentity.active()
                             || hubIdentity.mustChangePassword()
-                            || !"SUPER_ADMIN".equals(hubIdentity.role())
+                            || !("SUPER_ADMIN".equals(hubIdentity.role())
+                                    || hubIdentity.platformConsoleAccess())
                             || tokenVersion.longValue() != hubIdentity.authVersion()) {
                         filterChain.doFilter(request, response);
                         return;

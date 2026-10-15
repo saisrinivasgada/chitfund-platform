@@ -10,6 +10,8 @@
     "ios": "expo run:ios",
     "ios:hub": "EXPO_PUBLIC_APP_VARIANT=hub expo run:ios",
     "web": "expo start --web",
+    "audit:ci": "node scripts/audit-dependencies.mjs",
+    "audit:test": "node --test scripts/audit-dependencies.test.mjs",
     "type-check": "tsc --noEmit",
     "doctor": "expo-doctor"
   },
@@ -19,7 +21,7 @@
     "@stomp/stompjs": "^7.3.0",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-query-persist-client": "^5.101.2",
-    "axios": "^1.9.0",
+    "axios": "^1.20.0",
     "expo": "~54.0.37",
     "expo-blur": "~15.0.8",
     "expo-constants": "~18.0.14",
@@ -36,6 +38,7 @@
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-updates": "~29.0.20",
+    "image-size": "file:vendor/image-size-compat",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -49,7 +52,14 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.10",
+    "expo-doctor": "1.20.4",
     "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "image-size": "$image-size",
+    "postcss": "8.5.28",
+    "shell-quote": "1.12.0",
+    "source-map-js": "1.2.2"
   },
   "private": true
 }

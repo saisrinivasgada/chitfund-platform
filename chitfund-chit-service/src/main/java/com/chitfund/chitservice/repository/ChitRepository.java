@@ -24,8 +24,8 @@ public interface ChitRepository extends JpaRepository<Chit, UUID> {
     // WinnerService.assignWinner so two truly concurrent assign-winner requests
     // for the same chit serialize instead of racing past each other's reads.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT c FROM Chit c WHERE c.id = :id")
-    java.util.Optional<Chit> findByIdForUpdate(UUID id);
+    @Query("SELECT c FROM Chit c WHERE c.id = :id AND c.tenantId = :tenantId AND c.deletedAt IS NULL")
+    java.util.Optional<Chit> findByIdAndTenantIdForUpdate(UUID id, String tenantId);
 
     // ── Tenant-scoped list queries ─────────────────────────────────────────────
     Page<Chit> findByTenantIdAndDeletedAtIsNull(String tenantId, Pageable pageable);

@@ -60,8 +60,10 @@ public class AuctionController {
         } else {
             memberId = (UUID) auth.getPrincipal();
         }
-        return ResponseEntity.ok(
-                ApiResponse.success(auctionService.placeBid(chitId, auctionId, request, memberId), "Bid placed"));
+        UUID actorId = (UUID) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(
+                auctionService.placeBid(chitId, auctionId, request, memberId, actorId, callerRole),
+                "Bid placed"));
     }
 
     // Get live auction state + all bids (used for initial page load; WebSocket keeps it live after)

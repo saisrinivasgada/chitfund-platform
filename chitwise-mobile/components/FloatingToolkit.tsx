@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, PanResponder,
   Animated, useWindowDimensions, ScrollView, Vibration,
@@ -6,7 +6,6 @@ import {
 } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToolkitStore } from '../store/toolkitStore';
-import { useAuthStore } from '../store/authStore';
 import { toast } from './Toast';
 import { C } from './ui';
 
@@ -149,7 +148,7 @@ export function FloatingToolkit() {
   const pan    = useRef(new Animated.ValueXY({ x: W - buttonSize - 12, y: H * 0.42 })).current;
   const scale  = useRef(new Animated.Value(0)).current;
   const pulseS = useRef(new Animated.Value(1)).current;
-  const refreshVisible = useRef(false);
+  const [refreshVisible, setRefreshVisible] = useState(false);
   const refreshAnim    = useRef(new Animated.Value(0)).current;
   const isRefreshing   = useRef(false);
 
@@ -235,21 +234,20 @@ export function FloatingToolkit() {
       Animated.spring(scale, { toValue: 1.0, useNativeDriver: true, tension: 200, friction: 8 }),
     ]).start();
 
-    refreshVisible.current = true;
+    setRefreshVisible(true);
     refreshAnim.setValue(1);
 
-    await qc.invalidateQueries();
-    await new Promise(r => setTimeout(r, 900));
-
-    Animated.timing(refreshAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
-      refreshVisible.current = false;
-      isRefreshing.current = false;
-    });
-
-    toast.saved('Screen refreshed');
+    try {
+      await qc.invalidateQueries();
+      await new Promise(r => setTimeout(r, 900));
+      toast.saved('Screen refreshed');
+    } finally {
+      Animated.timing(refreshAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+        setRefreshVisible(false);
+        isRefreshing.current = false;
+      });
+    }
   }, [qc, scale]);
-
-  const user = useAuthStore((s) => s.user); // still needed for HUB guard in FloatingToolkitRoot
 
   if (!enabled) return null;
 
@@ -295,7 +293,7 @@ export function FloatingToolkit() {
             },
           ]}
         >
-          <RefreshSpinner visible={refreshVisible.current} />
+          <RefreshSpinner visible={refreshVisible} />
         </Animated.View>
       </Animated.View>
 

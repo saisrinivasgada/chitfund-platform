@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
+import com.chitfund.userservice.domain.entity.User;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 @RestController
 @PreAuthorize("hasAuthority('SUPER_ADMIN')")
@@ -35,21 +37,29 @@ public class SuperAdminPlanController {
 
     @PostMapping("/api/super-admin/plans")
     public ResponseEntity<ApiResponse<PlanResponse>> createPlan(
-            @Valid @RequestBody CreatePlanRequest req) {
+            @Valid @RequestBody CreatePlanRequest req,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(planService.createPlan(req), "Plan created"));
+                .body(ApiResponse.success(
+                        planService.createPlan(req, principal.getId().toString()), "Plan created"));
     }
 
     @PutMapping("/api/super-admin/plans/{code}")
     public ResponseEntity<ApiResponse<PlanResponse>> updatePlan(
             @PathVariable String code,
-            @RequestBody UpdatePlanRequest req) {
-        return ResponseEntity.ok(ApiResponse.success(planService.updatePlan(code, req), "Plan updated"));
+            @Valid @RequestBody UpdatePlanRequest req,
+            @RequestHeader(value = "X-Change-Reason", required = false) String reason,
+            @AuthenticationPrincipal User principal) {
+        return ResponseEntity.ok(ApiResponse.success(
+                planService.updatePlan(code, req, principal.getId().toString(), reason), "Plan updated"));
     }
 
     @DeleteMapping("/api/super-admin/plans/{code}")
-    public ResponseEntity<ApiResponse<Void>> deletePlan(@PathVariable String code) {
-        planService.deletePlan(code);
+    public ResponseEntity<ApiResponse<Void>> deletePlan(
+            @PathVariable String code,
+            @RequestHeader("X-Change-Reason") String reason,
+            @AuthenticationPrincipal User principal) {
+        planService.deletePlan(code, principal.getId().toString(), reason);
         return ResponseEntity.ok(ApiResponse.success(null, "Plan deactivated"));
     }
 
@@ -62,14 +72,19 @@ public class SuperAdminPlanController {
 
     @PostMapping("/api/super-admin/capabilities")
     public ResponseEntity<ApiResponse<CapabilityDefResponse>> addCapability(
-            @Valid @RequestBody CreateCapabilityDefRequest req) {
+            @Valid @RequestBody CreateCapabilityDefRequest req,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(planService.addCapabilityDef(req), "Capability added"));
+                .body(ApiResponse.success(
+                        planService.addCapabilityDef(req, principal.getId().toString()), "Capability added"));
     }
 
     @DeleteMapping("/api/super-admin/capabilities/{key}")
-    public ResponseEntity<ApiResponse<Void>> deleteCapability(@PathVariable String key) {
-        planService.deleteCapabilityDef(key);
+    public ResponseEntity<ApiResponse<Void>> deleteCapability(
+            @PathVariable String key,
+            @RequestHeader("X-Change-Reason") String reason,
+            @AuthenticationPrincipal User principal) {
+        planService.deleteCapabilityDef(key, principal.getId().toString(), reason);
         return ResponseEntity.ok(ApiResponse.success(null, "Capability removed"));
     }
 
@@ -85,14 +100,17 @@ public class SuperAdminPlanController {
     @PostMapping("/api/super-admin/tenants/{tenantId}/discount")
     public ResponseEntity<ApiResponse<TenantDiscountResponse>> setDiscount(
             @PathVariable UUID tenantId,
-            @Valid @RequestBody SetTenantDiscountRequest req) {
+            @Valid @RequestBody SetTenantDiscountRequest req,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                planService.setTenantDiscount(tenantId.toString(), req), "Discount set"));
+                planService.setTenantDiscount(
+                        tenantId.toString(), req, principal.getId().toString()), "Discount set"));
     }
 
     @DeleteMapping("/api/super-admin/tenants/{tenantId}/discount")
-    public ResponseEntity<ApiResponse<Void>> removeDiscount(@PathVariable UUID tenantId) {
-        planService.removeTenantDiscount(tenantId.toString());
+    public ResponseEntity<ApiResponse<Void>> removeDiscount(
+            @PathVariable UUID tenantId, @AuthenticationPrincipal User principal) {
+        planService.removeTenantDiscount(tenantId.toString(), principal.getId().toString());
         return ResponseEntity.ok(ApiResponse.success(null, "Discount removed"));
     }
 }

@@ -6,9 +6,8 @@ import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.client.UserServiceClient;
 import com.chitfund.notificationservice.domain.enums.NotificationEventType;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
+import com.chitfund.notificationservice.outbox.NotificationDeliveryQueue;
 import com.chitfund.notificationservice.repository.EventInboxRepository;
-import com.chitfund.notificationservice.sender.EmailSender;
-import com.chitfund.notificationservice.service.ExpoPushService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,14 +31,14 @@ public class NotificationEventConsumer {
 
     private final NotificationService notificationService;
     private final com.chitfund.notificationservice.service.InAppNotificationService inAppService;
-    private final ExpoPushService pushService;
-    private final EmailSender emailSender;
+    private final NotificationDeliveryQueue deliveryQueue;
     private final ObjectMapper objectMapper;
     private final WebSocketBroadcaster broadcaster;
     private final MemberServiceClient memberServiceClient;
     private final UserServiceClient userServiceClient;
     private final ChitServiceClient chitServiceClient;
     private final EventInboxRepository inboxRepository;
+    private final ThreadLocal<String> currentEventId = new ThreadLocal<>();
 
     @SqsListener(SqsQueues.NOTIFICATION_EVENTS)
     @Transactional
@@ -50,37 +49,47 @@ public class NotificationEventConsumer {
                 log.warn("Unknown notification event type: {}", envelope.eventType());
                 return;
             }
-            if (isDuplicate(envelope)) {
+            String eventId = envelope.eventId() == null || envelope.eventId().isBlank()
+                    ? UUID.randomUUID().toString()
+                    : canonicalEventId(envelope.eventId());
+            if (isDuplicate(envelope, eventId)) {
                 log.info("Ignoring duplicate notification event {} ({})",
                         envelope.eventId(), envelope.eventType());
                 return;
             }
-            switch (envelope.eventType()) {
-                case SqsQueues.EVT_MONTH_OPENED ->
-                    onMonthOpened(objectMapper.readValue(envelope.payload(), ChitMonthOpenedEvent.class));
-                case SqsQueues.EVT_MONTH_SKIPPED ->
-                    onMonthSkipped(objectMapper.readValue(envelope.payload(), ChitMonthSkippedEvent.class));
-                case SqsQueues.EVT_CASH_COLLECTED ->
-                    onCashCollected(objectMapper.readValue(envelope.payload(), CashCollectedEvent.class));
-                case SqsQueues.EVT_PAYMENT_COMPLETED ->
-                    onPaymentCompleted(objectMapper.readValue(envelope.payload(), PaymentCompletedEvent.class));
-                case SqsQueues.EVT_PAYOUT_CREATED ->
-                    onPayoutCreated(objectMapper.readValue(envelope.payload(), PayoutCreatedEvent.class));
-                case SqsQueues.EVT_PAYOUT_DISBURSED ->
-                    onPayoutDisbursed(objectMapper.readValue(envelope.payload(), PayoutDisbursedEvent.class));
-                case SqsQueues.EVT_MEMBER_UPDATED ->
-                    onMemberUpdated(objectMapper.readValue(envelope.payload(), MemberUpdatedEvent.class));
-                case SqsQueues.EVT_CASH_REQUEST_EVENT ->
-                    onCashRequestEvent(objectMapper.readValue(envelope.payload(), CashRequestEvent.class));
-                case SqsQueues.EVT_TRANSACTIONAL_EMAIL ->
-                    onTransactionalEmail(objectMapper.readValue(envelope.payload(), TransactionalEmailEvent.class));
-                case SqsQueues.EVT_IN_APP_NOTIFICATION ->
-                    onInAppNotification(objectMapper.readValue(envelope.payload(), InAppNotificationEvent.class));
-                case SqsQueues.EVT_PUSH_NOTIFICATION ->
-                    onPushNotification(objectMapper.readValue(envelope.payload(), PushNotificationEvent.class));
-                case SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS ->
-                    onBulkInAppByMemberIds(objectMapper.readValue(envelope.payload(), BulkInAppByMemberIdsEvent.class));
-                default -> throw new IllegalStateException("Validated event type was not handled");
+            currentEventId.set(eventId);
+            try {
+                switch (envelope.eventType()) {
+                    case SqsQueues.EVT_MONTH_OPENED ->
+                        onMonthOpened(objectMapper.readValue(envelope.payload(), ChitMonthOpenedEvent.class));
+                    case SqsQueues.EVT_MONTH_SKIPPED ->
+                        onMonthSkipped(objectMapper.readValue(envelope.payload(), ChitMonthSkippedEvent.class));
+                    case SqsQueues.EVT_CASH_COLLECTED ->
+                        onCashCollected(objectMapper.readValue(envelope.payload(), CashCollectedEvent.class));
+                    case SqsQueues.EVT_PAYMENT_COMPLETED ->
+                        onPaymentCompleted(objectMapper.readValue(envelope.payload(), PaymentCompletedEvent.class));
+                    case SqsQueues.EVT_PAYOUT_CREATED ->
+                        onPayoutCreated(objectMapper.readValue(envelope.payload(), PayoutCreatedEvent.class));
+                    case SqsQueues.EVT_PAYOUT_DISBURSED ->
+                        onPayoutDisbursed(objectMapper.readValue(envelope.payload(), PayoutDisbursedEvent.class));
+                    case SqsQueues.EVT_MEMBER_UPDATED ->
+                        onMemberUpdated(objectMapper.readValue(envelope.payload(), MemberUpdatedEvent.class));
+                    case SqsQueues.EVT_CASH_REQUEST_EVENT ->
+                        onCashRequestEvent(objectMapper.readValue(envelope.payload(), CashRequestEvent.class));
+                    case SqsQueues.EVT_TRANSACTIONAL_EMAIL ->
+                        onTransactionalEmail(objectMapper.readValue(envelope.payload(), TransactionalEmailEvent.class));
+                    case SqsQueues.EVT_IN_APP_NOTIFICATION ->
+                        onInAppNotification(objectMapper.readValue(envelope.payload(), InAppNotificationEvent.class));
+                    case SqsQueues.EVT_PUSH_NOTIFICATION ->
+                        onPushNotification(objectMapper.readValue(envelope.payload(), PushNotificationEvent.class));
+                    case SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS ->
+                        onBulkInAppByMemberIds(objectMapper.readValue(envelope.payload(), BulkInAppByMemberIdsEvent.class));
+                    case SqsQueues.EVT_PAYMENT_INTIMATION ->
+                        onPaymentIntimation(objectMapper.readValue(envelope.payload(), PaymentIntimationNotificationEvent.class));
+                    default -> throw new IllegalStateException("Validated event type was not handled");
+                }
+            } finally {
+                currentEventId.remove();
             }
         } catch (Exception e) {
             log.error("Failed to process notification event: {}", e.getMessage(), e);
@@ -88,11 +97,10 @@ public class NotificationEventConsumer {
         }
     }
 
-    private boolean isDuplicate(SqsEventEnvelope envelope) {
+    private boolean isDuplicate(SqsEventEnvelope envelope, String eventId) {
         if (envelope.eventId() == null || envelope.eventId().isBlank()) {
             return false;
         }
-        String eventId = canonicalEventId(envelope.eventId());
         return inboxRepository.claimIfAbsent(
                 eventId, envelope.eventType(), LocalDateTime.now()) == 0;
     }
@@ -109,7 +117,8 @@ public class NotificationEventConsumer {
                 || SqsQueues.EVT_TRANSACTIONAL_EMAIL.equals(eventType)
                 || SqsQueues.EVT_IN_APP_NOTIFICATION.equals(eventType)
                 || SqsQueues.EVT_PUSH_NOTIFICATION.equals(eventType)
-                || SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS.equals(eventType);
+                || SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS.equals(eventType)
+                || SqsQueues.EVT_PAYMENT_INTIMATION.equals(eventType);
     }
 
     private String canonicalEventId(String eventId) {
@@ -118,6 +127,11 @@ public class NotificationEventConsumer {
             throw new IllegalArgumentException("eventId must be a canonical UUID");
         }
         return canonical;
+    }
+
+    private String deliveryEventId() {
+        String eventId = currentEventId.get();
+        return eventId == null ? UUID.randomUUID().toString() : eventId;
     }
 
     // ── Month opened — all members get "installment due" alert ───────────────
@@ -130,7 +144,8 @@ public class NotificationEventConsumer {
             String amtFormatted = "₹" + event.installmentAmount().toPlainString();
             String chitLabel = event.chitName() != null ? event.chitName() : event.chitId();
 
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), event.memberIds());
 
             for (String memberId : event.memberIds()) {
                 NotifyRequest req = buildRequest(
@@ -144,24 +159,24 @@ public class NotificationEventConsumer {
                                 "dueDate",     event.dueDate().toString()
                         )
                 );
-                notificationService.send(req);
+                notificationService.send(deliveryEventId(), event.tenantId(), req);
 
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
                     String title = "Installment Due";
                     String body  = amtFormatted + " due for draw " + event.monthNumber() + " — " + chitLabel;
                     inAppService.create(
-                        UUID.fromString(userId), title, body, "PAYMENT_DUE",
+                        event.tenantId(), UUID.fromString(userId), title, body, "PAYMENT_DUE",
                         Map.of("chitId", event.chitId(), "amount", event.installmentAmount().toPlainString(),
                                "monthNumber", event.monthNumber().toString()),
                         "/member/chits/" + event.chitId()
                     );
-                    pushService.sendToUserWithData(UUID.fromString(userId), title, body,
+                    deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
                             Map.of("screen", "chits", "chitId", event.chitId()));
                 }
             }
-            broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "DRAWS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_OPENED event: {}", e.getMessage(), e);
             throw new IllegalStateException("MONTH_OPENED processing failed", e);
@@ -183,29 +198,30 @@ public class NotificationEventConsumer {
                     "monthNumber", event.monthNumber().toString(),
                     "reason",      reason
             );
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), event.memberIds());
 
             for (String memberId : event.memberIds()) {
                 NotifyRequest req = buildRequest(
                         UUID.fromString(memberId), null, null,
                         NotificationEventType.MONTH_SKIPPED, params);
-                notificationService.send(req);
+                notificationService.send(deliveryEventId(), event.tenantId(), req);
 
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
                     String title = "Draw Skipped";
                     String body  = "Draw " + event.monthNumber() + " of " + chitLabel + " was skipped. Reason: " + reason;
                     inAppService.create(
-                        UUID.fromString(userId), title, body, "MONTH_SKIPPED",
+                        event.tenantId(), UUID.fromString(userId), title, body, "MONTH_SKIPPED",
                         Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString(), "reason", reason),
                         "/member/chits/" + event.chitId()
                     );
-                    pushService.sendToUserWithData(UUID.fromString(userId), title, body,
+                    deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
                             Map.of("screen", "chits", "chitId", event.chitId()));
                 }
             }
-            broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "DRAWS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_SKIPPED event: {}", e.getMessage(), e);
             throw new IllegalStateException("MONTH_SKIPPED processing failed", e);
@@ -232,23 +248,23 @@ public class NotificationEventConsumer {
                             "chitId",     event.chitId()
                     )
             );
-            notificationService.send(req);
+            notificationService.send(deliveryEventId(), event.tenantId(), req);
 
             String cashTitle = "Cash Collected";
             String cashBody  = amtFormatted + " collected successfully";
             inAppService.create(
-                UUID.fromString(event.collectedByUserId()),
+                event.tenantId(), UUID.fromString(event.collectedByUserId()),
                 cashTitle, cashBody, "CASH_COLLECTED",
                 Map.of("memberId", event.memberId(), "chitId", event.chitId(),
                        "amount", event.amount().toPlainString(),
                        "workerId", event.collectedByUserId()),
                 "/member?tab=requests"
             );
-            pushService.sendToUserWithData(UUID.fromString(event.collectedByUserId()), cashTitle, cashBody,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.collectedByUserId()), cashTitle, cashBody,
                     Map.of("screen", "tasks"));
-            broadcaster.broadcast("CASH_REQUESTS_UPDATED");
-            broadcaster.broadcast("PAYMENTS_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "CASH_REQUESTS_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYMENTS_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process CASH_COLLECTED event: {}", e.getMessage(), e);
             throw new IllegalStateException("CASH_COLLECTED processing failed", e);
@@ -272,28 +288,26 @@ public class NotificationEventConsumer {
                             "amount",           event.amount().toPlainString(),
                             "chitId",           event.chitId(),
                             "monthNumber",      String.valueOf(event.monthsSettled()),
-                            "remainingBalance", remaining,
-                            "recordedAt",       event.occurredAt().toString()
+                            "remainingBalance", remaining
                     )
             );
-            notificationService.send(req);
+            notificationService.send(deliveryEventId(), event.tenantId(), req);
 
-            String userId = memberServiceClient.getUserId(event.memberId());
+            String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Payment Received";
                 String body  = amtFormatted + " payment recorded. " + remaining;
                 inAppService.create(
-                    UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
+                    event.tenantId(), UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
                     Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                           "monthsSettled", String.valueOf(event.monthsSettled()),
-                           "recordedAt", event.occurredAt().toString()),
+                           "monthsSettled", String.valueOf(event.monthsSettled())),
                     "/member/chits/" + event.chitId()
                 );
-                pushService.sendToUserWithData(UUID.fromString(userId), title, body,
+                deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
                         Map.of("screen", "payments", "chitId", event.chitId()));
             }
-            broadcaster.broadcast("PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYMENT_COMPLETED event: {}", e.getMessage(), e);
             throw new IllegalStateException("PAYMENT_COMPLETED processing failed", e);
@@ -316,23 +330,25 @@ public class NotificationEventConsumer {
                             "amount",      event.netPayoutAmount().toPlainString()
                     )
             );
-            notificationService.send(req);
+            notificationService.send(deliveryEventId(), event.tenantId(), req);
 
-            String winnerUserId = memberServiceClient.getUserId(event.memberId());
+            String winnerUserId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (winnerUserId != null) {
                 String title = "You Won the Draw!";
                 String body  = "Congratulations! Payout of " + amtFormatted + " approved for month " + event.monthNumber();
                 inAppService.create(
-                    UUID.fromString(winnerUserId), title, body, "WINNER_SELECTED",
+                    event.tenantId(), UUID.fromString(winnerUserId), title, body, "WINNER_SELECTED",
                     Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
                            "monthNumber", event.monthNumber().toString()),
                     "/member/chits/" + event.chitId()
                 );
-                pushService.sendToUser(UUID.fromString(winnerUserId), title, body);
+                deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(),
+                        UUID.fromString(winnerUserId), title, body, Map.of());
             }
 
-            List<String> allMemberIds = chitServiceClient.getActiveMemberIds(event.chitId());
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(allMemberIds);
+            List<String> allMemberIds = chitServiceClient.getActiveMemberIds(event.chitId(), event.tenantId());
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), allMemberIds);
             for (String memberId : allMemberIds) {
                 if (memberId.equals(event.memberId())) continue;
                 String userId = userIdMap.get(memberId);
@@ -340,16 +356,17 @@ public class NotificationEventConsumer {
                     String title = "Draw Result — Draw " + event.monthNumber();
                     String body  = "Draw " + event.monthNumber() + " is complete. Payout approved.";
                     inAppService.create(
-                        UUID.fromString(userId), title, body, "DRAW_RESULT",
+                        event.tenantId(), UUID.fromString(userId), title, body, "DRAW_RESULT",
                         Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString()),
                         "/member/chits/" + event.chitId()
                     );
-                    pushService.sendToUser(UUID.fromString(userId), title, body);
+                    deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(),
+                            UUID.fromString(userId), title, body, Map.of());
                 }
             }
 
-            broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_CREATED event: {}", e.getMessage(), e);
             throw new IllegalStateException("PAYOUT_CREATED processing failed", e);
@@ -374,24 +391,24 @@ public class NotificationEventConsumer {
                             "reference", ref
                     )
             );
-            notificationService.send(req);
+            notificationService.send(deliveryEventId(), event.tenantId(), req);
 
-            String userId = memberServiceClient.getUserId(event.memberId());
+            String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Payout Disbursed";
                 String body  = amtFormatted + " sent via " + event.disbursementMode() + " (Ref: " + ref + ")";
                 inAppService.create(
-                    UUID.fromString(userId), title, body, "PAYOUT_DISBURSED",
+                    event.tenantId(), UUID.fromString(userId), title, body, "PAYOUT_DISBURSED",
                     Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
                            "mode", event.disbursementMode(), "reference", ref),
                     "/member/chits/" + event.chitId()
                 );
-                pushService.sendToUserWithData(UUID.fromString(userId), title, body,
+                deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
                         Map.of("screen", "payouts", "chitId", event.chitId()));
             }
-            broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("TREASURY_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "TREASURY_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_DISBURSED event: {}", e.getMessage(), e);
             throw new IllegalStateException("PAYOUT_DISBURSED processing failed", e);
@@ -404,19 +421,19 @@ public class NotificationEventConsumer {
         try {
             String newValue = event.newReferredByName() != null ? event.newReferredByName() : "None";
 
-            String userId = memberServiceClient.getUserId(event.memberId());
+            String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Profile Updated";
                 String body  = "Your referral has been updated by an admin. Referred by: " + newValue;
                 inAppService.create(
-                    UUID.fromString(userId), title, body, "PROFILE_UPDATED",
+                    event.tenantId(), UUID.fromString(userId), title, body, "PROFILE_UPDATED",
                     Map.of("fieldChanged", "Referred by", "newValue", newValue),
                     "/member"
                 );
-                pushService.sendToUserWithData(UUID.fromString(userId), title, body,
+                deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
                         Map.of("screen", "account"));
             }
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MEMBER_UPDATED event: {}", e.getMessage(), e);
             throw new IllegalStateException("MEMBER_UPDATED processing failed", e);
@@ -440,8 +457,8 @@ public class NotificationEventConsumer {
                 default -> log.warn("Unknown cash request event type: {}", event.eventType());
             }
 
-            broadcaster.broadcast("CASH_REQUESTS_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "CASH_REQUESTS_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process CASH_REQUEST_EVENT: {}", e.getMessage(), e);
             throw new IllegalStateException("CASH_REQUEST_EVENT processing failed", e);
@@ -457,14 +474,15 @@ public class NotificationEventConsumer {
             String title = "Cash Pickup Requested";
             String body  = "Your cash pickup request" + amtStr + " has been submitted and is pending assignment.";
             inAppService.create(
-                UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_SUBMITTED",
+                event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_SUBMITTED",
                 Map.of("requestId", event.requestId()), "/member?tab=requests"
             );
-            pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
         }
 
         notifyAdminsAndManagers(
+            event.tenantId(),
             "New Cash Pickup Request",
             memberDisplay + " has requested a cash pickup" + amtStr + ". Assign a staff member.",
             "CASH_REQUEST_SUBMITTED",
@@ -483,18 +501,18 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Staff Assigned";
             String body  = staffDisplay + " has been assigned to collect your cash payment" + amtStr + " and will contact you shortly.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_ASSIGNED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_ASSIGNED",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
-            pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
         }
 
         if (event.staffId() != null) {
             String title = "New Cash Pickup Task";
             String body  = "You have been assigned to collect cash" + amtStr + " from " + memberDisplay + ". Check your tasks.";
-            inAppService.create(UUID.fromString(event.staffId()), title, body, "CASH_REQUEST_ASSIGNED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "CASH_REQUEST_ASSIGNED",
                 Map.of("requestId", event.requestId()), "/tasks");
-            pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.staffId()), title, body,
                     Map.of("screen", "tasks", "requestId", event.requestId()));
         }
     }
@@ -509,13 +527,14 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Cash Picked Up";
             String body  = workerDisplay + " has picked up your cash payment" + amtStr + ". You'll be notified once admin confirms receipt.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PICKED_UP",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PICKED_UP",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
-            pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
         }
 
         notifyAdminsAndManagers(
+            event.tenantId(),
             "Cash Ready to Confirm",
             workerDisplay + " has picked up" + amtStr + " from " + memberDisplay + ". Please confirm receipt.",
             "CASH_REQUEST_PICKED_UP",
@@ -530,18 +549,18 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Payment Confirmed";
             String body  = amtStr + " confirmed by admin. Your account has been credited.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_COLLECTED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_COLLECTED",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
-            pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
         }
 
         if (event.staffId() != null) {
             String title = "Collection Confirmed";
             String body  = "Admin confirmed your cash handover of " + amtStr + ". Task complete.";
-            inAppService.create(UUID.fromString(event.staffId()), title, body, "CASH_COLLECTED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "CASH_COLLECTED",
                 Map.of("requestId", event.requestId()), "/tasks");
-            pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.staffId()), title, body,
                     Map.of("screen", "tasks", "requestId", event.requestId()));
         }
     }
@@ -560,13 +579,14 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Partial Cash Pickup — Action Needed";
             String body  = workerDisplay + " collected " + collectedStr + requestedStr + " from you. Please approve or reject on your requests page.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PARTIAL",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PARTIAL",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
-            pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
         }
 
         notifyAdminsAndManagers(
+            event.tenantId(),
             "Partial Cash Pickup Recorded",
             workerDisplay + " collected " + collectedStr + requestedStr + " from " + memberDisplay + ". Awaiting member approval.",
             "CASH_REQUEST_PARTIAL",
@@ -584,6 +604,7 @@ public class NotificationEventConsumer {
 
         if (approved) {
             notifyAdminsAndManagers(
+                event.tenantId(),
                 "Member Approved Partial Collection",
                 memberDisplay + " confirmed " + collectedStr + " was collected. Proceed to remit.",
                 "MEMBER_APPROVED_PARTIAL",
@@ -593,14 +614,15 @@ public class NotificationEventConsumer {
             if (event.staffId() != null) {
                 String title = "Member Approved Your Collection";
                 String body  = memberDisplay + " confirmed " + collectedStr + ". Admin will remit soon.";
-                inAppService.create(UUID.fromString(event.staffId()), title, body, "MEMBER_APPROVED_PARTIAL",
+                inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "MEMBER_APPROVED_PARTIAL",
                     Map.of("requestId", event.requestId()), "/tasks");
-                pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
+                deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.staffId()), title, body,
                         Map.of("screen", "tasks", "requestId", event.requestId()));
             }
         } else {
             String reasonStr = extraData != null && !extraData.isBlank() ? " Reason: " + extraData : "";
             notifyAdminsAndManagers(
+                event.tenantId(),
                 "Member Disputed Partial Collection",
                 memberDisplay + " rejected the " + collectedStr + " partial collection." + reasonStr + " Review and edit if needed.",
                 "MEMBER_REJECTED_PARTIAL",
@@ -610,27 +632,73 @@ public class NotificationEventConsumer {
             if (event.staffId() != null) {
                 String title = "Member Disputed Your Collection";
                 String body  = memberDisplay + " rejected the partial collection." + reasonStr;
-                inAppService.create(UUID.fromString(event.staffId()), title, body, "MEMBER_REJECTED_PARTIAL",
+                inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "MEMBER_REJECTED_PARTIAL",
                     Map.of("requestId", event.requestId()), "/tasks");
-                pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
+                deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.staffId()), title, body,
                         Map.of("screen", "tasks", "requestId", event.requestId()));
             }
         }
     }
 
-    private void notifyAdminsAndManagers(String title, String message, String type,
+    // ── Payment intimation submitted / rejected ───────────────────────────────
+
+    private void onPaymentIntimation(PaymentIntimationNotificationEvent event) {
+        try {
+            String amtStr = event.totalAmount() != null ? " ₹" + event.totalAmount().toPlainString() : "";
+            String memberDisplay = event.memberName() != null && !event.memberName().isBlank()
+                    ? event.memberName() : "A member";
+
+            switch (event.eventSubType()) {
+                case "SUBMITTED" -> {
+                    notifyAdminsAndManagers(
+                        event.tenantId(),
+                        "New Payment Intimation",
+                        memberDisplay + " submitted a payment intimation" + amtStr + ". Please review and approve or reject.",
+                        "PAYMENT_INTIMATION_SUBMITTED",
+                        Map.of("intimationId", event.intimationId()),
+                        "/payments"
+                    );
+                }
+                case "REJECTED" -> {
+                    String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
+                    if (userId != null) {
+                        String reasonStr = event.rejectReason() != null && !event.rejectReason().isBlank()
+                                ? " Reason: " + event.rejectReason() : "";
+                        String title = "Payment Intimation Rejected";
+                        String body  = "Your payment intimation" + amtStr + " was rejected." + reasonStr;
+                        inAppService.create(
+                            event.tenantId(),
+                            UUID.fromString(userId), title, body, "PAYMENT_INTIMATION_REJECTED",
+                            Map.of("intimationId", event.intimationId()),
+                            "/member"
+                        );
+                        deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId),
+                                title, body, Map.of("screen", "payments"));
+                    }
+                }
+                default -> log.warn("Unknown payment intimation sub-type: {}", event.eventSubType());
+            }
+            broadcaster.broadcast(event.tenantId(), "INTIMATIONS_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
+        } catch (Exception e) {
+            log.error("Failed to process PAYMENT_INTIMATION event: {}", e.getMessage(), e);
+            throw new IllegalStateException("PAYMENT_INTIMATION processing failed", e);
+        }
+    }
+
+    private void notifyAdminsAndManagers(String tenantId, String title, String message, String type,
                                           Map<String, String> metadata, String link) {
-        List<String> adminIds = userServiceClient.getUserIdsByRole("ADMIN");
-        List<String> managerIds = userServiceClient.getUserIdsByRole("MANAGER");
+        List<String> adminIds = userServiceClient.getUserIdsByRole(tenantId, "ADMIN");
+        List<String> managerIds = userServiceClient.getUserIdsByRole(tenantId, "MANAGER");
 
         for (String userId : adminIds) {
-            inAppService.create(UUID.fromString(userId), title, message, type, metadata, link);
-            pushService.sendToUserWithData(UUID.fromString(userId), title, message,
+            inAppService.create(tenantId, UUID.fromString(userId), title, message, type, metadata, link);
+            deliveryQueue.enqueuePush(deliveryEventId(), tenantId, UUID.fromString(userId), title, message,
                     Map.of("screen", "payments"));
         }
         for (String userId : managerIds) {
-            inAppService.create(UUID.fromString(userId), title, message, type, metadata, link);
-            pushService.sendToUserWithData(UUID.fromString(userId), title, message,
+            inAppService.create(tenantId, UUID.fromString(userId), title, message, type, metadata, link);
+            deliveryQueue.enqueuePush(deliveryEventId(), tenantId, UUID.fromString(userId), title, message,
                     Map.of("screen", "payments"));
         }
     }
@@ -639,7 +707,8 @@ public class NotificationEventConsumer {
 
     private void onTransactionalEmail(TransactionalEmailEvent event) {
         try {
-            emailSender.send(event.toEmail(), event.subject(), event.textBody(), event.htmlBody());
+            deliveryQueue.enqueueEmail(deliveryEventId(), null, event.toEmail(),
+                    event.subject(), event.textBody(), event.htmlBody());
         } catch (Exception e) {
             log.error("Failed to send transactional email to {}: {}", event.toEmail(), e.getMessage(), e);
             throw new IllegalStateException("TRANSACTIONAL_EMAIL processing failed", e);
@@ -651,10 +720,10 @@ public class NotificationEventConsumer {
     private void onInAppNotification(InAppNotificationEvent event) {
         try {
             inAppService.create(
-                    UUID.fromString(event.recipientId()),
+                    event.tenantId(), UUID.fromString(event.recipientId()),
                     event.title(), event.message(), event.type(),
                     event.metadata(), event.link());
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to create in-app notification for {}: {}", event.recipientId(), e.getMessage(), e);
             throw new IllegalStateException("IN_APP_NOTIFICATION processing failed", e);
@@ -666,16 +735,17 @@ public class NotificationEventConsumer {
     private void onBulkInAppByMemberIds(BulkInAppByMemberIdsEvent event) {
         try {
             if (event.memberIds() == null || event.memberIds().isEmpty()) return;
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), event.memberIds());
             for (String memberId : event.memberIds()) {
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
-                    inAppService.create(UUID.fromString(userId),
+                    inAppService.create(event.tenantId(), UUID.fromString(userId),
                             event.title(), event.message(), event.type(),
                             event.metadata(), event.link());
                 }
             }
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process BULK_IN_APP_BY_MEMBER_IDS event: {}", e.getMessage(), e);
             throw new IllegalStateException("BULK_IN_APP_BY_MEMBER_IDS processing failed", e);
@@ -686,12 +756,9 @@ public class NotificationEventConsumer {
 
     private void onPushNotification(PushNotificationEvent event) {
         try {
-            if (event.data() != null && !event.data().isEmpty()) {
-                pushService.sendToUserWithData(
-                        UUID.fromString(event.userId()), event.title(), event.body(), event.data());
-            } else {
-                pushService.sendToUser(UUID.fromString(event.userId()), event.title(), event.body());
-            }
+            deliveryQueue.enqueuePush(deliveryEventId(), null, UUID.fromString(event.userId()),
+                    event.title(), event.body(),
+                    event.data() == null ? Map.of() : event.data());
         } catch (Exception e) {
             log.error("Failed to send push notification to {}: {}", event.userId(), e.getMessage(), e);
             throw new IllegalStateException("PUSH_NOTIFICATION processing failed", e);

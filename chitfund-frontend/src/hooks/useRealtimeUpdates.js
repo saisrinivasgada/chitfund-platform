@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Client } from '@stomp/stompjs';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../context/AuthContext';
 
 // Maps WS event type → React Query keys to invalidate
 const INVALIDATIONS = {
@@ -52,18 +53,20 @@ const WS_URL = import.meta.env.DEV
 
 export function useRealtimeUpdates(enabled = true) {
   const qc = useQueryClient();
+  const { token, tenantId } = useAuth();
   const clientRef = useRef(null);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !token || !tenantId) return undefined;
 
     const client = new Client({
       brokerURL: WS_URL,
+      connectHeaders: { Authorization: `Bearer ${token}` },
       reconnectDelay: 5000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
       onConnect: () => {
-        client.subscribe('/topic/data-update', (frame) => {
+        client.subscribe(`/topic/data-update/${tenantId}`, (frame) => {
           try {
             const { type } = JSON.parse(frame.body);
             const keys = INVALIDATIONS[type] ?? [];
@@ -85,5 +88,5 @@ export function useRealtimeUpdates(enabled = true) {
       client.deactivate();
       clientRef.current = null;
     };
-  }, [enabled, qc]);
+  }, [enabled, token, tenantId, qc]);
 }

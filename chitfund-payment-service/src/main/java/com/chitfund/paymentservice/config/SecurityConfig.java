@@ -34,6 +34,8 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/prometheus")
+                    .hasAnyAuthority("ROLE_ADMIN", "ROLE_MANAGER")
                 .requestMatchers("/notifications/internal/**").permitAll()
                 .requestMatchers("/admin/wallet/internal/**").permitAll()
                 .requestMatchers("/payments/internal/**").permitAll()

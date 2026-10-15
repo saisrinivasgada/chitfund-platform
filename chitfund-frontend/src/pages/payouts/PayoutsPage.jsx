@@ -231,7 +231,7 @@ function CreatePayoutTab() {
                 memberId={selectedMemberId}
                 monthNumber={selectedWinner.monthNumber}
                 defaultWinningAmount={selectedWinner.winningAmount}
-                defaultAdjustment={selectedWinner.discountAmount ?? 0}
+                defaultAdjustment={0}
                 onSuccess={() => {
                   qc.invalidateQueries({ queryKey: ['payouts'] });
                   qc.invalidateQueries({ queryKey: ['winners-batch'] });
@@ -484,6 +484,7 @@ function DisburseModal({ payout, memberName, onClose }) {
     referenceNumber: '',
     notes: '',
   });
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   const amountNum      = Number(form.amount) || 0;
   const isPartial      = amountNum > 0 && amountNum < remainingAmount;
@@ -493,6 +494,7 @@ function DisburseModal({ payout, memberName, onClose }) {
     mutationFn: async () => {
       const payload = {
         id: payout.id,
+        idempotencyKey,
         disbursementMode: form.disbursementMode,
         amount: amountNum,
         referenceNumber: form.referenceNumber || undefined,
@@ -802,7 +804,7 @@ function PendingPayoutsTab() {
               memberId={createTarget.memberId}
               monthNumber={createTarget.winner.monthNumber}
               defaultWinningAmount={createTarget.winner.winningAmount}
-              defaultAdjustment={createTarget.winner.discountAmount ?? 0}
+              defaultAdjustment={0}
               onSuccess={() => {
                 qc.invalidateQueries({ queryKey: ['payouts'] });
                 qc.invalidateQueries({ queryKey: ['winners-batch'] });

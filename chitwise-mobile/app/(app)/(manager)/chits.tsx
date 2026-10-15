@@ -13,6 +13,7 @@ import {
   recordPayment, createPayout, disbursePayout,
   getReservations, updateReservationSlot, markSlotProcessed,
   listAuctions, closeAuction, placeBid,
+  getChitLifecycleSync,
 } from '../../../services/api';
 import {
   C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen,
@@ -103,6 +104,15 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
 export default function ManagerChitsScreen() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<any>(null);
+  const { data: lifecycleSync } = useQuery({
+    queryKey: ['m-chit-lifecycle-sync', selected?.id],
+    queryFn: () => getChitLifecycleSync(selected.id),
+    enabled: selected?.status === 'COMPLETED' && !!selected?.id,
+    refetchInterval: (query) => {
+      const status = (query.state.data as any)?.status;
+      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+    },
+  });
   const [detailTab, setDetailTab] = useState<DetailTab>('draws');
   const [expandedDrawId, setExpandedDrawId] = useState<string | null>(null);
 
@@ -128,9 +138,11 @@ export default function ManagerChitsScreen() {
   const [showPayout, setShowPayout] = useState(false);
   const [payoutWinner, setPayoutWinner] = useState<any>(null);
   const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutIdempotencyKey, setPayoutIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   const [showDisburse, setShowDisburse] = useState(false);
   const [disbursePay, setDisbursePay] = useState<any>(null);
+  const [disburseIdempotencyKey, setDisburseIdempotencyKey] = useState(() => Crypto.randomUUID());
   const [disburseMode, setDisburseMode] = useState('CASH');
   const [disburseAmount, setDisburseAmount] = useState('');
 
@@ -298,7 +310,7 @@ export default function ManagerChitsScreen() {
     mutationFn: (drawId: string) => deleteDraw(drawId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-draws', selected.id] });
-      toast.cancelled('Draw deleted');
+      toast.cancelled('Empty draw discarded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
@@ -323,14 +335,16 @@ export default function ManagerChitsScreen() {
 
   const payoutMut = useMutation({
     mutationFn: () => createPayout({
-      winnerId: payoutWinner.memberId ?? payoutWinner.winnerId,
+      idempotencyKey: payoutIdempotencyKey,
+      memberId: payoutWinner.memberId ?? payoutWinner.winnerId,
       chitId: selected.id,
-      drawId: payoutWinner.drawId,
-      drawNumber: payoutWinner.monthNumber ?? payoutWinner.drawNumber,
+      monthNumber: payoutWinner.monthNumber ?? payoutWinner.drawNumber,
       winningAmount: Number(payoutAmount) || Number(payoutWinner.winningAmount ?? selected?.chitValue ?? 0),
+      discountAmount: 0,
       notes: null,
     }),
     onSuccess: () => {
+      setPayoutIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['m-chit-payouts', selected.id] });
       setShowPayout(false); setPayoutWinner(null); setPayoutAmount('');
       toast.saved('Payout created');
@@ -341,11 +355,12 @@ export default function ManagerChitsScreen() {
   const disburseMut = useMutation({
     mutationFn: () => disbursePayout(disbursePay.id, {
       disbursementMode: disburseMode,
-      actualAmount: Number(disburseAmount) || Number(disbursePay.netPayoutAmount ?? disbursePay.winningAmount ?? 0),
-    }),
+      amount: Number(disburseAmount) || Number(disbursePay.netPayoutAmount ?? disbursePay.winningAmount ?? 0),
+    }, disburseIdempotencyKey),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-chit-payouts', selected.id] });
       setShowDisburse(false); setDisbursePay(null); setDisburseAmount('');
+      setDisburseIdempotencyKey(Crypto.randomUUID());
       toast.saved('Payout disbursed');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to disburse'),
@@ -495,6 +510,20 @@ export default function ManagerChitsScreen() {
               </View>
             </View>
 
+            {selected.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+              <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Completion needs attention</Text>
+                <Text style={{ fontSize: 12, color: C.red, marginTop: 3 }}>
+                  Open payment draws could not be closed automatically. Ask an administrator to retry the sync.
+                </Text>
+              </View>
+            )}
+            {selected.status === 'COMPLETED' && ['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
+              <View style={{ marginHorizontal: 12, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Finalizing completion…</Text>
+              </View>
+            )}
+
             {/* Tabs */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
@@ -605,16 +634,16 @@ export default function ManagerChitsScreen() {
                             {d.status === 'PENDING' && (
                               <TouchableOpacity
                                 onPress={() => Alert.alert(
-                                  'Delete Draw',
-                                  `Delete draw #${d.drawNumber}?`,
+                                  'Discard Empty Draw',
+                                  `Discard empty draw #${d.drawNumber}? Any financial, winner, auction, reservation, or payout history will block this action.`,
                                   [
                                     { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Delete', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
+                                    { text: 'Discard', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
                                   ]
                                 )}
                                 style={{ backgroundColor: '#FEE2E2', borderRadius: 10, padding: 9, alignItems: 'center', marginVertical: 6 }}
                               >
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>Delete Draw</Text>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>Discard Empty Draw</Text>
                               </TouchableOpacity>
                             )}
                             {(d.status === 'OPEN' || d.status === 'CLOSED') && (
@@ -1189,11 +1218,11 @@ export default function ManagerChitsScreen() {
                 </Text>
               </View>
               <View>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payout Amount (₹)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Recorded Winner Amount</Text>
                 <TextInput
-                  value={payoutAmount} onChangeText={setPayoutAmount}
+                  value={payoutAmount} editable={false}
                   keyboardType="numeric" placeholder={String(selected?.chitValue ?? '')}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900 }}
+                  style={{ borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.gray50, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900 }}
                 />
               </View>
             </ScrollView>

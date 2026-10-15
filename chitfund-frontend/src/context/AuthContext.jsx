@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { setAuthToken, clearAuthToken, refreshSession } from '../services/api';
+import { setAuthToken, clearAuthToken, refreshSession, getMyEffectiveLimits } from '../services/api';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
@@ -26,9 +26,9 @@ export function AuthProvider({ children }) {
   const [tenantPlan, setTenantPlan] = useState(() => localStorage.getItem('tenantPlan') ?? 'BASIC');
   const [tenantStatus, setTenantStatus] = useState(() => localStorage.getItem('tenantStatus') ?? 'ACTIVE');
   const [planExpiresAt, setPlanExpiresAt] = useState(() => localStorage.getItem('planExpiresAt') ?? null);
-  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => localStorage.getItem('analyticsEnabled') !== 'false');
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => localStorage.getItem('analyticsEnabled') === 'true');
   const [chatEnabled, setChatEnabled] = useState(() => localStorage.getItem('chatEnabled') === 'true');
-  const [settlementEnabled, setSettlementEnabled] = useState(() => localStorage.getItem('settlementEnabled') !== 'false');
+  const [settlementEnabled, setSettlementEnabled] = useState(() => localStorage.getItem('settlementEnabled') === 'true');
   const [adminPhone, setAdminPhone] = useState(() => localStorage.getItem('adminPhone') ?? null);
   const [adminEmail, setAdminEmail] = useState(() => localStorage.getItem('adminEmail') ?? null);
   // True while restoring session from HttpOnly refresh cookie on page load
@@ -50,9 +50,9 @@ export function AuthProvider({ children }) {
     setTenantPlan('BASIC');
     setTenantStatus('ACTIVE');
     setPlanExpiresAt(null);
-    setAnalyticsEnabled(true);
-    setChatEnabled(true);
-    setSettlementEnabled(true);
+    setAnalyticsEnabled(false);
+    setChatEnabled(false);
+    setSettlementEnabled(false);
     setAdminPhone(null);
     setAdminEmail(null);
     setIsProxySession(false);
@@ -77,6 +77,32 @@ export function AuthProvider({ children }) {
     scheduleIdleCheck(logout);
   }, [logout, scheduleIdleCheck]);
 
+  const applyEffectiveLimits = useCallback((limits) => {
+    if (!limits) return;
+    const store = isProxySession ? sessionStorage : localStorage;
+    const nextPlan = limits.plan ?? 'BASIC';
+    const nextStatus = limits.tenantStatus ?? 'ACTIVE';
+    const nextExpiry = limits.planExpiresAt ?? null;
+    const nextAnalytics = limits.analyticsEnabled === true;
+    const nextChat = limits.chatEnabled === true;
+    const nextSettlement = limits.settlementEnabled === true;
+
+    store.setItem('tenantPlan', nextPlan);
+    store.setItem('tenantStatus', nextStatus);
+    if (nextExpiry) store.setItem('planExpiresAt', nextExpiry);
+    else store.removeItem('planExpiresAt');
+    store.setItem('analyticsEnabled', String(nextAnalytics));
+    store.setItem('chatEnabled', String(nextChat));
+    store.setItem('settlementEnabled', String(nextSettlement));
+
+    setTenantPlan(nextPlan);
+    setTenantStatus(nextStatus);
+    setPlanExpiresAt(nextExpiry);
+    setAnalyticsEnabled(nextAnalytics);
+    setChatEnabled(nextChat);
+    setSettlementEnabled(nextSettlement);
+  }, [isProxySession]);
+
   // On mount: if localStorage has user info but no token in memory, restore via HttpOnly cookie
   useEffect(() => {
     if (!localStorage.getItem('user')) {
@@ -93,8 +119,12 @@ export function AuthProvider({ children }) {
     refreshSession()
       .then((auth) => {
         const accessToken = auth.accessToken ?? auth.token;
-        setAuthToken(accessToken);
-        setToken(accessToken);
+        if (auth.tenant) {
+          login(accessToken, auth.user, tenantSessionData(auth.tenant));
+        } else {
+          setAuthToken(accessToken);
+          setToken(accessToken);
+        }
       })
       .catch(() => {
         logout();
@@ -120,8 +150,12 @@ export function AuthProvider({ children }) {
     // api.js fires this when a silent token refresh succeeds mid-request.
     // Update the in-memory token and reset the idle timer so the session stays alive.
     function handleTokenRefreshed(e) {
-      setToken(e.detail.token);
-      setAuthToken(e.detail.token);
+      const auth = e.detail.auth;
+      if (auth?.tenant) login(e.detail.token, auth.user, tenantSessionData(auth.tenant));
+      else {
+        setToken(e.detail.token);
+        setAuthToken(e.detail.token);
+      }
       resetIdleTimer();
     }
 
@@ -136,6 +170,28 @@ export function AuthProvider({ children }) {
     };
   }, [token, resetIdleTimer, logout]);
 
+  // Plan changes can occur while a user remains signed in. Refresh successful
+  // entitlement reads without treating a transient outage as an authorization
+  // grant or forced logout; every protected API remains authoritative.
+  useEffect(() => {
+    if (!token || !tenantId) return;
+    let cancelled = false;
+    const refreshEntitlements = () => getMyEffectiveLimits()
+      .then((limits) => { if (!cancelled) applyEffectiveLimits(limits); })
+      .catch(() => {});
+    refreshEntitlements();
+    const timer = window.setInterval(refreshEntitlements, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshEntitlements();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [token, tenantId, applyEffectiveLimits]);
+
   // Called after step 2 (select-tenant) with the full scoped AuthResponse.
   // Pass { proxy: true } for proxy sessions — writes to sessionStorage only so the
   // real session in other tabs (localStorage) is never touched.
@@ -144,7 +200,7 @@ export function AuthProvider({ children }) {
     const store = proxy ? sessionStorage : localStorage;
     if (!proxy) {
       // Real login: clear any leftover proxy state
-      ['token','user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
+      ['token','user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','settlementEnabled','adminPhone','adminEmail']
         .forEach((k) => sessionStorage.removeItem(k));
       // Store token in memory only — HttpOnly cookie handles persistence
       setAuthToken(tokenValue);
@@ -205,6 +261,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{
       token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, settlementEnabled, adminPhone, adminEmail,
       login, logout, updateUser,
+      refreshEntitlements: async () => applyEffectiveLimits(await getMyEffectiveLimits()),
       isAuthenticated: !!token,
       isSuperAdmin: user?.role === 'SUPER_ADMIN',
       isProxySession,
@@ -217,3 +274,19 @@ export function AuthProvider({ children }) {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);
+
+function tenantSessionData(tenant) {
+  return {
+    tenantId: tenant.tenantId,
+    tenantSlug: tenant.slug,
+    tenantName: tenant.name,
+    tenantPlan: tenant.plan ?? 'BASIC',
+    tenantStatus: tenant.status ?? 'ACTIVE',
+    planExpiresAt: tenant.planExpiresAt ?? null,
+    analyticsEnabled: tenant.analyticsEnabled === true,
+    chatEnabled: tenant.chatEnabled === true,
+    settlementEnabled: tenant.settlementEnabled === true,
+    adminPhone: tenant.adminPhone ?? null,
+    adminEmail: tenant.adminEmail ?? null,
+  };
+}

@@ -35,8 +35,8 @@ def _read_otp_from_db():
          '-u', DB_USER, f'-p{DB_PASSWORD}',
          '-h', DB_HOST, '-P', str(DB_PORT),
          '-e', ("SELECT verification_code FROM chitfund_user.phone_otps "
-                "WHERE verified = 0 AND expires_at > NOW() "
-                "ORDER BY expires_at DESC LIMIT 1;"),
+                "WHERE verified = 0 AND purpose = 'LOGIN' AND expires_at > NOW() "
+                "ORDER BY created_at DESC, expires_at DESC, id DESC LIMIT 1;"),
          '--skip-column-names'],
         capture_output=True, text=True, timeout=5
     )

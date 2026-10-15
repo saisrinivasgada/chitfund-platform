@@ -29,9 +29,9 @@ const tutorials: PageTutorial[] = [
     ],
   },
   {
-    key: 'ADMIN:activity', role: 'ADMIN', screen: 'activity', pageTitle: 'Activity log', version: 1,
+    key: 'ADMIN:activity', role: 'ADMIN', screen: 'activity', pageTitle: 'Activity log', version: 2,
     steps: [
-      { icon: '🕒', title: 'Full financial audit trail', description: 'Every payment, pickup, payout, draw and member change is recorded here in real time with a LIVE indicator.' },
+      { icon: '🕒', title: 'Full operational audit trail', description: 'Committed payment, pickup, payout, draw and member events arrive through the durable audit queue. The snapshot time tells you when this page last loaded; pull down to refresh.' },
       { icon: '🔎', title: 'Filter by type and date', description: 'Use the type pills (Payments, Pickups, Payouts, Draws…) and date chips (Today, 7 Days, 30 Days) together to isolate any event.' },
       { icon: '👆', title: 'Tap for full event detail', description: 'Tap any activity card to open a detail view showing the member, chit, amount, actor role, before/after state and timestamp.' },
     ],
@@ -170,11 +170,11 @@ const tutorials: PageTutorial[] = [
     ],
   },
   {
-    key: 'MANAGER:members', role: 'MANAGER', screen: 'members', pageTitle: 'Members', version: 2,
+    key: 'MANAGER:members', role: 'MANAGER', screen: 'members', pageTitle: 'Members', version: 3,
     steps: [
       { icon: '👥', title: 'Search and filter your member list', description: 'Use the search bar to find a member by name or phone, then tap their row to view their organization profile and chit participation.' },
       { icon: '📋', title: 'Review transaction history per member', description: 'Open a member profile and navigate to their History tab to see every payment, pickup and payout recorded against them.' },
-      { icon: '🔐', title: 'You can create member app access', description: 'As a manager you can invite a member to the ChitWise app — tap Create Portal Login on their profile to send them login credentials.' },
+      { icon: '🔐', title: 'App access stays admin-controlled', description: 'You can review member identity and chit participation here. Ask the organization admin to send or confirm a ChitWise App Access request; permanent credentials always belong to the member.' },
     ],
   },
   {
@@ -235,10 +235,10 @@ const tutorials: PageTutorial[] = [
 
   // ── MEMBER ───────────────────────────────────────────────────────────────────
   {
-    key: 'MEMBER:chitfund-requests', role: 'MEMBER', screen: 'chitfund-requests', pageTitle: 'Chitfund Requests', version: 2,
+    key: 'MEMBER:chitfund-requests', role: 'MEMBER', screen: 'chitfund-requests', pageTitle: 'Chitfund Requests', version: 3,
     steps: [
       { icon: '🏢', title: 'Invitations from other chit funds', description: 'When another organization invites you to join their chit fund, the request appears here — it never automatically merges with your current organization\'s data.' },
-      { icon: '🔐', title: 'Verify identity before accepting', description: 'Tap an invitation to review the organization name and chit details, then complete identity verification before linking your account.' },
+      { icon: '🔐', title: 'Verify identity before accepting', description: 'Tap a request to review the organization and complete identity verification before linking your account. This only adds the organization profile; joining a chit uses the separate Invitations screen.' },
       { icon: '🗑️', title: 'Decline invitations you don\'t want', description: 'Tap Decline on any invitation to remove it from your list — you can always ask the organization to resend if you change your mind.' },
     ],
   },

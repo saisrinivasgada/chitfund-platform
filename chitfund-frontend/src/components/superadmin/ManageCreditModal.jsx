@@ -15,6 +15,10 @@ export default function ManageCreditModal({ tenant, onClose, onSuccess }) {
     e.preventDefault();
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a positive amount'); return; }
+    if (!notes.trim()) { setError('A reason is required for every credit adjustment'); return; }
+    if (mode === 'remove' && amt > currentBalance) {
+      setError('Deduction cannot exceed the current credit balance'); return;
+    }
     setSaving(true);
     try {
       if (mode === 'add') {
@@ -80,15 +84,15 @@ export default function ManageCreditModal({ tenant, onClose, onSuccess }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
             <input
-              type="text" value={notes} onChange={e => setNotes(e.target.value)}
+              type="text" required value={notes} onChange={e => { setNotes(e.target.value); setError(''); }}
               placeholder={isAdd ? 'Reason for credit' : 'Reason for removal'}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           {!isAdd && amount && parseFloat(amount) > currentBalance && (
-            <p className="text-xs text-amber-600">Amount exceeds balance — balance will be set to ₹0.</p>
+            <p className="text-xs text-red-600">Deduction cannot exceed the current balance.</p>
           )}
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">

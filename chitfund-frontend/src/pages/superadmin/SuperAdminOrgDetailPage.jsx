@@ -391,15 +391,17 @@ function SetExpiryModal({ tenantId, currentExpiry, onClose, onSuccess }) {
   const [date, setDate] = useState(currentExpiry ? toInputValue(currentExpiry) : default30Days());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [reason, setReason] = useState('');
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (reason.trim().length < 5) { setError('Enter a reason of at least 5 characters'); return; }
     setError('');
     setLoading(true);
     try {
       // Send as local datetime string — Spring parses LocalDateTime without timezone conversion
       const iso = date ? date + 'T23:59:59' : null;
-      await superAdminSetPlanExpiry(tenantId, iso);
+      await superAdminSetPlanExpiry(tenantId, iso, reason.trim());
       onSuccess(date ? `Plan expiry set to ${date}` : 'Plan expiry cleared');
       onClose();
     } catch (err) {
@@ -432,6 +434,12 @@ function SetExpiryModal({ tenantId, currentExpiry, onClose, onSuccess }) {
           <p className="text-xs text-gray-400">
             7-day warning banners will appear for the admin. Org is blocked once the date passes.
           </p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Reason *</label>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
+              placeholder="Why is the subscription expiry changing?" />
+          </div>
           {error && (
             <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">
               <AlertCircle size={14} />
@@ -464,6 +472,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [reason, setReason] = useState('');
   const [resetPlan, setResetPlan] = useState('BASIC');
   const [resetting, setResetting] = useState(false);
   const { data: rawPlans = [] } = useQuery({ queryKey: ['super-plans'], queryFn: superAdminListPlans });
@@ -471,10 +480,11 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   const { data: capDefs = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
 
   async function handleReset() {
+    if (reason.trim().length < 5) { setError('Enter a reason of at least 5 characters'); return; }
     setResetting(true);
     setError('');
     try {
-      await superAdminRemoveCustomLimits(tenantId, resetPlan);
+      await superAdminRemoveCustomLimits(tenantId, resetPlan, reason.trim());
       onSuccess(`Limits reset to ${resetPlan} plan defaults`);
       onClose();
     } catch (err) {
@@ -499,6 +509,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
       setError('Select at least one chit type.');
       return;
     }
+    if (reason.trim().length < 5) { setError('Enter a reason of at least 5 characters'); return; }
     setError('');
     setLoading(true);
     try {
@@ -510,7 +521,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
         allowedChitTypes: form.allowedChitTypes.join(','),
         priceMonthlyInr: Math.round(Number(form.priceMonthlyInr) * 100),
         notes: form.notes || null,
-      });
+      }, reason.trim());
       onSuccess('Custom limits saved');
       onClose();
     } catch (err) {
@@ -636,6 +647,12 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
               placeholder="e.g. Negotiated pricing for Kethaki Chitfunds — 3-month trial"
             />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Reason for entitlement change *</label>
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
+              placeholder="Contract approval, plan correction, or customer request" />
           </div>
           {/* Reset to plan defaults */}
           <div className="border-t border-gray-100 pt-3">
@@ -907,12 +924,20 @@ export default function SuperAdminOrgDetailPage() {
   }
 
   async function handleProxy(user) {
+    const reason = window.prompt(
+      `Why do you need to proxy as ${user.fullName || user.username || user.role}?\nThis action is audited.`
+    );
+    if (!reason?.trim()) return;
+    if (reason.trim().length < 5) {
+      showToast('Please enter a clear reason of at least 5 characters');
+      return;
+    }
     setProxyingUserId(user.userId);
     // Open a blank window synchronously (direct user gesture) so popup blocker doesn't fire.
     // After the async API call we navigate it to the proxy URL.
     const proxyWin = window.open('', '_blank');
     try {
-      const result = await superAdminProxyAs(tenantId, user.role, user.userId);
+      const result = await superAdminProxyAs(tenantId, user.role, user.userId, reason.trim());
       const params = new URLSearchParams({
         token: result.token,
         tenantId: result.tenantId,
@@ -1007,8 +1032,10 @@ export default function SuperAdminOrgDetailPage() {
   }
 
   async function handleRemoveCustomLimits() {
+    const reason = window.prompt('Why should custom limits be removed? (minimum 5 characters)');
+    if (!reason || reason.trim().length < 5) { showToast('A reason of at least 5 characters is required'); return; }
     try {
-      await superAdminRemoveCustomLimits(tenantId, 'BASIC');
+      await superAdminRemoveCustomLimits(tenantId, 'BASIC', reason.trim());
       showToast('Custom limits removed — plan reverted to BASIC');
       setPlanOpen(false);
       loadAll();
@@ -1978,6 +2005,12 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
     if (!form.discountValue || parseFloat(form.discountValue) <= 0) {
       setError('Enter a valid discount value'); return;
     }
+    if (form.discountType === 'PERCENTAGE' && parseFloat(form.discountValue) > 100) {
+      setError('Percentage discount cannot exceed 100%'); return;
+    }
+    if (!form.reason.trim()) {
+      setError('Enter a reason for this discount'); return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -1987,7 +2020,7 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
       const body = {
         discountType: form.discountType,
         discountValue: value,
-        reason: form.reason || null,
+        reason: form.reason.trim(),
         expiresAt: form.expiresAt ? form.expiresAt + 'T00:00:00' : null,
       };
       const result = await superAdminSetDiscount(tenantId, body);
@@ -2042,7 +2075,7 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason <span className="font-normal text-gray-400">(optional)</span></label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason *</label>
             <input className={INPUT_CLS} value={form.reason} onChange={e => set('reason', e.target.value)} placeholder="Loyalty discount" />
           </div>
           <div>

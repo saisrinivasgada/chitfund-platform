@@ -48,19 +48,21 @@ public class InternalPayoutController {
     public ResponseEntity<?> getPayoutForMemberInChit(
             @PathVariable UUID memberId,
             @PathVariable UUID chitId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader("X-Tenant-ID") String tenantId) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
 
         // Get all non-cancelled, non-voided payouts for this member in this chit
-        List<Payout> payouts = payoutRepository.findByMemberIdOrderByCreatedAtDesc(memberId)
-                .stream()
-                .filter(p -> chitId.equals(p.getChitId()))
-                .filter(p -> p.getStatus() != PayoutStatus.CANCELLED
-                          && p.getStatus() != PayoutStatus.VOIDED)
-                .toList();
+        List<Payout> payouts = payoutRepository
+                .findByTenantIdAndMemberIdAndChitIdAndStatusNotInOrderByCreatedAtDesc(
+                        tenantId, memberId, chitId,
+                        List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED));
 
         if (payouts.isEmpty()) {
             log.debug("Internal: no relevant payout for member {} chit {}", memberId, chitId);
@@ -75,11 +77,29 @@ public class InternalPayoutController {
             return ResponseEntity.ok(ApiResponse.success(null));
         }
 
-        PayoutResponse response = payoutService.getById(best.get().getId());
+        PayoutResponse response = payoutService.getByIdForTenant(best.get().getId(), tenantId);
         log.debug("Internal: returning payout {} (status={}) for member {} chit {}",
                 best.get().getId(), best.get().getStatus(), memberId, chitId);
 
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /** Any payout row is financial history, including cancelled or voided rows. */
+    @GetMapping("/payouts/chit/{chitId}/draw/{monthNumber}/dependencies")
+    public ResponseEntity<?> getDrawDependencies(
+            @PathVariable UUID chitId,
+            @PathVariable int monthNumber,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader("X-Tenant-ID") String tenantId) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        long payoutCount = payoutRepository
+                .countByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("payoutCount", payoutCount)));
     }
 
     private int priorityOf(PayoutStatus status) {

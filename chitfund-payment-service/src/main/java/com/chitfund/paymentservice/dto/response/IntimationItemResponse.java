@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 public class IntimationItemResponse {
     private String id;
     private String chitId;
+    private String chitName;
     private BigDecimal claimedAmount;
     private BigDecimal approvedAmount;
     private String paymentBatchId;

@@ -57,7 +57,9 @@ public class CashRequestController {
             @Valid @RequestBody CreateCashRequestRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        CashRequestResponse response = cashRequestService.createRequestByAdmin(memberId, staffId, request, adminId, assigneeRole);
+        String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
+        CashRequestResponse response = cashRequestService.createRequestByAdmin(
+                memberId, staffId, request, adminId, role, assigneeRole);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -205,8 +207,9 @@ public class CashRequestController {
             @RequestParam(required = false) String overrideReason,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
         PaymentBatchResponse response = cashRequestService.collectForRequest(
-                requestId, adminId, overrideMemberRejection, overrideReason);
+                requestId, adminId, role, overrideMemberRejection, overrideReason);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -226,8 +229,12 @@ public class CashRequestController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<CashRequestResponse>> cancelRequest(
             @PathVariable UUID requestId,
-            @RequestParam(required = false) String reason) {
-        CashRequestResponse response = cashRequestService.cancelRequest(requestId, reason);
+            @RequestParam(required = false) String reason,
+            Authentication auth) {
+        UUID actorId = (UUID) auth.getPrincipal();
+        String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
+        CashRequestResponse response = cashRequestService.cancelRequest(
+                requestId, reason, actorId, role);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

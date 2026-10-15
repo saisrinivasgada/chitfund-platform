@@ -24,6 +24,7 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, St
     @Query("SELECT t FROM SupportTicket t WHERE " +
             "(:status IS NULL OR t.status = :status) AND " +
             "(:type IS NULL OR t.type = :type) AND " +
+            "(:allTypes = true OR t.type IN :allowedTypes) AND " +
             "(:priority IS NULL OR t.priority = :priority) AND " +
             "(:from IS NULL OR t.createdAt >= :from) AND " +
             "(:toExclusive IS NULL OR t.createdAt < :toExclusive) AND " +
@@ -36,6 +37,8 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, St
             "t.createdAt DESC")
     Page<SupportTicket> searchForHub(@Param("status") TicketStatus status,
                                      @Param("type") TicketType type,
+                                     @Param("allTypes") boolean allTypes,
+                                     @Param("allowedTypes") java.util.Set<TicketType> allowedTypes,
                                      @Param("priority") TicketPriority priority,
                                      @Param("from") Instant from,
                                      @Param("toExclusive") Instant toExclusive,

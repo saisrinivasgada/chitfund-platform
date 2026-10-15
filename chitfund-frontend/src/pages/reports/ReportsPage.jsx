@@ -22,6 +22,7 @@ import {
   Download, Filter, Printer, ChevronDown, ChevronRight,
   Wallet, AlertCircle, TrendingUp, FileText, ExternalLink, Layers,
   Building2, Calendar, CheckCircle, Clock, XCircle, CreditCard,
+  LockKeyhole,
 } from 'lucide-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -2811,6 +2812,40 @@ export default function ReportsPage() {
   const rawTab = searchParams.get('tab') || 'Overview';
   const tab = visibleTabs.includes(rawTab) ? rawTab : 'Overview';
   const setTab = (t) => setSearchParams({ tab: t }, { replace: true });
+
+  // Navigation visibility is only a convenience. A bookmark or manually
+  // entered URL must still explain the entitlement instead of mounting report
+  // queries that the authoritative APIs will reject.
+  if (!analyticsEnabled) {
+    return (
+      <div className="p-4 md:p-6 max-w-7xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Full visibility into members, payments and payouts</p>
+        </div>
+        <div className="mt-10 flex flex-col items-center justify-center text-center py-16">
+          <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-5">
+            <LockKeyhole size={28} className="text-gray-500" />
+          </div>
+          <h2 className="text-lg font-bold text-gray-900 mb-2">Reports are not included in this plan</h2>
+          <p className="text-sm text-gray-500 mb-6 max-w-sm">
+            Upgrade the organization plan to unlock analytics and downloadable reports.
+          </p>
+          {user?.role === 'ADMIN' ? (
+            <button
+              onClick={() => navigate('/billing')}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer transition-colors"
+              style={{ backgroundColor: '#1E3A5F' }}
+            >
+              Review plans →
+            </button>
+          ) : (
+            <p className="text-sm font-medium text-gray-600">Ask your organization admin to review the plan.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // Analytics plans that expired: show "no active subscription" instead of reports
   if (isExpired && analyticsEnabled) {

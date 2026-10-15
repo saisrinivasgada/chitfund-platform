@@ -2,6 +2,7 @@ import { Modal, View, Text, TouchableOpacity, Pressable, ScrollView, ActivityInd
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useUIStore } from '../store/uiStore';
+import { useAuthStore } from '../store/authStore';
 import { getCapabilityGateInfo } from '../services/api';
 import { C } from './ui';
 
@@ -12,6 +13,8 @@ function fmtPaise(p: number) {
 
 export default function CapabilityGateModal() {
   const { capabilityGateKey, hideCapabilityGate } = useUIStore();
+  const role = useAuthStore((state) => state.user?.role);
+  const canManagePlan = role === 'ADMIN';
   const router = useRouter();
 
   const { data, isLoading } = useQuery({
@@ -119,18 +122,26 @@ export default function CapabilityGateModal() {
               ) : null}
 
               {/* CTAs */}
-              <TouchableOpacity
-                onPress={() => {
-                  hideCapabilityGate();
-                  router.push('/(app)/(admin)/billing');
-                }}
-                style={{
-                  backgroundColor: C.gold, borderRadius: 14,
-                  paddingVertical: 14, marginTop: 8, alignItems: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>Upgrade Plan</Text>
-              </TouchableOpacity>
+              {canManagePlan ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    hideCapabilityGate();
+                    router.push('/(app)/(admin)/billing');
+                  }}
+                  style={{
+                    backgroundColor: C.gold, borderRadius: 14,
+                    paddingVertical: 14, marginTop: 8, alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>Upgrade Plan</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={{ backgroundColor: C.gray100, borderRadius: 12, padding: 12, marginTop: 8 }}>
+                  <Text style={{ fontSize: 13, color: C.gray600 ?? C.gray500, textAlign: 'center' }}>
+                    Ask your organization admin to review the plan options.
+                  </Text>
+                </View>
+              )}
               <TouchableOpacity onPress={hideCapabilityGate} style={{ paddingVertical: 12, alignItems: 'center' }}>
                 <Text style={{ fontSize: 14, color: C.gray400 }}>Maybe later</Text>
               </TouchableOpacity>
@@ -143,12 +154,18 @@ export default function CapabilityGateModal() {
               <Text style={{ fontSize: 13, color: C.gray500, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
                 Upgrade your plan to unlock this feature and more.
               </Text>
-              <TouchableOpacity
-                onPress={() => { hideCapabilityGate(); router.push('/(app)/(admin)/billing'); }}
-                style={{ backgroundColor: C.gold, borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>View Plans</Text>
-              </TouchableOpacity>
+              {canManagePlan ? (
+                <TouchableOpacity
+                  onPress={() => { hideCapabilityGate(); router.push('/(app)/(admin)/billing'); }}
+                  style={{ backgroundColor: C.gold, borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>View Plans</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={{ fontSize: 13, color: C.gray600 ?? C.gray500, textAlign: 'center', marginBottom: 8 }}>
+                  Ask your organization admin to review the plan options.
+                </Text>
+              )}
               <TouchableOpacity onPress={hideCapabilityGate} style={{ paddingVertical: 12, alignItems: 'center' }}>
                 <Text style={{ fontSize: 14, color: C.gray400 }}>Maybe later</Text>
               </TouchableOpacity>

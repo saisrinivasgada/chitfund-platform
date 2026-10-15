@@ -13,6 +13,7 @@ import com.chitfund.supportservice.repository.HubCustomRoleRepository;
 import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
 import com.chitfund.supportservice.security.OrgJwtTokenProvider;
+import com.chitfund.supportservice.client.AuditClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,6 +46,8 @@ class EmployeeServiceTest {
     @Mock PasswordEncoder passwordEncoder;
     @Mock EmployeeInvitationMailer invitationMailer;
     @Mock HubRefreshSessionRepository refreshSessionRepository;
+    @Mock AuditClient auditClient;
+    @Mock HubSecurityAuditService securityAuditService;
 
     @Test
     void invitationStoresOnlyHashAndDeliversRawToken() throws Exception {
@@ -53,7 +57,7 @@ class EmployeeServiceTest {
         request.setRole("SUPPORT_AGENT");
         when(repository.save(any(Employee.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service().invite(request);
+        service().invite(request, "owner-1");
 
         ArgumentCaptor<Employee> employeeCaptor = ArgumentCaptor.forClass(Employee.class);
         verify(repository).save(employeeCaptor.capture());
@@ -115,6 +119,51 @@ class EmployeeServiceTest {
         assertThat(response.getToken()).isEqualTo("hub-token");
         assertThat(response.getSaasToken()).isEqualTo("saas-token");
         assertThat(response.isMustChangePassword()).isFalse();
+        verify(auditClient).logEntity(
+                org.mockito.ArgumentMatchers.eq("HUB_AUTH"),
+                org.mockito.ArgumentMatchers.eq(employee.getId()),
+                org.mockito.ArgumentMatchers.eq("LOGIN_SUCCEEDED"),
+                org.mockito.ArgumentMatchers.eq(employee.getId()),
+                org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
+                any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
+                org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void sensitiveEmployeeChangeWithoutReasonIsRejectedBeforeLookupOrMutation() {
+        UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
+        request.setRole("SUPER_ADMIN");
+
+        assertThatThrownBy(() -> service().updateRole("employee-1", "owner-1", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Reason is required");
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(auditClient);
+    }
+
+    @Test
+    void hubLoginDoesNotRevealWhetherAccountExistsOrIsInactive() {
+        EmployeeLoginRequest request = new EmployeeLoginRequest();
+        request.setUsername("hub-user");
+        request.setPassword("WrongPassword@1");
+        when(repository.findByUsername("hub-user")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().login(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid credentials");
+        verify(securityAuditService).recordDeniedLogin("hub-user", "UNKNOWN_ACCOUNT");
+
+        Employee inactive = activeEmployee("SUPPORT_AGENT");
+        inactive.setUsername("inactive-user");
+        inactive.setActive(false);
+        request.setUsername("inactive-user");
+        when(repository.findByUsername("inactive-user")).thenReturn(Optional.of(inactive));
+
+        assertThatThrownBy(() -> service().login(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid credentials");
+        verify(securityAuditService).recordDeniedLogin("inactive-user", "INACTIVE_ACCOUNT");
     }
 
     @Test
@@ -122,6 +171,7 @@ class EmployeeServiceTest {
         Employee employee = activeEmployee("SUPPORT_AGENT");
         ResetEmployeePasswordRequest request = new ResetEmployeePasswordRequest();
         request.setTemporaryPassword("TempPass@9");
+        request.setReason("Employee reported losing access");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
         when(passwordEncoder.encode("TempPass@9")).thenReturn("new-bcrypt-hash");
         when(repository.save(employee)).thenReturn(employee);
@@ -222,6 +272,7 @@ class EmployeeServiceTest {
         Employee employee = activeEmployee("SUPER_ADMIN");
         UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
         request.setRole("SUPPORT_AGENT");
+        request.setReason("Remove elevated access after team transfer");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
         when(repository.findActiveSuperAdminsForUpdate()).thenReturn(java.util.List.of(employee));
 
@@ -236,11 +287,90 @@ class EmployeeServiceTest {
     void cannotDeactivateOwnHubAccount() {
         Employee employee = activeEmployee("SUPER_ADMIN");
 
-        assertThatThrownBy(() -> service().setActive(employee.getId(), employee.getId(), false))
+        assertThatThrownBy(() -> service().setActive(employee.getId(), employee.getId(), false,
+                "Deactivate compromised account"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("own Hub account");
 
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    void assigningCustomRoleRevokesExistingSessionsAndTokens() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+        when(hubCustomRoleRepository.existsById("role-1")).thenReturn(true);
+        when(repository.save(employee)).thenReturn(employee);
+
+        service().assignCustomRole(employee.getId(), "super-admin", "role-1",
+                "Assign payment support queue");
+
+        assertThat(employee.getCustomRoleId()).isEqualTo("role-1");
+        assertThat(employee.getAuthVersion()).isEqualTo(1);
+        verify(refreshSessionRepository).revokeAllForEmployee(
+                org.mockito.ArgumentMatchers.eq(employee.getId()), any(Instant.class));
+    }
+
+    @Test
+    void changingEmployeeRoleRevokesExistingSessionsAndTokens() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
+        request.setRole("SUPER_ADMIN");
+        request.setReason("Promoted to cover platform administration");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+        when(repository.save(employee)).thenReturn(employee);
+
+        service().updateRole(employee.getId(), "owner-1", request);
+
+        assertThat(employee.getAuthVersion()).isEqualTo(1);
+        verify(refreshSessionRepository).revokeAllForEmployee(
+                org.mockito.ArgumentMatchers.eq(employee.getId()), any(Instant.class));
+        verify(auditClient).logEntity(
+                org.mockito.ArgumentMatchers.eq("HUB_EMPLOYEE"),
+                org.mockito.ArgumentMatchers.eq(employee.getId()),
+                org.mockito.ArgumentMatchers.eq("ROLE_CHANGED"),
+                org.mockito.ArgumentMatchers.eq("owner-1"),
+                org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
+                any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
+                org.mockito.ArgumentMatchers.eq("Promoted to cover platform administration"));
+    }
+
+    @Test
+    void repeatingSameRoleChangeIsANoOpWithoutDuplicateAudit() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
+        request.setRole("SUPPORT_AGENT");
+        request.setReason("Retry the already applied role change");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+
+        var response = service().updateRole(employee.getId(), "owner-1", request);
+
+        assertThat(response.getRole()).isEqualTo("SUPPORT_AGENT");
+        assertThat(employee.getAuthVersion()).isZero();
+        verify(repository, never()).save(employee);
+        verify(refreshSessionRepository, never()).revokeAllForEmployee(any(), any());
+        verify(auditClient, never()).logEntity(any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void repeatingSameTemporaryPasswordResetIsANoOp() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        employee.setMustChangePassword(true);
+        ResetEmployeePasswordRequest request = new ResetEmployeePasswordRequest();
+        request.setTemporaryPassword("TempPass@9");
+        request.setReason("Retry the already applied recovery action");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+        when(passwordEncoder.matches("TempPass@9", "old-hash")).thenReturn(true);
+
+        service().resetPassword(employee.getId(), "owner-1", request);
+
+        assertThat(employee.getAuthVersion()).isZero();
+        verify(passwordEncoder, never()).encode(any());
+        verify(repository, never()).save(employee);
+        verify(refreshSessionRepository, never()).revokeAllForEmployee(any(), any());
+        verify(auditClient, never()).logEntity(any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any());
     }
 
     private com.chitfund.supportservice.dto.response.EmployeeLoginResponse invokeLoginResponse(Employee employee) {
@@ -271,7 +401,7 @@ class EmployeeServiceTest {
     private EmployeeService service() {
         EmployeeService service = new EmployeeService(repository, hubCustomRoleRepository,
                 tokenProvider, orgTokenProvider, passwordEncoder, invitationMailer,
-                refreshSessionRepository);
+                refreshSessionRepository, auditClient, securityAuditService);
         ReflectionTestUtils.setField(service, "refreshTokenExpiryDays", 30L);
         return service;
     }

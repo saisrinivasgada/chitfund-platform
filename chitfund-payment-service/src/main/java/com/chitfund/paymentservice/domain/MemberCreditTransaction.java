@@ -19,6 +19,9 @@ public class MemberCreditTransaction {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(nullable = false, length = 36)
+    private String tenantId;
+
     @Column(nullable = false)
     private UUID memberId;
 
@@ -34,6 +37,9 @@ public class MemberCreditTransaction {
     private UUID sourceBatchId;
 
     private UUID sourceSettlementId;
+
+    // Which auction draw generated this credit (used for exact reopen/void reversal)
+    private UUID sourceDrawId;
 
     private UUID reversalOfId;
 

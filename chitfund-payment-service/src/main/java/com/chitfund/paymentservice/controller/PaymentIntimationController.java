@@ -5,8 +5,12 @@ import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.dto.request.ApproveIntimationRequest;
 import com.chitfund.paymentservice.dto.request.CreateIntimationRequest;
+import com.chitfund.paymentservice.dto.request.IntimationDecisionRequest;
 import com.chitfund.paymentservice.dto.response.IntimationResponse;
+import com.chitfund.paymentservice.dto.response.PaymentIntimationAuditLogResponse;
 import com.chitfund.paymentservice.service.PaymentIntimationService;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -16,7 +20,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -34,9 +37,7 @@ public class PaymentIntimationController {
             @Valid @RequestBody CreateIntimationRequest request,
             Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
-        UUID profileId = memberServiceClient.getProfileIdByUserId(
-                userId, TenantContext.get());
-        UUID memberId = profileId != null ? profileId : userId;
+        UUID memberId = requireMemberProfile(userId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(intimationService.createIntimation(memberId, request)));
     }
@@ -48,9 +49,7 @@ public class PaymentIntimationController {
             @PathVariable String id,
             Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
-        UUID profileId = memberServiceClient.getProfileIdByUserId(
-                userId, TenantContext.get());
-        UUID memberId = profileId != null ? profileId : userId;
+        UUID memberId = requireMemberProfile(userId);
         return ResponseEntity.ok(ApiResponse.success(intimationService.withdrawIntimation(id, memberId)));
     }
 
@@ -59,9 +58,7 @@ public class PaymentIntimationController {
     @PreAuthorize("hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<IntimationResponse>>> getMyIntimations(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
-        UUID profileId = memberServiceClient.getProfileIdByUserId(
-                userId, TenantContext.get());
-        UUID memberId = profileId != null ? profileId : userId;
+        UUID memberId = requireMemberProfile(userId);
         return ResponseEntity.ok(ApiResponse.success(intimationService.getMyIntimations(memberId)));
     }
 
@@ -82,8 +79,25 @@ public class PaymentIntimationController {
     /** Admin/Manager: single intimation detail. */
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_MEMBER')")
-    public ResponseEntity<ApiResponse<IntimationResponse>> getById(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<IntimationResponse>> getById(
+            @PathVariable String id, Authentication auth) {
+        if (isMember(auth)) {
+            return ResponseEntity.ok(ApiResponse.success(intimationService.getOwnedById(
+                    id, requireMemberProfile((UUID) auth.getPrincipal()))));
+        }
         return ResponseEntity.ok(ApiResponse.success(intimationService.getById(id)));
+    }
+
+    /** All roles: audit trail for a single intimation. */
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<List<PaymentIntimationAuditLogResponse>>> getHistory(
+            @PathVariable String id, Authentication auth) {
+        if (isMember(auth)) {
+            return ResponseEntity.ok(ApiResponse.success(intimationService.getOwnedHistory(
+                    id, requireMemberProfile((UUID) auth.getPrincipal()))));
+        }
+        return ResponseEntity.ok(ApiResponse.success(intimationService.getHistory(id)));
     }
 
     /** Admin/Manager: approve with optional per-item amount edits. */
@@ -94,7 +108,7 @@ public class PaymentIntimationController {
             @Valid @RequestBody ApproveIntimationRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(intimationService.approveIntimation(id, adminId, request)));
+        return ResponseEntity.ok(ApiResponse.success(intimationService.approveIntimation(id, adminId, request, actorRole(auth))));
     }
 
     /** Admin/Manager: reject with a reason. */
@@ -102,11 +116,11 @@ public class PaymentIntimationController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<IntimationResponse>> reject(
             @PathVariable String id,
-            @RequestBody Map<String, String> body,
+            @Valid @RequestBody IntimationDecisionRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                intimationService.rejectIntimation(id, adminId, body.get("reason"))));
+                intimationService.rejectIntimation(id, adminId, request.getReason(), actorRole(auth))));
     }
 
     /** Admin: void an already-approved intimation — reverses all created payment batches. */
@@ -114,10 +128,33 @@ public class PaymentIntimationController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<IntimationResponse>> voidIntimation(
             @PathVariable String id,
-            @RequestBody Map<String, String> body,
+            @Valid @RequestBody IntimationDecisionRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                intimationService.voidIntimation(id, adminId, body.get("reason"))));
+                intimationService.voidIntimation(id, adminId, request.getReason(), actorRole(auth))));
+    }
+
+    private UUID requireMemberProfile(UUID userId) {
+        UUID profileId = memberServiceClient.getProfileIdByUserId(userId, TenantContext.get());
+        if (profileId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "No member profile is linked to this organization");
+        }
+        return profileId;
+    }
+
+    private boolean isMember(Authentication auth) {
+        return auth.getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_MEMBER".equals(authority.getAuthority()));
+    }
+
+    /** Record the effective actor role so audit/history UI can explain who acted. */
+    private static String actorRole(Authentication auth) {
+        return auth.getAuthorities().stream()
+                .map(a -> a.getAuthority().replaceFirst("^ROLE_", ""))
+                .filter(r -> r.equals("ADMIN") || r.equals("MANAGER"))
+                .findFirst()
+                .orElse("ADMIN");
     }
 }

@@ -6,10 +6,13 @@ import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.dto.response.CapabilityGateResponse;
 import com.chitfund.userservice.dto.response.PlanResponse;
+import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.service.PlanService;
 import com.chitfund.userservice.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -28,10 +31,12 @@ public class PlanController {
     }
 
     @PostMapping("/upgrade-request")
-    public ResponseEntity<ApiResponse<Void>> requestUpgrade(@RequestParam String toPlan) {
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> requestUpgrade(
+            @RequestParam String toPlan, @AuthenticationPrincipal User principal) {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
-        tenantService.requestPlanUpgrade(tenantId, toPlan);
+        tenantService.requestPlanUpgrade(tenantId, toPlan, principal.getId().toString());
         return ResponseEntity.ok(ApiResponse.success(null, "Upgrade request submitted. Our team will review it shortly."));
     }
 
@@ -42,10 +47,11 @@ public class PlanController {
     }
 
     @PostMapping("/renewal-request")
-    public ResponseEntity<ApiResponse<Void>> requestRenewal() {
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> requestRenewal(@AuthenticationPrincipal User principal) {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
-        tenantService.requestRenewal(tenantId);
+        tenantService.requestRenewal(tenantId, principal.getId().toString());
         return ResponseEntity.ok(ApiResponse.success(null, "Renewal request sent. Our team will contact you shortly."));
     }
 }

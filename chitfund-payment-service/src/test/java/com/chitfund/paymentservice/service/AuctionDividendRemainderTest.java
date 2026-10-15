@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -60,19 +61,21 @@ class AuctionDividendRemainderTest {
     @InjectMocks private ChitMonthDrawService service;
 
     private UUID chitId;
+    private ChitMonthDraw draw;
 
     @BeforeEach
     void setUp() {
         chitId = UUID.randomUUID();
-        ChitMonthDraw draw = ChitMonthDraw.builder()
+        draw = ChitMonthDraw.builder()
                 .id(UUID.randomUUID())
                 .tenantId(TENANT)
                 .chitId(chitId)
                 .monthNumber(3)
                 .dueDate(LocalDate.of(2026, 3, 1))
+                .auctionMode("OFFLINE")
                 .status(DrawStatus.AWAITING_AUCTION)
                 .build();
-        when(drawRepository.findByChitIdAndMonthNumber(chitId, 3)).thenReturn(Optional.of(draw));
+        when(drawRepository.findAuctionDrawForUpdate(TENANT, chitId, 3)).thenReturn(Optional.of(draw));
         when(drawRepository.save(any(ChitMonthDraw.class))).thenAnswer(i -> i.getArgument(0));
     }
 
@@ -229,5 +232,95 @@ class AuctionDividendRemainderTest {
 
         verify(drawRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(DrawStatus.OPEN);
+    }
+
+    @Test
+    @DisplayName("an identical apply retry returns the original assessment without duplicate records")
+    void identicalApplyIsIdempotent() {
+        List<ChitMonthDrawService.MemberSpotEntry> memberSpots = members(3, 1);
+        service.applyAuctionDividend(chitId, 3,
+                new BigDecimal("1000"), new BigDecimal("3333.33"),
+                memberSpots, TENANT, new BigDecimal("10000.00"));
+        List<PaymentRecord> firstAssessment = savedRecords();
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3))
+                .thenReturn(firstAssessment);
+
+        service.applyAuctionDividend(chitId, 3,
+                new BigDecimal("1000.00"), new BigDecimal("3333.330"),
+                memberSpots, TENANT, new BigDecimal("10000.00"));
+
+        verify(paymentRecordRepository, times(1)).saveAll(anyList());
+        verify(drawRepository, times(1)).save(any(ChitMonthDraw.class));
+    }
+
+    @Test
+    @DisplayName("an identical retry does not create excess-dividend credit twice")
+    void excessCreditRetryIsIdempotent() {
+        UUID actorId = UUID.randomUUID();
+        List<ChitMonthDrawService.MemberSpotEntry> memberSpots = members(1, 1);
+        service.applyAuctionDividend(chitId, 3,
+                new BigDecimal("1000"), new BigDecimal("1200"),
+                memberSpots, TENANT, new BigDecimal("1200"), actorId);
+        List<PaymentRecord> firstAssessment = savedRecords();
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3))
+                .thenReturn(firstAssessment);
+
+        service.applyAuctionDividend(chitId, 3,
+                new BigDecimal("1000.00"), new BigDecimal("1200.00"),
+                memberSpots, TENANT, new BigDecimal("1200.00"), actorId);
+
+        verify(memberCreditService, times(1)).addCreditForAuctionDraw(
+                eq(memberSpots.get(0).memberId()), eq(new BigDecimal("200")),
+                eq(draw.getId()), eq(chitId), eq(actorId), contains("Dividend exceeded installment"));
+    }
+
+    @Test
+    @DisplayName("reopening an auction reverses its excess-dividend credit with the real actor")
+    void reverseRestoresAuctionCredit() {
+        UUID actorId = UUID.randomUUID();
+        draw.setStatus(DrawStatus.OPEN);
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3))
+                .thenReturn(List.of());
+
+        service.reverseAuctionDividend(chitId, 3, TENANT, actorId);
+
+        verify(memberCreditService).reverseCreditForAuctionDraw(draw.getId(), actorId);
+        verify(paymentRecordRepository)
+                .deleteByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3);
+        assertThat(draw.getStatus()).isEqualTo(DrawStatus.AWAITING_AUCTION);
+    }
+
+    @Test
+    @DisplayName("an apply retry with different money is rejected instead of rewriting records")
+    void changedApplyRetryConflicts() {
+        List<ChitMonthDrawService.MemberSpotEntry> memberSpots = members(3, 1);
+        service.applyAuctionDividend(chitId, 3,
+                new BigDecimal("1000"), new BigDecimal("3333.33"),
+                memberSpots, TENANT, new BigDecimal("10000.00"));
+        List<PaymentRecord> firstAssessment = savedRecords();
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3))
+                .thenReturn(firstAssessment);
+
+        assertThatThrownBy(() -> service.applyAuctionDividend(chitId, 3,
+                new BigDecimal("1001"), new BigDecimal("3333.33"),
+                memberSpots, TENANT, new BigDecimal("10000.00")))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("different financial values");
+
+        verify(paymentRecordRepository, times(1)).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("a repeated reverse succeeds without deleting a second time")
+    void reverseIsIdempotent() {
+        ChitMonthDraw draw = drawRepository.findAuctionDrawForUpdate(TENANT, chitId, 3).orElseThrow();
+        draw.setStatus(DrawStatus.AWAITING_AUCTION);
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3))
+                .thenReturn(List.of());
+
+        service.reverseAuctionDividend(chitId, 3, TENANT);
+
+        verify(paymentRecordRepository, never())
+                .deleteByTenantIdAndChitIdAndMonthNumber(anyString(), any(), anyInt());
     }
 }

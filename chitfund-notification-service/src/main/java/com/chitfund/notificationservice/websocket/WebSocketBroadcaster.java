@@ -13,14 +13,17 @@ public class WebSocketBroadcaster {
 
     private final SimpMessagingTemplate messagingTemplate;
 
-    public void broadcast(String type) {
-        broadcast(type, Map.of());
+    public void broadcast(String tenantId, String type) {
+        broadcast(tenantId, type, Map.of());
     }
 
-    public void broadcast(String type, Map<String, String> meta) {
+    public void broadcast(String tenantId, String type, Map<String, String> meta) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("Organization context is required for WebSocket updates");
+        }
         Map<String, Object> msg = new HashMap<>(meta);
         msg.put("type", type);
         msg.put("ts", System.currentTimeMillis());
-        messagingTemplate.convertAndSend("/topic/data-update", msg);
+        messagingTemplate.convertAndSend("/topic/data-update/" + tenantId, msg);
     }
 }

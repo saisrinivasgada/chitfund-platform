@@ -811,8 +811,6 @@ function ProblemsSlider() {
 function apiPlanToCard(p, allPlans) {
   const isCustom = p.plan === 'CUSTOM';
   const hasDiscount = p.globalDiscountPct != null && p.globalDiscountPct > 0;
-  const effectiveRupees = (p.effectivePriceInr ?? p.priceMonthlyInr) / 100;
-  const originalRupees = p.priceMonthlyInr / 100;
 
   const effectivePaise = p.effectivePriceInr ?? p.priceMonthlyInr;
   const originalPaise  = p.priceMonthlyInr;
@@ -828,7 +826,12 @@ function apiPlanToCard(p, allPlans) {
 
   const sub = isCustom ? 'Tailored pricing for large operations' : 'Billed monthly, cancel anytime';
 
-  let enabledBadges = []; try { enabledBadges = JSON.parse(p.badges || '[]').filter(b => b.enabled && b.text); } catch {}
+  let enabledBadges;
+  try {
+    enabledBadges = JSON.parse(p.badges || '[]').filter(b => b.enabled && b.text);
+  } catch {
+    enabledBadges = [];
+  }
   const discountBadge = !enabledBadges.length && hasDiscount ? `${p.globalDiscountPct}% off` : null;
 
   const selectablePlans = allPlans.filter(x => x.plan !== 'CUSTOM');

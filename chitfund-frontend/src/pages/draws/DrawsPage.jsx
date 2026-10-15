@@ -161,7 +161,7 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
       qc.invalidateQueries({ queryKey: ['winners', chitId] });
-      toast.success('Draw deleted');
+      toast.success('Empty draw discarded');
       setPendingDelete(null);
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to delete draw'),
@@ -433,11 +433,11 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
       )}
       {pendingDelete && (
         <DestructiveDialog
-          title={`Delete Draw ${pendingDelete.monthNumber}?`}
-          message="This will remove the draw record. Winner records and payouts must be handled separately via the Chit Detail page."
-          confirmLabel="Delete Draw"
+          title={`Discard Empty Draw ${pendingDelete.monthNumber}?`}
+          description="Only a pristine open draw can be discarded. Any payment, credit, allocation, winner, auction, reservation, or payout history will block this action."
+          actionLabel="Discard Empty Draw"
           onConfirm={() => deleteMutation.mutate(pendingDelete.drawId)}
-          onCancel={() => setPendingDelete(null)}
+          onClose={() => setPendingDelete(null)}
           loading={deleteMutation.isPending}
         />
       )}

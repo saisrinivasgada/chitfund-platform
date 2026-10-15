@@ -58,7 +58,10 @@ public class PayoutOutboxRelay {
 
     @Scheduled(fixedDelayString = "${chitwise.events.relay-delay-ms:2000}")
     public void drain() {
-        if (!properties.isRelayEnabled() || !properties.getMode().writesOutbox()) return;
+        // Audit facts always enter the durable outbox. Delivery mode only
+        // controls whether new domain-event rows are added, not whether any
+        // committed row may be delivered.
+        if (!properties.isRelayEnabled()) return;
         try {
             for (OutboxDelivery delivery : store.claimBatch(
                     properties.getBatchSize(), properties.getLeaseDuration())) {

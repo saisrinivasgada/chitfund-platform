@@ -17,6 +17,7 @@ name: Session Persistence — sign-in survives app close/reopen
       - tapOn:
           text: "Enter your password"
       - inputText: ${ADMIN_PASSWORD}
+      - waitForAnimationToEnd
       - pressKey: Enter
       - waitForAnimationToEnd
       - waitForAnimationToEnd
@@ -29,7 +30,12 @@ name: Session Persistence — sign-in survives app close/reopen
             - runScript: helpers/read_otp.js
             - tapOn:
                 text: "123456"
-            - inputText: ${output.otp}
+            - inputText: ${output.digit1}
+            - inputText: ${output.digit2}
+            - inputText: ${output.digit3}
+            - inputText: ${output.digit4}
+            - inputText: ${output.digit5}
+            - inputText: ${output.digit6}
             - tapOn:
                 text: "Verify & Sign In"
             - waitForAnimationToEnd

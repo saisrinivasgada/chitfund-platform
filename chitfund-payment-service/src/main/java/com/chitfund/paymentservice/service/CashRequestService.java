@@ -17,6 +17,7 @@ import com.chitfund.paymentservice.dto.response.CashRequestAuditLogResponse;
 import com.chitfund.paymentservice.dto.response.CashRequestResponse;
 import com.chitfund.paymentservice.dto.response.CashRequestSummaryResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
+import com.chitfund.paymentservice.client.AuditClient;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.client.UserServiceClient;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
@@ -31,7 +32,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -48,6 +51,7 @@ public class CashRequestService {
     private final UserServiceClient userServiceClient;
     private final PaymentEventPublisher eventPublisher;
     private final PlanExpiryChecker planExpiryChecker;
+    private final AuditClient centralAuditClient;
 
     /**
      * The caller's organisation, taken from the JWT.
@@ -83,6 +87,7 @@ public class CashRequestService {
                           CashRequestStatus from, CashRequestStatus to,
                           UUID performedBy, String performedByRole, String reason) {
         auditLogRepository.save(CashRequestAuditLog.builder()
+                .tenantId(tenantId())
                 .requestId(requestId)
                 .action(action)
                 .fromStatus(from != null ? from.name() : null)
@@ -91,6 +96,43 @@ public class CashRequestService {
                 .performedByRole(performedByRole)
                 .reason(reason)
                 .build());
+
+        String tenantId = tenantId();
+        CashPaymentRequest request = requestRepository.findByIdAndTenantId(requestId, tenantId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Cannot audit a cash request that is absent from the tenant transaction"));
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        if (from != null) before.put("status", from.name());
+
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("status", to.name());
+        after.put("memberId", request.getMemberId());
+        after.put("chitId", request.getChitId());
+        putIfNonNull(after, "requestedAmount", request.getRequestedAmount());
+        putIfNonNull(after, "collectedAmount", request.getCollectedAmount());
+        putIfNonNull(after, "assignedStaffId", request.getAssignedStaffId());
+        putIfNonNull(after, "collectedBatchId", request.getCollectedBatchId());
+        putIfNonNull(after, "memberApproved", request.getMemberApproved());
+        putIfNonNull(after, "scheduledFor", request.getScheduledFor());
+
+        centralAuditClient.log(AuditClient.AuditDetails.builder()
+                .entityType("CASH_REQUEST")
+                .entityId(requestId.toString())
+                .chitId(request.getChitId().toString())
+                .action("CASH_REQUEST_" + action)
+                .actorId(performedBy != null ? performedBy.toString() : null)
+                .actorRole(performedByRole)
+                .before(before.isEmpty() ? null : before)
+                .after(after)
+                .tenantId(tenantId)
+                .reason(reason)
+                .occurredAt(Instant.now())
+                .build());
+    }
+
+    private void putIfNonNull(Map<String, Object> target, String key, Object value) {
+        if (value != null) target.put(key, value);
     }
 
     // ─── Public API ──────────────────────────────────────────────────────────
@@ -145,7 +187,9 @@ public class CashRequestService {
     }
 
     @Transactional
-    public CashRequestResponse createRequestByAdmin(UUID memberProfileId, UUID staffId, CreateCashRequestRequest dto, UUID adminId, String assigneeRole) {
+    public CashRequestResponse createRequestByAdmin(UUID memberProfileId, UUID staffId,
+                                                    CreateCashRequestRequest dto, UUID adminId,
+                                                    String actorRole, String assigneeRole) {
         planExpiryChecker.assertNotExpired();
         // memberProfileId is the member-service UUID (from admin dropdown).
         // We must store the user-service UUID as memberId so the member can find
@@ -170,9 +214,11 @@ public class CashRequestService {
                 .build();
         CashPaymentRequest saved = requestRepository.save(req);
 
-        logAudit(saved.getId(), "CREATED", null, initialStatus, adminId, "ADMIN", "Created by admin");
+        logAudit(saved.getId(), "CREATED", null, initialStatus, adminId, actorRole,
+                "Created by " + actorRole.toLowerCase());
         if (staffId != null) {
-            logAudit(saved.getId(), "ASSIGNED", null, CashRequestStatus.ASSIGNED, adminId, "ADMIN", "Assigned at creation");
+            logAudit(saved.getId(), "ASSIGNED", null, CashRequestStatus.ASSIGNED,
+                    adminId, actorRole, "Assigned at creation");
         }
 
         String memberName = memberServiceClient.getMemberName(memberProfileId);
@@ -359,8 +405,8 @@ public class CashRequestService {
     }
 
     @Transactional
-    public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId) {
-        return collectForRequest(requestId, adminId, false, null);
+    public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId, String actorRole) {
+        return collectForRequest(requestId, adminId, actorRole, false, null);
     }
 
     /**
@@ -374,6 +420,7 @@ public class CashRequestService {
      */
     @Transactional
     public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId,
+                                                   String actorRole,
                                                    boolean overrideMemberRejection, String overrideReason) {
         CashPaymentRequest req = findOrThrowForWrite(requestId);
 
@@ -396,7 +443,7 @@ public class CashRequestService {
                                 + "). Confirming it anyway requires an explicit override with a reason.");
             }
             logAudit(requestId, "MEMBER_REJECTION_OVERRIDDEN", req.getStatus(), req.getStatus(),
-                    adminId, "ADMIN", overrideReason);
+                    adminId, actorRole, overrideReason);
         }
 
         BigDecimal amountToCredit = req.getCollectedAmount() != null
@@ -433,7 +480,7 @@ public class CashRequestService {
         req.setCollectedBatchId(batch.getId());
         requestRepository.save(req);
 
-        logAudit(requestId, "COLLECTED", prevStatus, CashRequestStatus.COLLECTED, adminId, "ADMIN",
+        logAudit(requestId, "COLLECTED", prevStatus, CashRequestStatus.COLLECTED, adminId, actorRole,
                 prevStatus == CashRequestStatus.PARTIALLY_COLLECTED
                         ? "Partial amount of ₹" + amountToCredit.toPlainString() + " credited" : null);
 
@@ -663,7 +710,8 @@ public class CashRequestService {
     }
 
     @Transactional
-    public CashRequestResponse cancelRequest(UUID requestId, String reason) {
+    public CashRequestResponse cancelRequest(UUID requestId, String reason,
+                                             UUID actorId, String actorRole) {
         CashPaymentRequest req = findOrThrowForWrite(requestId);
         if (req.getStatus() == CashRequestStatus.COLLECTED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -674,7 +722,8 @@ public class CashRequestService {
         if (reason != null) req.setAdminNotes(reason);
         CashPaymentRequest saved = requestRepository.save(req);
 
-        logAudit(requestId, "CANCELLED", from, CashRequestStatus.CANCELLED, null, "ADMIN", reason);
+        logAudit(requestId, "CANCELLED", from, CashRequestStatus.CANCELLED,
+                actorId, actorRole, reason);
 
         return toResponse(saved);
     }
@@ -775,7 +824,8 @@ public class CashRequestService {
 
     public List<CashRequestAuditLogResponse> getAuditLog(UUID requestId) {
         findOrThrow(requestId); // validates request exists
-        return auditLogRepository.findByRequestIdOrderByPerformedAtAsc(requestId)
+        return auditLogRepository.findByTenantIdAndRequestIdOrderByPerformedAtAsc(
+                        tenantId(), requestId)
                 .stream().map(this::toAuditResponse).toList();
     }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, FlatList, Modal, Alert, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
@@ -15,11 +15,12 @@ import {
   getDraws, openDraw, closeDraw, skipDraw, deleteDraw, getDrawPayments,
   getReservations, addReservationSlot, removeReservationSlot,
   swapReservationSlots, shiftReservations, markSlotProcessed,
-  updateReservationSlot, hardDeleteReservationSlot,
+  updateReservationSlot,
   createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
   pauseChit, resumeChit, getDeletedChits, deleteChit,
+  getChitLifecycleSync, retryChitLifecycleSync,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
@@ -157,6 +158,24 @@ export default function AdminChitsScreen() {
   const params = useLocalSearchParams<{ openChitId?: string; openTab?: string; openAdd?: string }>();
   const [selected, setSelected] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const { data: lifecycleSync } = useQuery({
+    queryKey: ['a-chit-lifecycle-sync', selected?.id],
+    queryFn: () => getChitLifecycleSync(selected.id),
+    enabled: showDetail && selected?.status === 'COMPLETED' && !!selected?.id,
+    refetchInterval: (query) => {
+      const status = (query.state.data as any)?.status;
+      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+    },
+  });
+  const retryLifecycleMut = useOnlineMutation({
+    mutationFn: () => retryChitLifecycleSync(selected.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['a-chit-lifecycle-sync', selected?.id] });
+      toast.saved('Completion sync queued again');
+    },
+    onError: (e: any) => Alert.alert('Retry Failed',
+      e.response?.data?.message ?? 'Could not retry completion sync'),
+  });
   // Typed confirmation for chit deletion — mirrors the web DELETE guard.
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -224,10 +243,12 @@ export default function AdminChitsScreen() {
   const [wpWinner, setWpWinner] = useState<any>(null);
   const [wpAmount, setWpAmount] = useState('');
   const [wpNotes, setWpNotes] = useState('');
+  const [wpIdempotencyKey, setWpIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   // ── Disburse Payout ────────────────────────────────────────────────────────
   const [showDisburse, setShowDisburse] = useState(false);
   const [dsPayout, setDsPayout] = useState<any>(null);
+  const [dsIdempotencyKey, setDsIdempotencyKey] = useState(() => Crypto.randomUUID());
   const [dsMode, setDsMode] = useState('CASH');
   const [dsNotes, setDsNotes] = useState('');
   const [dsAmount, setDsAmount] = useState('');
@@ -335,7 +356,8 @@ export default function AdminChitsScreen() {
     enabled: !!selected?.id && detailTab === 'draws',
   });
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
-  const { data: chitAudit = [] } = useQuery({
+  const { data: chitAudit = [], isLoading: chitAuditLoading, isError: chitAuditError,
+    refetch: refetchChitAudit } = useQuery({
     queryKey: ['a-chit-audit', selected?.id],
     queryFn: () => getChitAuditHistory(selected!.id),
     enabled: !!selected?.id && detailTab === 'audit',
@@ -667,7 +689,7 @@ export default function AdminChitsScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
       qc.invalidateQueries({ queryKey: ['a-chit-batches', selected.id] });
-      toast.deleted('Draw deleted');
+      toast.deleted('Empty draw discarded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete draw'),
   });
@@ -808,18 +830,10 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save slot'),
   });
 
-  const hardDeleteSlotMut = useOnlineMutation({
-    mutationFn: (resId: string) => hardDeleteReservationSlot(selected.id, resId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
-      toast.deleted('Slot permanently deleted');
-    },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete'),
-  });
-
   // Payout from winner tab
   const winnerPayoutMut = useOnlineMutation({
     mutationFn: () => createPayout({
+      idempotencyKey: wpIdempotencyKey,
       memberId: wpWinner?.memberId ?? wpWinner?.winnerId,
       chitId: selected?.id,
       monthNumber: wpWinner?.monthNumber ?? wpWinner?.drawNumber,
@@ -828,6 +842,7 @@ export default function AdminChitsScreen() {
       notes: wpNotes || undefined,
     }),
     onSuccess: () => {
+      setWpIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['a-chit-payouts', selected?.id] });
       setShowWinnerPayout(false); setWpWinner(null); setWpAmount(''); setWpNotes('');
       toast.created('Payout created — go to Finance → Payouts to disburse');
@@ -838,13 +853,14 @@ export default function AdminChitsScreen() {
   // Disburse existing payout
   const disburseMut = useOnlineMutation({
     mutationFn: () => disbursePayout(dsPayout.id, {
-      disbursedAmount: Number(dsAmount),
-      paymentMode: dsMode,
+      amount: Number(dsAmount),
+      disbursementMode: dsMode,
       notes: dsNotes || undefined,
-    }),
+    }, dsIdempotencyKey),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-chit-payouts', selected?.id] });
       setShowDisburse(false); setDsPayout(null); setDsMode('CASH'); setDsNotes(''); setDsAmount('');
+      setDsIdempotencyKey(Crypto.randomUUID());
       toast.saved('Payout disbursed successfully');
     },
     onError: (e: any) => Alert.alert('Disburse Failed', e.response?.data?.message ?? 'Disbursement failed. Please try again.'),
@@ -1179,6 +1195,26 @@ export default function AdminChitsScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {selected?.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+            <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Completion needs attention</Text>
+              <Text style={{ fontSize: 12, color: C.red, marginTop: 3 }}>
+                Open payment draws could not be closed automatically. Financial history is preserved.
+              </Text>
+              <TouchableOpacity onPress={() => retryLifecycleMut.mutate()} disabled={retryLifecycleMut.isPending}
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: C.red }}>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
+                  {retryLifecycleMut.isPending ? 'Retrying…' : 'Retry sync'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {selected?.status === 'COMPLETED' && ['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
+            <View style={{ marginHorizontal: 12, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Finalizing completion…</Text>
+            </View>
+          )}
 
           {/* Sub-tabs (scrollable) — no extra margin, border is on tab row itself */}
           <View style={{ borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
@@ -1741,14 +1777,14 @@ export default function AdminChitsScreen() {
                                 </View>
                                 <Button label="Skip This Draw" variant="ghost" size="sm"
                                   onPress={() => { setSdDrawId(d.id); setSdDrawNum(String(dNum)); setShowSkipDraw(true); }} />
-                                <Button label="Delete Draw" variant="danger" size="sm"
+                                <Button label="Discard Empty Draw" variant="danger" size="sm"
                                   loading={deleteDrawMut.isPending}
                                   onPress={() => Alert.alert(
-                                    `Delete Draw #${dNum}`,
-                                    'This permanently deletes the draw and all payment records.\n\nIf any member has already paid, void their payment batches first.',
+                                    `Discard Empty Draw #${dNum}`,
+                                    'Only a pristine open draw can be discarded. Payment, credit, allocation, winner, auction, reservation, or payout history will block this action.',
                                     [
                                       { text: 'Cancel', style: 'cancel' },
-                                      { text: 'Delete', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
+                                      { text: 'Discard', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
                                     ]
                                   )} />
                               </View>
@@ -2104,23 +2140,15 @@ export default function AdminChitsScreen() {
                               )}
                               {slot.status === 'UNALLOCATED' && (
                                 <TouchableOpacity
-                                  onPress={() => Alert.alert('Delete Slot', 'Permanently delete this empty slot?', [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Delete', style: 'destructive', onPress: () => hardDeleteSlotMut.mutate(slot.id) },
-                                  ])}
+                                  onPress={() => { setVsSlot(slot); setVsReason(''); setVsReplaceAt('same'); setShowVoidSlot(true); }}
                                   style={{ backgroundColor: '#FEF2F2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.red }}>Delete</Text>
+                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.red }}>Void</Text>
                                 </TouchableOpacity>
                               )}
                               {isVoided && (
-                                <TouchableOpacity
-                                  onPress={() => Alert.alert('Delete Voided Slot', 'Permanently delete this voided slot?', [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Delete', style: 'destructive', onPress: () => hardDeleteSlotMut.mutate(slot.id) },
-                                  ])}
-                                  style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500 }}>Delete</Text>
-                                </TouchableOpacity>
+                                <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500 }}>Audit retained</Text>
+                                </View>
                               )}
                             </View>
                           </View>
@@ -2170,7 +2198,20 @@ export default function AdminChitsScreen() {
               }
               return (
               <>
-                {(chitAudit as any[]).length === 0 ? (
+                {chitAuditLoading ? (
+                  <View style={{ paddingVertical: 40, alignItems: 'center', gap: 10 }}>
+                    <ActivityIndicator color={C.navy} />
+                    <Text style={{ fontSize: 13, color: C.gray400 }}>Loading audit history…</Text>
+                  </View>
+                ) : chitAuditError ? (
+                  <View style={{ paddingVertical: 40, alignItems: 'center', gap: 8 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.red }}>Audit history could not be loaded</Text>
+                    <Text style={{ fontSize: 12, color: C.gray500, textAlign: 'center' }}>This does not mean that the chit has no history.</Text>
+                    <TouchableOpacity onPress={() => refetchChitAudit()} style={{ borderWidth: 1.5, borderColor: C.red, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 }}>
+                      <Text style={{ color: C.red, fontSize: 12, fontWeight: '700' }}>Try again</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (chitAudit as any[]).length === 0 ? (
                   <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                     <Text style={{ fontSize: 32, marginBottom: 8 }}>◈</Text>
                     <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>No audit events</Text>
@@ -2186,7 +2227,7 @@ export default function AdminChitsScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 2 }}>
                           <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, flex: 1 }}>{label}</Text>
                           <Text style={{ fontSize: 11, color: C.gray400, marginLeft: 8 }}>
-                            {fmtDateTime(entry.createdAt ?? entry.timestamp)}
+                            {fmtDateTime(entry.occurredAt ?? entry.createdAt ?? entry.timestamp)}
                           </Text>
                         </View>
                         {summary && (
@@ -3952,14 +3993,14 @@ export default function AdminChitsScreen() {
                 </View>
               )}
 
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payout Amount *</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Recorded Winner Amount</Text>
               <TextInput
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }}
-                placeholder="Enter amount"
+                style={{ borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.gray50, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }}
+                placeholder="Recorded amount"
                 placeholderTextColor={C.gray400}
                 keyboardType="decimal-pad"
                 value={wpAmount}
-                onChangeText={setWpAmount}
+                editable={false}
               />
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (optional)</Text>
               <TextInput

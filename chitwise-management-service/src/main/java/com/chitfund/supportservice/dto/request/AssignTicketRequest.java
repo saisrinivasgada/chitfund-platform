@@ -10,6 +10,7 @@ public class AssignTicketRequest {
     @NotBlank
     private String assigneeId;
 
+    @NotBlank(message = "Assignment reason is required")
     @Size(max = 255)
     private String note;
 }

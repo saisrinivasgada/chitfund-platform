@@ -6,8 +6,13 @@ import com.chitfund.supportservice.repository.ConversationRepository;
 import com.chitfund.supportservice.repository.HubConversationRepository;
 import com.chitfund.supportservice.repository.HubGroupMemberRepository;
 import com.chitfund.supportservice.repository.SupportTicketRepository;
+import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.domain.entity.Employee;
+import com.chitfund.supportservice.service.HubPermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
 
 /**
  * Verifies that a WebSocket subscriber is allowed to listen on a given STOMP topic.
@@ -23,16 +28,33 @@ public class WsAuthorizationService {
     private final ChatGroupMemberRepository groupMemberRepo;
     private final HubConversationRepository hubConvRepo;
     private final HubGroupMemberRepository hubGroupMemberRepo;
+    private final EmployeeRepository employeeRepo;
+    private final HubPermissionService hubPermissionService;
+
+    /**
+     * Hub access tokens are not sufficient by themselves: deactivation, password
+     * reset and role changes must invalidate a socket before it is established.
+     */
+    public Optional<Employee> authenticateHubEmployee(String employeeId, long tokenAuthVersion) {
+        return employeeRepo.findById(employeeId)
+                .filter(Employee::isActive)
+                .filter(employee -> !employee.isMustChangePassword())
+                .filter(employee -> employee.getAuthVersion() == tokenAuthVersion);
+    }
 
     /**
      * Can this user subscribe to /topic/conversation.{convId}?
-     * - Hub employees (tenantId == null) can subscribe to any conversation.
+     * - Authenticated Hub employees can subscribe to any conversation.
      * - Org users: conversation must belong to their tenant.
      * - Member role: conversation.memberId must match their userId.
      */
     public boolean canSubscribeToConversation(String convId, String tenantId,
-                                               String userId, String role) {
-        if (tenantId == null) return true; // hub employee
+                                               String userId, String role, boolean isHub) {
+        // Organization conversations are not Hub support-agent channels. Only a
+        // Super Admin may deliberately inspect them; support employees use the
+        // separate hub.dm / hub.group topics.
+        if (isHub) return "SUPER_ADMIN".equals(role);
+        if (tenantId == null) return false;
 
         return conversationRepo.findById(convId)
                 .map(conv -> {
@@ -45,22 +67,34 @@ public class WsAuthorizationService {
 
     /**
      * Can this user subscribe to /topic/support-ticket.{ticketId}?
-     * - Hub employees (tenantId == null): yes.
+     * - Authenticated Hub employees: yes.
      * - Org users: ticket must belong to their tenant.
      */
-    public boolean canSubscribeToTicket(String ticketId, String tenantId) {
-        if (tenantId == null) return true; // hub employee
+    public boolean canSubscribeToTicket(String ticketId, String tenantId,
+                                        String userId, String role, boolean isHub) {
+        if (isHub) {
+            return ticketRepo.findById(ticketId)
+                    .map(ticket -> hubPermissionService.visibleTicketTypes(userId)
+                            .contains(ticket.getType()))
+                    .orElse(false);
+        }
+        if (tenantId == null) return false;
 
         return ticketRepo.findById(ticketId)
-                .map(ticket -> ticket.getTenantId().equals(tenantId))
+                .map(ticket -> ticket.getTenantId().equals(tenantId)
+                        && (!"MEMBER".equals(role)
+                            || java.util.Objects.equals(ticket.getCreatedBy(), userId)))
                 .orElse(false);
     }
 
     /**
      * Hub employees can subscribe to the global pool topic.
      */
-    public boolean canSubscribeToPool(String tenantId) {
-        return tenantId == null;
+    public boolean canSubscribeToPool(boolean isHub, String role) {
+        // This topic carries unfiltered ticket subjects and tenant identifiers.
+        // Category-restricted support agents use their filtered ticket list and
+        // per-ticket topic instead of receiving the global stream.
+        return isHub && "SUPER_ADMIN".equals(role);
     }
 
     /**
@@ -68,8 +102,10 @@ public class WsAuthorizationService {
      * - User must be a member of the group.
      * - Group must belong to the user's tenant.
      */
-    public boolean canSubscribeToGroup(String groupId, String tenantId, String userId) {
-        if (tenantId == null) return true; // hub employee — full access
+    public boolean canSubscribeToGroup(String groupId, String tenantId,
+                                       String userId, String role, boolean isHub) {
+        if (isHub) return "SUPER_ADMIN".equals(role);
+        if (tenantId == null) return false;
 
         return groupRepo.findByIdAndTenantId(groupId, tenantId)
                 .map(group -> groupMemberRepo.existsByGroupIdAndUserId(groupId, userId))

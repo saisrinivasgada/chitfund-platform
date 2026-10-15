@@ -154,7 +154,7 @@ class AuctionCloseCalculationTest {
         ArgumentCaptor<BigDecimal> dividend = ArgumentCaptor.forClass(BigDecimal.class);
         verify(paymentServiceClient).applyAuctionDividend(
                 eq(chitId), anyInt(), any(BigDecimal.class), dividend.capture(),
-                anyList(), anyString(), any());
+                anyList(), anyString(), any(), any());
         return dividend.getValue();
     }
 
@@ -166,7 +166,7 @@ class AuctionCloseCalculationTest {
         ArgumentCaptor<BigDecimal> distributable = ArgumentCaptor.forClass(BigDecimal.class);
         verify(paymentServiceClient).applyAuctionDividend(
                 eq(chitId), anyInt(), any(BigDecimal.class), any(BigDecimal.class),
-                anyList(), anyString(), distributable.capture());
+                anyList(), anyString(), distributable.capture(), any());
         return distributable.getValue();
     }
 
@@ -334,12 +334,16 @@ class AuctionCloseCalculationTest {
     void closingStampsSession() {
         AuctionSession s = openSession("120000", "PERCENTAGE", "10");
         arrange(s, chit("1000"), 12);
+        UUID actorId = UUID.randomUUID();
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), actorId);
 
         assertThat(s.getStatus()).isEqualTo(AuctionStatus.CLOSED);
         assertThat(s.getWinnerId()).isEqualTo(winnerId);
         assertThat(s.getWonAmount()).isEqualByComparingTo("100000");
         assertThat(s.getClosedAt()).isNotNull();
+        verify(paymentServiceClient).applyAuctionDividend(
+                eq(chitId), eq(3), any(BigDecimal.class), any(BigDecimal.class),
+                anyList(), eq(TENANT), any(BigDecimal.class), eq(actorId));
     }
 }

@@ -14,6 +14,7 @@ export const clearHubSaasToken = () => { _hubSaasToken = null; };
 // Attach auth token on every request except auth endpoints (login, etc.)
 // Proxy sessions (super-admin impersonating) use sessionStorage; real sessions use memory.
 api.interceptors.request.use((config) => {
+  config.headers['X-Client-Source'] = 'WEB';
   const isAuthEndpoint = config.url?.includes('/auth/');
   if (!isAuthEndpoint) {
     const token = sessionStorage.getItem('token') ?? _authToken ?? _hubSaasToken;
@@ -34,7 +35,7 @@ function _flushRefreshQueue(error, token = null) {
 
 function _evictSession() {
   clearAuthToken();
-  ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','adminPhone','adminEmail']
+  ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','settlementEnabled','adminPhone','adminEmail']
     .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
   sessionStorage.removeItem('token');
   window.location.href = '/session-expired';
@@ -89,8 +90,11 @@ api.interceptors.response.use(
 
         const newToken = json.data.accessToken;
         setAuthToken(newToken);
-        // Let AuthContext update its in-memory token state (for isAuthenticated / idle-timer reset).
-        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: { token: newToken } }));
+        // Let AuthContext refresh both the token and current server-side tenant
+        // entitlements. Plan changes must not wait for the next full login.
+        window.dispatchEvent(new CustomEvent('auth:token-refreshed', {
+          detail: { token: newToken, auth: json.data },
+        }));
         _flushRefreshQueue(null, newToken);
 
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
@@ -283,10 +287,11 @@ export const resumeSubscription = async () => {
   return res.data.data;
 };
 
-export const applyDowngrade = async (toPlan) => {
-  const res = await api.post('/billing/downgrade', null, { params: { toPlan } });
-  return res.data.data;
-};
+export const applyDowngrade = (toPlan) =>
+  postBillingIdempotently('downgrade', '/billing/downgrade', {
+    toPlan,
+    reason: 'Organization admin requested immediate downgrade',
+  });
 
 export const superAdminReactivateTenant = async (tenantId, newSlug) => {
   const params = newSlug ? { newSlug } : {};
@@ -299,14 +304,18 @@ export const superAdminGetAdminCredentials = async (tenantId) => {
   return res.data.data;
 };
 
-export const superAdminProxyAs = async (tenantId, role, userId) => {
+export const superAdminProxyAs = async (tenantId, role, userId, reason) => {
   const params = userId ? `?role=${role}&userId=${userId}` : `?role=${role}`;
-  const res = await api.post(`/super-admin/tenants/${tenantId}/proxy${params}`);
+  const res = await api.post(`/super-admin/tenants/${tenantId}/proxy${params}`, null, {
+    headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 
-export const superAdminUpdatePlan = async (tenantId, plan) => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/plan`, null, { params: { plan } });
+export const superAdminUpdatePlan = async (tenantId, plan, reason) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/plan`, null, {
+    params: { plan }, headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 
@@ -356,10 +365,12 @@ export const superAdminListOrgChits = async (tenantId, { status } = {}) => {
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
-export const superAdminSetPlanExpiry = async (tenantId, expiresAt) => {
+export const superAdminSetPlanExpiry = async (tenantId, expiresAt, reason) => {
   // expiresAt: ISO string or null (clears expiry)
   const params = expiresAt ? { expiresAt } : {};
-  const res = await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, { params });
+  const res = await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, {
+    params, headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 
@@ -388,13 +399,17 @@ export const getMyEffectiveLimits = async () => {
   return res.data.data ?? null;
 };
 
-export const superAdminSetCustomLimits = async (tenantId, data) => {
-  const res = await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data);
+export const superAdminSetCustomLimits = async (tenantId, data, reason) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data, {
+    headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 
-export const superAdminRemoveCustomLimits = async (tenantId, fallbackPlan = 'BASIC') => {
-  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, { params: { fallbackPlan } });
+export const superAdminRemoveCustomLimits = async (tenantId, fallbackPlan = 'BASIC', reason) => {
+  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, {
+    params: { fallbackPlan }, headers: { 'X-Change-Reason': reason },
+  });
   return res.data;
 };
 
@@ -415,13 +430,14 @@ export const superAdminCreatePlanDef = async (body) => {
   return res.data.data;
 };
 
-export const superAdminUpdatePlanDef = async (code, body) => {
-  const res = await api.put(`/super-admin/plans/${code}`, body);
+export const superAdminUpdatePlanDef = async (code, body, reason) => {
+  const config = reason ? { headers: { 'X-Change-Reason': reason } } : undefined;
+  const res = await api.put(`/super-admin/plans/${code}`, body, config);
   return res.data.data;
 };
 
-export const superAdminDeletePlanDef = async (code) => {
-  await api.delete(`/super-admin/plans/${code}`);
+export const superAdminDeletePlanDef = async (code, reason) => {
+  await api.delete(`/super-admin/plans/${code}`, { headers: { 'X-Change-Reason': reason } });
 };
 
 // ─── Capability definitions ────────────────────────────────────────────────
@@ -433,8 +449,8 @@ export const superAdminAddCapability = async (label) => {
   const res = await api.post('/super-admin/capabilities', { label });
   return res.data.data;
 };
-export const superAdminDeleteCapability = async (key) => {
-  await api.delete(`/super-admin/capabilities/${key}`);
+export const superAdminDeleteCapability = async (key, reason) => {
+  await api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
 };
 
 // ─── Per-org discount ──────────────────────────────────────────────────────
@@ -666,6 +682,16 @@ export const updateChitStatus = async ({ id, status, startDate }) => {
   return res.data.data;
 };
 
+export const getChitLifecycleSync = async (id) => {
+  const res = await api.get(`/chits/${id}/lifecycle-sync`);
+  return res.data.data;
+};
+
+export const retryChitLifecycleSync = async (id) => {
+  const res = await api.post(`/chits/${id}/lifecycle-sync/retry`);
+  return res.data.data;
+};
+
 export const updateChitDetails = async ({ id, ...body }) => {
   const res = await api.patch(`/chits/${id}/details`, body);
   return res.data.data;
@@ -844,10 +870,6 @@ export const deleteDraw = async (drawId) => {
   await api.delete(`/admin/draws/${drawId}`);
 };
 
-export const deleteWinnerForDraw = async ({ chitId, monthNumber }) => {
-  await api.delete(`/chits/${chitId}/winners/draw/${monthNumber}`);
-};
-
 export const skipDraw = async (body) => {
   const res = await api.post('/admin/draws/skip', body);
   return res.data.data;
@@ -934,17 +956,6 @@ export const voidPaymentBatch = async ({ batchId, reason }) => {
 export const remitPayment = async (batchId) => {
   const res = await api.post(`/payments/${batchId}/remit`);
   return res.data.data;
-};
-
-// Marks a payment record as PAYOUT_DEDUCTED — installment withheld from winner's payout.
-// No batch, no treasury movement. amountPaid set to amountDue so draw card shows paid.
-export const markPayoutDeducted = async ({ chitId, memberId, monthNumber, payoutId }) => {
-  await api.post('/payments/mark-payout-deducted', { chitId, memberId, monthNumber, payoutId });
-};
-
-// Reverts all PAYOUT_DEDUCTED records linked to a payout back to OUTSTANDING.
-export const revertPayoutDeductions = async (payoutId) => {
-  await api.post(`/payments/revert-payout-deductions/${payoutId}`);
 };
 
 // ─── Cash payment requests ─────────────────────────────────────────────────
@@ -1105,14 +1116,30 @@ export const getTodaysChitActivity = async () => {
 };
 
 // ─── Payouts (payout-service, strip /api) ─────────────────────────────────
-export const createPayout = async (body) => {
-  const res = await api.post('/payouts', body);
+export const createPayout = async ({ idempotencyKey, ...body }) => {
+  const res = await api.post('/payouts', body, {
+    headers: { 'X-Idempotency-Key': idempotencyKey },
+  });
   return res.data.data;
 };
 
 export const getPayoutById = async (payoutId) => {
   const res = await api.get(`/payouts/${payoutId}`);
   return res.data.data;
+};
+
+export const getPayoutFinancialSync = async (payoutId) => {
+  const res = await api.get(`/payouts/${payoutId}/financial-sync`);
+  return res.data.data;
+};
+
+export const waitForPayoutFinancialSync = async (payoutId, attempts = 30) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const state = await getPayoutFinancialSync(payoutId);
+    if (state?.status === 'SYNCED') return state;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error('Payout was updated, but its financial reversal is still syncing. Please try again shortly.');
 };
 
 export const getPayoutsByChit = async (chitId) => {
@@ -1130,8 +1157,10 @@ export const getPendingPayouts = async () => {
   return res.data.data ?? [];
 };
 
-export const disbursePayout = async ({ id, ...body }) => {
-  const res = await api.post(`/payouts/${id}/disburse`, body);
+export const disbursePayout = async ({ id, idempotencyKey, ...body }) => {
+  const res = await api.post(`/payouts/${id}/disburse`, body, {
+    headers: { 'X-Idempotency-Key': idempotencyKey },
+  });
   return res.data.data;
 };
 
@@ -1186,16 +1215,43 @@ export const getChitAuditLogs = async (chitId, page = 0, size = 100) => {
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
+// Organization-wide activity for dashboard and audit views. The audit service
+// scopes this request to the authenticated tenant and orders by the business
+// occurrence time, so offline-synced actions retain their original chronology.
+export const searchAuditLogs = async ({ from, to, entityType, outcome, source, q,
+  recordedBefore, page = 0, size = 50 } = {}) => {
+  const res = await api.get('/audit/logs', {
+    params: {
+      from: from ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      ...(to ? { to } : {}),
+      ...(recordedBefore ? { recordedBefore } : {}),
+      ...(entityType && entityType !== 'ALL' ? { entityType } : {}),
+      ...(outcome && outcome !== 'ALL' ? { outcome } : {}),
+      ...(source && source !== 'ALL' ? { source } : {}),
+      ...(q?.trim() ? { q: q.trim() } : {}),
+      page, size,
+      sort: 'occurredAt,desc',
+    },
+  });
+  const data = res.data.data;
+  if (Array.isArray(data)) {
+    return { content: data, number: page, totalPages: data.length < size ? page + 1 : page + 2,
+      totalElements: data.length, first: page === 0, last: data.length < size };
+  }
+  return data ?? { content: [], number: page, totalPages: 0, totalElements: 0, first: true, last: true };
+};
+
+export const getRecentAuditLogs = async (params = {}) => {
+  const page = await searchAuditLogs(params);
+  return page.content ?? [];
+};
+
 // Member profile change history from audit log
 export const getMemberAuditHistory = async (memberId) => {
-  try {
-    const res = await api.get('/audit/logs', {
-      params: { entityType: 'MEMBER', entityId: memberId, size: 30, sort: 'createdAt,desc' },
-    });
-    return res.data.data?.content ?? res.data.data ?? [];
-  } catch {
-    return [];
-  }
+  const res = await api.get('/audit/logs', {
+    params: { entityType: 'MEMBER', entityId: memberId, size: 30, sort: 'occurredAt,desc' },
+  });
+  return res.data.data?.content ?? res.data.data ?? [];
 };
 
 export const markNotificationRead = async (id) => {
@@ -1207,13 +1263,13 @@ export const markAllNotificationsRead = async () => {
   await api.patch('/notifications/read-all');
 };
 
-export const sendPaymentReminder = async (userId) => {
-  const res = await api.post(`/notifications/reminder/${userId}`);
+export const sendPaymentReminder = async (memberId) => {
+  const res = await api.post(`/notifications/reminder/${memberId}`);
   return res.data.data;
 };
 
-export const sendWhatsAppReminder = async ({ userId, phone, memberName, outstandingAmount, chitName }) => {
-  const res = await api.post(`/notifications/whatsapp/${userId}`, { phone, memberName, outstandingAmount, chitName });
+export const sendWhatsAppReminder = async (memberId) => {
+  const res = await api.post(`/notifications/whatsapp/${memberId}`);
   return res.data;
 };
 
@@ -1281,8 +1337,8 @@ export const getMemberPaymentHistoryByChit = async (memberId, chitId) => {
 };
 
 // ─── Payment Intimations (payment-service) ────────────────────────────────
-export const createPaymentIntimation = async (items, notes) => {
-  const res = await api.post('/payments/intimations', { items, notes });
+export const createPaymentIntimation = async (items, paymentMode, paymentReference, notes) => {
+  const res = await api.post('/payments/intimations', { items, paymentMode, paymentReference, notes });
   return res.data.data;
 };
 export const withdrawPaymentIntimation = async (id) => {
@@ -1312,6 +1368,10 @@ export const rejectIntimation = async (id, reason) => {
 export const voidIntimation = async (id, reason) => {
   const res = await api.post(`/payments/intimations/${id}/void`, { reason });
   return res.data.data;
+};
+export const getIntimationHistory = async (id) => {
+  const res = await api.get(`/payments/intimations/${id}/history`);
+  return res.data.data ?? [];
 };
 
 // ─── Admin Wallet / Treasury (payment-service) ────────────────────────────
@@ -1456,15 +1516,13 @@ export const superAdminListReferralCredits = async (status) => {
   return res.data.data ?? [];
 };
 
-export const superAdminAddTenantCredit = async (tenantId, amountInr, notes) => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminAddTenantCredit = (tenantId, amountInr, notes) =>
+  postBillingIdempotently(`credit:add:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
 
-export const superAdminDeductTenantCredit = async (tenantId, amountInr, notes) => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminDeductTenantCredit = (tenantId, amountInr, notes) =>
+  postBillingIdempotently(`credit:deduct:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
 
 export const getMyBillingInfo = async () => {
   const res = await api.get('/users/me/billing-info');
@@ -1478,20 +1536,39 @@ export const billingUpgradePreview = async (tenantId, newPlan) => {
   return res.data.data;
 };
 
-export const billingRecordPayment = async (payload) => {
-  const res = await api.post('/super-admin/billing/payments', payload);
-  return res.data.data;
-};
+const pendingBillingKeys = new Map();
 
-export const billingRecordUpgrade = async (payload) => {
-  const res = await api.post('/super-admin/billing/payments/upgrade', payload);
-  return res.data.data;
-};
+function billingRequestKey(kind, payload) {
+  const signature = `${kind}:${JSON.stringify(payload, Object.keys(payload).sort())}`;
+  let key = pendingBillingKeys.get(signature);
+  if (!key) {
+    key = globalThis.crypto?.randomUUID?.()
+      ?? `billing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    pendingBillingKeys.set(signature, key);
+  }
+  return { signature, key };
+}
 
-export const billingRecordRefund = async (paymentId, payload) => {
-  const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);
+async function postBillingIdempotently(kind, url, payload) {
+  const cleanPayload = { ...payload };
+  delete cleanPayload.idempotencyKey;
+  const { signature, key } = payload.idempotencyKey
+    ? { signature: null, key: payload.idempotencyKey }
+    : billingRequestKey(kind, cleanPayload);
+  const res = await api.post(url, { ...cleanPayload, idempotencyKey: key });
+  if (signature) pendingBillingKeys.delete(signature);
   return res.data.data;
-};
+}
+
+export const billingRecordPayment = (payload) =>
+  postBillingIdempotently('payment', '/super-admin/billing/payments', payload);
+
+export const billingRecordUpgrade = (payload) =>
+  postBillingIdempotently('upgrade', '/super-admin/billing/payments/upgrade', payload);
+
+export const billingRecordRefund = (paymentId, payload) =>
+  postBillingIdempotently(`refund:${paymentId}`,
+    `/super-admin/billing/payments/${paymentId}/refund`, payload);
 
 export const billingListPayments = async ({ tenantId, page = 0, size = 20 } = {}) => {
   const params = { page, size, ...(tenantId ? { tenantId } : {}) };
@@ -1789,6 +1866,7 @@ export const clearHubToken = () => { _hubToken = null; };
 export const getHubToken = () => _hubToken;
 
 hubApi.interceptors.request.use((config) => {
+  config.headers['X-Client-Source'] = 'WEB';
   if (_hubToken) config.headers.Authorization = `Bearer ${_hubToken}`;
   return config;
 });
@@ -1940,28 +2018,28 @@ export const hubResendEmployeeInvite = async (id) => {
   return res.data.data;
 };
 
-export const hubResetEmployeePassword = async (id, temporaryPassword) => {
-  const res = await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword });
+export const hubResetEmployeePassword = async (id, temporaryPassword, reason) => {
+  const res = await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword, reason });
   return res.data.data;
 };
 
-export const hubChangeRole = async (id, role) => {
-  const res = await hubApi.patch(`/hub/employees/${id}/role`, { role });
+export const hubChangeRole = async (id, role, reason) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/role`, { role, reason });
   return res.data.data ?? res.data;
 };
 
-export const hubDeactivateEmployee = async (id) => {
-  const res = await hubApi.patch(`/hub/employees/${id}/deactivate`);
+export const hubDeactivateEmployee = async (id, reason) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/deactivate`, { reason });
   return res.data.data ?? res.data;
 };
 
-export const hubReactivateEmployee = async (id) => {
-  const res = await hubApi.patch(`/hub/employees/${id}/reactivate`);
+export const hubReactivateEmployee = async (id, reason) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/reactivate`, { reason });
   return res.data.data ?? res.data;
 };
 
-export const hubAssignTicket = async (ticketId, assigneeId) => {
-  const res = await hubApi.patch(`/hub/tickets/${ticketId}/assign`, { assigneeId });
+export const hubAssignTicket = async (ticketId, assigneeId, note) => {
+  const res = await hubApi.patch(`/hub/tickets/${ticketId}/assign`, { assigneeId, note });
   return res.data.data ?? res.data;
 };
 
@@ -1977,8 +2055,8 @@ export const hubRejectIdentityCase = async (caseId, reason) =>
   (await hubApi.put(`/hub/identity-cases/${caseId}/reject`, { reason })).data.data;
 export const hubExecuteIdentityCase = async (caseId) =>
   (await hubApi.post(`/hub/identity-cases/${caseId}/execute`)).data.data;
-export const hubUpdateIdentityPermissions = async (employeeId, canManageIdentityCases) =>
-  (await hubApi.patch(`/hub/employees/${employeeId}/identity-permissions`, { canManageIdentityCases })).data.data;
+export const hubUpdateIdentityPermissions = async (employeeId, canManageIdentityCases, reason) =>
+  (await hubApi.patch(`/hub/employees/${employeeId}/identity-permissions`, { canManageIdentityCases, reason })).data.data;
 
 // ─── Hub internal DMs ──────────────────────────────────────────────────────
 export const hubStartDm = async (otherEmployeeId) => {
@@ -2091,9 +2169,9 @@ export const hubUpdateMe = (data) => hubApi.patch('/hub/auth/me', data).then(r =
 export const hubListRoles = () => hubApi.get('/hub/roles').then(r => r.data?.data ?? r.data);
 export const hubCreateRole = (data) => hubApi.post('/hub/roles', data).then(r => r.data?.data ?? r.data);
 export const hubUpdateRole = (id, data) => hubApi.put(`/hub/roles/${id}`, data).then(r => r.data?.data ?? r.data);
-export const hubDeleteRole = (id) => hubApi.delete(`/hub/roles/${id}`).then(r => r.data);
-export const hubAssignCustomRole = (employeeId, customRoleId) =>
-  hubApi.patch(`/hub/employees/${employeeId}/custom-role`, { customRoleId }).then(r => r.data?.data ?? r.data);
+export const hubDeleteRole = (id, reason) => hubApi.delete(`/hub/roles/${id}`, { data: { reason } }).then(r => r.data);
+export const hubAssignCustomRole = (employeeId, customRoleId, reason) =>
+  hubApi.patch(`/hub/employees/${employeeId}/custom-role`, { customRoleId, reason }).then(r => r.data?.data ?? r.data);
 
 export const hubCreateTicket = (data) => hubApi.post('/hub/tickets', data).then(r => r.data?.data ?? r.data);
 export const hubListTenants = (q) => hubApi.get('/hub/tenants', { params: q ? { q } : {} }).then(r => r.data?.data ?? r.data);

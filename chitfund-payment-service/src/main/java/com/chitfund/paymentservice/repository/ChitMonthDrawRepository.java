@@ -3,6 +3,8 @@ package com.chitfund.paymentservice.repository;
 import com.chitfund.paymentservice.domain.ChitMonthDraw;
 import com.chitfund.paymentservice.domain.enums.DrawStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,9 +17,24 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
 
     boolean existsByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
+    boolean existsByTenantIdAndChitIdAndMonthNumber(String tenantId, UUID chitId, int monthNumber);
+
     long countByChitIdAndStatusNot(UUID chitId, DrawStatus status);
 
+    long countByTenantIdAndChitIdAndStatusNot(String tenantId, UUID chitId, DrawStatus status);
+
     Optional<ChitMonthDraw> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
+
+    Optional<ChitMonthDraw> findByTenantIdAndChitIdAndMonthNumber(
+            String tenantId, UUID chitId, int monthNumber);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT d FROM ChitMonthDraw d WHERE d.tenantId = :tenantId " +
+            "AND d.chitId = :chitId AND d.monthNumber = :monthNumber")
+    Optional<ChitMonthDraw> findAuctionDrawForUpdate(
+            @Param("tenantId") String tenantId,
+            @Param("chitId") UUID chitId,
+            @Param("monthNumber") int monthNumber);
 
     List<ChitMonthDraw> findByStatusOrderByDueDateAsc(DrawStatus status);
 
@@ -25,14 +42,30 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
 
     Optional<ChitMonthDraw> findByIdAndTenantId(UUID id, String tenantId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT d FROM ChitMonthDraw d WHERE d.id = :id AND d.tenantId = :tenantId")
+    Optional<ChitMonthDraw> findByIdAndTenantIdForUpdate(
+            @Param("id") UUID id, @Param("tenantId") String tenantId);
+
     List<ChitMonthDraw> findByTenantIdAndStatusInOrderByDueDateAsc(String tenantId, List<DrawStatus> statuses);
 
     List<ChitMonthDraw> findByChitIdAndStatus(UUID chitId, DrawStatus status);
 
+    List<ChitMonthDraw> findByTenantIdAndChitIdAndStatus(
+            String tenantId, UUID chitId, DrawStatus status);
+
     List<ChitMonthDraw> findByChitIdOrderByMonthNumberAsc(UUID chitId);
+
+    List<ChitMonthDraw> findByTenantIdAndChitIdOrderByMonthNumberAsc(String tenantId, UUID chitId);
 
     @Query("SELECT c.chitId, MAX(c.monthNumber) FROM ChitMonthDraw c WHERE c.chitId IN :chitIds GROUP BY c.chitId")
     List<Object[]> findMaxMonthNumberByChitIds(@Param("chitIds") List<UUID> chitIds);
+
+    @Query("SELECT c.chitId, MAX(c.monthNumber) FROM ChitMonthDraw c " +
+            "WHERE c.tenantId = :tenantId AND c.chitId IN :chitIds GROUP BY c.chitId")
+    List<Object[]> findMaxMonthNumberByTenantAndChitIds(
+            @Param("tenantId") String tenantId,
+            @Param("chitIds") List<UUID> chitIds);
 
     // Today's draws: opened, closed, or created today — scoped to tenant
     @Query("SELECT d FROM ChitMonthDraw d WHERE d.tenantId = :tenantId AND " +

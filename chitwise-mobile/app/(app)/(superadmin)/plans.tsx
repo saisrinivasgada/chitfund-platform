@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { superAdminListPlans, superAdminCreatePlan, superAdminUpdatePlan2, superAdminListCapabilities, superAdminAddCapability, superAdminDeleteCapability } from '../../../services/api';
 import { C } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
+import ReasonModal from '../../../components/superadmin/ReasonModal';
 
 function fmtPaise(p: number | null | undefined) {
   if (!p) return '₹0';
@@ -37,8 +38,9 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const [newCapLabel, setNewCapLabel] = useState('');
   const [showAddCap, setShowAddCap] = useState(false);
   const [addingCap, setAddingCap] = useState(false);
+  const [changeReason, setChangeReason] = useState('');
 
-  const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
+  const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support', 'live_chat', 'settlement']);
 
   const qc = useQueryClient();
   const { data: capDefsQuery = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
@@ -63,7 +65,6 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
     try {
       const created = await superAdminAddCapability(label);
       qc.setQueryData(['super-capabilities'], (prev: any[] = []) => [...prev, created]);
-      toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
     } catch (e: any) {
@@ -87,7 +88,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
         isActive,
       };
       return isEdit
-        ? superAdminUpdatePlan2(plan.plan, body)
+        ? superAdminUpdatePlan2(plan.plan, body, changeReason.trim())
         : superAdminCreatePlan({ ...body, plan: code.toUpperCase() });
     },
     onSuccess: () => {
@@ -204,9 +205,18 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
             <View key={cap.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
               <View>
                 <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
-                {ENFORCED_KEYS.has(cap.key) && <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>}
+                {(cap.enforced ?? ENFORCED_KEYS.has(cap.key))
+                  ? <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>
+                  : <Text style={{ fontSize: 11, color: C.amber }}>
+                      {enabledCapabilities.includes(cap.key) ? 'not enforced · remove before saving' : 'planned · not assignable yet'}
+                    </Text>}
               </View>
-              <Switch value={enabledCapabilities.includes(cap.key)} onValueChange={v => toggleCapability(cap.label, v, cap.key)} trackColor={{ true: C.navy }} />
+              <Switch
+                value={enabledCapabilities.includes(cap.key)}
+                disabled={cap.enforced === false && !enabledCapabilities.includes(cap.key)}
+                onValueChange={v => toggleCapability(cap.label, v, cap.key)}
+                trackColor={{ true: C.navy }}
+              />
             </View>
           ))}
 
@@ -214,11 +224,24 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
             <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>Active (visible to orgs)</Text>
             <Switch value={isActive} onValueChange={setIsActive} trackColor={{ true: '#16A34A' }} />
           </View>
+
+          {isEdit && (
+            <View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Reason for change *</Text>
+              <TextInput value={changeReason} onChangeText={setChangeReason} multiline numberOfLines={3}
+                placeholder="Explain why limits, pricing or capabilities are changing"
+                style={{ minHeight: 84, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, textAlignVertical: 'top' }} />
+            </View>
+          )}
         </ScrollView>
 
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
           <TouchableOpacity
             onPress={() => {
+              if (isEdit && changeReason.trim().length < 5) {
+                Alert.alert('Reason required', 'Enter a reason of at least 5 characters.');
+                return;
+              }
               if (isLive) {
                 Alert.alert(
                   'This plan is live',
@@ -251,6 +274,8 @@ export default function PlansScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [creating, setCreating] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ kind: 'LIVE' | 'OFFLINE' | 'DEACTIVATE'; plan: any } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const qcMain = useQueryClient();
 
@@ -267,42 +292,39 @@ export default function PlansScreen() {
   }
 
   async function handleMakeLive(plan: any) {
+    setPendingAction({ kind: 'LIVE', plan });
+  }
+
+  async function executePlanAction(reason: string) {
+    if (!pendingAction) return;
+    const { kind, plan } = pendingAction;
+    setActionBusy(true);
     try {
-      await superAdminUpdatePlan2(plan.plan, { isPublic: true, isActive: true });
-      toast.saved(`${plan.displayName} is now live`);
+      if (kind === 'LIVE') {
+        await superAdminUpdatePlan2(plan.plan, { isPublic: true, isActive: true }, reason);
+        toast.saved(`${plan.displayName} is now live`);
+      } else if (kind === 'OFFLINE') {
+        await superAdminUpdatePlan2(plan.plan, { isPublic: false }, reason);
+        toast.saved(`${plan.displayName} taken offline`);
+      } else {
+        await superAdminUpdatePlan2(plan.plan, { isActive: false }, reason);
+        toast.saved('Plan deactivated');
+      }
       qcMain.invalidateQueries({ queryKey: ['sa-plans'] });
     } catch (e: any) {
-      toast.cancelled(e.response?.data?.message ?? 'Failed to publish');
+      toast.cancelled(e.response?.data?.message ?? 'Failed to update plan');
+    } finally {
+      setActionBusy(false);
+      setPendingAction(null);
     }
   }
 
   async function handleTakeOffline(plan: any) {
-    try {
-      await superAdminUpdatePlan2(plan.plan, { isPublic: false });
-      toast.saved(`${plan.displayName} taken offline`);
-      qcMain.invalidateQueries({ queryKey: ['sa-plans'] });
-    } catch (e: any) {
-      toast.cancelled(e.response?.data?.message ?? 'Failed to update');
-    }
+    setPendingAction({ kind: 'OFFLINE', plan });
   }
 
   async function handleDeactivate(plan: any) {
-    Alert.alert(
-      'Deactivate Plan',
-      `Deactivate "${plan.displayName}"? Existing orgs keep it but it won't appear anywhere.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Deactivate', style: 'destructive', onPress: async () => {
-          try {
-            await superAdminUpdatePlan2(plan.plan, { isActive: false });
-            toast.saved('Plan deactivated');
-            qcMain.invalidateQueries({ queryKey: ['sa-plans'] });
-          } catch (e: any) {
-            toast.cancelled('Failed to deactivate');
-          }
-        }},
-      ]
-    );
+    setPendingAction({ kind: 'DEACTIVATE', plan });
   }
 
   return (
@@ -450,6 +472,16 @@ export default function PlansScreen() {
         plan={editing}
         onClose={() => setEditing(null)}
         onDone={() => { setEditing(null); qc.invalidateQueries({ queryKey: ['sa-plans'] }); }}
+      />
+      <ReasonModal
+        visible={!!pendingAction}
+        title={pendingAction?.kind === 'LIVE' ? 'Make plan live' : pendingAction?.kind === 'OFFLINE' ? 'Take plan offline' : 'Deactivate plan'}
+        message={pendingAction ? `This changes access for ${pendingAction.plan.displayName}. The reason will be stored in the audit trail.` : undefined}
+        confirmLabel={pendingAction?.kind === 'LIVE' ? 'Make Live' : pendingAction?.kind === 'OFFLINE' ? 'Take Offline' : 'Deactivate'}
+        destructive={pendingAction?.kind !== 'LIVE'}
+        busy={actionBusy}
+        onCancel={() => !actionBusy && setPendingAction(null)}
+        onConfirm={executePlanAction}
       />
     </SafeAreaView>
   );

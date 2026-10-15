@@ -33,7 +33,7 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .requestMatchers("/internal/**").permitAll()
                 // WebSocket handshake — no auth at transport level; no sensitive data flows over WS
                 .requestMatchers("/ws/**").permitAll()

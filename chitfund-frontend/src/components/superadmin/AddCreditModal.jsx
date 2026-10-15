@@ -11,6 +11,7 @@ export default function AddCreditModal({ tenant, onClose, onSuccess }) {
     e.preventDefault();
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { setError('Enter a positive amount'); return; }
+    if (!notes.trim()) { setError('A reason is required for every credit adjustment'); return; }
     setSaving(true);
     try {
       await superAdminAddTenantCredit(tenant.id, amt, notes.trim() || undefined);
@@ -42,9 +43,9 @@ export default function AddCreditModal({ tenant, onClose, onSuccess }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
             <input
-              type="text" value={notes} onChange={e => setNotes(e.target.value)}
+              type="text" required value={notes} onChange={e => { setNotes(e.target.value); setError(''); }}
               placeholder="Reason for credit"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />

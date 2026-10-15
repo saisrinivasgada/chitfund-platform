@@ -23,4 +23,6 @@ public interface EmployeeRepository extends JpaRepository<Employee, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM Employee e WHERE e.role = 'SUPER_ADMIN' AND e.active = true")
     List<Employee> findActiveSuperAdminsForUpdate();
+
+    List<Employee> findByCustomRoleId(String customRoleId);
 }

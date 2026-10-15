@@ -29,10 +29,14 @@ public class UserServiceClient {
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
 
-    public List<String> getUserIdsByRole(String role) {
+    public List<String> getUserIdsByRole(String tenantId, String role) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId is required for role lookup");
+        }
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", tenantId);
 
             ResponseEntity<List<String>> resp = restTemplate.exchange(
                     userServiceUrl + "/internal/users/ids-by-role?role=" + role,

@@ -8,6 +8,7 @@ import com.chitfund.payoutservice.dto.request.CancelPayoutRequest;
 import com.chitfund.payoutservice.dto.request.CreatePayoutRequest;
 import com.chitfund.payoutservice.dto.request.DisburseRequest;
 import com.chitfund.payoutservice.dto.response.PayoutResponse;
+import com.chitfund.payoutservice.dto.response.PayoutFinancialSyncResponse;
 import com.chitfund.payoutservice.service.PayoutService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,12 +38,14 @@ public class PayoutController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PayoutResponse>> createPayout(
             @Valid @RequestBody CreatePayoutRequest request,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         String role = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(payoutService.createPayout(request, adminId, role)));
+                .body(ApiResponse.success(
+                        payoutService.createPayout(request, adminId, role, idempotencyKey)));
     }
 
     /**
@@ -70,6 +73,21 @@ public class PayoutController {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
         }
         return ResponseEntity.ok(ApiResponse.success(payout));
+    }
+
+    @GetMapping("/{id}/financial-sync")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<PayoutFinancialSyncResponse>> getFinancialSync(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(payoutService.getFinancialSync(id)));
+    }
+
+    @PostMapping("/{id}/financial-sync/retry")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PayoutFinancialSyncResponse>> retryFinancialSync(
+            @PathVariable UUID id, Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.success(
+                payoutService.retryFinancialSync(id, (UUID) auth.getPrincipal())));
     }
 
     /**
@@ -109,9 +127,11 @@ public class PayoutController {
     public ResponseEntity<ApiResponse<PayoutResponse>> disburse(
             @PathVariable UUID id,
             @Valid @RequestBody DisburseRequest request,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(payoutService.disburse(id, request, adminId)));
+        return ResponseEntity.ok(ApiResponse.success(
+                payoutService.disburse(id, request, adminId, idempotencyKey)));
     }
 
     /** All payouts across all chits, with optional date range and chit filter — for reports. */

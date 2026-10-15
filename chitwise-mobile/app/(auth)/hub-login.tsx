@@ -29,6 +29,7 @@ export default function HubLoginScreen() {
         mustChangePassword: data.mustChangePassword,
         canManageIdentityCases: data.canManageIdentityCases,
         platformOwner: data.platformOwner,
+        customPermissions: data.customPermissions ?? [],
       });
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Invalid Hub credentials');

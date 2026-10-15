@@ -942,7 +942,7 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
 // ─── Profile change history (admin-only) ─────────────────────────────────────
 function ProfileHistorySection({ memberId, flat = false }) {
   const [open, setOpen] = useState(false);
-  const { data: logs = [], isLoading } = useQuery({
+  const { data: logs = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['memberAuditHistory', memberId],
     queryFn: () => getMemberAuditHistory(memberId),
     enabled: (flat || open) && !!memberId,
@@ -957,6 +957,15 @@ function ProfileHistorySection({ memberId, flat = false }) {
 
   const content = isLoading ? (
     <p className="text-sm text-gray-400 text-center py-4">Loading history…</p>
+  ) : isError ? (
+    <div className="text-center py-5">
+      <p className="text-sm font-medium text-red-700">Profile history could not be loaded</p>
+      <p className="text-xs text-red-500 mt-1">This does not mean that no changes were recorded.</p>
+      <button type="button" onClick={() => refetch()}
+        className="mt-3 px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-200 text-red-700 hover:bg-red-50 cursor-pointer">
+        Try again
+      </button>
+    </div>
   ) : logs.length === 0 ? (
     <p className="text-sm text-gray-400 text-center py-6">No profile changes recorded yet</p>
   ) : (
@@ -986,8 +995,8 @@ function ProfileHistorySection({ memberId, flat = false }) {
               )}
               {log.reason && <p className="text-xs text-gray-400 italic mt-1">"{log.reason}"</p>}
               <p className="text-xs text-gray-400 mt-1">
-                {log.createdAt
-                  ? new Date(log.createdAt).toLocaleString('en-IN', {
+                {(log.occurredAt ?? log.createdAt)
+                  ? new Date(log.occurredAt ?? log.createdAt).toLocaleString('en-IN', {
                       day: '2-digit', month: 'short', year: 'numeric',
                       hour: '2-digit', minute: '2-digit', hour12: true,
                     })
@@ -2330,7 +2339,7 @@ function AuditEvent({ icon, label, ts, empty }) {
 export default function MemberDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, settlementEnabled } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
   const isManager = currentUser?.role === 'MANAGER';
   const { hidden } = useHiddenAmounts();
@@ -2376,19 +2385,13 @@ export default function MemberDetailPage() {
   });
 
   const reminderMutation = useMutation({
-    mutationFn: () => sendPaymentReminder(member.userId),
+    mutationFn: () => sendPaymentReminder(member.id),
     onSuccess: () => toast.success('Payment reminder sent.'),
     onError: () => toast.error('Could not send reminder.'),
   });
 
   const whatsappMutation = useMutation({
-    mutationFn: () => sendWhatsAppReminder({
-      userId: member.userId,
-      phone: member.phone,
-      memberName: member.fullName ?? member.name,
-      outstandingAmount: totalOutstanding > 0 ? (hidden ? '••••••' : `₹${Number(totalOutstanding).toLocaleString('en-IN')}`) : '',
-      chitName: '',
-    }),
+    mutationFn: () => sendWhatsAppReminder(member.id),
     onSuccess: (res) => toast.success(res?.message ?? 'WhatsApp reminder sent.'),
     onError: () => toast.error('Could not send WhatsApp message.'),
   });
@@ -2820,8 +2823,8 @@ export default function MemberDetailPage() {
       {/* ── Tab: Payments ─────────────────────────────────────────────── */}
       {activeTab === 'Payments' && (
         <div className="space-y-6 pt-2">
-          <PendingSettlementCard memberId={id} />
-          <SettlementHistorySection memberId={id} />
+          {settlementEnabled && <PendingSettlementCard memberId={id} />}
+          {settlementEnabled && <SettlementHistorySection memberId={id} />}
           <PaymentHistorySection memberId={id} />
         </div>
       )}

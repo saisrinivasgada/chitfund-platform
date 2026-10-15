@@ -415,9 +415,19 @@ export default function SuperAdminTenantsPage() {
       return;
     }
     if (action === 'proxy') {
+      const reason = window.prompt(
+        `Why do you need to proxy as ${extra} for this organization?\nThis action is audited.`
+      );
+      if (!reason?.trim()) return;
+      if (reason.trim().length < 5) {
+        showToast('Please enter a clear reason of at least 5 characters');
+        return;
+      }
       try {
         const t = tenants.find(x => x.id === tenantId);
-        const { token, tenantSlug } = await superAdminProxyAs(tenantId, extra);
+        const { token, tenantSlug } = await superAdminProxyAs(
+          tenantId, extra, undefined, reason.trim()
+        );
         // Open proxy session in a new tab — pass tenant metadata from loaded state
         let url = `${window.location.origin}/proxy?token=${encodeURIComponent(token)}&role=${extra}&slug=${tenantSlug}`;
         if (t?.name) url += `&tenantName=${encodeURIComponent(t.name)}`;
@@ -441,7 +451,14 @@ export default function SuperAdminTenantsPage() {
         return;
       }
       if (action === 'suspend')   await superAdminSuspendTenant(tenantId);
-      if (action === 'plan')      await superAdminUpdatePlan(tenantId, extra);
+      if (action === 'plan') {
+        const reason = window.prompt(`Why is this organization being moved to ${extra}? (minimum 5 characters)`);
+        if (!reason || reason.trim().length < 5) {
+          showToast('A reason of at least 5 characters is required');
+          return;
+        }
+        await superAdminUpdatePlan(tenantId, extra, reason.trim());
+      }
       if (action === 'cancel')    await superAdminCancelTenant(tenantId);
       if (action === 'resume')    await superAdminResumeTenant(tenantId);
       showToast(

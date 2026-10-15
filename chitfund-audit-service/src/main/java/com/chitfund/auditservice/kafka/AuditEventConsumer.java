@@ -15,7 +15,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -45,19 +47,38 @@ public class AuditEventConsumer {
                             event.chitId(), event.action(),
                             event.actorId(), event.actorRole(), event.actorIp(),
                             event.beforeState(), event.afterState(),
-                            event.metadata(), event.tenantId()
+                            event.metadata(), event.tenantId(), envelope.eventId(),
+                            event.correlationId(), event.idempotencyKey(), event.source(),
+                            event.outcome(), event.reason(), event.effectiveActorId(),
+                            event.effectiveActorRole(), event.deviceSessionHash(),
+                            event.occurredAt(), event.originalOfflineAt(), event.synchronizedAt()
                     ));
                 }
                 case SqsQueues.EVT_PAYMENT_COMPLETED -> {
                     PaymentCompletedEvent event = objectMapper.readValue(envelope.payload(), PaymentCompletedEvent.class);
+                    Map<String, Object> after = new LinkedHashMap<>();
+                    after.put("memberId", event.memberId());
+                    after.put("amount", event.amount());
+                    after.put("mode", event.paymentMode());
+                    after.put("totalDue", event.totalDue());
+                    after.put("totalPaid", event.totalPaid());
+                    after.put("totalOutstanding", event.totalOutstanding());
+                    String source = event.source() == null || event.source().isBlank()
+                            ? "UNKNOWN" : event.source();
                     auditService.record(new AuditLogRequest(
                             "payment-service", "PAYMENT_BATCH", event.batchId(),
                             event.chitId(), "PAYMENT_COMPLETED",
-                            event.completedByUserId(), null, null,
-                            null, null, null, event.tenantId()
+                            event.completedByUserId(), "ADMIN", null,
+                            null, objectMapper.writeValueAsString(after), null,
+                            event.tenantId(), envelope.eventId(),
+                            envelope.eventId(), event.idempotencyKey(), source, "SUCCESS", null,
+                            null, null, null, event.occurredAt(),
+                            "OFFLINE_SYNC".equals(source) ? event.occurredAt() : null,
+                            event.synchronizedAt()
                     ));
                 }
-                default -> log.warn("Unhandled audit event type: {}", envelope.eventType());
+                default -> throw new IllegalArgumentException(
+                        "Unhandled audit event type: " + envelope.eventType());
             }
         } catch (Exception e) {
             log.error("Failed to process audit event: {}", e.getMessage(), e);

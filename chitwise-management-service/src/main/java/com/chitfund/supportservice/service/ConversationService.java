@@ -1,5 +1,6 @@
 package com.chitfund.supportservice.service;
 
+import com.chitfund.supportservice.client.AuditClient;
 import com.chitfund.supportservice.domain.entity.Conversation;
 import com.chitfund.supportservice.domain.entity.ConversationMessage;
 import com.chitfund.supportservice.dto.request.SendChatMessageRequest;
@@ -32,6 +33,7 @@ public class ConversationService {
     private final ConversationRepository conversationRepo;
     private final ConversationMessageRepository messageRepo;
     private final ConversationWebSocketController wsController;
+    private final AuditClient auditClient;
 
     @Value("${app.message-delete-window-seconds:300}")
     private long deleteWindowSeconds;
@@ -58,7 +60,12 @@ public class ConversationService {
                             .memberId(req.getMemberId())
                             .memberName(req.getMemberName())
                             .build();
-                    return conversationRepo.save(c);
+                    Conversation saved = conversationRepo.save(c);
+                    auditClient.logEntity("CONVERSATION", saved.getId(), "CREATED",
+                            userId, "ORG_USER", null,
+                            java.util.Map.of("memberId", saved.getMemberId()), null,
+                            tenantId, null);
+                    return saved;
                 });
         return toResponse(conv, false);
     }
@@ -72,12 +79,19 @@ public class ConversationService {
                                                                String memberName) {
         Conversation conv = conversationRepo
                 .findByTenantIdAndMemberId(tenantId, memberId)
-                .orElseGet(() -> conversationRepo.save(Conversation.builder()
-                        .id(UUID.randomUUID().toString())
-                        .tenantId(tenantId)
-                        .memberId(memberId)
-                        .memberName(memberName)
-                        .build()));
+                .orElseGet(() -> {
+                    Conversation saved = conversationRepo.save(Conversation.builder()
+                            .id(UUID.randomUUID().toString())
+                            .tenantId(tenantId)
+                            .memberId(memberId)
+                            .memberName(memberName)
+                            .build());
+                    auditClient.logEntity("CONVERSATION", saved.getId(), "CREATED",
+                            memberId, "MEMBER", null,
+                            java.util.Map.of("memberId", memberId), null,
+                            tenantId, null);
+                    return saved;
+                });
         return toResponse(conv, true);
     }
 
@@ -85,7 +99,8 @@ public class ConversationService {
     @Transactional(readOnly = true)
     @Cacheable(value = "convList", key = "#tenantId")
     public PagedResponse<ConversationResponse> listConversations(String tenantId, int page, int size) {
-        size = Math.min(size, 50);
+        page = Math.max(page, 0);
+        size = Math.min(Math.max(size, 1), 50);
         List<Conversation> convs = conversationRepo.findByTenantIdOrderByLastMessageAtDesc(
                 tenantId, PageRequest.of(page, size));
         return PagedResponse.<ConversationResponse>builder()
@@ -115,10 +130,11 @@ public class ConversationService {
                                                            String userId, boolean isMember,
                                                            String cursor, int limit) {
         Conversation conv = findConvSecure(conversationId, tenantId, userId, isMember);
-        limit = Math.min(limit, 50);
+        limit = Math.min(Math.max(limit, 1), 50);
+        Instant before = parseCursor(cursor);
 
-        List<ConversationMessage> msgs = cursor != null
-                ? messageRepo.findBeforeCursor(conv.getId(), Instant.parse(cursor),
+        List<ConversationMessage> msgs = before != null
+                ? messageRepo.findBeforeCursor(conv.getId(), before,
                         PageRequest.of(0, limit))
                 : messageRepo.findByConversationIdOrderByCreatedAtDesc(
                         conv.getId(), PageRequest.of(0, limit));
@@ -192,8 +208,16 @@ public class ConversationService {
         conv = conversationRepo.findById(conv.getId()).orElse(conv);
 
         ChatMessageResponse response = toMessageResponse(msg);
-        wsController.sendChatMessage(conv.getId(), response);
-        wsController.sendUnreadUpdate(conv.getId(), conv.getAdminUnread(), conv.getMemberUnread());
+        auditClient.logEntity("CONVERSATION", conv.getId(), "MESSAGE_SENT",
+                senderId, senderRole, null,
+                java.util.Map.of("messageId", msg.getId()),
+                java.util.Map.of("memberMessage", isMember), tenantId, null);
+        Conversation committedConversation = conv;
+        PostCommitAction.run("Conversation message WebSocket publication", () -> {
+            wsController.sendChatMessage(committedConversation.getId(), response);
+            wsController.sendUnreadUpdate(committedConversation.getId(),
+                    committedConversation.getAdminUnread(), committedConversation.getMemberUnread());
+        });
 
         return response;
     }
@@ -227,7 +251,13 @@ public class ConversationService {
         msg.setDeletedAt(Instant.now());
         msg.setContent("[deleted]");
         messageRepo.save(msg);
-        wsController.sendMessageDeleted(conversationId, messageId);
+        auditClient.logEntity("CONVERSATION", conversationId, "MESSAGE_DELETED",
+                userId, isMember ? "MEMBER" : "ORG_USER",
+                java.util.Map.of("messageId", messageId, "deleted", false),
+                java.util.Map.of("messageId", messageId, "deleted", true),
+                null, tenantId, "Sender deleted the message within the allowed window");
+        PostCommitAction.run("Conversation delete WebSocket publication",
+                () -> wsController.sendMessageDeleted(conversationId, messageId));
     }
 
     @Transactional
@@ -256,6 +286,15 @@ public class ConversationService {
             throw new IllegalArgumentException("Conversation not found");
         }
         return conv;
+    }
+
+    private Instant parseCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) return null;
+        try {
+            return Instant.parse(cursor);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Invalid message cursor");
+        }
     }
 
     private ConversationResponse toResponse(Conversation c, boolean isMember) {

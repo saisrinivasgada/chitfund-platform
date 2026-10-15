@@ -16,6 +16,7 @@ name: Logout flow
       - tapOn:
           text: "Enter your password"
       - inputText: ${ADMIN_PASSWORD}
+      - waitForAnimationToEnd
       - pressKey: Enter
       - waitForAnimationToEnd
       - waitForAnimationToEnd
@@ -28,7 +29,12 @@ name: Logout flow
             - runScript: helpers/read_otp.js
             - tapOn:
                 text: "123456"
-            - inputText: ${output.otp}
+            - inputText: ${output.digit1}
+            - inputText: ${output.digit2}
+            - inputText: ${output.digit3}
+            - inputText: ${output.digit4}
+            - inputText: ${output.digit5}
+            - inputText: ${output.digit6}
             - tapOn:
                 text: "Verify & Sign In"
             - waitForAnimationToEnd
@@ -72,8 +78,11 @@ name: Logout flow
 - waitForAnimationToEnd
 - waitForAnimationToEnd
 
-# After logout the app navigates to /(auth)/login — wait for the login form
+# Logout preserves the saved account card for convenient multi-account sign-in,
+# but removes its active session and marks it as requiring authentication.
 - extendedWaitUntil:
     visible:
-      text: "Enter your username"
+      text: "Choose an Account"
     timeout: 25000
+- assertVisible:
+    text: "NEEDS LOGIN"

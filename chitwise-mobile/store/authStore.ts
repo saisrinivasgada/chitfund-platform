@@ -22,13 +22,16 @@ export interface AuthUser {
   tenantId?: string;
   tenantName?: string;
   mustChangePassword?: boolean;
+  analyticsEnabled?: boolean;
   chatEnabled?: boolean;
+  settlementEnabled?: boolean;
   adminPhone?: string;
   adminEmail?: string;
   phone?: string;
   phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
+  customPermissions?: string[];
 }
 
 export interface StoredAccount {
@@ -43,10 +46,14 @@ export interface StoredAccount {
   authSource?: 'ORGANIZATION' | 'HUB';
   tenantId?: string;
   tenantName?: string;
+  analyticsEnabled?: boolean;
+  chatEnabled?: boolean;
+  settlementEnabled?: boolean;
   phone?: string;
   phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
+  customPermissions?: string[];
   sessionValid: boolean;
   cachedInfo?: AccountCachedInfo;
   savedAt: number;
@@ -128,10 +135,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         authSource: user.authSource ?? 'ORGANIZATION',
         tenantId: user.tenantId,
         tenantName: user.tenantName,
+        analyticsEnabled: user.analyticsEnabled,
+        chatEnabled: user.chatEnabled,
+        settlementEnabled: user.settlementEnabled,
         phone: user.phone ?? (idx >= 0 ? existing[idx].phone : undefined),
         phoneCountryCode: user.phoneCountryCode ?? (idx >= 0 ? existing[idx].phoneCountryCode : undefined),
         canManageIdentityCases: user.canManageIdentityCases,
         platformOwner: user.platformOwner,
+        customPermissions: user.customPermissions,
         sessionValid: true,
         cachedInfo: idx >= 0 ? existing[idx].cachedInfo : undefined,
         savedAt: Date.now(),
@@ -240,10 +251,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authSource: target.authSource ?? 'ORGANIZATION',
       tenantId: target.tenantId,
       tenantName: target.tenantName,
+      analyticsEnabled: target.analyticsEnabled,
+      chatEnabled: target.chatEnabled,
+      settlementEnabled: target.settlementEnabled,
       phone: target.phone,
       phoneCountryCode: target.phoneCountryCode,
       canManageIdentityCases: target.canManageIdentityCases,
       platformOwner: target.platformOwner,
+      customPermissions: target.customPermissions,
     };
     await SecureStore.setItemAsync(TOKEN_KEY, target.token);
     if (target.refreshToken) {

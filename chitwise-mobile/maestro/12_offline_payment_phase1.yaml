@@ -18,6 +18,7 @@ name: Offline Payment — Phase 1 (record while service is down)
       - tapOn:
           text: "Enter your password"
       - inputText: ${ADMIN_PASSWORD}
+      - waitForAnimationToEnd
       - pressKey: Enter
       - extendedWaitUntil:
           visible:
@@ -25,7 +26,12 @@ name: Offline Payment — Phase 1 (record while service is down)
           timeout: 15000
       - waitForAnimationToEnd
       - runScript: helpers/read_otp.js
-      - inputText: ${output.otp}
+      - inputText: ${output.digit1}
+      - inputText: ${output.digit2}
+      - inputText: ${output.digit3}
+      - inputText: ${output.digit4}
+      - inputText: ${output.digit5}
+      - inputText: ${output.digit6}
       - tapOn:
           text: "Verify & Sign In"
       - waitForAnimationToEnd
@@ -93,25 +99,24 @@ name: Offline Payment — Phase 1 (record while service is down)
     text: "Record Payment"
 - waitForAnimationToEnd
 
-# Member is pre-listed. The list sits inside a nested ScrollView which XCTest
-# can't address by text — tap by coordinate instead (member card ~28% from top).
-- waitForAnimationToEnd
+# Select the named fixture member through its explicit accessibility label.
+# This is stable across screen sizes and catches member-list regressions.
+- extendedWaitUntil:
+    visible:
+      text: ${TEST_MEMBER_NAME}
+    timeout: 10000
 - tapOn:
-    point: "50%,38%"
+    text: ${TEST_MEMBER_NAME}
 - waitForAnimationToEnd
 
-# Chit checkbox is at ~48% — display ~40% maps to Maestro ~48% (status bar offset).
+# Wait for the member's active chit query, then select the named fixture chit.
+- extendedWaitUntil:
+    visible:
+      text: "${TEST_CHIT_NAME}.*"
+    timeout: 10000
 - tapOn:
-    point: "50%,48%"
+    text: "${TEST_CHIT_NAME}.*"
 - waitForAnimationToEnd
-- waitForAnimationToEnd
-
-# Allocation input appears inline when checkbox is checked (~52% after row expands).
-- tapOn:
-    point: "65%,52%"
-- eraseText: 20
-- inputText: "3500"
-- hideKeyboard
 - waitForAnimationToEnd
 
 # Scroll down to bring payment mode buttons into view
@@ -132,13 +137,18 @@ name: Offline Payment — Phase 1 (record while service is down)
 - hideKeyboard
 - waitForAnimationToEnd
 
-# Submit — button label is "Record ₹10,000 Payment". Use ₹ to distinguish from the
+# The fixture installment is ₹3,500. Assert the amount before submitting so the
+# test cannot silently record the form's wrong/default value.
+- assertVisible:
+    text: "Record ₹3,500 Payment"
+
+# Submit — use ₹ to distinguish from the
 # "Record Payment" tab which also matches "Record.*".
 - tapOn:
-    text: "Record ₹.*"
+    text: "Record ₹3,500 Payment"
 - waitForAnimationToEnd
 
-# Confirmation dialog appears: "Record ₹10,000 via UPI for Sri Lakshmi Monthly Chit?"
+# Confirmation dialog appears with the same ₹3,500 amount.
 # The dialog's confirm button text is exactly "Record" (no ₹ suffix).
 - tapOn:
     text: "Record"

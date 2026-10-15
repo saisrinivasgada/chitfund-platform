@@ -16,7 +16,22 @@ public interface MonthlyWinnerRepository extends JpaRepository<MonthlyWinner, UU
 
     List<MonthlyWinner> findByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 
+    @Query("SELECT w FROM MonthlyWinner w WHERE w.chit.id = :chitId " +
+            "AND w.chit.tenantId = :tenantId AND w.monthNumber = :monthNumber " +
+            "AND w.memberId = :memberId ORDER BY w.assignedAt ASC")
+    List<MonthlyWinner> findForPayoutValidation(
+            @Param("chitId") UUID chitId,
+            @Param("monthNumber") Integer monthNumber,
+            @Param("memberId") UUID memberId,
+            @Param("tenantId") String tenantId);
+
     boolean existsByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
+
+    @Query("SELECT COUNT(w) FROM MonthlyWinner w WHERE w.chit.id = :chitId " +
+            "AND w.chit.tenantId = :tenantId AND w.monthNumber = :monthNumber")
+    long countByChitIdAndMonthNumberAndTenantId(@Param("chitId") UUID chitId,
+                                                @Param("monthNumber") Integer monthNumber,
+                                                @Param("tenantId") String tenantId);
 
     // Exact-duplicate guard: the same member can legitimately win different months
     // (multi-spot), and different members can legitimately both win the same month
@@ -27,6 +42,10 @@ public interface MonthlyWinnerRepository extends JpaRepository<MonthlyWinner, UU
     // Members who have already won — used to exclude from lottery draws
     @Query("SELECT w.memberId FROM MonthlyWinner w WHERE w.chit.id = :chitId")
     List<UUID> findWinnerMemberIdsByChitId(UUID chitId);
+
+    @Query("SELECT w.memberId FROM MonthlyWinner w WHERE w.chit.id = :chitId AND w.chit.tenantId = :tenantId")
+    List<UUID> findWinnerMemberIdsByChitIdAndTenantId(@Param("chitId") UUID chitId,
+                                                      @Param("tenantId") String tenantId);
 
     long countByChitId(UUID chitId);
 

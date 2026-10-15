@@ -16,6 +16,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -27,9 +28,18 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-        if (accessor == null || !StompCommand.CONNECT.equals(accessor.getCommand())) {
-            return message;
+        if (accessor == null || accessor.getCommand() == null) return message;
+        if (StompCommand.CONNECT.equals(accessor.getCommand())) {
+            authenticate(accessor);
+        } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            authorizeSubscription(accessor);
+        } else if (StompCommand.SEND.equals(accessor.getCommand())) {
+            throw new AccessDeniedException("Notification WebSocket does not accept client messages");
         }
+        return message;
+    }
+
+    void authenticate(StompHeaderAccessor accessor) {
         String authHeader = accessor.getFirstNativeHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             throw new AccessDeniedException("Missing or invalid Authorization header");
@@ -45,16 +55,36 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                 throw new AccessDeniedException("Token scope not permitted for WebSocket");
             }
             String role = claims.get("role", String.class);
+            String tenantId = claims.get("tenantId", String.class);
+            if (tenantId == null || tenantId.isBlank()) {
+                throw new AccessDeniedException("Tenant-scoped token required for WebSocket");
+            }
             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     claims.getSubject(), null,
                     role != null ? List.of(new SimpleGrantedAuthority(role)) : List.of());
             accessor.setUser(auth);
+            Map<String, Object> attributes = accessor.getSessionAttributes();
+            if (attributes == null) {
+                throw new AccessDeniedException("WebSocket session is unavailable");
+            }
+            attributes.put("tenantId", tenantId);
         } catch (AccessDeniedException ex) {
             throw ex;
         } catch (Exception e) {
             log.warn("WebSocket auth failed: {}", e.getMessage());
             throw new AccessDeniedException("WebSocket authentication failed");
         }
-        return message;
+    }
+
+    void authorizeSubscription(StompHeaderAccessor accessor) {
+        Map<String, Object> attributes = accessor.getSessionAttributes();
+        String tenantId = attributes != null ? (String) attributes.get("tenantId") : null;
+        String destination = accessor.getDestination();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new AccessDeniedException("WebSocket is not authenticated");
+        }
+        if (!("/topic/data-update/" + tenantId).equals(destination)) {
+            throw new AccessDeniedException("Cross-organization WebSocket subscription denied");
+        }
     }
 }
