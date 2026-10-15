@@ -615,11 +615,6 @@ export const requestMemberAppAccess = async (memberId) => {
   return res.data.data;
 };
 
-export const requestMemberAppAccess = async (memberId) => {
-  const res = await api.post(`/members/${memberId}/app-access-request`);
-  return res.data.data;
-};
-
 export const revokeAppAccess = async (memberId) => {
   await api.post(`/members/${memberId}/revoke-app-access`);
 };
