@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { View, Text, FlatList, RefreshControl, TextInput, Modal, ScrollView, TouchableOpacity, Linking, ActivityIndicator } from 'react-native';
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { View, Text, FlatList, RefreshControl, TextInput, Modal, ScrollView, TouchableOpacity, Linking, ActivityIndicator, Alert } from 'react-native';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getMembersPage, getMemberTotalBalance, getChitsForMember, getMemberBalance } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate } from '../../../components/ui';
+import { getMembersPage, getMemberTotalBalance, getChitsForMember, getMemberBalance, grantAppAccessSendOtp, grantAppAccessVerify, revokeAppAccess } from '../../../services/api';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate, Button, formatPhone } from '../../../components/ui';
+import { toast } from '../../../components/Toast';
 
 function MemberBalance({ memberId }: { memberId: string }) {
   const { data: bal } = useQuery({
@@ -37,6 +38,7 @@ function ChitBalanceBadge({ memberId, chitId }: { memberId: string; chitId: stri
 }
 
 function MemberDetailModal({ member, onClose }: { member: any; onClose: () => void }) {
+  const qc = useQueryClient();
   const { data: chits = [] } = useQuery({
     queryKey: ['m-member-chits', member.id],
     queryFn: () => getChitsForMember(member.id),
@@ -48,6 +50,34 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
     staleTime: 60_000,
   });
   const bal = Number(totalBalance ?? 0);
+
+  // OTP grant flow state
+  const [grantStep, setGrantStep] = useState<'idle' | 'confirm' | 'otp'>('idle');
+  const [grantMaskedPhone, setGrantMaskedPhone] = useState('');
+  const [grantOtp, setGrantOtp] = useState('');
+  const [grantError, setGrantError] = useState('');
+
+  const grantSendOtpMut = useMutation({
+    mutationFn: () => grantAppAccessSendOtp(member.id),
+    onSuccess: (data: any) => { setGrantMaskedPhone(data?.maskedPhone ?? ''); setGrantStep('otp'); setGrantError(''); },
+    onError: (e: any) => setGrantError(e.response?.data?.message ?? 'Failed to send OTP'),
+  });
+
+  const grantVerifyMut = useMutation({
+    mutationFn: () => grantAppAccessVerify(member.id, grantOtp),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mgr-members-page'] });
+      setGrantStep('idle'); setGrantOtp('');
+      toast.success(member.fullName + ' now has app access');
+    },
+    onError: (e: any) => setGrantError(e.response?.data?.message ?? 'OTP incorrect or expired'),
+  });
+
+  const revokeMut = useMutation({
+    mutationFn: () => revokeAppAccess(member.id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['mgr-members-page'] }); toast.success('App access revoked'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to revoke'),
+  });
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -113,6 +143,48 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
                 <Text style={{ fontSize: 13, color: C.gray500, width: 64 }}>Joined</Text>
                 <Text style={{ fontSize: 13, color: C.gray900 }}>{fmtDate(member.joinedAt)}</Text>
               </View>
+            )}
+          </Card>
+
+          {/* App access */}
+          <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: member.appAccessGranted ? '#86EFAC' : C.gray200 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900, marginBottom: 4 }}>
+              {member.appAccessGranted ? 'App Access Active' : 'App Access'}
+            </Text>
+            {member.appAccessGranted ? (
+              <Button label={revokeMut.isPending ? 'Revoking…' : 'Revoke App Access'} variant="danger" fullWidth loading={revokeMut.isPending}
+                onPress={() => Alert.alert('Revoke Access', `${member.fullName} will no longer be able to log in. Revoke?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Revoke', style: 'destructive', onPress: () => revokeMut.mutate() },
+                ])} />
+            ) : grantStep === 'otp' ? (
+              <View style={{ gap: 10 }}>
+                <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>OTP sent to <Text style={{ fontWeight: '700' }}>{grantMaskedPhone}</Text>.{'\n'}Ask member to read out the 6-digit code.</Text>
+                <TextInput
+                  value={grantOtp}
+                  onChangeText={(v) => { setGrantOtp(v.replace(/\D/g, '').slice(0, 6)); setGrantError(''); }}
+                  placeholder="6-digit OTP" keyboardType="numeric" maxLength={6} autoFocus
+                  style={{ borderWidth: 1, borderColor: grantError ? C.red : C.gray300, borderRadius: 10, padding: 12, fontSize: 18, letterSpacing: 6, textAlign: 'center' }}
+                />
+                {grantError ? <Text style={{ fontSize: 12, color: C.red }}>{grantError}</Text> : null}
+                <Button label={grantVerifyMut.isPending ? 'Verifying…' : 'Verify & Grant'} variant="primary" fullWidth loading={grantVerifyMut.isPending} disabled={grantOtp.length !== 6} onPress={() => grantVerifyMut.mutate()} />
+                <TouchableOpacity onPress={() => { setGrantStep('idle'); setGrantOtp(''); setGrantError(''); }} style={{ alignItems: 'center', paddingVertical: 8 }}>
+                  <Text style={{ fontSize: 13, color: C.gray400 }}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : grantStep === 'confirm' ? (
+              <View style={{ gap: 10 }}>
+                <Text style={{ fontSize: 12, color: C.gray600, lineHeight: 18 }}>
+                  Granting access to <Text style={{ fontWeight: '700' }}>{member.phone ? formatPhone(member.phoneCountryCode ?? '+91', member.phone) : 'this member'}</Text>.{'\n'}OTP will be sent — ask member to read it out.
+                </Text>
+                {grantError ? <Text style={{ fontSize: 12, color: C.red }}>{grantError}</Text> : null}
+                <Button label={grantSendOtpMut.isPending ? 'Sending OTP…' : 'Send OTP'} variant="primary" fullWidth loading={grantSendOtpMut.isPending} onPress={() => grantSendOtpMut.mutate()} />
+                <TouchableOpacity onPress={() => { setGrantStep('idle'); setGrantError(''); }} style={{ alignItems: 'center', paddingVertical: 8 }}>
+                  <Text style={{ fontSize: 13, color: C.gray400 }}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Button label="Grant App Access via OTP" variant="primary" fullWidth onPress={() => setGrantStep('confirm')} />
             )}
           </Card>
 

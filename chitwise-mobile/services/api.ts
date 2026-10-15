@@ -423,6 +423,14 @@ export const getMember = async (id: string) => unwrapObj(await api.get(`/members
 export const createMember = async (body: any) => unwrapObj(await api.post('/members', body));
 export const requestMemberAppAccess = async (memberId: string) =>
   unwrapObj(await api.post(`/members/${memberId}/app-access-request`));
+export const grantAppAccessSendOtp = async (memberId: string): Promise<{ maskedPhone: string }> =>
+  unwrapObj(await api.post(`/members/${memberId}/grant-app-access/send-otp`));
+export const grantAppAccessVerify = async (memberId: string, otp: string): Promise<void> => {
+  await api.post(`/members/${memberId}/grant-app-access/verify`, { otp });
+};
+export const revokeAppAccess = async (memberId: string): Promise<void> => {
+  await api.post(`/members/${memberId}/revoke-app-access`);
+};
 export const getMemberChitfundRequests = async (memberId: string) =>
   unwrapList(await api.get(`/chitfund-requests/admin/member/${memberId}`));
 export const resendChitfundRequest = async (requestId: string) =>

@@ -598,6 +598,19 @@ export const requestMemberAppAccess = async (memberId) => {
   const res = await api.post(`/members/${memberId}/app-access-request`);
   return res.data.data;
 };
+
+export const grantAppAccessSendOtp = async (memberId) => {
+  const res = await api.post(`/members/${memberId}/grant-app-access/send-otp`);
+  return res.data.data; // { maskedPhone }
+};
+
+export const grantAppAccessVerify = async ({ memberId, otp }) => {
+  await api.post(`/members/${memberId}/grant-app-access/verify`, { otp });
+};
+
+export const revokeAppAccess = async (memberId) => {
+  await api.post(`/members/${memberId}/revoke-app-access`);
+};
 export const getMemberChitfundRequests = async (memberId) => {
   const res = await api.get(`/chitfund-requests/admin/member/${memberId}`);
   return res.data.data ?? [];

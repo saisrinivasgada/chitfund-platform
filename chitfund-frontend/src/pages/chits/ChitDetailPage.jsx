@@ -373,7 +373,7 @@ function BulkEnrollModal({ chitId, chit, onClose }) {
                     <p className="text-sm font-semibold text-gray-900 truncate">{m.fullName}</p>
                     <p className="text-xs text-gray-400">{m.phone}</p>
                   </div>
-                  {!m.hasAppAccess && (
+                  {!m.appAccessGranted && (
                     <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full flex-shrink-0 flex items-center gap-1">
                       <Smartphone size={10} /> No app
                     </span>
@@ -512,7 +512,7 @@ function MembersTab({ chitId, chit }) {
                         </div>
                         <MemberLink id={mid} name={member.fullName} />
                         <MemberInfoPopover member={member} />
-                        {!member.hasAppAccess && (
+                        {!member.appAccessGranted && (
                           <span title="No app account — member cannot sign in or bid"
                             className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
                             <Smartphone size={10} /> No app

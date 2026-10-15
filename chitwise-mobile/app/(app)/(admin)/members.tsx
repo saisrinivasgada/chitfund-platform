@@ -15,6 +15,7 @@ import {
   adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
   getPaymentHistory, getDeletedMembers, setPromisedPaymentDate,
   adminCreateCashRequest, listStaff,
+  grantAppAccessSendOtp, grantAppAccessVerify, revokeAppAccess,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -258,6 +259,44 @@ export default function AdminMembersScreen() {
       showChitfundRequestLink(data, 'Chitfund Request sent');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed to send Chitfund Request'),
+  });
+
+  // Admin-driven OTP grant flow state
+  const [grantStep, setGrantStep] = useState<'idle' | 'confirm' | 'otp'>('idle');
+  const [grantMaskedPhone, setGrantMaskedPhone] = useState('');
+  const [grantOtp, setGrantOtp] = useState('');
+  const [grantError, setGrantError] = useState('');
+
+  const grantSendOtpMutation = useOnlineMutation({
+    mutationFn: () => grantAppAccessSendOtp(selected!.id),
+    onSuccess: (data: any) => {
+      setGrantMaskedPhone(data?.maskedPhone ?? '');
+      setGrantStep('otp');
+      setGrantError('');
+    },
+    onError: (e: any) => setGrantError(e.response?.data?.message ?? 'Failed to send OTP'),
+  });
+
+  const grantVerifyMutation = useOnlineMutation({
+    mutationFn: () => grantAppAccessVerify(selected!.id, grantOtp),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-members'] });
+      qc.invalidateQueries({ queryKey: ['m-member', selected?.id] });
+      setGrantStep('idle');
+      setGrantOtp('');
+      toast.success(selected?.fullName + ' now has app access');
+    },
+    onError: (e: any) => setGrantError(e.response?.data?.message ?? 'OTP incorrect or expired'),
+  });
+
+  const revokeAccessMutation = useOnlineMutation({
+    mutationFn: () => revokeAppAccess(selected!.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-members'] });
+      qc.invalidateQueries({ queryKey: ['m-member', selected?.id] });
+      toast.success('App access revoked for ' + selected?.fullName);
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to revoke access'),
   });
 
   const updateMutation = useOnlineMutation({
@@ -516,7 +555,7 @@ export default function AdminMembersScreen() {
   const { data: memberUser } = useQuery({
     queryKey: ['m-user-status', selected?.userId],
     queryFn: () => getUserById(selected!.userId),
-    enabled: !!selected?.userId && !!selected?.hasAppAccess && showDetail,
+    enabled: !!selected?.userId && !!selected?.appAccessGranted && showDetail,
     staleTime: 30_000,
   });
 
@@ -788,7 +827,7 @@ export default function AdminMembersScreen() {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{m.fullName ?? 'Unknown'}</Text>
-                    {m.hasAppAccess && (
+                    {m.appAccessGranted && (
                       <View style={{ backgroundColor: C.navy50, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
                         <Text style={{ fontSize: 9, fontWeight: '700', color: C.navy }}>APP</Text>
                       </View>
@@ -816,7 +855,7 @@ export default function AdminMembersScreen() {
               <Text style={T.h2} numberOfLines={1}>{selected?.fullName ?? 'Member'}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
                 <Badge status={selected?.status ?? 'ACTIVE'} />
-                {selected?.hasAppAccess && (
+                {selected?.appAccessGranted && (
                   <View style={{ backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                     <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>App Login Active</Text>
                   </View>
@@ -926,12 +965,12 @@ export default function AdminMembersScreen() {
                   );
                 })}
 
-                {/* ChitWise app access — member owns all permanent credentials */}
-                <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: selected?.hasAppAccess ? '#86EFAC' : C.gray200 }}>
+                {/* ChitWise app access */}
+                <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: selected?.appAccessGranted ? '#86EFAC' : C.gray200 }}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900, marginBottom: 4 }}>
-                    {selected?.hasAppAccess ? 'ChitWise App Access Active' : 'ChitWise App Access'}
+                    {selected?.appAccessGranted ? 'ChitWise App Access Active' : 'ChitWise App Access'}
                   </Text>
-                  {selected?.hasAppAccess ? (
+                  {selected?.appAccessGranted ? (
                     <>
                       <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12, lineHeight: 18 }}>
                         The member controls their own password. If recovery is unsafe or unavailable, create an Account Access ticket.
@@ -944,7 +983,47 @@ export default function AdminMembersScreen() {
                           { text: 'Create Ticket', onPress: () => accountAccessTicketMutation.mutate() },
                         ])}
                       />
+                      <View style={{ height: 8 }} />
+                      <Button
+                        label={revokeAccessMutation.isPending ? 'Revoking…' : 'Revoke App Access'}
+                        variant="danger" fullWidth loading={revokeAccessMutation.isPending}
+                        onPress={() => Alert.alert('Revoke Access', `${selected?.fullName} will no longer be able to log in to this org. Revoke?`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Revoke', style: 'destructive', onPress: () => revokeAccessMutation.mutate() },
+                        ])}
+                      />
                     </>
+                  ) : grantStep === 'otp' ? (
+                    <View style={{ gap: 10 }}>
+                      <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
+                        OTP sent to <Text style={{ fontWeight: '700' }}>{grantMaskedPhone}</Text>.{'\n'}Ask the member to read out the 6-digit code.
+                      </Text>
+                      <TextInput
+                        value={grantOtp}
+                        onChangeText={(v) => { setGrantOtp(v.replace(/\D/g, '').slice(0, 6)); setGrantError(''); }}
+                        placeholder="6-digit OTP"
+                        keyboardType="numeric"
+                        maxLength={6}
+                        style={{ borderWidth: 1, borderColor: grantError ? C.red : C.gray300, borderRadius: 10, padding: 12, fontSize: 18, letterSpacing: 6, textAlign: 'center' }}
+                        autoFocus
+                      />
+                      {grantError ? <Text style={{ fontSize: 12, color: C.red }}>{grantError}</Text> : null}
+                      <Button label={grantVerifyMutation.isPending ? 'Verifying…' : 'Verify & Grant Access'} variant="primary" fullWidth loading={grantVerifyMutation.isPending} disabled={grantOtp.length !== 6} onPress={() => grantVerifyMutation.mutate()} />
+                      <TouchableOpacity onPress={() => { setGrantStep('idle'); setGrantOtp(''); setGrantError(''); }} style={{ alignItems: 'center', paddingVertical: 8 }}>
+                        <Text style={{ fontSize: 13, color: C.gray400 }}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : grantStep === 'confirm' ? (
+                    <View style={{ gap: 10 }}>
+                      <Text style={{ fontSize: 12, color: C.gray600, lineHeight: 18 }}>
+                        Granting access to <Text style={{ fontWeight: '700' }}>{selected?.phone ? formatPhone(selected.phoneCountryCode ?? '+91', selected.phone) : 'this member'}</Text>.{'\n'}An OTP will be sent — ask the member to read it out to you.
+                      </Text>
+                      {grantError ? <Text style={{ fontSize: 12, color: C.red }}>{grantError}</Text> : null}
+                      <Button label={grantSendOtpMutation.isPending ? 'Sending OTP…' : 'Send OTP'} variant="primary" fullWidth loading={grantSendOtpMutation.isPending} onPress={() => grantSendOtpMutation.mutate()} />
+                      <TouchableOpacity onPress={() => { setGrantStep('idle'); setGrantError(''); }} style={{ alignItems: 'center', paddingVertical: 8 }}>
+                        <Text style={{ fontSize: 13, color: C.gray400 }}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
                   ) : latestChitfundRequest ? (
                     <View style={{ gap: 10 }}>
                       <View style={{ alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, backgroundColor: latestChitfundRequest.status === 'AWAITING_ADMIN' ? '#DBEAFE' : '#FEF3C7' }}>
@@ -966,14 +1045,18 @@ export default function AdminMembersScreen() {
                       ) : (
                         <Button label="Send New Chitfund Request" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
                       )}
+                      <View style={{ borderTopWidth: 1, borderColor: C.gray100, paddingTop: 8 }}>
+                        <Button label="Grant Access via OTP (faster)" variant="outline" fullWidth onPress={() => setGrantStep('confirm')} />
+                      </View>
                     </View>
                   ) : (
-                    <>
-                      <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12, lineHeight: 18 }}>
-                        The member will verify OTP and choose their own username and password. You will confirm access afterward.
+                    <View style={{ gap: 10 }}>
+                      <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
+                        Admin verifies the member's identity via OTP — faster than a Chitfund Request.
                       </Text>
-                      <Button label="Send ChitWise App Access" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
-                    </>
+                      <Button label="Grant App Access via OTP" variant="primary" fullWidth onPress={() => setGrantStep('confirm')} />
+                      <Button label="Send Chitfund Request (member self-service)" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
+                    </View>
                   )}
                 </Card>
 
@@ -1251,7 +1334,7 @@ export default function AdminMembersScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 13, fontWeight: '700', color: showEditInline ? C.white : C.gray900 }}>Edit Member</Text>
                         <Text style={{ fontSize: 12, color: showEditInline ? C.white + 'cc' : C.gray400, marginTop: 1 }}>
-                          {showEditInline ? 'Tap to close' : selected?.hasAppAccess ? 'Update organization notes' : 'Update contact and identity details'}
+                          {showEditInline ? 'Tap to close' : selected?.appAccessGranted ? 'Update organization notes' : 'Update contact and identity details'}
                         </Text>
                       </View>
                       <Text style={{ fontSize: 12, color: showEditInline ? C.white : C.navy, fontWeight: '700' }}>
@@ -1268,8 +1351,8 @@ export default function AdminMembersScreen() {
                       borderWidth: 1.5, borderTopWidth: 0,
                       borderColor: C.navy,
                     }}>
-                      {selected?.hasAppAccess && <View style={{ backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12 }}><Text style={{ fontSize: 12, color: '#1D4ED8', lineHeight: 18 }}>This member controls personal, identity and bank details. Use an Account Access ticket for identity problems.</Text></View>}
-                      {!selected?.hasAppAccess && <><Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.5 }}>PERSONAL INFO</Text>
+                      {selected?.appAccessGranted && <View style={{ backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12 }}><Text style={{ fontSize: 12, color: '#1D4ED8', lineHeight: 18 }}>This member controls personal, identity and bank details. Use an Account Access ticket for identity problems.</Text></View>}
+                      {!selected?.appAccessGranted && <><Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.5 }}>PERSONAL INFO</Text>
                       {([
                         { label: 'Full Name *', value: eName, set: setEName, placeholder: 'Full name' },
                         { label: 'Email', value: eEmail, set: setEEmail, placeholder: 'email@example.com', keyboard: 'email-address' as const },
@@ -1311,7 +1394,7 @@ export default function AdminMembersScreen() {
                             label={updateMutation.isPending ? 'Saving…' : 'Save Changes'}
                             variant="primary"
                             loading={updateMutation.isPending}
-                            disabled={!selected?.hasAppAccess && (!eName.trim() || (ePhone !== eOriginalPhone && !ePhoneVerified))}
+                            disabled={!selected?.appAccessGranted && (!eName.trim() || (ePhone !== eOriginalPhone && !ePhoneVerified))}
                             onPress={() => updateMutation.mutate()}
                           />
                         </View>
@@ -1388,7 +1471,7 @@ export default function AdminMembersScreen() {
                     </View>
                   )}
 
-                  {!selected?.hasAppAccess && (
+                  {!selected?.appAccessGranted && (
                     <View style={{ backgroundColor: C.gray50, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
                       <Text style={{ fontSize: 13, color: C.gray500, textAlign: 'center' }}>No app login — member hasn't been linked to a user account</Text>
                     </View>
@@ -1555,7 +1638,7 @@ export default function AdminMembersScreen() {
 
                   {/* Quick send buttons — push requires app access, WhatsApp requires phone */}
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    {selected?.hasAppAccess && (
+                    {selected?.appAccessGranted && (
                       <TouchableOpacity
                         onPress={() => Alert.alert('Send Reminder', `Send a push notification payment reminder to ${selected.fullName}?`, [
                           { text: 'Cancel', style: 'cancel' },

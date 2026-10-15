@@ -459,11 +459,16 @@ export default function LoginScreen() {
         return;
       }
       if (data.requiresTenantSelection && data.loginToken) {
-        if (data.tenants?.length === 1) {
-          const t = data.tenants[0];
+        const tenants = data.tenants ?? [];
+        if (tenants.length === 0) {
+          setError('Your app access has been revoked. Please contact your organisation administrator.');
+          return;
+        }
+        if (tenants.length === 1) {
+          const t = tenants[0];
           await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
         } else {
-          setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
+          setTenantPicker({ loginToken: data.loginToken, tenants });
         }
         return;
       }
@@ -483,11 +488,16 @@ export default function LoginScreen() {
       const data = await verifyLoginOtp(loginOtpState.otpToken, loginOtp);
       setLoginOtpState(null);
       if (data.requiresTenantSelection && data.loginToken) {
-        if (data.tenants?.length === 1) {
-          const t = data.tenants[0];
+        const tenants = data.tenants ?? [];
+        if (tenants.length === 0) {
+          setError('Your app access has been revoked. Please contact your organisation administrator.');
+          return;
+        }
+        if (tenants.length === 1) {
+          const t = tenants[0];
           await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
         } else {
-          setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
+          setTenantPicker({ loginToken: data.loginToken, tenants });
         }
         return;
       }
@@ -513,11 +523,16 @@ export default function LoginScreen() {
         return;
       }
       if (data.requiresTenantSelection && data.loginToken) {
-        if (data.tenants?.length === 1) {
-          const t = data.tenants[0];
+        const tenants = data.tenants ?? [];
+        if (tenants.length === 0) {
+          setError('Your app access has been revoked. Please contact your organisation administrator.');
+          return;
+        }
+        if (tenants.length === 1) {
+          const t = tenants[0];
           await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
         } else {
-          setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
+          setTenantPicker({ loginToken: data.loginToken, tenants });
         }
         return;
       }

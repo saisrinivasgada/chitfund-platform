@@ -1691,7 +1691,7 @@ export default function SuperAdminOrgDetailPage() {
                                 <Lock size={10} /> Locked
                               </span>
                             )}
-                            {u.hasAppAccess && u.mustChangePassword && (
+                            {u.appAccessGranted && u.mustChangePassword && (
                               <span className="text-xs font-medium px-2 py-0.5 rounded-full w-fit bg-orange-50 text-orange-600 flex items-center gap-1">
                                 <KeyRound size={10} /> Temp pwd
                               </span>
@@ -1722,9 +1722,9 @@ export default function SuperAdminOrgDetailPage() {
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-500"
                               >
                                 <Link size={12} />
-                                {u.hasAppAccess ? 'Member-managed login' : 'Request via Member Detail'}
+                                {u.appAccessGranted ? 'Member-managed login' : 'Request via Member Detail'}
                               </span>
-                            ) : !u.hasAppAccess ? (
+                            ) : !u.appAccessGranted ? (
                               <button
                                 type="button"
                                 title="This employee account is not yet active"

@@ -11,6 +11,7 @@ import {
   getMemberChitfundRequests, resendChitfundRequest, revokeChitfundRequest, confirmChitfundRequest,
   adminUpdateUserPhone,
   sendReminder, getRemindersForMember, getReminderForAdmin, removeReminder,
+  grantAppAccessSendOtp, grantAppAccessVerify, revokeAppAccess,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -27,7 +28,7 @@ import {
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
   Layers, ExternalLink, ClipboardList, TrendingUp, TrendingDown, ArrowRight,
-  Lock, LockOpen,
+  Lock, LockOpen, ShieldOff, ShieldCheck as ShieldCheckIcon,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
@@ -172,7 +173,7 @@ function StatusSwitcher({ member, disabled }) {
 }
 
 // ─── More actions dropdown ────────────────────────────────────────────────────
-function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogin, onAccountAccess, onReminder, onWhatsApp, onDelete, onHistory, onLock, onUnlock, reminderPending, whatsappPending, lockPending, unlockPending }) {
+function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogin, onAccountAccess, onReminder, onWhatsApp, onDelete, onHistory, onLock, onUnlock, onGrantAccess, onRevokeAccess, reminderPending, whatsappPending, lockPending, unlockPending }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const ref = useRef(null);
@@ -199,7 +200,7 @@ function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogi
 
       {open && (
         <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-          {member.hasAppAccess ? (
+          {member.appAccessGranted ? (
             <>
               <MenuButton
                 icon={<Eye size={14} />}
@@ -248,14 +249,30 @@ function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogi
                   {whatsappPending ? 'Sending…' : 'Send WhatsApp'}
                 </MenuButton>
               )}
+              {(isAdmin || isManager) && (
+                <MenuButton
+                  icon={<ShieldOff size={14} className="text-red-500" />}
+                  onClick={() => { onRevokeAccess(); setOpen(false); }}
+                >
+                  Revoke App Access
+                </MenuButton>
+              )}
             </>
           ) : (
-            <MenuButton
-              icon={<UserPlus size={14} />}
-              onClick={() => { onCreateLogin(); setOpen(false); }}
-            >
-              Send ChitWise App Access
-            </MenuButton>
+            <>
+              <MenuButton
+                icon={<UserPlus size={14} />}
+                onClick={() => { onGrantAccess(); setOpen(false); }}
+              >
+                Grant App Access (OTP)
+              </MenuButton>
+              <MenuButton
+                icon={<UserPlus size={14} className="text-gray-400" />}
+                onClick={() => { onCreateLogin(); setOpen(false); }}
+              >
+                Send Chitfund Request
+              </MenuButton>
+            </>
           )}
           {isAdmin && (
             <>
@@ -390,13 +407,13 @@ function EditMemberPanel({ member, onClose }) {
           className="flex-1 overflow-y-auto"
         >
           <div className="px-6 py-5 space-y-5">
-            {member.hasAppAccess && (
+            {member.appAccessGranted && (
               <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                 This member now controls personal, identity and bank details. You can maintain organization notes and referral information here; use an Account Access ticket for identity problems.
               </div>
             )}
             {/* Section: Personal */}
-            {!member.hasAppAccess && <div>
+            {!member.appAccessGranted && <div>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Personal Information</p>
               <div className="space-y-3">
                 <FormField label="Full Name" required>
@@ -426,7 +443,7 @@ function EditMemberPanel({ member, onClose }) {
             </div>}
 
             {/* Section: Identity */}
-            {!member.hasAppAccess && <div>
+            {!member.appAccessGranted && <div>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Identity</p>
               <div className="grid grid-cols-2 gap-3">
                 <FormField label="Aadhaar Last 4">
@@ -541,6 +558,98 @@ function CreateLoginModal({ member, onClose }) {
   );
 }
 
+// ─── Admin-driven OTP-gated grant modal ───────────────────────────────────────
+function GrantAppAccessOtpModal({ member, onClose, onGranted }) {
+  const toast = useToastContext();
+  const qc = useQueryClient();
+  const [step, setStep] = useState('confirm'); // confirm | otp
+  const [maskedPhone, setMaskedPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSendOtp() {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await grantAppAccessSendOtp(member.id);
+      setMaskedPhone(result?.maskedPhone ?? formatPhone(member.phoneCountryCode ?? '+91', member.phone));
+      setStep('otp');
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Failed to send OTP');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify() {
+    if (otp.length !== 6) return;
+    setLoading(true);
+    setError('');
+    try {
+      await grantAppAccessVerify({ memberId: member.id, otp });
+      qc.invalidateQueries({ queryKey: ['member', member.id] });
+      qc.invalidateQueries({ queryKey: ['members'] });
+      toast.success('App access granted to ' + member.fullName);
+      onGranted?.();
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'OTP incorrect or expired');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (step === 'confirm') {
+    return (
+      <Modal title="Grant App Access" onClose={onClose} size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Granting app access to <strong>{member.fullName}</strong> at{' '}
+            <strong>{formatPhone(member.phoneCountryCode ?? '+91', member.phone)}</strong>.
+          </p>
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+            An OTP will be sent to this number. Ask the member to read it out to you and enter it on the next screen. This confirms you have the right phone.
+          </div>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <div className="flex gap-3 pt-1">
+            <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+            <Button type="button" className="flex-1" loading={loading} onClick={handleSendOtp}>
+              <ShieldCheckIcon size={14} /> Send OTP
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Enter OTP" onClose={onClose} size="sm">
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">OTP sent to <strong>{maskedPhone}</strong>.</p>
+        <p className="text-sm text-gray-500">Ask the member to read out the 6-digit code and enter it below.</p>
+        <div>
+          <Input
+            value={otp}
+            onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+            placeholder="6-digit OTP"
+            maxLength={6}
+            inputMode="numeric"
+            autoFocus
+          />
+          {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+        </div>
+        <div className="flex gap-3 pt-1">
+          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button type="button" className="flex-1" loading={loading} disabled={otp.length !== 6} onClick={handleVerify}>
+            Verify & Grant
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Account-access support ticket ────────────────────────────────────────────
 function AccountAccessTicketModal({ member, onClose }) {
   const toast = useToastContext();
@@ -624,7 +733,7 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
   }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not resend request') });
   const revoke = useMutation({ mutationFn: () => revokeChitfundRequest(latest.id), onSuccess: () => { refresh(); toast.success('Chitfund Request revoked'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not revoke request') });
   const confirm = useMutation({ mutationFn: () => confirmChitfundRequest(latest.id), onSuccess: () => { refresh(); toast.success('Member app access activated'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not activate app access') });
-  if (isLoading || (!latest && member.hasAppAccess)) return null;
+  if (isLoading || (!latest && member.appAccessGranted)) return null;
   if (!latest) return (
     <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4">
       <div><p className="text-sm font-semibold text-gray-900">ChitWise App Access</p><p className="text-xs text-gray-500 mt-0.5">No account is connected. The member will verify OTP and choose their own credentials.</p></div>
@@ -644,7 +753,7 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
           {latest.status === 'AWAITING_ADMIN' && isAdmin && <Button onClick={() => confirm.mutate()} loading={confirm.isPending}><ShieldCheck size={14} /> Confirm Access</Button>}
           {open && <Button variant="secondary" onClick={() => resend.mutate()} loading={resend.isPending}>Resend</Button>}
           {open && <Button variant="secondary" onClick={() => revoke.mutate()} loading={revoke.isPending}>Revoke</Button>}
-          {!open && !member.hasAppAccess && <Button onClick={onSend}><UserPlus size={14} /> New Request</Button>}
+          {!open && !member.appAccessGranted && <Button onClick={onSend}><UserPlus size={14} /> New Request</Button>}
         </div>
       </div>
       {resentLink && <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 p-2">
@@ -1587,7 +1696,7 @@ const REPEAT_OPTIONS = [
   { label: 'Once daily (pick a time)', value: 'daily' },
 ];
 
-function ReminderModal({ memberId, hasAppAccess, onClose }) {
+function ReminderModal({ memberId, appAccessGranted, onClose }) {
   const toast = useToastContext();
   const qc = useQueryClient();
   const [message, setMessage] = useState('');
@@ -1671,7 +1780,7 @@ function ReminderModal({ memberId, hasAppAccess, onClose }) {
   return (
     <Modal title="Send Reminder" onClose={onClose} size="md">
       <div className="space-y-4">
-        {!hasAppAccess && (
+        {!appAccessGranted && (
           <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
             <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
@@ -1792,7 +1901,7 @@ function ReminderModal({ memberId, hasAppAccess, onClose }) {
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Cancel</button>
           <button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !message.trim() || !hasAppAccess}
+            disabled={mutation.isPending || !message.trim() || !appAccessGranted}
             className="px-5 py-2 text-sm font-semibold text-white rounded-lg cursor-pointer disabled:opacity-60"
             style={{ backgroundColor: '#1E3A5F' }}
           >
@@ -2349,6 +2458,8 @@ export default function MemberDetailPage() {
   const [showCreateLogin, setShowCreateLogin] = useState(false);
   const [showAccountAccess, setShowAccountAccess] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showGrantAccess, setShowGrantAccess] = useState(false);
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [showProfileHistory, setShowProfileHistory] = useState(false);
   const [showReferralEdit, setShowReferralEdit] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
@@ -2383,7 +2494,7 @@ export default function MemberDetailPage() {
   const { data: userAccount } = useQuery({
     queryKey: ['memberUserAccount', member?.userId],
     queryFn: () => getUserById(member.userId),
-    enabled: !!member?.userId && !!member?.hasAppAccess,
+    enabled: !!member?.userId && !!member?.appAccessGranted,
   });
 
   const reminderMutation = useMutation({
@@ -2430,6 +2541,17 @@ export default function MemberDetailPage() {
       toast.success('Member account unlocked');
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to unlock account'),
+  });
+
+  const revokeAccessMut = useMutation({
+    mutationFn: () => revokeAppAccess(member.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['member', id] });
+      qc.invalidateQueries({ queryKey: ['members'] });
+      setShowRevokeConfirm(false);
+      toast.success('App access revoked for ' + member.fullName);
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to revoke access'),
   });
 
   const changeRefMutation = useMutation({
@@ -2578,7 +2700,7 @@ export default function MemberDetailPage() {
               )}
 
               {/* App access indicator beside status */}
-              {member.hasAppAccess && !isDeleted && (
+              {member.appAccessGranted && !isDeleted && (
                 <span
                   className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-100"
                   title={userAccount?.lastLoginAt ? `Last active: ${new Date(userAccount.lastLoginAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Never logged in'}
@@ -2664,6 +2786,8 @@ export default function MemberDetailPage() {
               onHistory={() => setShowProfileHistory(true)}
               onLock={() => lockMemberMut.mutate()}
               onUnlock={() => unlockMemberMut.mutate()}
+              onGrantAccess={() => setShowGrantAccess(true)}
+              onRevokeAccess={() => setShowRevokeConfirm(true)}
               reminderPending={reminderMutation.isPending}
               whatsappPending={whatsappMutation.isPending}
               lockPending={lockMemberMut.isPending}
@@ -2868,7 +2992,21 @@ export default function MemberDetailPage() {
         />
       )}
       {showReminderModal && (
-        <ReminderModal memberId={id} hasAppAccess={member?.hasAppAccess} onClose={() => setShowReminderModal(false)} />
+        <ReminderModal memberId={id} appAccessGranted={member?.appAccessGranted} onClose={() => setShowReminderModal(false)} />
+      )}
+      {showGrantAccess && (
+        <GrantAppAccessOtpModal member={member} onClose={() => setShowGrantAccess(false)} />
+      )}
+      {showRevokeConfirm && (
+        <ConfirmDialog
+          variant="danger"
+          title="Revoke App Access"
+          description={`${member.fullName} will no longer be able to log in to this organisation. You can grant access again at any time.`}
+          actionLabel="Revoke Access"
+          loading={revokeAccessMut.isPending}
+          onConfirm={() => revokeAccessMut.mutate()}
+          onClose={() => setShowRevokeConfirm(false)}
+        />
       )}
     </div>
   );
