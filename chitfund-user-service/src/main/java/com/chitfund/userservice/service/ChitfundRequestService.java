@@ -353,7 +353,7 @@ public class ChitfundRequestService {
                 adminId, "ORG_ADMIN",
                 reason != null && !reason.isBlank() ? reason : "Organization suspended member app access");
         eventPublisher.publishEvent(new IdentityNotificationEvent(
-                IdentityNotificationEvent.Type.CHITFUND_REQUEST_REVOKED,
+                IdentityNotificationEvent.Type.CHITFUND_ACCESS_SUSPENDED,
                 request.getCandidateUserId(), request.getId(),
                 request.getTenantId(),
                 tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),

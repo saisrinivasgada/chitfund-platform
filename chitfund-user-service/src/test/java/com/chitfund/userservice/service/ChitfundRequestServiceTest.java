@@ -341,7 +341,7 @@ class ChitfundRequestServiceTest {
         ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
         IdentityNotificationEvent evt = (IdentityNotificationEvent) eventCaptor.getValue();
-        assertThat(evt.type()).isEqualTo(IdentityNotificationEvent.Type.CHITFUND_REQUEST_REVOKED);
+        assertThat(evt.type()).isEqualTo(IdentityNotificationEvent.Type.CHITFUND_ACCESS_SUSPENDED);
     }
 
     @Test
