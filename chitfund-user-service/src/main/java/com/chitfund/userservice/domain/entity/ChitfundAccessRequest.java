@@ -72,6 +72,7 @@ public class ChitfundAccessRequest {
     @Column(name = "phone_verification_pending", nullable = false)
     private boolean phoneVerificationPending;
 
+    @Builder.Default
     @Column(name = "setup_email_status", nullable = false, length = 20)
     private String setupEmailStatus = "UNAVAILABLE";
 

@@ -221,12 +221,13 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
     second_password = "CrossOrg@2"
     recovery_email = f"member-{unique}@example.test"
 
-    # Email is mandatory at the organization boundary.
+    # Email is optional for offline members (sendAppAccess=False). Email is only
+    # required when App Access is requested.
     missing_email = api.as_role("POST", f"{api.member}/members", admin_a, json={
         "fullName": "No Email", "phone": "7" + phone[1:],
         "phoneCountryCode": "+91", "sendAppAccess": False,
     })
-    assert missing_email.status_code == 400
+    assert missing_email.status_code == 201
 
     member_a = _create_member(
         api, admin_a, name="Member Profile A", phone=phone,
