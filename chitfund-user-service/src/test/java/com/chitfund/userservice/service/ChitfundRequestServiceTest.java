@@ -313,7 +313,7 @@ class ChitfundRequestServiceTest {
     // ─── Auto-activation ──────────────────────────────────────────────────────
 
     @Test
-    void completingSetupAdvancesToAwaitingAdmin() {
+    void completingSetupAutoActivates() {
         UUID tenantId = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -354,9 +354,9 @@ class ChitfundRequestServiceTest {
 
         var response = service.completeSetup(input);
 
-        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.AWAITING_ADMIN);
-        verify(tenantService, never()).addUserToTenant(any(), any(), any(), any());
-        assertThat(user.isHasAppAccess()).isFalse();
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.ACTIVE);
+        verify(tenantService).addUserToTenant(userId, tenantId, Role.MEMBER, memberId);
+        assertThat(user.isHasAppAccess()).isTrue();
     }
 
     @Test

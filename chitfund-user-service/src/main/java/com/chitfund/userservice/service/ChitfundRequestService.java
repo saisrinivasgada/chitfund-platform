@@ -536,13 +536,16 @@ public class ChitfundRequestService {
         token.setUsedAt(LocalDateTime.now());
         setupTokenRepository.save(token);
         request.setMemberVerifiedAt(LocalDateTime.now());
-        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
+        // Admin initiated this request; member verification is the final step —
+        // activate immediately without a second admin confirmation.
+        request.setStatus(ChitfundRequestStatus.MEMBER_VERIFIED);
         requestRepository.save(request);
         audit(request, "ACCOUNT_SETUP_VERIFIED", ChitfundRequestStatus.PENDING_MEMBER,
-                ChitfundRequestStatus.AWAITING_ADMIN, user.getId(), "MEMBER",
+                ChitfundRequestStatus.MEMBER_VERIFIED, user.getId(), "MEMBER",
                 smsProviderConfigured
                     ? "New account completed phone and recovery-email verification"
                     : "New account completed email verification (phone pending — SMS provider not configured)");
+        activateAccess(request, user.getId(), "MEMBER", "Auto-activated after member completed setup");
         requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(user.getId(), OPEN)
                 .stream()
                 .filter(other -> !other.getId().equals(request.getId()))
