@@ -23,6 +23,7 @@ import pytest
 # Ports are offset +1000 from prod so a misconfigured client cannot reach the
 # real stack even by accident.
 USER_URL = os.getenv("TEST_USER_URL", "http://127.0.0.1:9081")
+GATEWAY_URL = os.getenv("TEST_GATEWAY_URL", "http://127.0.0.1:9080")
 CHIT_URL = os.getenv("TEST_CHIT_URL", "http://127.0.0.1:9082")
 MEMBER_URL = os.getenv("TEST_MEMBER_URL", "http://127.0.0.1:9083")
 PAYMENT_URL = os.getenv("TEST_PAYMENT_URL", "http://127.0.0.1:9084")
@@ -53,7 +54,7 @@ def _assert_local(host: str) -> None:
 
 def pytest_configure(config):
     _assert_local(DB_HOST)
-    for url in (USER_URL, CHIT_URL, MEMBER_URL, PAYMENT_URL, PAYOUT_URL):
+    for url in (GATEWAY_URL, USER_URL, CHIT_URL, MEMBER_URL, PAYMENT_URL, PAYOUT_URL):
         host = url.split("//", 1)[1].split(":", 1)[0]
         _assert_local(host)
 
@@ -159,8 +160,8 @@ def api():
         "requests", reason="pip install requests to run the cross-service tests")
 
     class Api:
-        user, chit, member, payment, payout = (
-            USER_URL, CHIT_URL, MEMBER_URL, PAYMENT_URL, PAYOUT_URL)
+        gateway, user, chit, member, payment, payout = (
+            GATEWAY_URL, USER_URL, CHIT_URL, MEMBER_URL, PAYMENT_URL, PAYOUT_URL)
 
         def internal(self, method: str, url: str, tenant: str = TENANT_A, **kw):
             """Call an /internal route with the service key and tenant header."""
@@ -269,7 +270,7 @@ def stack_is_up(api):
     """
     requests = pytest.importorskip("requests")
     down = []
-    for name, url in (("user", USER_URL), ("chit", CHIT_URL), ("member", MEMBER_URL),
+    for name, url in (("gateway", GATEWAY_URL), ("user", USER_URL), ("chit", CHIT_URL), ("member", MEMBER_URL),
                       ("payment", PAYMENT_URL), ("payout", PAYOUT_URL)):
         try:
             if requests.get(f"{url}/actuator/health", timeout=5).status_code != 200:

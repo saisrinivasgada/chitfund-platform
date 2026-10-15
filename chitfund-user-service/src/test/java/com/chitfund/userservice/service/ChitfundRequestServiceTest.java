@@ -93,7 +93,6 @@ class ChitfundRequestServiceTest {
             return user;
         });
         when(passwordEncoder.encode(any())).thenReturn("encoded");
-        when(authService.generateSetupToken(eq(userId), any())).thenReturn("setup-token");
         when(otpService.isSmsProviderConfigured()).thenReturn(false);
 
         var response = service.create(tenantId, memberId, "98765 43210", "+91",
@@ -105,7 +104,7 @@ class ChitfundRequestServiceTest {
         assertThat(response.getSetupEmailStatus()).isEqualTo("UNAVAILABLE");
         assertThat(response.isSetupEmailSent()).isFalse();
         assertThat(response.isPhoneVerificationPending()).isFalse();
-        verify(authService).generateSetupToken(userId, response.getId());
+        verify(authService, never()).generateSetupToken(any(), any());
         verify(otpService).sendOtp("9876543210", "+91", "APP_ACCESS_SETUP", response.getId().toString());
         verifyNoInteractions(emailService);
         verifyNoInteractions(setupEmailOutbox);
@@ -126,7 +125,6 @@ class ChitfundRequestServiceTest {
             return user;
         });
         when(passwordEncoder.encode(any())).thenReturn("encoded");
-        when(authService.generateSetupToken(eq(userId), any())).thenReturn("setup-token");
         when(otpService.isSmsProviderConfigured()).thenReturn(false);
 
         var response = service.create(tenantId, memberId, "9876543210", "+91",
@@ -135,6 +133,7 @@ class ChitfundRequestServiceTest {
         assertThat(response.getSetupEmailStatus()).isEqualTo("PENDING");
         assertThat(response.isSetupEmailSent()).isFalse();
         verifyNoInteractions(emailService);
+        verify(authService, never()).generateSetupToken(any(), any());
         verify(setupEmailOutbox).enqueue(eq(response.getId()), eq(userId),
                 eq("member@example.com"), any(), any());
     }
@@ -281,7 +280,6 @@ class ChitfundRequestServiceTest {
         when(userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull("9876543210", "+91"))
                 .thenReturn(List.of(replacementUser));
         when(userRepository.findById(newUserId)).thenReturn(Optional.of(replacementUser));
-        when(authService.generateSetupToken(eq(newUserId), any())).thenReturn("new-setup-token");
         when(otpService.isSmsProviderConfigured()).thenReturn(false);
         java.util.List<ChitfundAccessRequest> saved = new java.util.ArrayList<>();
         doAnswer(call -> {
@@ -650,8 +648,6 @@ class ChitfundRequestServiceTest {
             return u;
         });
         when(passwordEncoder.encode(any())).thenReturn("hash");
-        when(authService.generateSetupToken(any(), any())).thenReturn("token");
-
         // Phone entered with spaces — must be normalized to 9876543210
         var response = service.create(tenantId, memberId, "98765 43210", "+91",
                 "m@example.com", UUID.randomUUID());
@@ -680,6 +676,38 @@ class ChitfundRequestServiceTest {
         verify(requestRepository, never()).save(any());
     }
 
+    @Test
+    void declineSupersedesPendingSetupEmail() {
+        UUID requestId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        ChitfundAccessRequest request = existingRequest(
+                requestId, userId, ChitfundRequestStatus.PENDING_MEMBER);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var response = service.decline(requestId, userId);
+
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.DECLINED);
+        verify(setupEmailOutbox).supersede(requestId);
+    }
+
+    @Test
+    void revokeSupersedesPendingSetupEmail() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+        ChitfundAccessRequest request = existingRequest(
+                requestId, UUID.randomUUID(), ChitfundRequestStatus.PENDING_MEMBER);
+        request.setTenantId(tenantId);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var response = service.revoke(requestId);
+
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.REVOKED);
+        verify(setupEmailOutbox).supersede(requestId);
+    }
+
     // ─── Audit correctness ────────────────────────────────────────────────────
 
     @Test
@@ -694,8 +722,6 @@ class ChitfundRequestServiceTest {
             return u;
         });
         when(passwordEncoder.encode(any())).thenReturn("hash");
-        when(authService.generateSetupToken(any(), any())).thenReturn("token");
-
         service.create(tenantId, memberId, "9000000001", "+91", "m@example.com", UUID.randomUUID());
 
         verify(requestAuditRepository).save(

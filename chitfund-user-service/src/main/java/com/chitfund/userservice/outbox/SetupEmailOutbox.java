@@ -143,11 +143,14 @@ public class SetupEmailOutbox {
                 WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
                 """, command.deliveryId(), command.leaseToken());
         if (outboxUpdated == 0) return false;
-        jdbcTemplate.update("""
+        int requestUpdated = jdbcTemplate.update("""
                 UPDATE chitfund_access_requests
                 SET setup_email_status='SENT', setup_email_sent_at=UTC_TIMESTAMP(6)
                 WHERE id=? AND setup_email_status IN ('PENDING','FAILED')
                 """, command.requestId().toString());
+        if (requestUpdated != 1) {
+            throw new IllegalStateException("Setup-email request delivery state was not finalizable");
+        }
         return true;
     }
 
@@ -167,11 +170,14 @@ public class SetupEmailOutbox {
                 """, attempts, Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)),
                 errorCode, error, command.deliveryId(), command.leaseToken());
         if (updated == 0) return false;
-        jdbcTemplate.update("""
+        int requestUpdated = jdbcTemplate.update("""
                 UPDATE chitfund_access_requests
                 SET setup_email_status='FAILED'
                 WHERE id=? AND setup_email_status IN ('PENDING','SENT')
                 """, command.requestId().toString());
+        if (requestUpdated != 1) {
+            throw new IllegalStateException("Setup-email request failure state was not finalizable");
+        }
         return true;
     }
 

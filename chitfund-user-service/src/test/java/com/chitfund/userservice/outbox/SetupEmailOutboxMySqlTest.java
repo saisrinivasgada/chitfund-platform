@@ -130,6 +130,24 @@ class SetupEmailOutboxMySqlTest {
     }
 
     @Test
+    void completionRollsBackWhenRequestStateCannotBeFinalized() {
+        UUID requestId = UUID.randomUUID();
+        UUID candidateUserId = UUID.randomUUID();
+        insertRequest(requestId, candidateUserId);
+        SetupEmailCommand cmd = enqueueAndClaim(requestId, candidateUserId);
+        jdbc.update("UPDATE chitfund_access_requests SET setup_email_status='UNAVAILABLE' WHERE id=?",
+                requestId.toString());
+
+        assertThatThrownBy(() -> transactions.executeWithoutResult(
+                status -> outbox.markCompletedAndDelivered(cmd)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not finalizable");
+
+        assertThat(outboxStatus(cmd.deliveryId())).isEqualTo("IN_FLIGHT");
+        assertThat(requestEmailStatus(requestId)).isEqualTo("UNAVAILABLE");
+    }
+
+    @Test
     void resend_createsNewPendingAfterCompleted() {
         UUID requestId = UUID.randomUUID();
         UUID candidateUserId = UUID.randomUUID();
@@ -141,6 +159,8 @@ class SetupEmailOutboxMySqlTest {
 
         // resend: supersede (no-op since already COMPLETED) then enqueue new row
         transactions.executeWithoutResult(status -> {
+            jdbc.update("UPDATE chitfund_access_requests SET setup_email_status='PENDING', "
+                    + "setup_email_sent_at=NULL WHERE id=?", requestId.toString());
             outbox.supersede(requestId);
             outbox.enqueue(requestId, candidateUserId, "a@b.com", "Alice", "Org");
         });
@@ -204,6 +224,26 @@ class SetupEmailOutboxMySqlTest {
         assertThat(updated).isTrue();
         assertThat(outboxStatus(cmd.deliveryId())).isEqualTo("FAILED");
         assertThat(requestEmailStatus(requestId)).isEqualTo("FAILED");
+    }
+
+    @Test
+    void terminalFailureRollsBackWhenRequestStateCannotBeFinalized() {
+        UUID requestId = UUID.randomUUID();
+        UUID candidateUserId = UUID.randomUUID();
+        insertRequest(requestId, candidateUserId);
+        SetupEmailCommand cmd = enqueueAndClaim(requestId, candidateUserId);
+        jdbc.update("UPDATE chitfund_access_requests SET setup_email_status='UNAVAILABLE' WHERE id=?",
+                requestId.toString());
+        java.time.LocalDateTime retryAt = java.time.LocalDateTime.now(java.time.ZoneOffset.UTC)
+                .plusMinutes(5);
+
+        assertThatThrownBy(() -> transactions.executeWithoutResult(status ->
+                outbox.markTerminalFailure(cmd, 5, retryAt, "SesException", "quota exceeded")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not finalizable");
+
+        assertThat(outboxStatus(cmd.deliveryId())).isEqualTo("IN_FLIGHT");
+        assertThat(requestEmailStatus(requestId)).isEqualTo("UNAVAILABLE");
     }
 
     @Test

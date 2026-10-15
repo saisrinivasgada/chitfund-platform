@@ -238,7 +238,7 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
     assert member_a["actionToken"]
 
     # The organization profile is immediately usable, but no account is linked
-    # and no app access exists before member verification and admin confirmation.
+    # and no app access exists before the member completes verification.
     pending_profile = db.one(
         "chitfund_member",
         "SELECT user_id,has_app_access FROM members WHERE id=%s",
@@ -414,6 +414,42 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
     assert claims_b["tenantId"] == TENANT_B
     assert claims_a["memberId"] == member_a["id"]
     assert claims_b["memberId"] == member_b["id"]
+
+    # Exercise the actual gateway + user-service authority + member-service
+    # downstream path with the same global user in both organizations.
+    gateway_profile_a = _data(api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_a["accessToken"]))
+    gateway_profile_b = _data(api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_b["accessToken"]))
+    assert gateway_profile_a["id"] == member_a["id"]
+    assert gateway_profile_b["id"] == member_b["id"]
+
+    # Suspend only organization A through the gateway. Reusing the already-issued
+    # A token must fail immediately at the gateway, while B remains available for
+    # the same global user identity.
+    suspended = _data(api.as_role(
+        "POST", f"{api.gateway}/api/chitfund-requests/{request_a_id}/suspend",
+        admin_a, json={"reason": "Disposable cross-organization isolation test"}))
+    assert suspended["status"] == "SUSPENDED"
+
+    denied_a = api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_a["accessToken"])
+    assert denied_a.status_code == 401
+    assert denied_a.json().get("success") is False
+
+    still_active_b = _data(api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_b["accessToken"]))
+    assert still_active_b["id"] == member_b["id"]
+    assert db.scalar(
+        "chitfund_user",
+        "SELECT COUNT(*) FROM member_user_links WHERE user_id=%s AND tenant_id=%s",
+        (user_id, TENANT_A),
+    ) == 0
+    assert db.scalar(
+        "chitfund_user",
+        "SELECT COUNT(*) FROM member_user_links WHERE user_id=%s AND tenant_id=%s",
+        (user_id, TENANT_B),
+    ) == 1
 
 
 def test_request_lifecycle_resend_decline_revoke_and_expiry(api, db, token):
