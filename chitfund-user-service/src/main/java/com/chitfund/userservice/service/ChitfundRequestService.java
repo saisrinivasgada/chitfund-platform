@@ -459,10 +459,18 @@ public class ChitfundRequestService {
             throw new BusinessException(ErrorCode.TOKEN_INVALID,
                     "This setup link is no longer valid for the request");
         }
-        if (input.getPhoneOtp() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Phone OTP is required");
+        SmsDeliveryStatus phoneDelivery = otpService.getDeliveryStatus(
+                request.getRequestedPhone(), SETUP_OTP, request.getId().toString());
+        boolean smsProviderConfigured = phoneDelivery != null
+                && phoneDelivery != SmsDeliveryStatus.PROVIDER_NOT_CONFIGURED;
+        if (smsProviderConfigured) {
+            if (input.getPhoneOtp() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Phone OTP is required");
+            }
+            otpService.verifyOtp(request.getRequestedPhone(), SETUP_OTP, request.getId().toString(), input.getPhoneOtp());
         }
-        otpService.verifyOtp(request.getRequestedPhone(), SETUP_OTP, request.getId().toString(), input.getPhoneOtp());
+        // When SMS provider is not configured: skip phone verification.
+        // phoneVerifiedAt stays null — phone verification pending until SMS is available.
         passwordValidator.validate(input.getNewPassword());
         if (input.getUsername() != null && !input.getUsername().isBlank()
                 && !input.getUsername().equalsIgnoreCase(user.getUsername())) {
@@ -494,7 +502,9 @@ public class ChitfundRequestService {
         requestRepository.save(request);
         audit(request, "ACCOUNT_SETUP_VERIFIED", ChitfundRequestStatus.PENDING_MEMBER,
                 ChitfundRequestStatus.MEMBER_VERIFIED, user.getId(), "MEMBER",
-                "New account completed phone and recovery-email verification");
+                smsProviderConfigured
+                    ? "New account completed phone and recovery-email verification"
+                    : "New account completed email verification (phone pending — SMS provider not configured)");
         activateAccess(request, user.getId(), "MEMBER", "Auto-activated after member completed setup");
         requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(user.getId(), OPEN)
                 .stream()
@@ -534,6 +544,7 @@ public class ChitfundRequestService {
                 .expiresAt(request.getExpiresAt())
                 .emailRecoveryAvailable(request.getRequestKind() == ChitfundRequestKind.LINK_EXISTING
                         && user.getEmail() != null && user.getEmailVerifiedAt() != null)
+                .phoneVerificationPending(!otpService.isSmsProviderConfigured())
                 .build();
     }
 

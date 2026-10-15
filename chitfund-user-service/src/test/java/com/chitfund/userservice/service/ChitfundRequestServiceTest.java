@@ -267,6 +267,9 @@ class ChitfundRequestServiceTest {
         when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         when(requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(eq(userId), any()))
                 .thenReturn(new ArrayList<>());
+        // SMS not configured — phone OTP is not required
+        when(otpService.getDeliveryStatus(any(), any(), any()))
+                .thenReturn(com.chitfund.userservice.domain.enums.SmsDeliveryStatus.PROVIDER_NOT_CONFIGURED);
 
         SetupAccountRequest input = new SetupAccountRequest();
         input.setToken("raw-token");
