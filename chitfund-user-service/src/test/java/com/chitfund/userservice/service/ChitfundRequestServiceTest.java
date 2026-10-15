@@ -10,6 +10,7 @@ import com.chitfund.userservice.domain.enums.ChitfundRequestKind;
 import com.chitfund.userservice.domain.enums.ChitfundRequestStatus;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.SetupAccountRequest;
+import com.chitfund.userservice.outbox.MemberDeactivationCommandOutbox;
 import com.chitfund.userservice.repository.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,8 @@ class ChitfundRequestServiceTest {
     @Mock ChitfundRequestStateService requestStateService;
     @Mock ChitfundRequestAuditRepository requestAuditRepository;
     @Mock org.springframework.context.ApplicationEventPublisher eventPublisher;
+    @Mock RefreshTokenRepository refreshTokenRepository;
+    @Mock MemberDeactivationCommandOutbox deactivationOutbox;
     ChitfundRequestService service;
 
     @BeforeEach
@@ -54,7 +57,8 @@ class ChitfundRequestServiceTest {
         service = new ChitfundRequestService(requestRepository, userRepository, memberLinkRepository,
                 tenantRepository, setupTokenRepository, emailOtpService, passwordEncoder,
                 passwordValidator, otpService, authService, tenantService,
-                requestStateService, requestAuditRepository, eventPublisher);
+                requestStateService, requestAuditRepository, eventPublisher,
+                refreshTokenRepository, deactivationOutbox);
         lenient().when(requestRepository.findFirstByTenantIdAndMemberIdAndStatusInOrderByCreatedAtDesc(any(), any(), any()))
                 .thenReturn(Optional.empty());
         lenient().when(requestRepository.saveAndFlush(any())).thenAnswer(call -> {
@@ -316,7 +320,7 @@ class ChitfundRequestServiceTest {
     // ─── Suspend ──────────────────────────────────────────────────────────────
 
     @Test
-    void suspendDeletesTenantLinkAndClearsHasAppAccess() {
+    void suspendDeletesTenantLinkClearsHasAppAccessRevokesTokensAndEnqueuesOutbox() {
         UUID tenantId = UUID.randomUUID();
         UUID requestId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -341,10 +345,30 @@ class ChitfundRequestServiceTest {
         assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.SUSPENDED);
         verify(memberLinkRepository).delete(link);
         assertThat(user.isHasAppAccess()).isFalse();
+        // Refresh tokens must be revoked for the tenant so existing access tokens become invalid
+        verify(refreshTokenRepository).revokeAllActiveByUserAndTenant(user, tenantId.toString());
+        // Deactivation outbox must be enqueued so member-service is notified asynchronously
+        verify(deactivationOutbox).enqueue(requestId, tenantId, memberId, userId);
         ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
         IdentityNotificationEvent evt = (IdentityNotificationEvent) eventCaptor.getValue();
         assertThat(evt.type()).isEqualTo(IdentityNotificationEvent.Type.CHITFUND_ACCESS_SUSPENDED);
+    }
+
+    @Test
+    void suspendDoesNotRevokeTokensOrEnqueueOutboxForAlreadySuspended() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, UUID.randomUUID(), ChitfundRequestStatus.SUSPENDED);
+        request.setTenantId(tenantId);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+
+        service.suspend(requestId, UUID.randomUUID(), null);
+
+        verify(refreshTokenRepository, never()).revokeAllActiveByUserAndTenant(any(), any());
+        verify(deactivationOutbox, never()).enqueue(any(), any(), any(), any());
     }
 
     @Test

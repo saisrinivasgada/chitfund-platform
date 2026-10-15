@@ -8,6 +8,7 @@ import com.chitfund.userservice.domain.enums.*;
 import com.chitfund.userservice.dto.request.SetupAccountRequest;
 import com.chitfund.userservice.dto.response.ChitfundRequestResponse;
 import com.chitfund.userservice.dto.response.ChitfundRequestPublicResponse;
+import com.chitfund.userservice.outbox.MemberDeactivationCommandOutbox;
 import com.chitfund.userservice.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -46,6 +47,8 @@ public class ChitfundRequestService {
     private final ChitfundRequestStateService requestStateService;
     private final ChitfundRequestAuditRepository requestAuditRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final MemberDeactivationCommandOutbox deactivationOutbox;
 
     @Transactional
     public ChitfundRequestResponse create(UUID tenantId, UUID memberId, String phone,
@@ -338,12 +341,14 @@ public class ChitfundRequestService {
         memberLinkRepository.findByMemberIdAndTenantId(request.getMemberId(), request.getTenantId())
                 .ifPresent(memberLinkRepository::delete);
         // Clear hasAppAccess if no other tenant links remain and the account is MEMBER role.
+        // Also revoke tenant-scoped refresh tokens for immediate session invalidation.
         userRepository.findById(request.getCandidateUserId()).ifPresent(u -> {
             if (u.getRole() == com.chitfund.userservice.domain.enums.Role.MEMBER
                     && !memberLinkRepository.existsByUserId(u.getId())) {
                 u.setHasAppAccess(false);
                 userRepository.save(u);
             }
+            refreshTokenRepository.revokeAllActiveByUserAndTenant(u, request.getTenantId().toString());
         });
         ChitfundRequestStatus previous = request.getStatus();
         request.setStatus(ChitfundRequestStatus.SUSPENDED);
@@ -352,6 +357,9 @@ public class ChitfundRequestService {
         audit(request, "ACCESS_SUSPENDED", previous, ChitfundRequestStatus.SUSPENDED,
                 adminId, "ORG_ADMIN",
                 reason != null && !reason.isBlank() ? reason : "Organization suspended member app access");
+        // Async: clear member-service user_id link via outbox (idempotent retry-safe command).
+        deactivationOutbox.enqueue(request.getId(), request.getTenantId(),
+                request.getMemberId(), request.getCandidateUserId());
         eventPublisher.publishEvent(new IdentityNotificationEvent(
                 IdentityNotificationEvent.Type.CHITFUND_ACCESS_SUSPENDED,
                 request.getCandidateUserId(), request.getId(),
