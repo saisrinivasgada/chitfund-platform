@@ -59,8 +59,8 @@ public class AuthService {
     @Value("${jwt.access-token-expiry-ms}")
     private long accessTokenExpiryMs;
 
-    @Value("${app.email.enabled:false}")
-    private boolean emailEnabled;
+    @Value("${app.dev.otp-exposure.enabled:false}")
+    private boolean devOtpExposureEnabled;
 
     @Value("${jwt.refresh-token-expiry-days}")
     private int refreshTokenExpiryDays;
@@ -695,7 +695,7 @@ public class AuthService {
         User user = emailVerificationUser(verificationToken);
         String otp = accountEmailOtpService.send(user.getId().toString(), user.getEmail(),
                 LOGIN_EMAIL_VERIFICATION, user.getFullName());
-        return !emailEnabled ? otp : null;
+        return devOtpExposureEnabled ? otp : null;
     }
 
     public LoginResponse verifyLoginEmailOtp(String verificationToken, String code) {
@@ -743,7 +743,7 @@ public class AuthService {
                 .requiresEmailVerification(true)
                 .emailVerificationToken(jwtTokenProvider.generateEmailVerificationToken(user))
                 .maskedEmail(maskEmail(user.getEmail()))
-                .devOtp(!emailEnabled ? otp : null)
+                .devOtp(devOtpExposureEnabled ? otp : null)
                 .build();
     }
 

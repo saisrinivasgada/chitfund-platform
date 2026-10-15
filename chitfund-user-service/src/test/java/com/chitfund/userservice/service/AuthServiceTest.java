@@ -352,8 +352,8 @@ class AuthServiceTest {
     }
 
     @Test
-    void loginReturnsDevOtpWhenEmailDisabled() throws Exception {
-        // When app.email.enabled=false (local dev), the devOtp field in LoginResponse
+    void loginReturnsDevOtpWhenExposureEnabled() throws Exception {
+        // When app.dev.otp-exposure.enabled=true, the devOtp field in LoginResponse
         // must contain the OTP so developers can complete email-OTP flows without a real mailbox.
         UUID userId = UUID.randomUUID();
         User user = User.builder().id(userId).username("org.admin")
@@ -371,18 +371,20 @@ class AuthServiceTest {
         when(accountEmailOtpService.send(any(), any(), any(), any())).thenReturn("654321");
         when(jwtTokenProvider.generateEmailVerificationToken(user)).thenReturn("ev-jwt");
 
-        var emailEnabledField = AuthService.class.getDeclaredField("emailEnabled");
-        emailEnabledField.setAccessible(true);
-        emailEnabledField.set(authService, false);
+        var field = AuthService.class.getDeclaredField("devOtpExposureEnabled");
+        field.setAccessible(true);
+        field.set(authService, true);
 
         var response = authService.login(request, null);
 
         assertThat(response.isRequiresEmailVerification()).isTrue();
         assertThat(response.getDevOtp()).isEqualTo("654321");
+
+        field.set(authService, false); // restore
     }
 
     @Test
-    void loginDoesNotExposeDevOtpWhenEmailEnabled() throws Exception {
+    void loginDoesNotExposeDevOtpByDefault() throws Exception {
         UUID userId = UUID.randomUUID();
         User user = User.builder().id(userId).username("org.admin2")
                 .passwordHash("hash").role(Role.ADMIN).tenantId("tenant-1")
@@ -398,14 +400,49 @@ class AuthServiceTest {
         when(userRepository.save(any())).thenReturn(user);
         when(accountEmailOtpService.send(any(), any(), any(), any())).thenReturn("999999");
         when(jwtTokenProvider.generateEmailVerificationToken(user)).thenReturn("ev-jwt");
-
-        var emailEnabledField = AuthService.class.getDeclaredField("emailEnabled");
-        emailEnabledField.setAccessible(true);
-        emailEnabledField.set(authService, true);
+        // devOtpExposureEnabled defaults to false — no reflection needed
 
         var response = authService.login(request, null);
 
         assertThat(response.isRequiresEmailVerification()).isTrue();
         assertThat(response.getDevOtp()).isNull();
+    }
+
+    @Test
+    void devOtpExposureGuardThrowsOnProdProfile() {
+        var guard = new com.chitfund.userservice.config.DevOtpExposureGuard(
+                new org.springframework.mock.env.MockEnvironment()
+                        .withProperty("spring.profiles.active", "prod"));
+        try {
+            var field = com.chitfund.userservice.config.DevOtpExposureGuard.class
+                    .getDeclaredField("devOtpExposureEnabled");
+            field.setAccessible(true);
+            field.set(guard, true);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        // MockEnvironment doesn't auto-activate profiles from property; set directly
+        org.springframework.mock.env.MockEnvironment env = new org.springframework.mock.env.MockEnvironment();
+        env.setActiveProfiles("prod");
+        var guard2 = new com.chitfund.userservice.config.DevOtpExposureGuard(env);
+        try {
+            var field = com.chitfund.userservice.config.DevOtpExposureGuard.class
+                    .getDeclaredField("devOtpExposureEnabled");
+            field.setAccessible(true);
+            field.set(guard2, true);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> guard2.validate());
+    }
+
+    @Test
+    void devOtpExposureGuardDoesNotThrowOnNonProdWithExposureDisabled() {
+        org.springframework.mock.env.MockEnvironment env = new org.springframework.mock.env.MockEnvironment();
+        env.setActiveProfiles("prod");
+        var guard = new com.chitfund.userservice.config.DevOtpExposureGuard(env);
+        // devOtpExposureEnabled defaults to false — should not throw even on prod
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> guard.validate());
     }
 }
