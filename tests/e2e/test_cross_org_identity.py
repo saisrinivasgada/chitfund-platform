@@ -273,7 +273,9 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
             "emailOtp": email_otp,
             "termsAccepted": True,
         }))
-    assert setup["status"] == "AWAITING_ADMIN"
+    # NEW_ACCOUNT requests auto-activate after member verification — no admin
+    # confirmation step required for first-time setups.
+    assert setup["status"] == "ACTIVE"
     user_id = db.scalar(
         "chitfund_user", "SELECT candidate_user_id FROM chitfund_access_requests WHERE id=%s",
         (request_a_id,))
@@ -281,7 +283,7 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
         "chitfund_user",
         "SELECT email_verified_at,has_app_access FROM users WHERE id=%s", (user_id,))
     assert verified_user["email_verified_at"] is not None
-    assert verified_user["has_app_access"] == 0
+    assert verified_user["has_app_access"] == 1
 
     activated_a = _data(api.as_role(
         "POST", f"{api.user}/api/chitfund-requests/{request_a_id}/confirm", admin_a))
