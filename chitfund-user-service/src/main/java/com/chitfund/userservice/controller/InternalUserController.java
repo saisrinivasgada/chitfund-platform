@@ -2,6 +2,7 @@ package com.chitfund.userservice.controller;
 
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.service.AuthService;
 import com.chitfund.userservice.service.TenantService;
@@ -27,11 +28,13 @@ import java.util.UUID;
 public class InternalUserController {
 
     private final UserRepository userRepository;
+    private final MemberUserLinkRepository memberLinkRepository;
     private final TenantService tenantService;
     private final AuthService authService;
     private final PasswordEncoder passwordEncoder;
     private final ChitfundRequestService chitfundRequestService;
     private final IdentityReassignmentService identityReassignmentService;
+    private final com.chitfund.userservice.service.AppAccessGrantService appAccessGrantService;
 
     @PostMapping("/identity-operations/phone-reassignment")
     public ResponseEntity<?> executePhoneReassignment(
@@ -140,6 +143,34 @@ public class InternalUserController {
         return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
                 "error", "AUTH_FLOW_RETIRED",
                 "message", "Resend the active Chitfund Request"));
+    }
+
+    @PostMapping("/revoke-app-access")
+    public ResponseEntity<?> revokeAppAccess(
+            @RequestHeader(value = "X-Internal-Key", required = true) String key,
+            @RequestBody Map<String, String> body) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        String memberIdS = body.get("memberId");
+        String tenantIdS = body.get("tenantId");
+        if (memberIdS == null || tenantIdS == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "memberId and tenantId are required"));
+        }
+        appAccessGrantService.revokeAccess(UUID.fromString(memberIdS), UUID.fromString(tenantIdS));
+        return ResponseEntity.ok(Map.of("status", "REVOKED"));
+    }
+
+    /**
+     * Gateway membership authority. Returns {active:true} when the userId+tenantId link
+     * exists, {active:false} when absent (suspended/revoked). Gateway fails closed on error.
+     */
+    @GetMapping("/member-link/check")
+    public ResponseEntity<Map<String, Boolean>> checkMemberLink(
+            @RequestParam UUID userId,
+            @RequestParam UUID tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = true) String key) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        boolean active = memberLinkRepository.existsByUserIdAndTenantId(userId, tenantId);
+        return ResponseEntity.ok(Map.of("active", active));
     }
 
     private String generateUsername(String phone, String countryCode) {

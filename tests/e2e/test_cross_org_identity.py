@@ -37,16 +37,16 @@ def _seed_tenant_and_admin(db, tenant_id: str, label: str) -> str:
     db.query(
         "chitfund_user",
         """INSERT INTO tenant_custom_limits
-           (tenant_id,max_active_chits,max_members,max_staff,capabilities,
+           (tenant_id,max_active_chits,max_members,max_staff,add_ons,
             allowed_chit_types,price_monthly_inr,notes,created_at,updated_at,plan_code)
-           SELECT %s,max_active_chits,max_members,max_staff,capabilities,
+           SELECT %s,max_active_chits,max_members,max_staff,add_ons,
                   allowed_chit_types,price_monthly_inr,NULL,
                   UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),plan
            FROM plan_limits WHERE plan='GROWTH'
            ON DUPLICATE KEY UPDATE
              max_active_chits=VALUES(max_active_chits),
              max_members=VALUES(max_members), max_staff=VALUES(max_staff),
-             capabilities=VALUES(capabilities),
+             add_ons=VALUES(add_ons),
              allowed_chit_types=VALUES(allowed_chit_types),
              price_monthly_inr=VALUES(price_monthly_inr), plan_code=VALUES(plan_code),
              updated_at=UTC_TIMESTAMP(6)""",
@@ -221,12 +221,13 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
     second_password = "CrossOrg@2"
     recovery_email = f"member-{unique}@example.test"
 
-    # Email is mandatory at the organization boundary.
+    # Email is optional for offline members (sendAppAccess=False). Email is only
+    # required when App Access is requested.
     missing_email = api.as_role("POST", f"{api.member}/members", admin_a, json={
         "fullName": "No Email", "phone": "7" + phone[1:],
         "phoneCountryCode": "+91", "sendAppAccess": False,
     })
-    assert missing_email.status_code == 400
+    assert missing_email.status_code == 201
 
     member_a = _create_member(
         api, admin_a, name="Member Profile A", phone=phone,
@@ -237,7 +238,7 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
     assert member_a["actionToken"]
 
     # The organization profile is immediately usable, but no account is linked
-    # and no app access exists before member verification and admin confirmation.
+    # and no app access exists before the member completes verification.
     pending_profile = db.one(
         "chitfund_member",
         "SELECT user_id,has_app_access FROM members WHERE id=%s",
@@ -272,7 +273,9 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
             "emailOtp": email_otp,
             "termsAccepted": True,
         }))
-    assert setup["status"] == "AWAITING_ADMIN"
+    # NEW_ACCOUNT requests auto-activate after member verification — no admin
+    # confirmation step required for first-time setups.
+    assert setup["status"] == "ACTIVE"
     user_id = db.scalar(
         "chitfund_user", "SELECT candidate_user_id FROM chitfund_access_requests WHERE id=%s",
         (request_a_id,))
@@ -280,7 +283,7 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
         "chitfund_user",
         "SELECT email_verified_at,has_app_access FROM users WHERE id=%s", (user_id,))
     assert verified_user["email_verified_at"] is not None
-    assert verified_user["has_app_access"] == 0
+    assert verified_user["has_app_access"] == 1
 
     activated_a = _data(api.as_role(
         "POST", f"{api.user}/api/chitfund-requests/{request_a_id}/confirm", admin_a))
@@ -411,6 +414,42 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
     assert claims_b["tenantId"] == TENANT_B
     assert claims_a["memberId"] == member_a["id"]
     assert claims_b["memberId"] == member_b["id"]
+
+    # Exercise the actual gateway + user-service authority + member-service
+    # downstream path with the same global user in both organizations.
+    gateway_profile_a = _data(api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_a["accessToken"]))
+    gateway_profile_b = _data(api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_b["accessToken"]))
+    assert gateway_profile_a["id"] == member_a["id"]
+    assert gateway_profile_b["id"] == member_b["id"]
+
+    # Suspend only organization A through the gateway. Reusing the already-issued
+    # A token must fail immediately at the gateway, while B remains available for
+    # the same global user identity.
+    suspended = _data(api.as_role(
+        "POST", f"{api.gateway}/api/chitfund-requests/{request_a_id}/suspend",
+        admin_a, json={"reason": "Disposable cross-organization isolation test"}))
+    assert suspended["status"] == "SUSPENDED"
+
+    denied_a = api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_a["accessToken"])
+    assert denied_a.status_code == 401
+    assert denied_a.json().get("success") is False
+
+    still_active_b = _data(api.as_role(
+        "GET", f"{api.gateway}/api/members/me", session_b["accessToken"]))
+    assert still_active_b["id"] == member_b["id"]
+    assert db.scalar(
+        "chitfund_user",
+        "SELECT COUNT(*) FROM member_user_links WHERE user_id=%s AND tenant_id=%s",
+        (user_id, TENANT_A),
+    ) == 0
+    assert db.scalar(
+        "chitfund_user",
+        "SELECT COUNT(*) FROM member_user_links WHERE user_id=%s AND tenant_id=%s",
+        (user_id, TENANT_B),
+    ) == 1
 
 
 def test_request_lifecycle_resend_decline_revoke_and_expiry(api, db, token):

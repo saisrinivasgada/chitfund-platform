@@ -8,7 +8,7 @@ import { useUIStore } from '../../../store/uiStore';
 import { getAuditLogs, getBillingInfo } from '../../../services/api';
 import { useAdminStartupPrefetch } from '../../../offline/useStartupPrefetch';
 import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
-import CapabilityGateModal from '../../../components/CapabilityGateModal';
+import AddOnGateModal from '../../../components/AddOnGateModal';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -76,7 +76,7 @@ export default function AdminLayout() {
         </Pressable>
       </Pressable>
     </Modal>
-    <CapabilityGateModal />
+    <AddOnGateModal />
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,

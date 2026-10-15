@@ -5,7 +5,7 @@ import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
-import com.chitfund.reportingservice.client.PlanCapabilityClient;
+import com.chitfund.reportingservice.client.PlanAddOnClient;
 import com.chitfund.reportingservice.dto.response.ChitCollectionReport;
 import com.chitfund.reportingservice.dto.response.MemberStatementReport;
 import com.chitfund.reportingservice.dto.response.PayoutSummaryReport;
@@ -24,16 +24,16 @@ import java.util.List;
 public class ReportController {
 
     private final ReportQueryService queryService;
-    private final PlanCapabilityClient capabilityClient;
+    private final PlanAddOnClient addOnClient;
 
-    private static final String CAP_ANALYTICS = "full_analytics";
+    private static final String ADD_ON_ANALYTICS = "full_analytics";
     private static final String UPGRADE_MSG =
             "Analytics reports are not included in your current plan. " +
             "Please upgrade to access reports.";
 
     private void requireAnalytics() {
         String tenantId = TenantContext.get();
-        if (!capabilityClient.hasCapability(tenantId, CAP_ANALYTICS)) {
+        if (!addOnClient.hasAddOn(tenantId, ADD_ON_ANALYTICS)) {
             throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED, UPGRADE_MSG);
         }
     }

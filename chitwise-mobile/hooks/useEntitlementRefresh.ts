@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getMyEffectiveLimits } from '../services/api';
 import { useAuthStore } from '../store/authStore';
 
-/** Keeps successful client capability hints current; APIs remain authoritative. */
+/** Keeps successful client add-on hints current; APIs remain authoritative. */
 export function useEntitlementRefresh() {
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);

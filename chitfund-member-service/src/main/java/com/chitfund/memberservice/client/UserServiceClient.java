@@ -75,6 +75,18 @@ public class UserServiceClient {
         return response.getBody();
     }
 
+    public void revokeAppAccess(String tenantId, UUID memberId) {
+        Map<String, String> body = new HashMap<>();
+        body.put("tenantId", tenantId);
+        body.put("memberId", memberId.toString());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Internal-Key", internalKey);
+        restTemplate.exchange(
+                userServiceUrl + "/internal/users/revoke-app-access", HttpMethod.POST,
+                new HttpEntity<>(body, headers), Map.class);
+    }
+
     @SuppressWarnings("unchecked")
     public Map<String, Object> getEffectiveLimits(String tenantId) {
         try {

@@ -3,6 +3,7 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.PhoneOtp;
+import com.chitfund.userservice.domain.enums.SmsDeliveryStatus;
 import com.chitfund.userservice.repository.PhoneOtpRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,8 +69,11 @@ public class OtpService {
                 .attempts(0)
                 .verified(false)
                 .build();
+        record.setDeliveryStatus(SmsDeliveryStatus.GENERATED);
         otpRepo.save(record);
-        smsService.sendOtp(phone, record.getCountryCode(), otp);
+        SmsDeliveryStatus deliveryStatus = smsService.sendOtp(phone, record.getCountryCode(), otp);
+        record.setDeliveryStatus(deliveryStatus);
+        otpRepo.save(record);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)
@@ -128,6 +132,17 @@ public class OtpService {
         record.setVerified(true);
         otpRepo.save(record);
         return record.getId();
+    }
+
+    public SmsDeliveryStatus getDeliveryStatus(String phone, String purpose, String referenceId) {
+        return otpRepo.findFirstByPhoneAndPurposeAndUserIdAndVerifiedFalseAndExpiresAtAfterOrderByCreatedAtDesc(
+                        phone, purpose, referenceId, java.time.LocalDateTime.now())
+                .map(PhoneOtp::getDeliveryStatus)
+                .orElse(null);
+    }
+
+    public boolean isSmsProviderConfigured() {
+        return smsService.isConfigured();
     }
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();

@@ -34,3 +34,15 @@ logs/
 
 # Expo device history and local development-server state
 chitwise-mobile/.expo/
+
+# Private project documents live outside this repository in Projects/chitwise.
+# Prevent the removed plans/guides from being accidentally added again.
+/ARCHITECTURE.md
+/docs/
+/ops/runbooks/
+/tests/DESIGN-*.md
+/tests/PLAN-*.md
+/tests/e2e/PRODUCTION_DUPLICATE_SETTLEMENT_CHECK.md
+/chitfund-frontend/CLAUDE.md
+/chitfund-frontend/README.md
+/chitfund-user-service/src/main/resources/db/migration/README.md

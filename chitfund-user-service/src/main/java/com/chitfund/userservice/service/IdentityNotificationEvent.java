@@ -19,6 +19,7 @@ public record IdentityNotificationEvent(
     public enum Type {
         CHITFUND_REQUEST_CREATED,
         CHITFUND_ACCESS_ACTIVATED,
+        CHITFUND_ACCESS_SUSPENDED,
         CHITFUND_REQUEST_REVOKED,
         PHONE_IDENTITY_REASSIGNED
     }

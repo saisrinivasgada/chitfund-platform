@@ -57,7 +57,7 @@ class PlanMutationMySqlConcurrencyTest {
                 .displayName("Original")
                 .tagline("Original tagline")
                 .features("[]")
-                .capabilities("[]")
+                .addOns("[]")
                 .maxActiveChits(1)
                 .maxMembers(20)
                 .maxStaff(0)

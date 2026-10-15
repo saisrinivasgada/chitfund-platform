@@ -813,21 +813,21 @@ export default function BillingPage() {
 
           </div>{/* end top grid */}
 
-          {/* ── Capabilities card ── */}
+          {/* ── Add-ons card ── */}
           {effectiveLimits && (() => {
-            const ALL_CAPS = [
+            const ALL_ADD_ONS = [
               { key: 'live_chat',        label: 'Member Messaging & Group Chat',    desc: 'Members and admins can chat in real time',                 icon: MessageSquare },
               { key: 'settlement',       label: 'Member Early-Exit Settlement',     desc: 'Calculate and record member exit settlements automatically', icon: HandCoins },
               { key: 'full_analytics',   label: 'Full Analytics & Reports',         desc: 'Advanced reports and export tools',                         icon: BarChart2 },
               { key: 'priority_support', label: 'Priority Support',                 desc: 'Faster response times from our team',                       icon: Headphones },
             ];
-            const enabled = new Set(effectiveLimits.enabledCapabilities ?? []);
-            const missingAny = ALL_CAPS.some(c => !enabled.has(c.key));
+            const enabled = new Set(effectiveLimits.enabledAddOns ?? []);
+            const missingAny = ALL_ADD_ONS.some(c => !enabled.has(c.key));
             return (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
-                <p className="text-sm font-semibold text-gray-800 mb-4">Plan Features</p>
+                <p className="text-sm font-semibold text-gray-800 mb-4">Add-ons</p>
                 <div className="space-y-3">
-                  {ALL_CAPS.map(({ key, label, desc, icon: Icon }) => {
+                  {ALL_ADD_ONS.map(({ key, label, desc, icon: Icon }) => {
                     const active = enabled.has(key);
                     return (
                       <div key={key} className={`flex items-center gap-3 p-3 rounded-xl border ${active ? 'border-green-100 bg-green-50/50' : 'border-gray-100 bg-gray-50/60'}`}>
@@ -848,7 +848,7 @@ export default function BillingPage() {
                 </div>
                 {missingAny && (
                   <p className="text-xs text-gray-400 mt-4 text-center">
-                    Locked features are available on higher plans.{' '}
+                    Locked add-ons are available on higher plans.{' '}
                     {hasOtherPlans && <button onClick={() => setShowUpgradeModal(true)} className="text-[#1E3A5F] font-medium hover:underline cursor-pointer">View plans →</button>}
                   </p>
                 )}

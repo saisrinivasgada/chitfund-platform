@@ -10,15 +10,15 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Internal-only endpoint consumed by sibling services to check what capabilities
+ * Internal-only endpoint consumed by sibling services to check what add-ons
  * a tenant's plan grants.  Not routed through the API gateway; X-Internal-Key is
  * a defence-in-depth guard.
  */
 @RestController
-@RequestMapping("/internal/capabilities")
+@RequestMapping("/internal/add-ons")
 @RequiredArgsConstructor
 @Slf4j
-public class InternalCapabilityController {
+public class InternalAddOnController {
 
     private final TenantService tenantService;
 
@@ -26,26 +26,26 @@ public class InternalCapabilityController {
     private String internalKey;
 
     /**
-     * Returns the list of capability keys enabled for this tenant.
-     * Custom-plan tenants get their capabilities from tenant_custom_limits;
+     * Returns the list of add-on keys enabled for this tenant.
+     * Custom-plan tenants get their add-ons from tenant_custom_limits;
      * all others get them from plan_limits.
      *
      * Example response: ["full_analytics", "digital_payments"]
      */
     @GetMapping("/tenants/{tenantId}")
-    public ResponseEntity<List<String>> getTenantCapabilities(
+    public ResponseEntity<List<String>> getTenantAddOns(
             @PathVariable String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
-            log.warn("Internal capability check rejected — bad key for tenant {}", tenantId);
+            log.warn("Internal add-on check rejected — bad key for tenant {}", tenantId);
             return ResponseEntity.status(403).build();
         }
 
         try {
-            return ResponseEntity.ok(tenantService.resolveCapabilitiesForTenant(tenantId));
+            return ResponseEntity.ok(tenantService.resolveAddOnsForTenant(tenantId));
         } catch (Exception e) {
-            log.error("Error fetching capabilities for tenant {}: {}", tenantId, e.getMessage());
+            log.error("Error fetching add-ons for tenant {}: {}", tenantId, e.getMessage());
             return ResponseEntity.ok(List.of());
         }
     }

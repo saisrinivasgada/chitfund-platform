@@ -4,6 +4,7 @@ import com.chitfund.userservice.domain.enums.ChitfundRequestStatus;
 import com.chitfund.userservice.domain.entity.ChitfundRequestAudit;
 import com.chitfund.userservice.repository.ChitfundAccessRequestRepository;
 import com.chitfund.userservice.repository.ChitfundRequestAuditRepository;
+import com.chitfund.userservice.outbox.SetupEmailOutbox;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -27,6 +28,7 @@ public class ChitfundRequestStateService {
 
     private final ChitfundAccessRequestRepository requestRepository;
     private final ChitfundRequestAuditRepository auditRepository;
+    private final SetupEmailOutbox setupEmailOutbox;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean expireIfDue(UUID requestId, LocalDateTime now) {
@@ -40,6 +42,10 @@ public class ChitfundRequestStateService {
         boolean expired = requestRepository.expireByIdIfDue(
                 requestId, OPEN, ChitfundRequestStatus.EXPIRED, now) > 0;
         if (expired) {
+            // A queued setup email must not be delivered after the request expires.
+            // An already in-flight provider call cannot be recalled, but its link is
+            // rejected by completeSetup because the request is no longer open.
+            setupEmailOutbox.supersede(requestId);
             auditRepository.save(ChitfundRequestAudit.builder()
                     .requestId(requestId)
                     .action("REQUEST_EXPIRED")

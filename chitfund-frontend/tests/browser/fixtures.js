@@ -17,7 +17,7 @@ function json(data, status = 200) {
 /**
  * Starts a real rendered React session while keeping the data deterministic.
  * These tests deliberately mock API responses: they prove UI values, filters,
- * navigation and capability states, and are not labelled gateway E2E.
+ * navigation and addOn states, and are not labelled gateway E2E.
  */
 export async function installAuthenticatedApp(page, {
   analyticsEnabled = false,

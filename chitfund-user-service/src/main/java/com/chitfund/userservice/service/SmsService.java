@@ -1,5 +1,8 @@
 package com.chitfund.userservice.service;
 
+import com.chitfund.userservice.domain.enums.SmsDeliveryStatus;
+
 public interface SmsService {
-    void sendOtp(String phone, String countryCode, String otp);
+    SmsDeliveryStatus sendOtp(String phone, String countryCode, String otp);
+    boolean isConfigured();
 }

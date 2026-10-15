@@ -511,7 +511,7 @@ function NewChatModal({
 
   const dmMembers = useMemo(() => {
     return (membersRaw as any[])
-      .filter((m: any) => m.userId && m.hasAppAccess)
+      .filter((m: any) => m.userId && m.appAccessGranted)
       .sort((a: any, b: any) => (a.fullName ?? a.name ?? '').localeCompare(b.fullName ?? b.name ?? ''));
   }, [membersRaw]);
 
@@ -860,7 +860,7 @@ function UnifiedList({
     const hasConvMatch = filtered.some((i) => i._type === 'conv');
     if (hasConvMatch) return []; // existing convos already shown
     return (membersRaw as any[])
-      .filter((m: any) => m.userId && m.hasAppAccess && !existingMemberIds.has(m.memberId ?? m.id))
+      .filter((m: any) => m.userId && m.appAccessGranted && !existingMemberIds.has(m.memberId ?? m.id))
       .filter((m: any) => (m.fullName ?? m.name ?? '').toLowerCase().includes(q))
       .slice(0, 5);
   }, [membersRaw, q, filtered, existingMemberIds]);

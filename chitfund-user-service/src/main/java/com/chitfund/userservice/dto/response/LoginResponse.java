@@ -36,4 +36,8 @@ public class LoginResponse {
 
     // Populated after OTP verified with rememberDevice=true (web only)
     private String deviceToken;
+
+    // Only populated when app.dev.otp-exposure.enabled=true AND active profile is not prod.
+    // Startup guard prevents enabling this in production.
+    private String devOtp;
 }

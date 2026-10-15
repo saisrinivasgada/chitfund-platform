@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
-public final class CapabilityJson {
-    private CapabilityJson() {}
+public final class AddOnJson {
+    private AddOnJson() {}
 
     public static List<String> parse(String json, ObjectMapper objectMapper) {
         if (json == null || json.isBlank()) return List.of();

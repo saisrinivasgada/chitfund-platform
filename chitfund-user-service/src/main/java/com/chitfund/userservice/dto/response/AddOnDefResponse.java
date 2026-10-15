@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 @Builder
-public class CapabilityDefResponse {
+public class AddOnDefResponse {
     private String key;
     private String label;
     private int sortOrder;

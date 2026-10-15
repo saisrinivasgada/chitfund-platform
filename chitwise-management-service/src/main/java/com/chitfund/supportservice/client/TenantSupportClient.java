@@ -59,22 +59,22 @@ public class TenantSupportClient {
     }
 
     /**
-     * Returns enabled capability keys for the tenant.
+     * Returns enabled add-on keys for the tenant.
      * Returns null when user-service is unreachable. Authorization callers must
      * treat null as unverified and deny the operation.
      */
     @SuppressWarnings("unchecked")
-    public List<String> getCapabilities(String tenantId) {
+    public List<String> getAddOns(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return null;
         try {
             List<String> result = restClient.get()
-                    .uri("/internal/capabilities/tenants/{tenantId}", tenantId)
+                    .uri("/internal/add-ons/tenants/{tenantId}", tenantId)
                     .header("X-Internal-Key", internalKey)
                     .retrieve()
                     .body(List.class);
             return result != null ? new ArrayList<>(result) : null;
         } catch (RestClientException ex) {
-            log.warn("Could not fetch capabilities for tenant [{}]: {}", tenantId, ex.getMessage());
+            log.warn("Could not fetch add-ons for tenant [{}]: {}", tenantId, ex.getMessage());
             return null;
         }
     }

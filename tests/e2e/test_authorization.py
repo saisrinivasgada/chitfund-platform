@@ -123,16 +123,16 @@ class TestRoleSeparation:
             "above may be masking a broken endpoint rather than proving anything")
 
 
-class TestPlanCapabilities:
+class TestPlanAddOns:
     """Financial feature gates must agree with the tenant metadata source."""
 
     def test_existing_plan_retains_settlement_access(self, api, token):
-        capabilities = api.internal(
+        add_ons = api.internal(
             "GET",
-            f"{api.user}/internal/capabilities/tenants/"
+            f"{api.user}/internal/add-ons/tenants/"
             "10000000-0000-0000-0000-000000000001")
-        assert capabilities.status_code == 200, capabilities.text[:200]
-        assert "settlement" in capabilities.json()
+        assert add_ons.status_code == 200, add_ons.text[:200]
+        assert "settlement" in add_ons.json()
 
         response = api.as_role(
             "GET", f"{api.payment}/settlement/all", token("ADMIN"))
@@ -151,7 +151,7 @@ class TestPlanCapabilities:
         db.query(
             "chitfund_user",
             """INSERT INTO tenant_custom_limits
-               (tenant_id,max_active_chits,max_members,max_staff,capabilities,
+               (tenant_id,max_active_chits,max_members,max_staff,add_ons,
                 allowed_chit_types,price_monthly_inr,notes,created_at,updated_at,
                 plan_code)
                VALUES (%s,1,10,0,%s,'STANDARD',0,NULL,
@@ -164,7 +164,7 @@ class TestPlanCapabilities:
             token("ADMIN", tenant=tenant_id),
             json={"memberId": str(uuid.uuid4())})
         assert response.status_code == 403, response.text[:300]
-        assert response.json().get("errorCode") == "CAPABILITY_REQUIRED"
+        assert response.json().get("errorCode") == "ADD_ON_REQUIRED"
 
 
 class TestPayoutOwnership:

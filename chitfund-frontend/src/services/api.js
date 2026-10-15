@@ -440,17 +440,17 @@ export const superAdminDeletePlanDef = async (code, reason) => {
   await api.delete(`/super-admin/plans/${code}`, { headers: { 'X-Change-Reason': reason } });
 };
 
-// ─── Capability definitions ────────────────────────────────────────────────
-export const superAdminListCapabilities = async () => {
-  const res = await api.get('/super-admin/capabilities');
+// ─── Add-on definitions ───────────────────────────────────────────────
+export const superAdminListAddOns = async () => {
+  const res = await api.get('/super-admin/add-ons');
   return res.data.data ?? [];
 };
-export const superAdminAddCapability = async (label) => {
-  const res = await api.post('/super-admin/capabilities', { label });
+export const superAdminCreateAddOn = async (label) => {
+  const res = await api.post('/super-admin/add-ons', { label });
   return res.data.data;
 };
-export const superAdminDeleteCapability = async (key, reason) => {
-  await api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
+export const superAdminDeleteAddOn = async (key, reason) => {
+  await api.delete(`/super-admin/add-ons/${key}`, { headers: { 'X-Change-Reason': reason } });
 };
 
 // ─── Per-org discount ──────────────────────────────────────────────────────
@@ -614,6 +614,10 @@ export const requestMemberAppAccess = async (memberId) => {
   const res = await api.post(`/members/${memberId}/app-access-request`);
   return res.data.data;
 };
+
+export const revokeAppAccess = async (memberId) => {
+  await api.post(`/members/${memberId}/revoke-app-access`);
+};
 export const getMemberChitfundRequests = async (memberId) => {
   const res = await api.get(`/chitfund-requests/admin/member/${memberId}`);
   return res.data.data ?? [];
@@ -621,6 +625,8 @@ export const getMemberChitfundRequests = async (memberId) => {
 export const resendChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/resend`)).data.data;
 export const revokeChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/revoke`)).data.data;
 export const confirmChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/confirm`)).data.data;
+export const suspendChitfundRequest = async ({ requestId, reason }) => (await api.post(`/chitfund-requests/${requestId}/suspend`, { reason })).data.data;
+export const revokeAfterSuspension = async ({ requestId, reason }) => (await api.post(`/chitfund-requests/${requestId}/revoke-after-suspension`, { reason })).data.data;
 export const getMyChitfundRequests = async () => (await api.get('/chitfund-requests/mine')).data.data ?? [];
 export const sendChitfundRequestOtp = async (requestId) => { await api.post(`/chitfund-requests/${requestId}/otp`); };
 export const acceptChitfundRequest = async ({ requestId, code }) => (await api.post(`/chitfund-requests/${requestId}/accept`, { code })).data.data;

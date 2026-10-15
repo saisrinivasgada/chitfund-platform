@@ -59,6 +59,9 @@ public class AuthService {
     @Value("${jwt.access-token-expiry-ms}")
     private long accessTokenExpiryMs;
 
+    @Value("${app.dev.otp-exposure.enabled:false}")
+    private boolean devOtpExposureEnabled;
+
     @Value("${jwt.refresh-token-expiry-days}")
     private int refreshTokenExpiryDays;
 
@@ -173,10 +176,10 @@ public class AuthService {
                     "You are not a member of this organization");
         }
 
-        // Re-read the tenant membership, status, plan and capabilities. The
+        // Re-read the tenant membership, status, plan and addOns. The
         // pre-scope token is valid for five minutes; trusting its embedded
         // snapshot would let a recently suspended/downgraded tenant mint a
-        // stale ACTIVE token or retain removed capabilities.
+        // stale ACTIVE token or retain removed addOns.
         TenantInfo selected = tenantService.buildTenantInfoList(user.getId()).stream()
                 .filter(t -> t.getTenantId().equals(request.getTenantId()))
                 .findFirst()
@@ -688,10 +691,11 @@ public class AuthService {
         otpService.sendOtp(user.getPhone(), cc, "LOGIN", userId);
     }
 
-    public void resendLoginEmailOtp(String verificationToken) {
+    public String resendLoginEmailOtp(String verificationToken) {
         User user = emailVerificationUser(verificationToken);
-        accountEmailOtpService.send(user.getId().toString(), user.getEmail(),
+        String otp = accountEmailOtpService.send(user.getId().toString(), user.getEmail(),
                 LOGIN_EMAIL_VERIFICATION, user.getFullName());
+        return devOtpExposureEnabled ? otp : null;
     }
 
     public LoginResponse verifyLoginEmailOtp(String verificationToken, String code) {
@@ -733,12 +737,13 @@ public class AuthService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "This account requires a valid email. Contact your administrator.");
         }
-        accountEmailOtpService.send(user.getId().toString(), user.getEmail(),
+        String otp = accountEmailOtpService.send(user.getId().toString(), user.getEmail(),
                 LOGIN_EMAIL_VERIFICATION, user.getFullName());
         return LoginResponse.builder()
                 .requiresEmailVerification(true)
                 .emailVerificationToken(jwtTokenProvider.generateEmailVerificationToken(user))
                 .maskedEmail(maskEmail(user.getEmail()))
+                .devOtp(devOtpExposureEnabled ? otp : null)
                 .build();
     }
 

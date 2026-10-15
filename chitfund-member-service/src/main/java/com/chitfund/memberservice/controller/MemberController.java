@@ -149,6 +149,13 @@ public class MemberController {
                         "Chitfund Request created"));
     }
 
+    @PostMapping("/{id}/revoke-app-access")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> revokeAppAccess(@PathVariable UUID id) {
+        memberService.revokeAppAccess(id);
+        return ResponseEntity.ok(ApiResponse.success(null, "App access revoked"));
+    }
+
     /**
      * Change member status: ACTIVE ↔ INACTIVE ↔ BLACKLISTED.
      * Blacklisting requires a reason — appended to member notes for audit trail.

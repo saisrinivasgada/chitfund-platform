@@ -7,7 +7,7 @@ on:
       - 'chitwise-mobile/**'
       - '.github/workflows/mobile-ci.yml'
   pull_request:
-    branches: [main]
+    branches: [main, test]
     paths:
       - 'chitwise-mobile/**'
       - '.github/workflows/mobile-ci.yml'

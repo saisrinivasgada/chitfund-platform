@@ -14,8 +14,10 @@ import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
 import com.chitfund.chitservice.strategy.WinnerSelectionStrategy;
 import com.chitfund.chitservice.strategy.WinnerSelectionStrategyFactory;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -50,6 +52,9 @@ public class WinnerService {
         // assign-winner requests for the same chit serialize instead of both
         // reading the same pre-assignment eligible/win-count state and racing.
         Chit chit = chitService.findByIdForUpdate(chitId);
+        if (!TenantContext.get().equals(chit.getTenantId())) {
+            throw new ResourceNotFoundException("Chit", chitId);
+        }
 
         if (chit.getStatus() != ChitStatus.ACTIVE && chit.getStatus() != ChitStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE);

@@ -22,4 +22,6 @@ public interface MemberUserLinkRepository extends JpaRepository<MemberUserLink, 
     long countByTenantId(UUID tenantId);
 
     Optional<MemberUserLink> findByMemberIdAndTenantId(UUID memberId, UUID tenantId);
+
+
 }

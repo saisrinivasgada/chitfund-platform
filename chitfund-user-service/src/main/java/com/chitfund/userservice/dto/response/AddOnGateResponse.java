@@ -7,8 +7,8 @@ import java.util.List;
 
 @Data
 @Builder
-public class CapabilityGateResponse {
-    private String capabilityKey;
+public class AddOnGateResponse {
+    private String addOnKey;
     private String name;
     private String description;
     private String importance;

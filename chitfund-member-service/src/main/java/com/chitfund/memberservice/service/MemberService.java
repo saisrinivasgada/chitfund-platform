@@ -186,7 +186,7 @@ public class MemberService {
         Member member = findOrThrowScoped(id);
         java.util.Map<String, Object> before = profileSnapshot(member);
 
-        if (member.isHasAppAccess() && adminChangesMemberOwnedFields(member, request)) {
+        if (member.getUserId() != null && adminChangesMemberOwnedFields(member, request)) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "This member controls personal, identity and bank details after app access is activated. " +
                             "Use an Account Access or Identity Link Dispute ticket when support is required.",
@@ -237,6 +237,7 @@ public class MemberService {
                 com.chitfund.common.context.TenantContext.get());
 
         if (!Objects.equals(oldReferredById, newReferredById)) {
+            String tenantCtx = tenantId();
             String prevName = oldReferredById != null
                     ? memberRepository.findByIdAndTenantId(oldReferredById, tenantId())
                             .map(Member::getFullName).orElse(null) : null;
@@ -350,7 +351,7 @@ public class MemberService {
                     "App access cannot be requested for a deleted or blacklisted member",
                     HttpStatus.FORBIDDEN);
         }
-        if (member.isHasAppAccess()) {
+        if (member.getUserId() != null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "This member already has app access");
         }
         java.util.Map<String, Object> result = userServiceClient.createAppAccessRequest(
@@ -361,6 +362,15 @@ public class MemberService {
                     "Could not create the Chitfund Request", HttpStatus.SERVICE_UNAVAILABLE);
         }
         return result;
+    }
+
+    /** Revoke per-org app access for this member. */
+    @Transactional
+    public void revokeAppAccess(UUID memberId) {
+        Member member = findOrThrowScoped(memberId);
+        userServiceClient.revokeAppAccess(tenantId(), memberId);
+        member.setUserId(null);
+        memberRepository.save(member);
     }
 
     @Transactional
@@ -423,7 +433,7 @@ public class MemberService {
                 .bankIfsc(m.getBankIfsc())
                 .status(m.getStatus())
                 .userId(m.getUserId())
-                .hasAppAccess(m.isHasAppAccess())
+                .appAccessGranted(m.getUserId() != null)
                 .notes(m.getNotes())
                 .referredById(m.getReferredById())
                 .referredByName(referredByName)

@@ -99,7 +99,7 @@ function MemberPickStep({ onStarted }) {
   const eligible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return members
-      .filter((m) => m.hasAppAccess && m.userId)
+      .filter((m) => m.appAccessGranted && m.userId)
       .filter((m) => !q || (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q))
       .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
   }, [members, search]);
@@ -193,7 +193,7 @@ function GroupCreateStep({ onCreated }) {
   const people = useMemo(() => {
     const q = search.trim().toLowerCase();
     const memberPeople = members
-      .filter((m) => m.hasAppAccess && m.userId && m.userId !== user?.id)
+      .filter((m) => m.appAccessGranted && m.userId && m.userId !== user?.id)
       .map((m) => ({ userId: m.userId, userName: m.fullName, role: 'MEMBER', phone: m.phone, phoneCountryCode: m.phoneCountryCode, city: m.city }));
     const staffPeople = staff
       .filter((s) => s.id && s.id !== user?.id)

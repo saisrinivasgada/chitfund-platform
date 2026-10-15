@@ -1,7 +1,6 @@
 package com.chitfund.userservice.service;
 
-import com.chitfund.common.exception.BusinessException;
-import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.domain.enums.SmsDeliveryStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -34,8 +33,8 @@ class WhatsAppSmsServiceTest {
                 .andExpect(content().string(containsString("\"text\":\"123456\"")))
                 .andRespond(withSuccess("{}", org.springframework.http.MediaType.APPLICATION_JSON));
 
-        service.sendOtp("98765 43210", "+91", "123456");
-
+        SmsDeliveryStatus status = service.sendOtp("98765 43210", "+91", "123456");
+        assertThat(status).isEqualTo(SmsDeliveryStatus.DELIVERED);
         server.verify();
     }
 
@@ -48,13 +47,13 @@ class WhatsAppSmsServiceTest {
                 .andExpect(content().string(containsString("\"to\":\"919876543210\"")))
                 .andRespond(withSuccess("{}", org.springframework.http.MediaType.APPLICATION_JSON));
 
-        service.sendOtp("+91 98765 43210", "+91", "123456");
-
+        SmsDeliveryStatus status = service.sendOtp("+91 98765 43210", "+91", "123456");
+        assertThat(status).isEqualTo(SmsDeliveryStatus.DELIVERED);
         server.verify();
     }
 
     @Test
-    void mapsProviderBodyToPrivacySafeDeliveryFailure() {
+    void returnsDeliveryFailedStatusOnProviderError() {
         RestTemplate restTemplate = new RestTemplate();
         MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
         var service = service(restTemplate);
@@ -62,11 +61,20 @@ class WhatsAppSmsServiceTest {
                 .andRespond(withStatus(HttpStatus.BAD_REQUEST)
                         .body("{\"error\":{\"message\":\"provider-sensitive-detail\"}}"));
 
-        assertThatThrownBy(() -> service.sendOtp("9876543210", "+91", "123456"))
-                .isInstanceOfSatisfying(BusinessException.class, exception -> {
-                    assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.OTP_DELIVERY_FAILED);
-                    assertThat(exception.getMessage()).doesNotContain("provider-sensitive-detail");
-                });
+        SmsDeliveryStatus status = service.sendOtp("9876543210", "+91", "123456");
+        assertThat(status).isEqualTo(SmsDeliveryStatus.DELIVERY_FAILED);
+    }
+
+    @Test
+    void returnsDeliveredStatusOnSuccess() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+        var service = service(restTemplate);
+        server.expect(requestTo("https://graph.example/v23.0/123456789/messages"))
+                .andRespond(withSuccess("{}", org.springframework.http.MediaType.APPLICATION_JSON));
+
+        SmsDeliveryStatus status = service.sendOtp("9876543210", "+91", "123456");
+        assertThat(status).isEqualTo(SmsDeliveryStatus.DELIVERED);
     }
 
     @Test

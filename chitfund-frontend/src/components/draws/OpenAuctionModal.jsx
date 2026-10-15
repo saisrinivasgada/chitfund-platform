@@ -122,7 +122,7 @@ export default function OpenAuctionModal({ chitId, chit, draw, onClose }) {
   const enrolledIds = [...new Set(enrollments.map((e) => String(e.memberId ?? e.id)))];
   const membersWithoutAccess = enrolledIds
     .map((id) => memberMap[id])
-    .filter((m) => m && !m.hasAppAccess);
+    .filter((m) => m && !m.appAccessGranted);
   const allAccountsReady = membersWithoutAccess.length === 0;
 
   function handleRequestSent(memberId) {

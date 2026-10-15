@@ -38,6 +38,19 @@ public class MemberServiceClient {
         }
     }
 
+    public void revokeAppAccess(UUID tenantId, UUID memberId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", tenantId.toString());
+        ResponseEntity<Map> response = restTemplate.exchange(
+                memberServiceUrl + "/internal/members/" + memberId + "/app-access",
+                HttpMethod.DELETE, new HttpEntity<>(headers), Map.class);
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException("Member app-access revocation was not completed");
+        }
+    }
+
     public boolean memberProfileExists(UUID tenantId, UUID memberId) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Internal-Key", internalKey);

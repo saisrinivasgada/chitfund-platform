@@ -63,6 +63,22 @@ public class ChitfundAccessRequest {
     @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
 
+    @Column(name = "phone_verification_required", nullable = false)
+    private boolean phoneVerificationRequired;
+
+    @Column(name = "phone_verified_at")
+    private LocalDateTime phoneVerifiedAt;
+
+    @Column(name = "phone_verification_pending", nullable = false)
+    private boolean phoneVerificationPending;
+
+    @Builder.Default
+    @Column(name = "setup_email_status", nullable = false, length = 20)
+    private String setupEmailStatus = "UNAVAILABLE";
+
+    @Column(name = "setup_email_sent_at")
+    private LocalDateTime setupEmailSentAt;
+
     @Column(name = "resend_count", nullable = false)
     private int resendCount;
 

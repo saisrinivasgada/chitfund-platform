@@ -23,7 +23,7 @@ public class AccountEmailOtpService {
     private final EmailService emailService;
 
     @Transactional
-    public void send(String referenceId, String email, String purpose, String displayName) {
+    public String send(String referenceId, String email, String purpose, String displayName) {
         long recent = repository.countByUserIdAndPurposeAndCreatedAtAfter(
                 referenceId, purpose, LocalDateTime.now().minusHours(1));
         if (recent >= 3) {
@@ -39,6 +39,7 @@ public class AccountEmailOtpService {
                 .expiresAt(LocalDateTime.now().plusMinutes(10))
                 .build());
         emailService.sendAccountVerificationOtp(email, displayName, otp);
+        return otp;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)

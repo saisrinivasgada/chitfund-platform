@@ -13,6 +13,7 @@ import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.chitservice.service.PlanLimitChecker;
 import com.chitfund.common.context.MemberContext;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
@@ -246,7 +247,7 @@ public class ReservationController {
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_PROCESSED", adminId.toString(), actorRole, null, slotSnapshot(saved),
-                com.chitfund.common.context.TenantContext.get());
+                TenantContext.get());
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot marked as processed"));
     }
@@ -272,7 +273,7 @@ public class ReservationController {
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoidSnap, slotSnapshot(saved),
-                com.chitfund.common.context.TenantContext.get());
+                TenantContext.get());
         if (voidedMemberId != null) {
             var chit = chitService.findByIdScoped(chitId);
             if (chit.getStatus() == ChitStatus.ACTIVE)
@@ -297,6 +298,7 @@ public class ReservationController {
             @RequestParam int fromMonth,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        chitService.findByIdScoped(chitId); // validates tenant ownership
 
         chitService.findByIdScoped(chitId);
 
@@ -332,6 +334,7 @@ public class ReservationController {
             @Valid @RequestBody SwapSlotsRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        chitService.findByIdScoped(chitId); // validates tenant ownership
 
         chitService.findByIdScoped(chitId);
 
@@ -358,7 +361,7 @@ public class ReservationController {
         reservationRepository.save(a);
         reservationRepository.save(b);
 
-        String tenantId = com.chitfund.common.context.TenantContext.get();
+        String tenantId = TenantContext.get();
         auditClient.log("RESERVATION_SLOT", a.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
                 java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", b.getId().toString()),
@@ -404,7 +407,7 @@ public class ReservationController {
                 "ORG_PAYOUT_REALIZED", adminId.toString(), "ADMIN",
                 Map.of("status", "RESERVED"),
                 Map.of("status", "PROCESSED", "payoutAmount", String.valueOf(saved.getPayoutAmount())),
-                com.chitfund.common.context.TenantContext.get());
+                TenantContext.get());
 
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Org payout realized to treasury"));

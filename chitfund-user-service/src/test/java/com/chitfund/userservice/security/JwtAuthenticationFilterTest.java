@@ -2,6 +2,8 @@ package com.chitfund.userservice.security;
 
 import com.chitfund.userservice.client.HubIdentityClient;
 import com.chitfund.userservice.domain.entity.User;
+import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -14,9 +16,14 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -25,6 +32,7 @@ class JwtAuthenticationFilterTest {
     @Mock JwtTokenProvider tokenProvider;
     @Mock UserDetailsServiceImpl userDetailsService;
     @Mock HubIdentityClient hubIdentityClient;
+    @Mock MemberUserLinkRepository memberLinkRepository;
 
     @AfterEach
     void clearSecurityContext() {
@@ -46,7 +54,7 @@ class JwtAuthenticationFilterTest {
                         "SUPER_ADMIN", true, false, 7L, true)));
 
         var request = requestWithToken();
-        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
                 .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
 
         var auth = SecurityContextHolder.getContext().getAuthentication();
@@ -68,14 +76,14 @@ class JwtAuthenticationFilterTest {
                         "EMP-001", "owner", "Owner", "owner@example.com",
                         "SUPER_ADMIN", true, false, 7L, true)));
 
-        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
                 .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test
-    void acceptsSupportEmployeeWithExplicitPlatformConsoleCapability() throws Exception {
+    void acceptsSupportEmployeeWithExplicitPlatformConsoleAddOn() throws Exception {
         Claims claims = mock(Claims.class);
         when(tokenProvider.validateToken("hub-saas-token")).thenReturn(true);
         when(tokenProvider.extractScope("hub-saas-token")).thenReturn("HUB_SUPER_ADMIN");
@@ -88,7 +96,7 @@ class JwtAuthenticationFilterTest {
                         "EMP-001", "agent", "Support Agent", "agent@example.com",
                         "SUPPORT_AGENT", true, false, 7L, true)));
 
-        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
                 .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication())
@@ -96,7 +104,7 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
-    void rejectsSupportEmployeeWithoutPlatformConsoleCapability() throws Exception {
+    void rejectsSupportEmployeeWithoutPlatformConsoleAddOn() throws Exception {
         Claims claims = mock(Claims.class);
         when(tokenProvider.validateToken("hub-saas-token")).thenReturn(true);
         when(tokenProvider.extractScope("hub-saas-token")).thenReturn("HUB_SUPER_ADMIN");
@@ -108,7 +116,7 @@ class JwtAuthenticationFilterTest {
                         "EMP-001", "agent", "Support Agent", "agent@example.com",
                         "SUPPORT_AGENT", true, false, 7L, false)));
 
-        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
                 .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
@@ -122,9 +130,136 @@ class JwtAuthenticationFilterTest {
         when(tokenProvider.extractClaims("hub-saas-token")).thenReturn(claims);
         when(claims.get("role", String.class)).thenReturn("SUPER_ADMIN");
 
-        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
                 .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());
 
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    // ─── Member-link suspension check ────────────────────────────────────────────
+
+    @Test
+    void suspendedMemberWithMissingLinkIsRejectedImmediately() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        User member = User.builder().id(userId).username("member1")
+                .passwordHash("hash").role(Role.MEMBER).build();
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("member-token")).thenReturn(true);
+        when(tokenProvider.extractScope("member-token")).thenReturn("CHITWISE");
+        when(tokenProvider.extractClaims("member-token")).thenReturn(claims);
+        when(claims.get("role", String.class)).thenReturn(null);
+        when(tokenProvider.extractUserId("member-token")).thenReturn(userId.toString());
+        when(userDetailsService.loadUserById(userId.toString())).thenReturn(member);
+        when(tokenProvider.extractTenantId("member-token")).thenReturn(tenantId.toString());
+        when(memberLinkRepository.existsByUserIdAndTenantId(userId, tenantId)).thenReturn(false);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/member/chits");
+        request.addHeader("Authorization", "Bearer member-token");
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
+                .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void activeMemberWithValidLinkPassesAuthentication() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        User member = User.builder().id(userId).username("member2")
+                .passwordHash("hash").role(Role.MEMBER).build();
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("member-token")).thenReturn(true);
+        when(tokenProvider.extractScope("member-token")).thenReturn("CHITWISE");
+        when(tokenProvider.extractClaims("member-token")).thenReturn(claims);
+        when(claims.get("role", String.class)).thenReturn(null);
+        when(tokenProvider.extractUserId("member-token")).thenReturn(userId.toString());
+        when(userDetailsService.loadUserById(userId.toString())).thenReturn(member);
+        when(tokenProvider.extractTenantId("member-token")).thenReturn(tenantId.toString());
+        when(memberLinkRepository.existsByUserIdAndTenantId(userId, tenantId)).thenReturn(true);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/member/chits");
+        request.addHeader("Authorization", "Bearer member-token");
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
+                .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+    }
+
+    @Test
+    void adminTokenWithTenantScopeIsNotCheckedAgainstMemberLink() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        User admin = User.builder().id(userId).username("admin1")
+                .passwordHash("hash").role(Role.ADMIN).tenantId(tenantId.toString()).build();
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("admin-token")).thenReturn(true);
+        when(tokenProvider.extractScope("admin-token")).thenReturn("CHITWISE");
+        when(tokenProvider.extractClaims("admin-token")).thenReturn(claims);
+        when(claims.get("role", String.class)).thenReturn(null);
+        when(tokenProvider.extractUserId("admin-token")).thenReturn(userId.toString());
+        when(userDetailsService.loadUserById(userId.toString())).thenReturn(admin);
+        when(tokenProvider.extractTenantId("admin-token")).thenReturn(tenantId.toString());
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/admin/members");
+        request.addHeader("Authorization", "Bearer admin-token");
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
+                .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        verify(memberLinkRepository, never()).existsByUserIdAndTenantId(any(), any());
+    }
+
+    @Test
+    void memberWithActiveLinkIsAuthenticated() throws Exception {
+        UUID userId = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
+        UUID tenantId = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000002");
+        User member = User.builder().id(userId).role(Role.MEMBER).enabled(true)
+                .username("member1").passwordHash("x").build();
+
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("member-token")).thenReturn(true);
+        when(tokenProvider.extractScope("member-token")).thenReturn("FULL_ACCESS");
+        when(tokenProvider.extractClaims("member-token")).thenReturn(claims);
+        when(claims.get("role", String.class)).thenReturn("MEMBER");
+        when(tokenProvider.extractUserId("member-token")).thenReturn(userId.toString());
+        when(userDetailsService.loadUserById(userId.toString())).thenReturn(member);
+        when(tokenProvider.extractTenantId("member-token")).thenReturn(tenantId.toString());
+        when(memberLinkRepository.existsByUserIdAndTenantId(userId, tenantId)).thenReturn(true);
+
+        var request = new MockHttpServletRequest("GET", "/api/member/dashboard");
+        request.addHeader("Authorization", "Bearer member-token");
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
+                .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        verify(memberLinkRepository).existsByUserIdAndTenantId(userId, tenantId);
+    }
+
+    @Test
+    void suspendedMemberWithRemovedLinkIsRejectedImmediately() throws Exception {
+        UUID userId = UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001");
+        UUID tenantId = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000002");
+        User member = User.builder().id(userId).role(Role.MEMBER).enabled(true)
+                .username("member1").passwordHash("x").build();
+
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("member-token")).thenReturn(true);
+        when(tokenProvider.extractScope("member-token")).thenReturn("FULL_ACCESS");
+        when(tokenProvider.extractClaims("member-token")).thenReturn(claims);
+        when(claims.get("role", String.class)).thenReturn("MEMBER");
+        when(tokenProvider.extractUserId("member-token")).thenReturn(userId.toString());
+        when(userDetailsService.loadUserById(userId.toString())).thenReturn(member);
+        when(tokenProvider.extractTenantId("member-token")).thenReturn(tenantId.toString());
+        // Link was deleted when suspension happened
+        when(memberLinkRepository.existsByUserIdAndTenantId(userId, tenantId)).thenReturn(false);
+
+        var request = new MockHttpServletRequest("GET", "/api/member/dashboard");
+        request.addHeader("Authorization", "Bearer member-token");
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient, memberLinkRepository)
+                .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        // Authentication must be cleared — suspension is immediate, no waiting for token expiry
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 

@@ -4,6 +4,7 @@ import com.chitfund.userservice.domain.entity.ChitfundRequestAudit;
 import com.chitfund.userservice.domain.enums.ChitfundRequestStatus;
 import com.chitfund.userservice.repository.ChitfundAccessRequestRepository;
 import com.chitfund.userservice.repository.ChitfundRequestAuditRepository;
+import com.chitfund.userservice.outbox.SetupEmailOutbox;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -21,6 +22,7 @@ import static org.mockito.Mockito.when;
 class ChitfundRequestStateServiceTest {
     @Mock ChitfundAccessRequestRepository requestRepository;
     @Mock ChitfundRequestAuditRepository auditRepository;
+    @Mock SetupEmailOutbox setupEmailOutbox;
 
     @Test
     void expirationIsPersistedAndAuditedInItsOwnTransaction() {
@@ -34,9 +36,10 @@ class ChitfundRequestStateServiceTest {
                 eq(ChitfundRequestStatus.EXPIRED), eq(now))).thenReturn(1);
         when(auditRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         ChitfundRequestStateService service = new ChitfundRequestStateService(
-                requestRepository, auditRepository);
+                requestRepository, auditRepository, setupEmailOutbox);
 
         assertThat(service.expireIfDue(requestId, now)).isTrue();
+        verify(setupEmailOutbox).supersede(requestId);
         verify(auditRepository).save(argThat((ChitfundRequestAudit audit) ->
                 audit.getRequestId().equals(requestId)
                         && audit.getToStatus() == ChitfundRequestStatus.EXPIRED

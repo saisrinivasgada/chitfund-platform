@@ -4,6 +4,7 @@ import com.chitfund.common.context.TenantContext;
 import com.chitfund.userservice.client.HubIdentityClient;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.UUID;
+import java.util.Optional;
 
 /**
  * Runs once per HTTP request. Extracts the JWT from the Authorization header,
@@ -53,6 +55,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsServiceImpl userDetailsService;
     private final HubIdentityClient hubIdentityClient;
+    private final MemberUserLinkRepository memberLinkRepository;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -124,6 +127,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 String tenantId = jwtTokenProvider.extractTenantId(token);
                 if (tenantId != null) TenantContext.set(tenantId);
+
+                // For MEMBER role with a tenant-scoped token, verify the member link still exists.
+                // This makes suspension immediately effective without waiting for access-token expiry.
+                if (tenantId != null && userDetails instanceof User u && u.getRole() == Role.MEMBER) {
+                    try {
+                        UUID tenantUuid = UUID.fromString(tenantId);
+                        if (!memberLinkRepository.existsByUserIdAndTenantId(u.getId(), tenantUuid)) {
+                            SecurityContextHolder.clearContext();
+                            filterChain.doFilter(request, response);
+                            return;
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                        // malformed tenantId — fall through and let auth fail naturally
+                    }
+                }
             }
 
             filterChain.doFilter(request, response);
