@@ -2,11 +2,14 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
+import com.chitfund.userservice.domain.entity.AccountSetupToken;
 import com.chitfund.userservice.domain.entity.ChitfundAccessRequest;
+import com.chitfund.userservice.domain.entity.MemberUserLink;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.ChitfundRequestKind;
 import com.chitfund.userservice.domain.enums.ChitfundRequestStatus;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.dto.request.SetupAccountRequest;
 import com.chitfund.userservice.repository.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -228,6 +232,181 @@ class ChitfundRequestServiceTest {
         assertThat(response.getSetupToken()).isEqualTo("new-setup-token");
         assertThat(saved).hasSize(2);
         assertThat(saved.get(1).getCandidateUserId()).isEqualTo(newUserId);
+    }
+
+    // ─── Auto-activation ──────────────────────────────────────────────────────
+
+    @Test
+    void completingSetupAutoActivatesWithoutSecondAdminConfirmation() {
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        AccountSetupToken token = AccountSetupToken.builder()
+                .userId(userId).chitfundRequestId(requestId)
+                .expiresAt(LocalDateTime.now().plusHours(1)).build();
+        ChitfundAccessRequest request = ChitfundAccessRequest.builder()
+                .id(requestId).tenantId(tenantId).memberId(memberId)
+                .candidateUserId(userId).requestedPhone("9876543210").phoneCountryCode("+91")
+                .requestKind(ChitfundRequestKind.NEW_ACCOUNT).status(ChitfundRequestStatus.PENDING_MEMBER)
+                .expiresAt(LocalDateTime.now().plusHours(1)).lastSentAt(LocalDateTime.now())
+                .build();
+        User user = User.builder().id(userId).role(Role.MEMBER)
+                .phone("9876543210").phoneCountryCode("+91").email("m@test.com")
+                .username("mtest").build();
+
+        when(setupTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(token));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(passwordEncoder.encode(any())).thenReturn("hash");
+        when(userRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(setupTokenRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(eq(userId), any()))
+                .thenReturn(new ArrayList<>());
+
+        SetupAccountRequest input = new SetupAccountRequest();
+        input.setToken("raw-token");
+        input.setPhoneOtp("123456");
+        input.setNewPassword("Secure@123");
+
+        var response = service.completeSetup(input);
+
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.ACTIVE);
+        verify(tenantService).addUserToTenant(userId, tenantId, Role.MEMBER, memberId);
+        assertThat(user.isHasAppAccess()).isTrue();
+    }
+
+    @Test
+    void acceptingExistingAccountAutoActivatesOnPhoneMatch() {
+        UUID requestId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = ChitfundAccessRequest.builder()
+                .id(requestId).tenantId(tenantId).memberId(memberId)
+                .candidateUserId(userId).requestedPhone("9876543210").phoneCountryCode("+91")
+                .requestKind(ChitfundRequestKind.LINK_EXISTING).status(ChitfundRequestStatus.PENDING_MEMBER)
+                .expiresAt(LocalDateTime.now().plusHours(1)).lastSentAt(LocalDateTime.now())
+                .build();
+        User user = User.builder().id(userId).role(Role.MEMBER)
+                .phone("9876543210").phoneCountryCode("+91").build();
+
+        when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var response = service.accept(requestId, userId, "123456");
+
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.ACTIVE);
+        verify(tenantService).addUserToTenant(userId, tenantId, Role.MEMBER, memberId);
+        assertThat(user.isHasAppAccess()).isTrue();
+    }
+
+    // ─── Suspend ──────────────────────────────────────────────────────────────
+
+    @Test
+    void suspendDeletesTenantLinkAndClearsHasAppAccess() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, userId, ChitfundRequestStatus.ACTIVE);
+        request.setTenantId(tenantId);
+        request.setMemberId(memberId);
+        MemberUserLink link = MemberUserLink.builder().userId(userId).tenantId(tenantId).memberId(memberId).build();
+        User user = User.builder().id(userId).role(Role.MEMBER).hasAppAccess(true).build();
+
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(memberLinkRepository.findByMemberIdAndTenantId(memberId, tenantId)).thenReturn(Optional.of(link));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(memberLinkRepository.existsByUserId(userId)).thenReturn(false);
+        when(userRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var response = service.suspend(requestId, UUID.randomUUID(), "Admin action");
+
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.SUSPENDED);
+        verify(memberLinkRepository).delete(link);
+        assertThat(user.isHasAppAccess()).isFalse();
+        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        IdentityNotificationEvent evt = (IdentityNotificationEvent) eventCaptor.getValue();
+        assertThat(evt.type()).isEqualTo(IdentityNotificationEvent.Type.CHITFUND_REQUEST_REVOKED);
+    }
+
+    @Test
+    void suspendIsIdempotentForAlreadySuspendedRequest() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, UUID.randomUUID(), ChitfundRequestStatus.SUSPENDED);
+        request.setTenantId(tenantId);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+
+        var response = service.suspend(requestId, UUID.randomUUID(), null);
+
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.SUSPENDED);
+        verify(memberLinkRepository, never()).delete(any());
+        verify(requestRepository, never()).save(any());
+    }
+
+    @Test
+    void suspendRejectsNonActiveRequest() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, UUID.randomUUID(), ChitfundRequestStatus.PENDING_MEMBER);
+        request.setTenantId(tenantId);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> service.suspend(requestId, UUID.randomUUID(), null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("ACTIVE");
+    }
+
+    // ─── Revoke-after-suspension ──────────────────────────────────────────────
+
+    @Test
+    void revokeAfterSuspensionMovesFromSuspendedToRevoked() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, UUID.randomUUID(), ChitfundRequestStatus.SUSPENDED);
+        request.setTenantId(tenantId);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+        when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var response = service.revokeAfterSuspension(requestId, UUID.randomUUID(), "Permanent close");
+
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.REVOKED);
+    }
+
+    @Test
+    void revokeAfterSuspensionRejectsNonSuspendedRequest() {
+        UUID tenantId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        TenantContext.set(tenantId.toString());
+
+        ChitfundAccessRequest request = existingRequest(requestId, UUID.randomUUID(), ChitfundRequestStatus.ACTIVE);
+        request.setTenantId(tenantId);
+        when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> service.revokeAfterSuspension(requestId, UUID.randomUUID(), null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("SUSPENDED");
     }
 
     private static ChitfundAccessRequest existingRequest(UUID requestId, UUID userId,

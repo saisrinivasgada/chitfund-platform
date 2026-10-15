@@ -3,6 +3,8 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.entity.RefreshToken;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.LoginRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
@@ -347,5 +349,63 @@ class AuthServiceTest {
         verify(passwordValidator).validate("NewPassword@1");
         verify(refreshTokenRepository).revokeAllActiveByUser(user);
         verify(trustedDeviceRepository).deleteByUserId(userId);
+    }
+
+    @Test
+    void loginReturnsDevOtpWhenEmailDisabled() throws Exception {
+        // When app.email.enabled=false (local dev), the devOtp field in LoginResponse
+        // must contain the OTP so developers can complete email-OTP flows without a real mailbox.
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).username("org.admin")
+                .passwordHash("hash").role(Role.ADMIN).tenantId("tenant-1")
+                .email("admin@test.com")
+                .emailVerificationRequired(true)
+                .build();
+        LoginRequest request = new LoginRequest();
+        request.setUsername("org.admin");
+        request.setPassword("pass");
+        when(userRepository.findByUsername("org.admin")).thenReturn(Optional.of(user));
+        Authentication auth = new UsernamePasswordAuthenticationToken(user, "pass", user.getAuthorities());
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
+        when(userRepository.save(any())).thenReturn(user);
+        when(accountEmailOtpService.send(any(), any(), any(), any())).thenReturn("654321");
+        when(jwtTokenProvider.generateEmailVerificationToken(user)).thenReturn("ev-jwt");
+
+        var emailEnabledField = AuthService.class.getDeclaredField("emailEnabled");
+        emailEnabledField.setAccessible(true);
+        emailEnabledField.set(authService, false);
+
+        var response = authService.login(request, null);
+
+        assertThat(response.isRequiresEmailVerification()).isTrue();
+        assertThat(response.getDevOtp()).isEqualTo("654321");
+    }
+
+    @Test
+    void loginDoesNotExposeDevOtpWhenEmailEnabled() throws Exception {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).username("org.admin2")
+                .passwordHash("hash").role(Role.ADMIN).tenantId("tenant-1")
+                .email("admin2@test.com")
+                .emailVerificationRequired(true)
+                .build();
+        LoginRequest request = new LoginRequest();
+        request.setUsername("org.admin2");
+        request.setPassword("pass");
+        when(userRepository.findByUsername("org.admin2")).thenReturn(Optional.of(user));
+        Authentication auth = new UsernamePasswordAuthenticationToken(user, "pass", user.getAuthorities());
+        when(authenticationManager.authenticate(any())).thenReturn(auth);
+        when(userRepository.save(any())).thenReturn(user);
+        when(accountEmailOtpService.send(any(), any(), any(), any())).thenReturn("999999");
+        when(jwtTokenProvider.generateEmailVerificationToken(user)).thenReturn("ev-jwt");
+
+        var emailEnabledField = AuthService.class.getDeclaredField("emailEnabled");
+        emailEnabledField.setAccessible(true);
+        emailEnabledField.set(authService, true);
+
+        var response = authService.login(request, null);
+
+        assertThat(response.isRequiresEmailVerification()).isTrue();
+        assertThat(response.getDevOtp()).isNull();
     }
 }
