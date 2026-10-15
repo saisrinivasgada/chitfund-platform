@@ -50,7 +50,7 @@ function AddMemberModal({ onClose }) {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['members'] });
       toast.success('Member added successfully');
-      if (form.sendAppAccess && (data?.setupToken || data?.actionToken)) {
+      if (form.sendAppAccess) {
         setCreated(data);
       } else {
         onClose();
@@ -87,27 +87,45 @@ function AddMemberModal({ onClose }) {
   }
 
   if (created) {
-    const requestUrl = created.setupToken
-      ? `${window.location.origin}/setup-account?token=${created.setupToken}`
-      : `${window.location.origin}/chitfund-request?token=${created.actionToken}`;
+    const emailDelivered = created.setupEmailSent;
+    const isNewAccount = created.requestKind === 'NEW_ACCOUNT';
+    const actionUrl = created.actionToken
+      ? `${window.location.origin}/chitfund-request?token=${created.actionToken}`
+      : '';
+    const showActionLink = !emailDelivered && !isNewAccount && actionUrl;
     return (
       <Modal title="Member Added — App Access Sent" onClose={onClose} size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            The member profile is ready for normal organization work. App access remains pending until the member verifies and you confirm it.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(requestUrl);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2500);
-            }}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-semibold cursor-pointer hover:bg-[#EFF4FA] transition-colors"
-          >
-            {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy one-time member link</>}
-          </button>
-          <p className="text-xs text-gray-500">Share this link privately. It expires and does not contain a password.</p>
+          {emailDelivered ? (
+            <p className="text-sm text-gray-600">
+              A setup link has been sent to the member's email. Access is activated automatically after verification.
+            </p>
+          ) : isNewAccount ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-semibold text-amber-800">Email delivery failed</p>
+              <p className="text-xs text-amber-700 mt-1">The setup email could not be delivered. Contact the member directly and use Resend once the address is confirmed.</p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600">
+              A setup link has been sent to the member's email. Access is activated automatically after verification.
+            </p>
+          )}
+          {showActionLink && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(actionUrl);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2500);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-semibold cursor-pointer hover:bg-[#EFF4FA] transition-colors"
+              >
+                {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy one-time access link</>}
+              </button>
+              <p className="text-xs text-gray-500">Share this link privately. It expires and does not contain a password.</p>
+            </>
+          )}
           <Button className="w-full" onClick={onClose}>Done</Button>
         </div>
       </Modal>

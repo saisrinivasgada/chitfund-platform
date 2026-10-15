@@ -22,7 +22,7 @@ const STATUS_CFG = {
 const STATUS_DESC = {
   PENDING_MEMBER:  'Verify your identity to accept or decline this invite.',
   MEMBER_VERIFIED: 'Identity verified. Access is being activated.',
-  AWAITING_ADMIN:  'Waiting for an admin to activate your access.',
+  AWAITING_ADMIN:  'Your verification is complete. Access is being activated.',
   ACTIVE:          'You have active app access to this organisation.',
   SUSPENDED:       'Your app access for this organisation has been suspended. Contact the organisation for details.',
   DECLINED:        'You declined this access request.',

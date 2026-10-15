@@ -218,7 +218,7 @@ export default function AdminMembersScreen() {
       sendAppAccess: cSendAppAccess,
     }),
     onSuccess: (data: any) => {
-      const showAccessLink = cSendAppAccess && (data?.setupToken || data?.actionToken);
+      const showAccessLink = cSendAppAccess;
       qc.invalidateQueries({ queryKey: ['m-members'] });
       setShowCreate(false);
       setCFullName(''); setCPhone(''); setCPhoneCountryCode('+91'); setCSendAppAccess(false); setCEmail(''); setCAddress(''); setCCity(''); setCNotes('');
@@ -570,10 +570,18 @@ export default function AdminMembersScreen() {
   });
 
   function showChitfundRequestLink(data: any, title: string) {
+    const emailDelivered = data?.setupEmailSent;
+    const isNewAccount = data?.requestKind === 'NEW_ACCOUNT';
+    if (emailDelivered) {
+      Alert.alert(title, 'A setup link has been sent to the member\'s email. Access is activated automatically after verification.');
+      return;
+    }
+    if (isNewAccount) {
+      Alert.alert(title, 'Email delivery failed. Contact the member directly and use Resend once their address is confirmed.');
+      return;
+    }
     const base = process.env.EXPO_PUBLIC_WEB_URL ?? 'https://thechitwise.com';
-    const url = data?.setupToken
-      ? `${base}/setup-account?token=${data.setupToken}`
-      : data?.actionToken ? `${base}/chitfund-request?token=${data.actionToken}` : '';
+    const url = data?.actionToken ? `${base}/chitfund-request?token=${data.actionToken}` : '';
     if (!url) {
       toast.noted(title);
       return;

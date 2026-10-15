@@ -77,7 +77,7 @@ export default function SetupAccountPage() {
             <CheckCircle size={32} className="text-green-500" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-2">Verification complete</h2>
-          <p className="text-sm text-gray-500 mb-6">Your organization must now confirm app access. You can sign in after confirmation.</p>
+          <p className="text-sm text-gray-500 mb-6">Your account is ready. Sign in to ChitWise.</p>
           <button onClick={() => navigate('/login')}
             className="w-full py-3 rounded-xl text-white font-medium text-sm cursor-pointer"
             style={{ backgroundColor: '#1E3A5F' }}>

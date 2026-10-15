@@ -23,7 +23,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; d
   AWAITING_ADMIN: {
     label: 'Pending activation',
     bg: '#DBEAFE', text: '#1D4ED8',
-    description: 'Waiting for an admin to confirm app access.',
+    description: 'Your verification is complete — access is being activated.',
   },
   ACTIVE: {
     label: 'Active',

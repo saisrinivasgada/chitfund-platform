@@ -516,19 +516,30 @@ function CreateLoginModal({ member, onClose }) {
   }
 
   if (result) {
-    const setupUrl = result.setupToken
-      ? `${window.location.origin}/setup-account?token=${result.setupToken}`
-      : result.actionToken ? `${window.location.origin}/chitfund-request?token=${result.actionToken}` : '';
+    const emailDelivered = result.setupEmailSent;
+    const isNewAccount = result.requestKind === 'NEW_ACCOUNT';
+    const actionUrl = !isNewAccount && result.actionToken
+      ? `${window.location.origin}/chitfund-request?token=${result.actionToken}`
+      : '';
     return (
       <Modal title="Chitfund Request Sent" onClose={onClose} size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">Setup link sent to <strong>{member.fullName}</strong>. They'll use it to create their ChitWise account and set their own credentials.</p>
-          {setupUrl && <button
+          {emailDelivered ? (
+            <p className="text-sm text-gray-600">Setup link sent to <strong>{member.fullName}</strong>. They'll use it to create their ChitWise account and set their own credentials.</p>
+          ) : isNewAccount ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-semibold text-amber-800">Email delivery failed</p>
+              <p className="text-xs text-amber-700 mt-1">The setup email could not be delivered. Contact the member directly and use Resend once the address is confirmed.</p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600">Access request sent to <strong>{member.fullName}</strong>.</p>
+          )}
+          {actionUrl && <button
             type="button"
-            onClick={() => { navigator.clipboard.writeText(setupUrl); setCopied(true); setTimeout(() => setCopied(false), 2500); }}
+            onClick={() => { navigator.clipboard.writeText(actionUrl); setCopied(true); setTimeout(() => setCopied(false), 2500); }}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-semibold cursor-pointer hover:bg-[#EFF4FA] transition-colors"
           >
-            {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy one-time setup link</>}
+            {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy one-time access link</>}
           </button>}
           <Button className="w-full" onClick={onClose}>Done</Button>
         </div>
@@ -629,10 +640,12 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
   };
   const resend = useMutation({ mutationFn: () => resendChitfundRequest(latest.id), onSuccess: (data) => {
     refresh();
-    const url = data?.setupToken
-      ? `${window.location.origin}/setup-account?token=${data.setupToken}`
-      : data?.actionToken ? `${window.location.origin}/chitfund-request?token=${data.actionToken}` : '';
-    setResentLink(url);
+    const isNewAccount = data?.requestKind === 'NEW_ACCOUNT';
+    const emailDelivered = data?.setupEmailSent;
+    const actionUrl = !isNewAccount && data?.actionToken
+      ? `${window.location.origin}/chitfund-request?token=${data.actionToken}`
+      : '';
+    setResentLink(emailDelivered ? '__email_sent__' : actionUrl);
     toast.success('Chitfund Request resent');
   }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not resend request') });
   const revoke = useMutation({ mutationFn: () => revokeChitfundRequest(latest.id), onSuccess: () => { refresh(); toast.success('Chitfund Request revoked'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not revoke request') });
@@ -657,7 +670,7 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
           <p className="text-xs text-gray-500 mt-1">{latest.requestKind === 'LINK_EXISTING' ? 'Connect existing ChitWise account' : 'Set up a new ChitWise account'} · expires {new Date(latest.expiresAt).toLocaleString('en-IN')}</p>
         </div>
         <div className="flex gap-2">
-          {latest.status === 'AWAITING_ADMIN' && isAdmin && <Button onClick={() => confirm.mutate()} loading={confirm.isPending}><ShieldCheck size={14} /> Confirm Access</Button>}
+          {latest.status === 'AWAITING_ADMIN' && isAdmin && <Button onClick={() => confirm.mutate()} loading={confirm.isPending}><ShieldCheck size={14} /> Activate Access (Manual)</Button>}
           {open && <Button variant="secondary" onClick={() => resend.mutate()} loading={resend.isPending}>Resend</Button>}
           {open && <Button variant="secondary" onClick={() => revoke.mutate()} loading={revoke.isPending}>Revoke</Button>}
           {latest.status === 'ACTIVE' && isAdmin && <Button variant="warning" onClick={() => suspend.mutate()} loading={suspend.isPending}><ShieldOff size={14} /> Suspend</Button>}
@@ -666,13 +679,20 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
           {closed && <Button onClick={onSend}><UserPlus size={14} /> New Request</Button>}
         </div>
       </div>
-      {resentLink && <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 p-2">
-        <p className="flex-1 text-xs text-blue-800">A fresh one-time link is ready. Share it privately with the member.</p>
-        <button type="button" onClick={async () => {
-          await navigator.clipboard.writeText(resentLink);
-          toast.success('One-time link copied');
-        }} className="text-xs font-semibold text-[#1E3A5F] underline">Copy link</button>
-      </div>}
+      {resentLink === '__email_sent__' && (
+        <div className="mt-3 rounded-lg border border-green-100 bg-green-50 p-2">
+          <p className="text-xs text-green-800">Setup email resent — the member will receive a fresh setup link shortly.</p>
+        </div>
+      )}
+      {resentLink && resentLink !== '__email_sent__' && (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 p-2">
+          <p className="flex-1 text-xs text-blue-800">A fresh one-time link is ready. Share it privately with the member.</p>
+          <button type="button" onClick={async () => {
+            await navigator.clipboard.writeText(resentLink);
+            toast.success('One-time link copied');
+          }} className="text-xs font-semibold text-[#1E3A5F] underline">Copy link</button>
+        </div>
+      )}
     </div>
   );
 }
