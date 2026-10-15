@@ -89,6 +89,7 @@ services:
       <<: [*test-common, *test-db]
       DB_NAME: chitfund_user
       MEMBER_SERVICE_URL: http://member-service:8083
+      APP_DEV_OTP_EXPOSURE_ENABLED: "true"
     ports:
       - "127.0.0.1:9081:8081"
     depends_on:
