@@ -65,7 +65,8 @@ public class InvitationController {
             @PathVariable UUID invId,
             @PathVariable UUID rid,
             @RequestBody OverrideResponseRequest req) {
-        return ResponseEntity.ok(ApiResponse.success(invitationService.overrideResponse(invId, rid, req), "Response updated"));
+        return ResponseEntity.ok(ApiResponse.success(
+                invitationService.overrideResponse(chitId, invId, rid, req), "Response updated"));
     }
 
     @PostMapping("/{invId}/responses/{rid}/approve")
@@ -90,6 +91,6 @@ public class InvitationController {
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                invitationService.rejectResponse(invId, rid, adminId, req.getReason()), "Response rejected"));
+                invitationService.rejectResponse(chitId, invId, rid, adminId, req.getReason()), "Response rejected"));
     }
 }

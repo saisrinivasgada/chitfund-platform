@@ -47,6 +47,14 @@ function fmtDateTime(dt) {
 }
 function fmtDate(dt) {
   if (!dt) return '—';
+  // A date-only value is a business/calendar date, not an instant. Formatting
+  // `2026-01-01` in the viewer's timezone can otherwise display 31 Dec 2025.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dt)) {
+    const [year, month, day] = dt.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC',
+    });
+  }
   return new Date(utc(dt)).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 

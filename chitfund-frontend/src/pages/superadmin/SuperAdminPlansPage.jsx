@@ -49,7 +49,12 @@ function PlanCard({ plan }) {
       style={{ minWidth: 220, maxWidth: 280 }}
     >
       {(() => {
-        let bs = []; try { bs = JSON.parse(plan.badges || '[]'); } catch {}
+        let bs;
+        try {
+          bs = JSON.parse(plan.badges || '[]');
+        } catch {
+          bs = [];
+        }
         const enabled = bs.filter(b => b.enabled && b.text);
         if (!enabled.length) return null;
         return (
@@ -186,7 +191,7 @@ function PlanPreviewModal({ plans, onClose }) {
 }
 
 // Capability keys that are also enforced by the backend (shown as "(enforced)" hint)
-const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
+const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support', 'live_chat', 'settlement']);
 
 function PlanModal({ plan, onSave, onClose }) {
   const isEdit = !!plan;
@@ -202,6 +207,7 @@ function PlanModal({ plan, onSave, onClose }) {
     maxMembers:             plan?.maxMembers != null ? String(plan.maxMembers) : '20',
     maxStaff:               plan?.maxStaff != null ? String(plan.maxStaff) : '0',
     displayOrder:           plan?.displayOrder != null ? String(plan.displayOrder) : '99',
+    changeReason:           '',
   });
   const [badges, setBadges] = useState(() => {
     try {
@@ -238,8 +244,6 @@ function PlanModal({ plan, onSave, onClose }) {
   const { data: capDefs = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
 
   const isLive = isEdit && plan.isPublic && plan.isActive;
-  const enabledSet = new Set(form.featuresText.split('\n').map(s => s.trim()).filter(Boolean));
-
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
   function toggleCapability(label, checked, key) {
@@ -276,7 +280,6 @@ function PlanModal({ plan, onSave, onClose }) {
     try {
       const created = await superAdminAddCapability(label);
       queryClient.setQueryData(['super-capabilities'], (prev = []) => [...prev, created]);
-      toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
     } catch (err) {
@@ -288,8 +291,10 @@ function PlanModal({ plan, onSave, onClose }) {
 
   async function handleDeleteCapability(key, label) {
     if (!window.confirm(`Remove capability "${label}" from the master list? It will disappear from all plan edit pages (existing features text is not changed).`)) return;
+    const reason = window.prompt('Why is this capability being removed? (minimum 5 characters)');
+    if (!reason || reason.trim().length < 5) { setError('A reason of at least 5 characters is required'); return; }
     try {
-      await superAdminDeleteCapability(key);
+      await superAdminDeleteCapability(key, reason.trim());
       queryClient.setQueryData(['super-capabilities'], (prev = []) => prev.filter(c => c.key !== key));
     } catch { setError('Failed to remove capability'); }
   }
@@ -297,6 +302,7 @@ function PlanModal({ plan, onSave, onClose }) {
   async function handleSave() {
     if (!isEdit && !form.plan.trim()) { setError('Plan code is required'); return; }
     if (!form.displayName.trim()) { setError('Display name is required'); return; }
+    if (isEdit && form.changeReason.trim().length < 5) { setError('Please enter a reason of at least 5 characters'); return; }
     if (isLive && !confirming) { setConfirming(true); return; }
     setSaving(true);
     setError('');
@@ -322,7 +328,7 @@ function PlanModal({ plan, onSave, onClose }) {
         body.isActive = true;
       }
       if (isEdit) {
-        await superAdminUpdatePlanDef(plan.plan, body);
+        await superAdminUpdatePlanDef(plan.plan, body, form.changeReason.trim());
       } else {
         await superAdminCreatePlanDef(body);
       }
@@ -472,14 +478,19 @@ function PlanModal({ plan, onSave, onClose }) {
             {capDefs.length === 0 && <p className="text-xs text-gray-400 italic">No capabilities defined yet — click "+ Add capability"</p>}
             {capDefs.map(cap => (
               <div key={cap.key} className="flex items-center justify-between group">
-                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                <label className={`flex items-center gap-3 flex-1 ${cap.enforced === false && !form.enabledCapabilityKeys.includes(cap.key) ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                   <input type="checkbox"
-                    checked={enabledSet.has(cap.label)}
+                    checked={form.enabledCapabilityKeys.includes(cap.key)}
+                    disabled={cap.enforced === false && !form.enabledCapabilityKeys.includes(cap.key)}
                     onChange={e => toggleCapability(cap.label, e.target.checked, cap.key)}
                     className="rounded accent-[#1E3A5F]" />
                   <span className="text-sm text-gray-700">{cap.label}</span>
-                  {ENFORCED_KEYS.has(cap.key) && (
+                  {(cap.enforced ?? ENFORCED_KEYS.has(cap.key)) ? (
                     <span className="text-xs text-blue-500">(enforced)</span>
+                  ) : (
+                    <span className="text-xs text-amber-600">
+                      {form.enabledCapabilityKeys.includes(cap.key) ? '(not enforced · remove before saving)' : '(planned · not assignable yet)'}
+                    </span>
                   )}
                 </label>
                 <button type="button" onClick={() => handleDeleteCapability(cap.key, cap.label)}
@@ -495,6 +506,15 @@ function PlanModal({ plan, onSave, onClose }) {
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Display order</label>
             <input type="number" min="0" className={INPUT} value={form.displayOrder} onChange={e => set('displayOrder', e.target.value)} />
           </div>
+
+          {isEdit && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason for change <span className="text-red-400">*</span></label>
+              <textarea className={`${INPUT} resize-none`} rows={2} value={form.changeReason}
+                onChange={e => set('changeReason', e.target.value)}
+                placeholder="Explain why limits, pricing or capabilities are changing" />
+            </div>
+          )}
 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
@@ -550,9 +570,11 @@ export default function SuperAdminPlansPage() {
   useEffect(() => { load(); }, [load]);
 
   async function handleMakeLive(plan) {
+    const reason = window.prompt(`Why should "${plan.displayName}" be made live? (minimum 5 characters)`);
+    if (!reason || reason.trim().length < 5) { showToast('A reason of at least 5 characters is required'); return; }
     setTogglingPlan(plan.plan);
     try {
-      await superAdminUpdatePlanDef(plan.plan, { isPublic: true, isActive: true });
+      await superAdminUpdatePlanDef(plan.plan, { isPublic: true, isActive: true }, reason.trim());
       showToast(`${plan.displayName} is now live!`);
       load();
     } catch { showToast('Failed to publish'); }
@@ -560,9 +582,11 @@ export default function SuperAdminPlansPage() {
   }
 
   async function handleTakeOffline(plan) {
+    const reason = window.prompt(`Why should "${plan.displayName}" be taken offline? (minimum 5 characters)`);
+    if (!reason || reason.trim().length < 5) { showToast('A reason of at least 5 characters is required'); return; }
     setTogglingPlan(plan.plan);
     try {
-      await superAdminUpdatePlanDef(plan.plan, { isPublic: false });
+      await superAdminUpdatePlanDef(plan.plan, { isPublic: false }, reason.trim());
       showToast(`${plan.displayName} taken offline`);
       load();
     } catch { showToast('Failed to update'); }
@@ -571,8 +595,10 @@ export default function SuperAdminPlansPage() {
 
   async function handleDeactivate(plan) {
     if (!window.confirm(`Deactivate "${plan.displayName}"? Existing tenants keep it, but it won't appear anywhere.`)) return;
+    const reason = window.prompt(`Why is "${plan.displayName}" being deactivated? (minimum 5 characters)`);
+    if (!reason || reason.trim().length < 5) { showToast('A reason of at least 5 characters is required'); return; }
     try {
-      await superAdminDeletePlanDef(plan.plan);
+      await superAdminDeletePlanDef(plan.plan, reason.trim());
       showToast('Plan deactivated');
       load();
     } catch { showToast('Failed to deactivate'); }

@@ -1,9 +1,11 @@
 package com.chitfund.chitservice.service;
 
 import com.chitfund.chitservice.client.NotificationClient;
+import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
+import com.chitfund.chitservice.domain.entity.ChitLifecycleCommand;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
@@ -14,9 +16,11 @@ import com.chitfund.chitservice.dto.request.UpdateChitDetailsRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
+import com.chitfund.chitservice.dto.response.ChitLifecycleSyncResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
+import com.chitfund.chitservice.repository.ChitLifecycleCommandRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
 import com.chitfund.common.dto.PagedResponse;
@@ -55,6 +59,9 @@ public class ChitService {
     private final ChitAttributeService attributeService;
     private final NotificationClient notificationClient;
     private final PlanLimitChecker planLimitChecker;
+    private final AuditClient auditClient;
+    private final ChitLifecycleCommandStore lifecycleCommandStore;
+    private final ChitLifecycleCommandRepository lifecycleCommandRepository;
 
     @Transactional
     public ChitResponse createChit(CreateChitRequest req, UUID createdBy) {
@@ -110,6 +117,10 @@ public class ChitService {
             // Reservation chits: admin assigns members to slots. Lottery chits: admin sets payout amounts.
             autoGenerateUnallocatedSlots(chit, createdBy);
         }
+
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_CREATED", createdBy.toString(), "ADMIN",
+                null, chitAuditState(chit), chit.getTenantId());
 
         return enrich(chit);
     }
@@ -196,7 +207,13 @@ public class ChitService {
 
     @Transactional
     public ChitResponse updateStatus(UUID id, UpdateChitStatusRequest request) {
+        return updateStatus(id, request, "ADMIN_OR_MANAGER");
+    }
+
+    @Transactional
+    public ChitResponse updateStatus(UUID id, UpdateChitStatusRequest request, String actorRole) {
         Chit chit = findByIdScoped(id);
+        Map<String, Object> before = chitAuditState(chit);
         boolean activatingFromDraft = request.getStatus() == ChitStatus.ACTIVE
                 && chit.getStatus() == ChitStatus.DRAFT;
 
@@ -231,32 +248,25 @@ public class ChitService {
             chit.setEndDate(request.getStartDate().plusMonths(chit.getDurationMonths()));
         }
         ChitResponse response = enrich(chitRepository.save(chit));
+        String actorId = request.getUpdatedBy() != null ? request.getUpdatedBy().toString() : null;
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_STATUS_CHANGED", actorId, actorRole,
+                before, chitAuditState(chit), chit.getTenantId());
+        if (completing) {
+            lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
+        }
         if (activatingFromDraft) {
             // RESERVATION: derive enrollment from the schedule; LOTTERY/AUCTION: admin enrolled members directly
             if (chit.getWinnerSelectionMode() == WinnerSelectionMode.RESERVATION) {
                 syncEnrollmentsFromSchedule(chit);
             }
-            final Chit activatedChit = chit;
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    CompletableFuture.runAsync(() ->
-                        sendChitStatusNotifications(activatedChit, "CHIT_ACTIVATED",
-                                "Chit Activated — " + activatedChit.getName(),
-                                "Your chit '" + activatedChit.getName() + "' is now active. Payments will begin as scheduled."));
-                }
-            });
+            sendChitStatusNotifications(chit, "CHIT_ACTIVATED",
+                    "Chit Activated — " + chit.getName(),
+                    "Your chit '" + chit.getName() + "' is now active. Payments will begin as scheduled.");
         } else if (completing) {
-            final Chit completedChit = chit;
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    CompletableFuture.runAsync(() -> {
-                        sendChitStatusNotifications(completedChit, "CHIT_COMPLETED",
-                                "Chit Completed — " + completedChit.getName(),
-                                "Your chit '" + completedChit.getName() + "' has been completed. Thank you for participating!");
-                        notificationClient.closeDrawsForChit(completedChit.getId());
-                    });
-                }
-            });
+            sendChitStatusNotifications(chit, "CHIT_COMPLETED",
+                    "Chit Completed — " + chit.getName(),
+                    "Your chit '" + chit.getName() + "' has been completed. Thank you for participating!");
         } else if (revertingToDraft) {
             // Clear enrollments so admin can freely edit the schedule and re-activate
             List<ChitEnrollment> existing = enrollmentRepository.findByChitIdAndActiveTrue(chit.getId());
@@ -267,22 +277,41 @@ public class ChitService {
     }
 
     private void sendChitStatusNotifications(Chit chit, String type, String title, String message) {
-        try {
-            List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitId(chit.getId())
-                    .stream().distinct().map(UUID::toString).toList();
-            if (!memberIds.isEmpty()) {
-                // In-app bell notification via notification-service (resolves memberId → userId)
-                notificationClient.notifyUsersInApp(memberIds, type, title, message, "/member/chits/" + chit.getId());
+        List<String> memberIds = enrollmentRepository
+                .findActiveMemberIdsByChitIdAndTenantId(chit.getId(), chit.getTenantId())
+                .stream().distinct().map(UUID::toString).toList();
+        if (!memberIds.isEmpty()) {
+            // This outbox insert joins the chit transaction. A rollback leaves no false notification.
+            notificationClient.notifyUsersInApp(chit.getTenantId(), memberIds, type, title, message,
+                    "/member/chits/" + chit.getId());
+        }
+
+        Runnable legacyDelivery = () -> {
+            try {
+                if (!memberIds.isEmpty()) {
                 // Legacy payment-service channel (role-based push, kept for existing admin tooling)
-                notificationClient.notifyUsers(memberIds, type, title, message,
+                notificationClient.notifyUsers(chit.getTenantId(), memberIds, type, title, message,
                         "CHIT", chit.getId().toString(), "/member");
+                }
+                notificationClient.notifyRole(chit.getTenantId(), "MANAGER", type,
+                        title.replace("Your chit", "Chit"),
+                        "Chit '" + chit.getName() + "' status changed — "
+                                + type.replace("CHIT_", "").toLowerCase() + ".",
+                        "CHIT", chit.getId().toString(), "/chits");
+            } catch (Exception ex) {
+                log.warn("Could not send legacy chit-status notifications for chit {}: {}",
+                        chit.getId(), ex.getClass().getSimpleName());
             }
-            notificationClient.notifyRole("MANAGER", type,
-                    title.replace("Your chit", "Chit"),
-                    "Chit '" + chit.getName() + "' status changed — " + type.replace("CHIT_", "").toLowerCase() + ".",
-                    "CHIT", chit.getId().toString(), "/chits");
-        } catch (Exception ex) {
-            log.warn("Could not send chit-status notifications for chit {}: {}", chit.getId(), ex.getMessage());
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    CompletableFuture.runAsync(legacyDelivery);
+                }
+            });
+        } else {
+            CompletableFuture.runAsync(legacyDelivery);
         }
     }
 
@@ -332,12 +361,23 @@ public class ChitService {
 
     @Transactional
     public ChitResponse updateName(UUID id, UpdateChitNameRequest request) {
+        return updateName(id, request, null, "ADMIN");
+    }
+
+    @Transactional
+    public ChitResponse updateName(UUID id, UpdateChitNameRequest request,
+                                   UUID actorId, String actorRole) {
         Chit chit = findByIdScoped(id);
+        Map<String, Object> before = chitAuditState(chit);
         chit.setName(request.getName().trim());
         if (request.getDescription() != null) {
             chit.setDescription(request.getDescription().trim().isEmpty() ? null : request.getDescription().trim());
         }
+        if (actorId != null) chit.setUpdatedBy(actorId);
         chit = chitRepository.save(chit);
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_NAME_UPDATED", actorId != null ? actorId.toString() : null, actorRole,
+                before, chitAuditState(chit), chit.getTenantId());
         log.info("Chit {} name updated to '{}'", id, chit.getName());
         return enrich(chit);
     }
@@ -345,6 +385,7 @@ public class ChitService {
     @Transactional
     public ChitResponse updateDetails(UUID id, UpdateChitDetailsRequest req, UUID updatedBy) {
         Chit chit = findByIdScoped(id);
+        Map<String, Object> before = chitAuditState(chit);
         ChitStatus status = chit.getStatus();
         if (status == ChitStatus.COMPLETED || status == ChitStatus.CANCELLED || status == ChitStatus.DELETED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -385,22 +426,42 @@ public class ChitService {
         }
 
         chit.setUpdatedBy(updatedBy);
-        return enrich(chitRepository.save(chit));
+        ChitResponse response = enrich(chitRepository.save(chit));
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_DETAILS_UPDATED", updatedBy.toString(), "ADMIN",
+                before, chitAuditState(chit), chit.getTenantId());
+        return response;
     }
 
     @Transactional
     public ChitResponse pauseChit(UUID id, UUID adminId) {
+        return pauseChit(id, adminId, "ADMIN_OR_MANAGER");
+    }
+
+    @Transactional
+    public ChitResponse pauseChit(UUID id, UUID adminId, String actorRole) {
         Chit chit = findByIdScoped(id);
+        Map<String, Object> before = chitAuditState(chit);
         chit.transitionTo(ChitStatus.PAUSED);
         chit.setPausedAt(LocalDateTime.now());
         chit.setPausedBy(adminId);
         chit.setUpdatedBy(adminId);
-        return enrich(chitRepository.save(chit));
+        ChitResponse response = enrich(chitRepository.save(chit));
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_PAUSED", adminId.toString(), actorRole,
+                before, chitAuditState(chit), chit.getTenantId());
+        return response;
     }
 
     @Transactional
     public ChitResponse resumeChit(UUID id, UUID adminId) {
+        return resumeChit(id, adminId, "ADMIN_OR_MANAGER");
+    }
+
+    @Transactional
+    public ChitResponse resumeChit(UUID id, UUID adminId, String actorRole) {
         Chit chit = findByIdScoped(id);
+        Map<String, Object> before = chitAuditState(chit);
         if (chit.getStatus() != ChitStatus.PAUSED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Chit is not paused — cannot resume");
@@ -417,17 +478,94 @@ public class ChitService {
         chit.transitionTo(ChitStatus.ACTIVE);
         chit.setPausedAt(null);
         chit.setUpdatedBy(adminId);
-        return enrich(chitRepository.save(chit));
+        ChitResponse response = enrich(chitRepository.save(chit));
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_RESUMED", adminId.toString(), actorRole,
+                before, chitAuditState(chit), chit.getTenantId());
+        return response;
     }
 
     @Transactional
     public ChitResponse softDeleteChit(UUID id, UUID adminId) {
         Chit chit = findByIdScoped(id);
+        Map<String, Object> before = chitAuditState(chit);
         chit.transitionTo(ChitStatus.DELETED);
         chit.setDeletedAt(LocalDateTime.now());
         chit.setDeletedBy(adminId);
         chit.setUpdatedBy(adminId);
-        return enrich(chitRepository.save(chit));
+        ChitResponse response = enrich(chitRepository.save(chit));
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_DELETED", adminId.toString(), "ADMIN",
+                before, chitAuditState(chit), chit.getTenantId());
+        return response;
+    }
+
+    /** Internal payout callback. Service authentication does not replace tenant isolation. */
+    @Transactional
+    public ChitResponse completeAfterFinalDisbursement(UUID id, String tenantId) {
+        Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+        if (chit.getStatus() == ChitStatus.COMPLETED) {
+            lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
+            return enrich(chit);
+        }
+
+        Map<String, Object> before = chitAuditState(chit);
+        chit.transitionTo(ChitStatus.COMPLETED);
+        ChitResponse response = enrich(chitRepository.save(chit));
+        auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
+                "CHIT_COMPLETED", null, "SYSTEM", before, chitAuditState(chit), chit.getTenantId());
+        lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
+
+        sendChitStatusNotifications(chit, "CHIT_COMPLETED",
+                "Chit Completed — " + chit.getName(),
+                "Your chit '" + chit.getName()
+                        + "' has been completed. Thank you for participating!");
+        return response;
+    }
+
+    @Transactional(readOnly = true)
+    public ChitLifecycleSyncResponse getLifecycleSync(UUID chitId) {
+        Chit chit = findByIdScoped(chitId);
+        List<ChitLifecycleCommand> commands = lifecycleCommandRepository
+                .findByTenantIdAndChitIdOrderByCreatedAt(chit.getTenantId(), chitId);
+        long completed = commands.stream().filter(c -> "COMPLETED".equals(c.getStatus())).count();
+        long failed = commands.stream().filter(c -> "FAILED".equals(c.getStatus())).count();
+        long retrying = commands.stream().filter(c -> "RETRY".equals(c.getStatus())).count();
+        long pending = commands.stream().filter(c -> "PENDING".equals(c.getStatus())
+                || "PROCESSING".equals(c.getStatus())).count();
+        String status = commands.isEmpty() ? "NOT_SCHEDULED"
+                : failed > 0 ? "FAILED"
+                : completed == commands.size() ? "COMPLETED"
+                : retrying > 0 ? "RETRYING" : "PENDING";
+        String lastError = commands.stream()
+                .map(ChitLifecycleCommand::getLastErrorCode)
+                .filter(java.util.Objects::nonNull)
+                .reduce((first, second) -> second).orElse(null);
+        return ChitLifecycleSyncResponse.builder()
+                .status(status)
+                .totalOperations(commands.size())
+                .completedOperations(completed)
+                .pendingOperations(pending)
+                .retryingOperations(retrying)
+                .lastErrorCode(lastError)
+                .build();
+    }
+
+    @Transactional
+    public ChitLifecycleSyncResponse retryLifecycleSync(UUID chitId, UUID actorId,
+                                                         String actorRole) {
+        Chit chit = findByIdScoped(chitId);
+        int retried = lifecycleCommandStore.retryFailed(chit.getTenantId(), chitId);
+        if (retried == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "This chit has no terminal lifecycle sync failures to retry");
+        }
+        auditClient.log("CHIT", chitId.toString(), chitId.toString(),
+                "CHIT_LIFECYCLE_SYNC_RETRIED", actorId.toString(), actorRole,
+                Map.of("failedOperations", retried), Map.of("status", "RETRYING"),
+                chit.getTenantId());
+        return getLifecycleSync(chitId);
     }
 
     // ── Reservation schedule helpers ──────────────────────────────────────────
@@ -483,7 +621,7 @@ public class ChitService {
     // writes for the same chit must serialize (e.g. winner assignment) rather than
     // both reading stale state and racing past each other.
     public Chit findByIdForUpdate(UUID id) {
-        return chitRepository.findByIdForUpdate(id)
+        return chitRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
     }
 
@@ -508,5 +646,22 @@ public class ChitService {
         response.setWinnersAssigned(winnerRepository.countByChitId(chit.getId()));
         response.setAttributes(attributeService.getAll(chit));
         return response;
+    }
+
+    private Map<String, Object> chitAuditState(Chit chit) {
+        Map<String, Object> state = new java.util.LinkedHashMap<>();
+        state.put("name", chit.getName());
+        state.put("status", chit.getStatus() != null ? chit.getStatus().name() : null);
+        state.put("chitType", chit.getChitType() != null ? chit.getChitType().name() : null);
+        state.put("winnerSelectionMode", chit.getWinnerSelectionMode() != null
+                ? chit.getWinnerSelectionMode().name() : null);
+        state.put("chitValue", chit.getChitValue());
+        state.put("installmentAmount", chit.getInstallmentAmount());
+        state.put("capacity", chit.getCapacity());
+        state.put("durationMonths", chit.getDurationMonths());
+        state.put("startDate", chit.getStartDate());
+        state.put("endDate", chit.getEndDate());
+        state.put("deleted", chit.getDeletedAt() != null);
+        return state;
     }
 }

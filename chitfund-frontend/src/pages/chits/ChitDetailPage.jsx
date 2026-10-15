@@ -3,18 +3,19 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChit, updateChitStatus, updateChitDetails, pauseChit, resumeChit, deleteChit,
+  getChitLifecycleSync, retryChitLifecycleSync,
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
   getDraws, closeDraw, skipDraw, deleteDraw, shiftReservations,
-  getWinners, recordWinner, deleteWinnerForDraw,
-  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, swapSlots, getSlotHistory,
+  getWinners, recordWinner,
+  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
   getDrawPayments, recordPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
-  getPaymentBatches, voidPaymentBatch, revertPayoutDeductions,
+  getPaymentBatches, voidPaymentBatch,
   getPayoutsByChit, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   listStaff, getUserById, getWalletBalance,
-  getChitAuditLogs, listAuctions, voidAuction,
+  getChitAuditLogs, listAuctions,
   sendChitInvitation, getChitInvitations, getChitInvitationDetail, closeChitInvitation, overrideInvitationResponse, approveInvitationResponse, rejectInvitationResponse,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -1354,7 +1355,6 @@ function ReservationScheduleTab({ chitId, chit }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
-  const [deletingSlot, setDeletingSlot] = useState(null);  // voided slot being permanently deleted
   const [fillingSlot, setFillingSlot] = useState(null);    // voided slot being filled with a new slot at same position
   const [historySlot, setHistorySlot] = useState(null);    // slot whose audit history is being viewed
   const [pickerSlot, setPickerSlot] = useState(null);      // slot whose member picker popup is open
@@ -1528,31 +1528,12 @@ function ReservationScheduleTab({ chitId, chit }) {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to restore slot'),
   });
 
-  const hardDeleteMutation = useMutation({
-    mutationFn: (slot) => hardDeleteReservationSlot({ chitId, reservationId: slot.id }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reservations', chitId] });
-      setDeletingSlot(null);
-      toast.success('Slot permanently deleted');
-    },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to delete slot'),
-  });
-
   const active = slots.filter((s) => s.status !== 'VOIDED');
   const totalPayout = active.reduce((sum, s) => sum + Number(s.payoutAmount ?? 0), 0);
   const maxSlots = chit?.durationMonths ?? chit?.capacity ?? Infinity;
   const slotsAreFull = active.length >= maxSlots;
-
-  // Extra slots: active slots beyond the chit's member count — admin can delete these directly
   const memberCount = chit?.capacity ?? 0;
-  const extraSlotIds = memberCount > 0 && active.length > memberCount
-    ? new Set(
-        [...active]
-          .sort((a, b) => (a.monthNumber ?? Infinity) - (b.monthNumber ?? Infinity))
-          .slice(memberCount)
-          .map((s) => s.id)
-      )
-    : new Set();
+  const extraSlotCount = memberCount > 0 ? Math.max(0, active.length - memberCount) : 0;
 
   if (isAuction) {
     return (
@@ -1702,10 +1683,10 @@ function ReservationScheduleTab({ chitId, chit }) {
 
   return (
     <div className="space-y-4">
-      {extraSlotIds.size > 0 && (
+      {extraSlotCount > 0 && (
         <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
           <AlertTriangle size={13} className="flex-shrink-0" />
-          {extraSlotIds.size} slot{extraSlotIds.size > 1 ? 's' : ''} exceed{extraSlotIds.size === 1 ? 's' : ''} the chit's {memberCount}-member limit. Use the Delete button on the extra slot{extraSlotIds.size > 1 ? 's' : ''} to remove them.
+          {extraSlotCount} slot{extraSlotCount > 1 ? 's' : ''} exceed{extraSlotCount === 1 ? 's' : ''} the chit's {memberCount}-member limit. Void the extra slot{extraSlotCount > 1 ? 's' : ''}; its history will remain available for audit.
         </div>
       )}
       <div className="flex items-center justify-between">
@@ -1865,10 +1846,9 @@ function ReservationScheduleTab({ chitId, chit }) {
                                 title="Add a new slot at this same position">
                                 <Plus size={13} /> Fill Slot
                               </Button>
-                              <Button variant="danger" size="sm"
-                                onClick={() => setDeletingSlot(slot)}>
-                                <Trash2 size={13} /> Delete
-                              </Button>
+                              <span className="text-xs text-gray-400" title="Retained as part of the audit history">
+                                Retained for audit
+                              </span>
                             </>
                           ) : (
                             <>
@@ -1879,18 +1859,10 @@ function ReservationScheduleTab({ chitId, chit }) {
                                   <CheckCircle size={13} /> Save
                                 </Button>
                               )}
-                              {extraSlotIds.has(slot.id) && slot.status !== 'PROCESSED' ? (
-                                <Button variant="danger" size="sm"
-                                  title="Extra slot beyond member count — delete permanently"
-                                  onClick={() => setDeletingSlot(slot)}>
-                                  <Trash2 size={13} /> Delete
-                                </Button>
-                              ) : (
-                                <Button variant="danger" size="sm"
-                                  onClick={() => setVoidingSlot(slot)}>
-                                  <XCircle size={13} /> Void
-                                </Button>
-                              )}
+                              <Button variant="danger" size="sm"
+                                onClick={() => setVoidingSlot(slot)}>
+                                <XCircle size={13} /> Void
+                              </Button>
                             </>
                           )) : (
                             <span className="text-xs text-gray-400 italic">—</span>
@@ -1942,18 +1914,6 @@ function ReservationScheduleTab({ chitId, chit }) {
           loading={voidMutation.isPending}
           onClose={() => setVoidingSlot(null)}
           onConfirm={({ reason, replaceAt }) => voidMutation.mutate({ slot: voidingSlot, reason, replaceAt })}
-        />
-      )}
-
-      {deletingSlot && (
-        <DestructiveDialog
-          title="Permanently Delete Slot"
-          description={`This will permanently delete the ${formatMonthLabel(deletingSlot.reservationMonth, deletingSlot.monthNumber)} slot. The voided record and audit trail will be erased. This cannot be undone.`}
-          confirmWord="DELETE"
-          actionLabel="Permanently Delete"
-          loading={hardDeleteMutation.isPending}
-          onConfirm={() => hardDeleteMutation.mutate(deletingSlot)}
-          onClose={() => setDeletingSlot(null)}
         />
       )}
 
@@ -3019,118 +2979,8 @@ function DrawsTab({ chitId, chit }) {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to close draw'),
   });
 
-  const isLotteryChit = chit?.chitType === 'LOTTERY';
-
   const deleteMutation = useMutation({
-    mutationFn: async ({ cycleId, monthNumber }) => {
-      const cycleWinnerList = winners.filter((w) => w.monthNumber === monthNumber);
-
-      // 1. Guard: cannot undo a payout that's already been disbursed to the winner
-      const drawPayouts = payoutsByMonth[monthNumber] ?? [];
-      for (const payout of drawPayouts) {
-        if (payout.status === 'PARTIALLY_DISBURSED') {
-          throw new Error('Cannot delete draw — a payout has been partially disbursed. Disburse the remaining amount first.');
-        }
-        if (payout.status === 'DISBURSED') {
-          throw new Error('Cannot delete draw — a payout has already been fully disbursed.');
-        }
-        if (payout.status === 'PENDING') {
-          await revertPayoutDeductions(payout.id).catch(() => null);
-          await cancelPayout({ id: payout.id, reason: 'Draw deleted' }).catch(() => null);
-        }
-      }
-
-      // 2. Auto-void member payment batches for this draw so the backend delete check passes
-      const drawPaymentRecords = await getDrawPayments(cycleId);
-      const paidMemberIds = [...new Set(
-        drawPaymentRecords
-          .filter((r) => Number(r.amountPaid) > 0 && r.status !== 'PAYOUT_DEDUCTED')
-          .map((r) => String(r.memberId)),
-      )];
-      const batchIdsToVoid = new Set();
-      for (const memberId of paidMemberIds) {
-        const memberBatches = await getPaymentBatches({ memberId, chitId }).catch(() => []);
-        for (const batch of memberBatches) {
-          if (batch.status === 'VOIDED') continue;
-          const hasAlloc = (batch.allocations ?? []).some(
-            (a) => a.monthNumber === monthNumber && String(a.chitId) === String(chitId),
-          );
-          if (hasAlloc) batchIdsToVoid.add(batch.id);
-        }
-      }
-      for (const batchId of batchIdsToVoid) {
-        await voidPaymentBatch({ batchId, reason: 'Draw deleted' });
-      }
-
-      if (isAuctionChit) {
-        // 3a. Auction: void the session for this draw (if one exists and isn't already voided)
-        const auctionSession = auctionByMonth[monthNumber];
-        if (auctionSession && auctionSession.status !== 'VOIDED') {
-          await voidAuction({ chitId, auctionId: auctionSession.id }).catch(() => {});
-        }
-        // Auction draws never mark reservation slots PROCESSED — nothing to revert
-
-      } else if (isLotteryChit) {
-        // 3b. Lottery: the slot for this draw was assigned the winner memberId + marked PROCESSED.
-        // Revert it back to UNALLOCATED by clearing memberId.
-        const lotterySlot = reservations.find(
-          (r) => r.monthNumber === monthNumber && r.status === 'PROCESSED'
-        );
-        if (lotterySlot) {
-          await updateReservationSlot({
-            chitId,
-            reservationId: lotterySlot.id,
-            reservationMonth: lotterySlot.reservationMonth,
-            memberId: null,
-            orgHeld: false,
-            payoutAmount: lotterySlot.payoutAmount,
-            postPayoutContribution: lotterySlot.postPayoutContribution ?? null,
-          }).catch(() => {});
-        }
-
-      } else {
-        // 3c. Reservation: revert each winner's PROCESSED slot back to RESERVED (keep member assigned)
-        for (const winner of cycleWinnerList) {
-          const winnerId = winner.memberId ?? winner.winnerId;
-          const slotToRevert = [...reservations]
-            .filter((r) => String(r.memberId) === String(winnerId) && r.status === 'PROCESSED')
-            .sort((a, b) => new Date(b.updatedAt ?? 0) - new Date(a.updatedAt ?? 0))[0];
-          if (slotToRevert) {
-            await updateReservationSlot({
-              chitId,
-              reservationId: slotToRevert.id,
-              reservationMonth: slotToRevert.reservationMonth,
-              memberId: slotToRevert.memberId,
-              payoutAmount: slotToRevert.payoutAmount,
-              postPayoutContribution: slotToRevert.postPayoutContribution ?? null,
-            }).catch(() => {});
-          }
-        }
-        // Org-held draw: revert the most recently processed org slot
-        if (cycleWinnerList.length === 0) {
-          const orgSlotToRevert = [...reservations]
-            .filter((r) => r.orgHeld && r.status === 'PROCESSED')
-            .sort((a, b) => new Date(b.updatedAt ?? 0) - new Date(a.updatedAt ?? 0))[0];
-          if (orgSlotToRevert) {
-            await updateReservationSlot({
-              chitId,
-              reservationId: orgSlotToRevert.id,
-              reservationMonth: orgSlotToRevert.reservationMonth,
-              memberId: null,
-              orgHeld: true,
-              payoutAmount: orgSlotToRevert.payoutAmount,
-              postPayoutContribution: orgSlotToRevert.postPayoutContribution ?? null,
-            }).catch(() => {});
-          }
-        }
-      }
-
-      // 3. Remove all winner records for this draw
-      await deleteWinnerForDraw({ chitId, monthNumber }).catch(() => {});
-
-      // 4. Delete the draw itself
-      await deleteDraw(cycleId);
-    },
+    mutationFn: ({ cycleId }) => deleteDraw(cycleId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
@@ -3138,12 +2988,7 @@ function DrawsTab({ chitId, chit }) {
       qc.invalidateQueries({ queryKey: ['payouts', chitId] });
       qc.invalidateQueries({ queryKey: ['auctions', chitId] });
       qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'paymentHistory' && String(q.queryKey[1]) === String(chitId) });
-      const msg = isAuctionChit
-        ? 'Draw deleted — auction session voided'
-        : isLotteryChit
-        ? 'Draw deleted — payout slot reset to unallocated'
-        : 'Draw deleted — schedule slot restored to RESERVED';
-      toast.success(msg);
+      toast.success('Empty draw discarded');
       setPendingDelete(null);
     },
     onError: (err) => toast.error(err.message ?? err.response?.data?.message ?? 'Failed to delete draw'),
@@ -3420,9 +3265,9 @@ function DrawsTab({ chitId, chit }) {
       {pendingDelete && (
         <DestructiveDialog
           title={`Delete Draw ${pendingDelete.monthNumber}`}
-          description="This permanently deletes the draw and all payment records. Any member payments collected for this draw will be automatically reversed. Cannot be undone if the winner's payout has already been disbursed."
+          description="Only a pristine open draw can be discarded. If it has payments, credits, allocations, a winner, auction, processed reservation, or payout history, use the matching audited void or reversal workflow instead."
           confirmWord="DELETE"
-          actionLabel="Delete Draw"
+          actionLabel="Discard Empty Draw"
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate({ cycleId: pendingDelete.cycleId, monthNumber: pendingDelete.monthNumber })}
           onClose={() => setPendingDelete(null)}
@@ -3679,6 +3524,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   const [disbMode,  setDisbMode]  = useState('UPI');
   const [refNum,    setRefNum]    = useState('');
   const [disbNotes, setDisbNotes] = useState('');
+  const [disbIdempotencyKey, setDisbIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // ── Cancel payout form state ──
   const [showCancelForm, setShowCancelForm] = useState(false);
@@ -3720,6 +3566,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
       const enteredAmt = disbAmount.trim() !== '' ? Number(disbAmount) : null;
       return disbursePayout({
         id: payout.id,
+        idempotencyKey: disbIdempotencyKey,
         disbursementMode: disbMode,
         referenceNumber:  disbMode !== 'CASH' ? refNum : undefined,
         notes: disbNotes || undefined,
@@ -3741,6 +3588,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
       setDisbAmount('');
       setRefNum('');
       setDisbNotes('');
+      setDisbIdempotencyKey(crypto.randomUUID());
       toast.success(p.status === 'DISBURSED'
         ? 'Full amount disbursed — payout complete'
         : `₹${Number(p.disbursedAmount).toLocaleString('en-IN')} disbursed — ₹${Number(p.remainingAmount).toLocaleString('en-IN')} remaining`);
@@ -3750,11 +3598,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 
   // ── Cancel ──
   const cancelMutation = useMutation({
-    mutationFn: async () => {
-      // Revert PAYOUT_DEDUCTED records before cancelling so installments go back to OUTSTANDING
-      await revertPayoutDeductions(payout.id).catch(() => null);
-      return cancelPayout({ id: payout.id, reason: cancelReason });
-    },
+    mutationFn: async () => cancelPayout({ id: payout.id, reason: cancelReason }),
     onSuccess: (p) => {
       setPayout(p);
       invalidatePayouts();
@@ -3941,8 +3785,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
             memberId={memberId}
             monthNumber={monthNumber}
             defaultWinningAmount={winner.winningAmount ?? chit?.chitValue}
-            defaultAdjustment={winner.discountAmount ?? 0}
-            editableAmount
+            defaultAdjustment={0}
             onSuccess={(p) => {
               setPayout(p);
               setJustCreated(true);
@@ -5551,6 +5394,26 @@ export default function ChitDetailPage() {
     queryKey: ['chit', id],
     queryFn: () => getChit(id),
   });
+  const qc = useQueryClient();
+  const toast = useToastContext();
+  const { data: lifecycleSync } = useQuery({
+    queryKey: ['chit-lifecycle-sync', id],
+    queryFn: () => getChitLifecycleSync(id),
+    enabled: !!id && chit?.status === 'COMPLETED',
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+    },
+  });
+  const retryLifecycle = useMutation({
+    mutationFn: () => retryChitLifecycleSync(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chit-lifecycle-sync', id] });
+      toast.success('Lifecycle synchronization queued again');
+    },
+    onError: (error) => toast.error(
+      error.response?.data?.message ?? 'Could not retry lifecycle synchronization'),
+  });
 
   // Loaded here (shared cache key with sub-tabs) to compute true participant count
   // including reservation-only members who have no formal enrollment
@@ -5623,6 +5486,37 @@ export default function ChitDetailPage() {
               Record is read-only. All data is preserved for audit purposes.
             </p>
           </div>
+        </div>
+      )}
+
+      {chit.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+        <div className="flex items-start justify-between gap-4 bg-red-50 border border-red-200 rounded-xl px-5 py-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">Completion needs attention</p>
+              <p className="text-xs text-red-600 mt-0.5">
+                The chit is completed, but its payment draws could not be closed automatically.
+                No financial history was removed. Retry after the dependent service recovers.
+              </p>
+            </div>
+          </div>
+          {isAdmin && (
+            <Button variant="secondary" size="sm" disabled={retryLifecycle.isPending}
+              onClick={() => retryLifecycle.mutate()}>
+              <RotateCcw size={13} /> {retryLifecycle.isPending ? 'Retrying…' : 'Retry sync'}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {chit.status === 'COMPLETED' && lifecycleSync
+        && ['PENDING', 'RETRYING'].includes(lifecycleSync.status) && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
+          <RotateCcw size={16} className="text-amber-600 animate-spin" />
+          <p className="text-sm text-amber-800">
+            Finalizing completion — closing remaining open payment draws.
+          </p>
         </div>
       )}
 

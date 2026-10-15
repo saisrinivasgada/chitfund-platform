@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.paymentservice.client.AuditClient;
 import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.client.ChitServiceClient.ChitDto;
 import com.chitfund.paymentservice.client.ChitServiceClient.EnrollmentDto;
@@ -50,6 +51,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -66,13 +68,10 @@ import java.util.stream.Collectors;
  * write coordination: one service owns one aggregate.
  *
  * For reads about chits and payouts we call their respective services via HTTP clients.
- * This is the "Application-layer join" pattern in microservices.
- *
- * INTERVIEW: "We made SettlementService a transactional unit inside payment-service.
- * The cross-service calls (chit, payout) are read-only lookups that happen before
- * the transaction. Within the transaction we only write to our own tables:
- * PaymentRecord, Settlement, AdminWalletEntry. If chit-service is down, preview
- * still fails gracefully — we don't partially commit."
+ * This is the "Application-layer join" pattern in microservices. Every dependency
+ * used for settlement arithmetic fails closed: unavailable or malformed remote data
+ * aborts the local transaction before any payment, credit, settlement, or member-status
+ * mutation can commit.
  */
 @Service
 @RequiredArgsConstructor
@@ -92,6 +91,7 @@ public class SettlementService {
     private final PayoutServiceClient payoutServiceClient;
     private final MemberCreditService memberCreditService;
     private final PlanExpiryChecker planExpiryChecker;
+    private final AuditClient centralAuditClient;
 
     // ─────────────────────────────────────────────────────────────────────────
     // PREVIEW
@@ -200,12 +200,12 @@ public class SettlementService {
             }
         }
 
-        // Acquire a pessimistic write lock on this member's credit balance row before
-        // any duplicate/existence check. This serializes concurrent confirm calls for
-        // the same member so only one can proceed past this point at a time.
-        // When the member has no credit balance the DB unique constraint on Settlement
-        // (tenant_id, member_id) is the final safety net for the no-prior-row case.
-        BigDecimal creditBalance = memberCreditService.getBalanceForUpdate(memberId);
+        // Lock the credit-balance row BEFORE the supersession reversal runs.
+        // reverseCreditForSettlement modifies the balance in the same transaction;
+        // rather than re-reading after the write (which trips Hibernate L1/flush
+        // ordering issues), we capture the current locked balance here and add the
+        // known restored amount below.
+        BigDecimal lockedCreditBefore = memberCreditService.getBalanceForUpdate(memberId);
 
         SupersessionPreparation preparation = prepareSupersession(
                 request, adminId, tenantId, idempotencyKey, requestHash);
@@ -213,6 +213,9 @@ public class SettlementService {
             return toSettlementResponse(preparation.idempotentResult());
         }
         Settlement priorSettlement = preparation.priorSettlement();
+        Map<String, Object> priorSettlementAuditState = priorSettlement != null
+                ? settlementAuditState(priorSettlement)
+                : null;
 
         // Historical rows never silently become a clean slate. A correction must
         // explicitly name the row it supersedes and provide a mandatory reason.
@@ -235,17 +238,13 @@ public class SettlementService {
 
             // Re-compute at confirm time (state may have changed since preview)
             SettlementChitPreviewResponse preview = computeChitPreview(memberId, chitId, mode);
-            if (preview == null) {
-                log.warn("Settlement confirm: could not compute preview for member {} chit {} — skipping", memberId, chitId);
-                continue;
-            }
 
             BigDecimal netAmount = preview.getNetAmount();
 
             // 1. Mark OUTSTANDING/PARTIALLY_PAID PaymentRecords as SETTLEMENT_CLEARED
             List<PaymentRecord> openRecords = paymentRecordRepository
-                    .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                            memberId, chitId,
+                    .findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                            tenantId, memberId, chitId,
                             List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
             for (PaymentRecord rec : openRecords) {
                 recordEffects.add(SettlementPaymentRecordEffect.builder()
@@ -306,7 +305,9 @@ public class SettlementService {
                 ? request.getAdjustmentAmount()
                 : BigDecimal.ZERO;
 
-        // creditBalance acquired at top of method (with row lock) — reuse here
+        // Apply member credit balance — locked before supersession above; add any
+        // credit restored by the reversal so the replacement sees the full amount.
+        BigDecimal creditBalance = lockedCreditBefore.add(preparation.restoredCredit());
         BigDecimal netAmount = baseNetAmount.add(adjustment).subtract(creditBalance);
 
         // 4. Save Settlement entity
@@ -395,6 +396,37 @@ public class SettlementService {
 
         queueMemberStatus(saved, "INACTIVE", tenantId);
 
+        if (priorSettlement != null) {
+            logCentralSettlementAudit(
+                    priorSettlement,
+                    "SETTLEMENT_SUPERSEDED",
+                    adminId,
+                    priorSettlementAuditState,
+                    settlementAuditState(priorSettlement),
+                    request.getSupersessionReason().trim(),
+                    idempotencyKey,
+                    saved.getId());
+            logCentralSettlementAudit(
+                    saved,
+                    "SETTLEMENT_REPLACEMENT_CREATED",
+                    adminId,
+                    null,
+                    settlementAuditState(saved),
+                    request.getSupersessionReason().trim(),
+                    idempotencyKey,
+                    priorSettlement.getId());
+        } else {
+            logCentralSettlementAudit(
+                    saved,
+                    "SETTLEMENT_CONFIRMED",
+                    adminId,
+                    null,
+                    settlementAuditState(saved),
+                    request.getAdjustmentReason(),
+                    idempotencyKey,
+                    null);
+        }
+
         return toSettlementResponse(saved);
     }
 
@@ -427,7 +459,7 @@ public class SettlementService {
         UUID priorId = request.getSupersedesSettlementId();
         String reason = request.getSupersessionReason();
         if (priorId == null && (reason == null || reason.isBlank())) {
-            return new SupersessionPreparation(null, null);
+            return new SupersessionPreparation(null, null, BigDecimal.ZERO);
         }
         if (priorId == null || reason == null || reason.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -451,7 +483,7 @@ public class SettlementService {
             if (replacement != null
                     && idempotencyKey.equals(replacement.getIdempotencyKey())
                     && requestHash.equals(replacement.getIdempotencyRequestHash())) {
-                return new SupersessionPreparation(null, replacement);
+                return new SupersessionPreparation(null, replacement, BigDecimal.ZERO);
             }
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
                     "Settlement was already superseded", HttpStatus.CONFLICT);
@@ -462,12 +494,15 @@ public class SettlementService {
                     HttpStatus.CONFLICT);
         }
 
+        BigDecimal restoredCredit;
         if (prior.getPaymentStatus() != SettlementPaymentStatus.VOIDED) {
-            reverseSettlementEffects(prior, adminId, tenantId);
+            restoredCredit = reverseSettlementEffects(prior, adminId, tenantId);
         } else if (prior.getReversalCompletedAt() == null) {
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
                     "The void operation did not complete its audited reversal",
                     HttpStatus.CONFLICT);
+        } else {
+            restoredCredit = BigDecimal.ZERO;
         }
 
         // Reserving superseded_by before the replacement insert releases the
@@ -477,11 +512,11 @@ public class SettlementService {
         prior.setSupersededAt(LocalDateTime.now());
         prior.setSupersededByActor(adminId);
         settlementRepository.saveAndFlush(prior);
-        return new SupersessionPreparation(prior, null);
+        return new SupersessionPreparation(prior, null, restoredCredit);
     }
 
     private record SupersessionPreparation(
-            Settlement priorSettlement, Settlement idempotentResult) {
+            Settlement priorSettlement, Settlement idempotentResult, BigDecimal restoredCredit) {
     }
 
     private String settlementRequestHash(ConfirmSettlementRequest request) {
@@ -538,8 +573,9 @@ public class SettlementService {
         // 1. Chit details
         ChitDto chit = chitServiceClient.getChit(chitId);
         if (chit == null) {
-            log.warn("computeChitPreview: chit {} not found", chitId);
-            return null;
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Chit data could not be verified. Please try again.",
+                    HttpStatus.SERVICE_UNAVAILABLE);
         }
 
         // 2. Payout
@@ -547,7 +583,8 @@ public class SettlementService {
 
         // 3. Payment records (ALL statuses)
         List<PaymentRecord> allRecords = paymentRecordRepository
-                .findByMemberIdAndChitIdOrderByMonthNumberAsc(memberId, chitId);
+                .findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                        TenantContext.get(), memberId, chitId);
 
         // Unpaid dues: sum of (amountDue - amountPaid) for OUTSTANDING / PARTIALLY_PAID
         BigDecimal unpaidDues = allRecords.stream()
@@ -600,7 +637,7 @@ public class SettlementService {
 
         // 5. Max billed month → future months
         int maxBilledMonth = chitMonthDrawRepository
-                .findByChitIdOrderByMonthNumberAsc(chitId)
+                .findByTenantIdAndChitIdOrderByMonthNumberAsc(TenantContext.get(), chitId)
                 .stream()
                 .mapToInt(d -> d.getMonthNumber())
                 .max()
@@ -998,6 +1035,8 @@ public class SettlementService {
                     HttpStatus.CONFLICT);
         }
 
+        Map<String, Object> beforeAuditState = settlementAuditState(settlement);
+
         reverseSettlementEffects(settlement, adminId, tenantId);
 
         settlement.setPaymentStatus(SettlementPaymentStatus.VOIDED);
@@ -1012,12 +1051,75 @@ public class SettlementService {
                 .reason("Administrative void")
                 .build());
         queueMemberStatus(settlement, "ACTIVE", tenantId);
+        logCentralSettlementAudit(
+                settlement,
+                "SETTLEMENT_VOIDED",
+                adminId,
+                beforeAuditState,
+                settlementAuditState(settlement),
+                "Administrative void",
+                null,
+                null);
 
         return toSettlementResponse(settlement);
     }
 
-    private void reverseSettlementEffects(Settlement settlement, UUID adminId, String tenantId) {
-        if (settlement.getReversalCompletedAt() != null) return;
+    private void logCentralSettlementAudit(
+            Settlement settlement,
+            String action,
+            UUID actorId,
+            Object before,
+            Object after,
+            String reason,
+            String idempotencyKey,
+            UUID relatedSettlementId) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (relatedSettlementId != null) {
+            metadata.put("relatedSettlementId", relatedSettlementId);
+        }
+        centralAuditClient.log(AuditClient.AuditDetails.builder()
+                .entityType("SETTLEMENT")
+                .entityId(settlement.getId().toString())
+                .action(action)
+                .actorId(actorId != null ? actorId.toString() : null)
+                .actorRole("ADMIN")
+                .before(before)
+                .after(after)
+                .metadata(metadata.isEmpty() ? null : metadata)
+                .tenantId(settlement.getTenantId())
+                .idempotencyKey(idempotencyKey)
+                .reason(reason)
+                .build());
+    }
+
+    private Map<String, Object> settlementAuditState(Settlement settlement) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("memberId", settlement.getMemberId());
+        state.put("version", settlement.getSettlementVersion());
+        state.put("paymentStatus", settlement.getPaymentStatus().name());
+        state.put("totalOwed", settlement.getTotalOwed());
+        state.put("totalRefunded", settlement.getTotalRefunded());
+        state.put("netAmount", settlement.getNetAmount());
+        state.put("creditApplied", settlement.getCreditApplied());
+        state.put("collectedAmount", settlement.getCollectedAmount());
+        state.put("disbursedAmount", settlement.getDisbursedAmount());
+        state.put("chitIds", settlement.getChitItems().stream()
+                .map(SettlementChitItem::getChitId)
+                .toList());
+        if (settlement.getSupersedesId() != null) {
+            state.put("supersedesId", settlement.getSupersedesId());
+        }
+        if (settlement.getSupersededById() != null) {
+            state.put("supersededById", settlement.getSupersededById());
+        }
+        if (settlement.getVoidedAt() != null) {
+            state.put("voidedAt", settlement.getVoidedAt());
+        }
+        return state;
+    }
+
+    private BigDecimal reverseSettlementEffects(Settlement settlement, UUID adminId, String tenantId) {
+        if (settlement.getReversalCompletedAt() != null) return BigDecimal.ZERO;
 
         List<SettlementPaymentRecordEffect> effects =
                 recordEffectRepository.findBySettlementIdOrderByPaymentRecordId(settlement.getId());
@@ -1106,6 +1208,7 @@ public class SettlementService {
         }
         settlement.setReversalCompletedAt(reversedAt);
         settlementRepository.save(settlement);
+        return reversedCredit;
     }
 
     private BusinessException reversalConflict(String message) {

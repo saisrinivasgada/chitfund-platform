@@ -1,11 +1,15 @@
 package com.chitfund.paymentservice.client;
 
+import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
@@ -48,20 +52,13 @@ public class MemberServiceClient {
 
     /**
      * Returns true if the member exists and is ACTIVE.
-     * On any network error, fails open (returns true) to avoid blocking payments
-     * when member-service is temporarily unavailable.
-     *
-     * WHY fail open here?
-     * This is a best-effort guard. The authoritative source of truth is member-service.
-     * In production, you'd add a circuit breaker (Resilience4j) to cache the last-known
-     * state. Failing closed (reject all payments) when member-service is down would
-     * be worse for the business than the small risk of one invalid payment slipping through.
+     * Dependency failures fail closed because accepting a financial operation for
+     * an unverified or cross-tenant member is not recoverable as a harmless retry.
      */
     @SuppressWarnings("unchecked")
     public boolean isMemberActive(UUID memberId) {
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Internal-Key", internalKey);
+            HttpHeaders headers = buildHeaders(requireTenant());
 
             ResponseEntity<Map> response = restTemplate.exchange(
                     memberServiceUrl + "/internal/members/" + memberId + "/validate",
@@ -73,8 +70,9 @@ public class MemberServiceClient {
             return body != null && Boolean.TRUE.equals(body.get("active"));
 
         } catch (RestClientException e) {
-            log.warn("member-service unreachable for memberId={}, failing open: {}", memberId, e.getMessage());
-            return true;
+            log.error("member-service unavailable while validating member {}: {}",
+                    memberId, e.getClass().getSimpleName());
+            throw unavailable("Member status could not be verified. Please try again.", e);
         }
     }
 
@@ -89,8 +87,7 @@ public class MemberServiceClient {
             throw new IllegalArgumentException("tenantId is required for cross-organization member lookup");
         }
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Internal-Key", internalKey);
+            HttpHeaders headers = buildHeaders(tenantId);
 
             ResponseEntity<Map> response = restTemplate.exchange(
                     memberServiceUrl + "/internal/members/by-user/" + userId + "/tenant/" + tenantId + "/profile-id",
@@ -102,8 +99,9 @@ public class MemberServiceClient {
             String profileId = body != null ? (String) body.get("profileId") : null;
             return profileId != null ? UUID.fromString(profileId) : null;
         } catch (RestClientException e) {
-            log.warn("member-service unreachable for userId→profileId lookup userId={}: {}", userId, e.getMessage());
-            return null;
+            log.error("member-service unavailable during profile lookup for user {}: {}",
+                    userId, e.getClass().getSimpleName());
+            throw unavailable("Member profile could not be verified. Please try again.", e);
         }
     }
 
@@ -114,8 +112,7 @@ public class MemberServiceClient {
     @SuppressWarnings("unchecked")
     public String getMemberName(UUID memberId) {
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Internal-Key", internalKey);
+            HttpHeaders headers = buildHeaders(requireTenant());
 
             ResponseEntity<Map> response = restTemplate.exchange(
                     memberServiceUrl + "/internal/members/" + memberId + "/name",
@@ -141,14 +138,42 @@ public class MemberServiceClient {
         return result.getOrDefault(memberId.toString(), null);
     }
 
+    /** Resolves the authoritative reminder recipient inside the active tenant. */
+    @SuppressWarnings("unchecked")
+    public MemberNotificationContact getNotificationContact(UUID memberId) {
+        try {
+            HttpHeaders headers = buildHeaders(requireTenant());
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    memberServiceUrl + "/internal/members/" + memberId + "/notification-contact",
+                    HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+            Map<String, Object> body = response.getBody();
+            if (body == null || !memberId.toString().equals(body.get("memberId"))) {
+                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Member not found", HttpStatus.NOT_FOUND);
+            }
+            Object userId = body.get("userId");
+            return new MemberNotificationContact(
+                    memberId,
+                    userId != null ? UUID.fromString(userId.toString()) : null,
+                    string(body.get("phone")),
+                    string(body.get("phoneCountryCode")),
+                    string(body.get("fullName")));
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RestClientException exception) {
+            log.error("member-service unavailable during notification contact lookup for member {}: {}",
+                    memberId, exception.getClass().getSimpleName());
+            throw unavailable("Member notification contact could not be verified. Please try again.", exception);
+        }
+    }
+
     /** Strict, idempotent status synchronization used by the settlement saga. */
-    public void setMemberStatus(UUID memberId, String desiredStatus) {
+    public void setMemberStatus(UUID memberId, String desiredStatus, String tenantId) {
         if (!"ACTIVE".equals(desiredStatus) && !"INACTIVE".equals(desiredStatus)) {
             throw new IllegalArgumentException("Unsupported member status sync command");
         }
         String action = "ACTIVE".equals(desiredStatus) ? "activate" : "deactivate";
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("X-Internal-Key", internalKey);
+        HttpHeaders headers = buildHeaders(requireTenant(tenantId));
         ResponseEntity<Map> response = restTemplate.exchange(
                 memberServiceUrl + "/internal/members/" + memberId + "/" + action,
                 HttpMethod.PATCH,
@@ -169,8 +194,7 @@ public class MemberServiceClient {
     public Map<String, String> batchGetUserIds(List<UUID> memberIds) {
         if (memberIds == null || memberIds.isEmpty()) return Collections.emptyMap();
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Internal-Key", internalKey);
+            HttpHeaders headers = buildHeaders(requireTenant());
             headers.set("Content-Type", "application/json");
 
             List<String> idStrings = memberIds.stream().map(UUID::toString).toList();
@@ -186,4 +210,37 @@ public class MemberServiceClient {
             return Collections.emptyMap();
         }
     }
+
+    private HttpHeaders buildHeaders(String tenantId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", tenantId);
+        return headers;
+    }
+
+    private String requireTenant() {
+        return requireTenant(TenantContext.get());
+    }
+
+    private String requireTenant(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
+        return tenantId;
+    }
+
+    private BusinessException unavailable(String message, Exception cause) {
+        BusinessException exception = new BusinessException(
+                ErrorCode.INTERNAL_SERVER_ERROR, message, HttpStatus.SERVICE_UNAVAILABLE);
+        exception.initCause(cause);
+        return exception;
+    }
+
+    private String string(Object value) {
+        return value != null ? value.toString() : "";
+    }
+
+    public record MemberNotificationContact(
+            UUID memberId, UUID userId, String phone, String phoneCountryCode, String fullName) { }
 }

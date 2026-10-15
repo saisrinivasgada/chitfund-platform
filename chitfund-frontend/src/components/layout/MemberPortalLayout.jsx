@@ -160,19 +160,24 @@ function SwitchOrgModal({ currentTenantId, currentTenantName, onClose }) {
     try {
       const data = await selectTenant({ loginToken, tenantId: tenant.tenantId });
       const accessToken = data.accessToken ?? data.token;
-      // AuthResponse has no tenant fields — use the tenant object from the list
+      const scopedTenant = data.tenant ?? tenant;
       login(accessToken, {
         name: data.user?.fullName ?? data.user?.username,
         role: data.user?.role,
         id: data.user?.id,
         mustChangePassword: data.user?.mustChangePassword ?? false,
       }, {
-        tenantId: tenant.tenantId,
-        tenantSlug: tenant.slug,
-        tenantName: tenant.name,
-        tenantPlan: tenant.plan ?? 'BASIC',
-        tenantStatus: tenant.status ?? 'ACTIVE',
-        planExpiresAt: tenant.planExpiresAt ?? null,
+        tenantId: scopedTenant.tenantId,
+        tenantSlug: scopedTenant.slug,
+        tenantName: scopedTenant.name,
+        tenantPlan: scopedTenant.plan ?? 'BASIC',
+        tenantStatus: scopedTenant.status ?? 'ACTIVE',
+        planExpiresAt: scopedTenant.planExpiresAt ?? null,
+        analyticsEnabled: scopedTenant.analyticsEnabled === true,
+        chatEnabled: scopedTenant.chatEnabled === true,
+        settlementEnabled: scopedTenant.settlementEnabled === true,
+        adminPhone: scopedTenant.adminPhone ?? null,
+        adminEmail: scopedTenant.adminEmail ?? null,
       });
       qc.clear();
       onClose();

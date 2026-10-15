@@ -29,15 +29,16 @@ class SettlementMemberStatusSyncWorkerTest {
         UUID id = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
         UUID claimToken = UUID.randomUUID();
+        String tenantId = UUID.randomUUID().toString();
         var sync = SettlementMemberStatusSync.builder()
-                .id(id).memberId(memberId).desiredStatus("INACTIVE")
+                .id(id).tenantId(tenantId).memberId(memberId).desiredStatus("INACTIVE")
                 .claimToken(claimToken).build();
         when(repository.findReadyIds(any(LocalDateTime.class), any())).thenReturn(List.of(id));
         when(store.claim(id)).thenReturn(Optional.of(sync));
 
         worker.processReady();
 
-        verify(memberServiceClient).setMemberStatus(memberId, "INACTIVE");
+        verify(memberServiceClient).setMemberStatus(memberId, "INACTIVE", tenantId);
         verify(store).complete(id, claimToken);
         verify(store, never()).fail(any(), any(), any());
     }
@@ -47,13 +48,14 @@ class SettlementMemberStatusSyncWorkerTest {
         UUID id = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
         UUID claimToken = UUID.randomUUID();
+        String tenantId = UUID.randomUUID().toString();
         var sync = SettlementMemberStatusSync.builder()
-                .id(id).memberId(memberId).desiredStatus("ACTIVE")
+                .id(id).tenantId(tenantId).memberId(memberId).desiredStatus("ACTIVE")
                 .claimToken(claimToken).build();
         when(repository.findReadyIds(any(LocalDateTime.class), any())).thenReturn(List.of(id));
         when(store.claim(id)).thenReturn(Optional.of(sync));
         var failure = new IllegalStateException("unavailable");
-        doThrow(failure).when(memberServiceClient).setMemberStatus(memberId, "ACTIVE");
+        doThrow(failure).when(memberServiceClient).setMemberStatus(memberId, "ACTIVE", tenantId);
 
         worker.processReady();
 

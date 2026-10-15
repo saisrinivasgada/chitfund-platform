@@ -6,6 +6,7 @@ import com.chitfund.common.event.CashRequestEvent;
 import com.chitfund.common.event.ChitMonthOpenedEvent;
 import com.chitfund.common.event.ChitMonthSkippedEvent;
 import com.chitfund.common.event.PaymentCompletedEvent;
+import com.chitfund.common.event.PaymentIntimationNotificationEvent;
 import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
 import com.chitfund.paymentservice.config.EventDeliveryProperties;
@@ -62,6 +63,11 @@ public class PaymentEventPublisher {
 
     public void publish(CashRequestEvent event) {
         route(SqsQueues.EVT_CASH_REQUEST_EVENT, event, "CASH_REQUEST", event.requestId(), List.of(
+                SqsQueues.NOTIFICATION_EVENTS));
+    }
+
+    public void publish(PaymentIntimationNotificationEvent event) {
+        route(SqsQueues.EVT_PAYMENT_INTIMATION, event, "PAYMENT_INTIMATION", event.intimationId(), List.of(
                 SqsQueues.NOTIFICATION_EVENTS));
     }
 

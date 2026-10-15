@@ -18,7 +18,18 @@ public record AuditLogResponse(
         String beforeState,
         String afterState,
         String metadata,
-        Instant createdAt
+        Instant createdAt,
+        String correlationId,
+        String idempotencyKey,
+        String source,
+        String outcome,
+        String reason,
+        String effectiveActorId,
+        String effectiveActorRole,
+        String deviceSessionHash,
+        Instant occurredAt,
+        Instant originalOfflineAt,
+        Instant synchronizedAt
 ) {
     public static AuditLogResponse from(AuditLog log) {
         return new AuditLogResponse(
@@ -27,7 +38,11 @@ public record AuditLogResponse(
                 log.getAction(),
                 log.getActorId(), log.getActorRole(), log.getActorIp(),
                 log.getBeforeState(), log.getAfterState(), log.getMetadata(),
-                log.getCreatedAt()
+                log.getCreatedAt(), log.getCorrelationId(), log.getIdempotencyKey(),
+                log.getSource(), log.getOutcome(), log.getReason(),
+                log.getEffectiveActorId(), log.getEffectiveActorRole(),
+                log.getDeviceSessionHash(), log.getOccurredAt(),
+                log.getOriginalOfflineAt(), log.getSynchronizedAt()
         );
     }
 }

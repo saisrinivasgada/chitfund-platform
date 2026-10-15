@@ -50,7 +50,8 @@ public class UserServiceClient {
 
     /**
      * Returns the capability keys enabled for the given tenant.
-     * Returns null when user-service is unreachable so callers can fail open.
+     * Returns null when user-service is unreachable. Authorization callers must
+     * treat null as unverified and deny the operation.
      */
     @SuppressWarnings("unchecked")
     public List<String> getTenantCapabilities(String tenantId) {

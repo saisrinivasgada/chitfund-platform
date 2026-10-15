@@ -9,6 +9,7 @@ import {
 } from '../../services/api';
 import { ArrowLeft, Send, Trash2, ChevronUp, AlertCircle } from 'lucide-react';
 import Button from '../../components/ui/Button';
+import TicketReasonDialog from '../../components/hub/TicketReasonDialog';
 
 const STATUS_STYLES = {
   OPEN:        'bg-blue-50 text-blue-700',
@@ -138,7 +139,11 @@ export default function HubTicketDetailPage() {
 
   const [content, setContent] = useState('');
   const [hoveredMsg, setHoveredMsg] = useState(null);
+  const [ticketAction, setTicketAction] = useState(null);
+  const [actionReason, setActionReason] = useState('');
   const bottomRef = useRef(null);
+
+  const closeTicketAction = () => { setTicketAction(null); setActionReason(''); };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -160,8 +165,9 @@ export default function HubTicketDetailPage() {
   });
 
   const statusMut = useMutation({
-    mutationFn: (status) => hubUpdateTicketStatus(id, status),
+    mutationFn: ({ status, note }) => hubUpdateTicketStatus(id, status, note),
     onSuccess: () => {
+      closeTicketAction();
       qc.invalidateQueries({ queryKey: ['hub-ticket', id] });
       qc.invalidateQueries({ queryKey: ['hub-tickets'] });
     },
@@ -182,12 +188,23 @@ export default function HubTicketDetailPage() {
   });
 
   const assignMut = useMutation({
-    mutationFn: (assigneeId) => hubAssignTicket(id, assigneeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-ticket', id] }),
+    mutationFn: ({ assigneeId, note }) => hubAssignTicket(id, assigneeId, note),
+    onSuccess: () => { closeTicketAction(); qc.invalidateQueries({ queryKey: ['hub-ticket', id] }); },
   });
 
+  const confirmTicketAction = () => {
+    const note = actionReason.trim();
+    if (!note || !ticketAction) return;
+    if (ticketAction.type === 'status') statusMut.mutate({ status: ticketAction.value, note });
+    if (ticketAction.type === 'assign') assignMut.mutate({ assigneeId: ticketAction.value, note });
+  };
+
   const currentStatus = ticket?.status;
-  const nextStatuses = VALID_TRANSITIONS[currentStatus] ?? [];
+  const canReopen = hubUser.role === 'SUPER_ADMIN' || hubUser.customPermissions?.includes('TICKET_REOPEN');
+  const nextStatuses = [...(VALID_TRANSITIONS[currentStatus] ?? [])];
+  if (canReopen && ['RESOLVED', 'CLOSED'].includes(currentStatus) && !nextStatuses.includes('IN_PROGRESS')) {
+    nextStatuses.unshift('IN_PROGRESS');
+  }
 
   if (ticketLoading) {
     return (
@@ -243,7 +260,13 @@ export default function HubTicketDetailPage() {
             {hubUser.role === 'SUPER_ADMIN' ? (
               <select
                 value={ticket.assignedTo ?? ''}
-                onChange={e => e.target.value && assignMut.mutate(e.target.value)}
+                onChange={e => {
+                  const assigneeId = e.target.value;
+                  if (!assigneeId || assigneeId === ticket.assignedTo) return;
+                  const assignee = employees.find(employee => employee.id === assigneeId);
+                  setTicketAction({ type: 'assign', value: assigneeId, title: 'Assign ticket',
+                    description: `Assign this ticket to ${assignee?.fullName ?? assignee?.username ?? 'the selected employee'}.` });
+                }}
                 disabled={assignMut.isPending}
                 className="text-xs px-2 py-0.5 rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-1 focus:ring-[#1E3A5F]/30 cursor-pointer disabled:opacity-50"
               >
@@ -265,7 +288,12 @@ export default function HubTicketDetailPage() {
           <div className="flex-shrink-0">
             <select
               disabled={statusMut.isPending}
-              onChange={e => { if (e.target.value) statusMut.mutate(e.target.value); e.target.value = ''; }}
+              onChange={e => {
+                const status = e.target.value;
+                if (status) setTicketAction({ type: 'status', value: status, title: 'Change ticket status',
+                  description: `Move this ticket from ${currentStatus.replace('_', ' ')} to ${status.replace('_', ' ')}.` });
+                e.target.value = '';
+              }}
               defaultValue=""
               className="px-3 py-1.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 cursor-pointer disabled:opacity-50"
             >
@@ -383,6 +411,10 @@ export default function HubTicketDetailPage() {
           </div>
         )}
       </div>
+      <TicketReasonDialog action={ticketAction} reason={actionReason} setReason={setActionReason}
+        onClose={closeTicketAction} onConfirm={confirmTicketAction}
+        loading={statusMut.isPending || assignMut.isPending}
+        error={(statusMut.error || assignMut.error)?.response?.data?.message} />
     </div>
   );
 }

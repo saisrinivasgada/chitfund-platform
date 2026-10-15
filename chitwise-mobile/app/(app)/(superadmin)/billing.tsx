@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  superAdminListTenants, billingListPayments, billingRecordPayment, billingUpgradePreview,
+  superAdminListTenants, billingListPayments, billingRecordPayment, billingRecordUpgrade, billingUpgradePreview,
   billingRecordRefund,
 } from '../../../services/api';
 import { C, fmtDate, Badge } from '../../../components/ui';
@@ -164,7 +164,7 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   const METHODS = ['UPI', 'CASH', 'BANK_TRANSFER'];
-  const TYPES   = ['PURCHASE', 'RENEWAL', 'UPGRADE', 'REFUND'];
+  const TYPES   = ['PURCHASE', 'RENEWAL', 'UPGRADE'];
   const PLANS   = ['BASIC', 'GROWTH', 'ENTERPRISE', 'CUSTOM'];
 
   useEffect(() => {
@@ -177,16 +177,26 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
   }, [pType, tenantId, plan]);
 
   const mut = useMutation({
-    mutationFn: () => billingRecordPayment({
-      tenantId,
-      type: pType,
-      toPlan: plan || undefined,
-      amountPaise: Math.round(Number(amount) * 100),
-      paymentMethod: method,
-      paymentReference: reference || null,
-      paymentDate,
-      notes: notes || null,
-    }),
+    mutationFn: () => pType === 'UPGRADE'
+      ? billingRecordUpgrade({
+          tenantId,
+          newPlan: plan,
+          paymentMethod: method,
+          paymentReference: reference || null,
+          paymentDate,
+          notes: notes || null,
+        })
+      : billingRecordPayment({
+          tenantId,
+          type: pType,
+          toPlan: plan,
+          amountPaise: Math.round(Number(amount) * 100),
+          grossAmountPaise: Math.round(Number(amount) * 100),
+          paymentMethod: method,
+          paymentReference: reference || null,
+          paymentDate,
+          notes: notes || null,
+        }),
     onSuccess: () => {
       toast.saved('Payment recorded');
       setTenantId(''); setTenantSearch(''); setAmount(''); setReference(''); setNotes('');

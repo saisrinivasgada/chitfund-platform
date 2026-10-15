@@ -17,8 +17,6 @@ on:
         default: false
 
 env:
-  EC2_USER: ec2-user
-  APP_DIR: /app
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/saisrinivasgada
 
@@ -79,9 +77,11 @@ jobs:
               - 'chitwise-management-service/**'
             frontend:
               - 'chitfund-frontend/**'
+              - 'nginx.conf'
             backend:
               - 'docker-compose.prod.yml'
               - 'scripts/fetch-secrets.sh'
+              - 'scripts/deploy-mumbai.sh'
               - '.github/workflows/deploy.yml'
               - 'chitfund-common/**'
               - 'chitfund-user-service/**'
@@ -304,17 +304,24 @@ jobs:
         run: |
           report="chitwise-management-service/target/surefire-reports/TEST-com.chitfund.supportservice.migration.EmployeePasswordMigrationMySqlTest.xml"
           test -f "$report"
-          grep -q 'tests="1"' "$report"
-          grep -q 'failures="0"' "$report"
-          grep -q 'errors="0"' "$report"
-          grep -q 'skipped="0"' "$report"
+          python3 - "$report" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = ET.parse(sys.argv[1]).getroot()
+          counts = {name: int(suite.attrib.get(name, "0"))
+                    for name in ("tests", "failures", "errors", "skipped")}
+          if (counts["tests"] < 1 or any(counts[name] for name in ("failures", "errors", "skipped"))):
+              raise SystemExit(f"MySQL migration test guard failed: {counts}")
+          print(f"MySQL migration test guard passed: {counts}")
+          PY
 
   build-frontend:
     name: "frontend"
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -322,9 +329,18 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: chitfund-frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: chitfund-frontend
+        run: npm ci
+      - name: Install browser test runtime
+        working-directory: chitfund-frontend
+        run: npx playwright install --with-deps chromium
+      - name: Rendered browser assertions
+        working-directory: chitfund-frontend
+        run: npm run test:browser
       - name: Build
         working-directory: chitfund-frontend
-        run: npm ci && npm run build
+        run: npm run build
 
   # ── 3. Build summary — satisfies branch protection rule ───────────────────────
   build-summary:
@@ -373,12 +389,25 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: tests/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: chitfund-frontend/package-lock.json
       - name: Install test dependencies
         run: pip install --requirement tests/requirements.txt
+      - name: Install gateway-browser test runtime
+        working-directory: chitfund-frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Start disposable financial stack
         run: |
           docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
             up -d --build --wait --wait-timeout 300
+      - name: Run rendered gateway member journey
+        working-directory: chitfund-frontend
+        run: npm run test:browser:gateway
       - name: Run service-integration and oracle suite
         run: python -m pytest -c tests/pytest.ini tests
       - name: Recreate stack with disposable LocalStack SQS
@@ -566,9 +595,9 @@ jobs:
 
   # ── 5. Deploy — EC2 pulls images and restarts ─────────────────────────────────
   deploy:
-    name: Deploy to EC2
+    name: Deploy to Mumbai
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     needs: [changes, build-summary, push-images]
     if: |
       always() &&
@@ -577,114 +606,18 @@ jobs:
       needs.build-summary.result == 'success' &&
       (needs.push-images.result == 'success' || (needs.push-images.result == 'skipped' && needs.changes.outputs.backend != 'true')) &&
       (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy-key.pem
-          chmod 600 ~/.ssh/deploy-key.pem
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-          cat >> ~/.ssh/config << EOF
-          Host ${{ secrets.EC2_HOST }}
-            ServerAliveInterval 60
-            ServerAliveCountMax 30
-            TCPKeepAlive yes
-          EOF
-          chmod 600 ~/.ssh/config
-
-      # ── Backend deploy ────────────────────────────────────────────────────────
-      - name: Sync docker-compose and fetch secrets
-        if: needs.changes.outputs.backend == 'true'
-        run: |
-          scp -i ~/.ssh/deploy-key.pem \
-            docker-compose.prod.yml \
-            scripts/fetch-secrets.sh \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/
-          ssh -i ~/.ssh/deploy-key.pem \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
-            "chmod +x ${{ env.APP_DIR }}/fetch-secrets.sh && ${{ env.APP_DIR }}/fetch-secrets.sh"
-
-      - name: Pull images and restart services
-        if: needs.changes.outputs.backend == 'true'
-        run: |
-          ssh -i ~/.ssh/deploy-key.pem \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
-          set -e
-          # Read just the two values needed below. Sourcing the whole file made
-          # bash interpret every secret, so one value containing a space, '#' or
-          # a quote failed the deploy before it started.
-          getsecret() { sed -n "s/^$1=//p" /app/.env | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//"; }
-          DB_HOST=$(getsecret DB_HOST)
-          DB_PASSWORD=$(getsecret DB_PASSWORD)
-          DBS="chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout chitfund_notification chitfund_audit chitfund_reporting chitwise_management"
-          # Each service owns a schema and Flyway builds its tables, but nothing
-          # created the schema itself — so a newly added service starts against a
-          # database that does not exist and never turns healthy. That is how
-          # chitwise_management failed. Doing it here keeps the deploy
-          # reproducible if the environment is ever rebuilt.
-          for db in $DBS; do
-            if ! mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" \
-                 -e "CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"; then
-              echo "WARN: could not ensure database '$db' exists — check the chitfund user's CREATE privilege"
-            fi
-          done
-          # Pre-flight: report failed migrations, never erase them.
-          #
-          # This used to run DELETE FROM flyway_schema_history WHERE success = 0,
-          # which let a deploy "succeed" by destroying the evidence that a
-          # migration had failed. A failed migration usually means a partially
-          # applied schema change; deleting the row makes Flyway retry it against
-          # a database that is already half-migrated, and the second failure has
-          # no record of the first. On financial schemas that is how silent
-          # divergence starts.
-          #
-          # Now it stops and hands the decision to a human, who can inspect the
-          # partial state and either finish it or write a forward correction.
-          FAILED=0
-          for db in $DBS; do
-            rows=$(mysql -N -B -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
-              -e "SELECT CONCAT(version,' ',description,' (attempted ',installed_on,')')
-                  FROM flyway_schema_history WHERE success = 0;" 2>/dev/null || true)
-            if [ -n "$rows" ]; then
-              FAILED=1
-              echo "=== FAILED MIGRATIONS in $db ==="
-              echo "$rows"
-            fi
-          done
-          if [ "$FAILED" = "1" ]; then
-            echo ""
-            echo "Deploy aborted: the schema above is partially migrated."
-            echo "Inspect it before doing anything. Do NOT delete the history row —"
-            echo "that hides the partial change rather than undoing it. Either finish"
-            echo "the migration by hand and mark the row successful, or add a forward"
-            echo "corrective migration and redeploy."
-            exit 1
-          fi
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          cd /app
-          docker compose -f docker-compose.prod.yml pull
-          # Cold starts on the small EC2 host regularly take 2-3 minutes while
-          # all Java services initialise together. Match Compose's overall wait
-          # to the 4-minute health-check grace period with additional headroom.
-          docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 600 || {
-            echo "=== DEPLOY FAILED ==="
-            docker compose -f docker-compose.prod.yml ps
-            # Print logs for whatever is not running or not healthy. The handler
-            # promised logs but only ever printed 'ps', so failures had to be
-            # diagnosed by guesswork.
-            for c in $(docker ps -a --format '{{.Names}} {{.Status}}' \
-                       | grep -Ev 'Up .*\(healthy\)' | awk '{print $1}'); do
-              echo "--- logs: $c ---"
-              docker logs --tail 60 "$c" 2>&1 | tail -40
-            done
-            exit 1
-          }
-          docker compose -f docker-compose.prod.yml ps
-          docker image prune -f
-          ENDSSH
+      - name: Configure short-lived Mumbai AWS access
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
 
       # ── Frontend deploy ───────────────────────────────────────────────────────
       - name: Setup Node.js
@@ -700,44 +633,69 @@ jobs:
         working-directory: chitfund-frontend
         run: npm ci && npm run build
 
-      - name: Deploy frontend and nginx config
-        if: needs.changes.outputs.frontend == 'true'
+      - name: Prepare encrypted deployment bundle
         run: |
-          rsync -az \
-            -e "ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no" \
-            chitfund-frontend/dist/ \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/chitfund-dist-new/
+          install -d release
+          install -m 0644 docker-compose.prod.yml release/docker-compose.prod.yml
+          install -m 0755 scripts/fetch-secrets.sh release/fetch-secrets.sh
+          install -m 0755 scripts/deploy-mumbai.sh release/deploy-mumbai.sh
+          install -m 0644 nginx.conf release/nginx.conf
+          if [ "${{ needs.changes.outputs.frontend }}" = "true" ]; then
+            cp -a chitfund-frontend/dist release/frontend
+          fi
+          tar -C release -czf "chitwise-${GITHUB_SHA}.tar.gz" .
+          aws s3 cp "chitwise-${GITHUB_SHA}.tar.gz" \
+            "s3://${{ vars.AWS_DEPLOY_BUCKET }}/releases/${GITHUB_SHA}.tar.gz" \
+            --sse AES256 --only-show-errors
 
-          scp -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
-            nginx.conf \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/chitfund-nginx.conf
-
-          ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
-            "sudo cp -r /tmp/chitfund-dist-new/. /var/www/chitfund/ && \
-             sudo cp /tmp/chitfund-nginx.conf /etc/nginx/conf.d/chitfund.conf && \
-             sudo nginx -t && sudo nginx -s reload && \
-             echo 'Frontend + nginx config deployed'"
-
-      # ── Health check ──────────────────────────────────────────────────────────
-      - name: Health check
+      - name: Deploy through AWS Systems Manager
+        env:
+          DEPLOY_BACKEND: ${{ needs.changes.outputs.backend }}
+          DEPLOY_FRONTEND: ${{ needs.changes.outputs.frontend }}
         run: |
-          if [ "${{ needs.changes.outputs.backend }}" = "true" ]; then
-            echo "Waiting 60s for backend services to stabilize..."
-            sleep 60
-          else
-            echo "Frontend-only deploy, waiting 5s..."
-            sleep 5
-          fi
-          HTTP_STATUS=$(curl -sk -o /dev/null -w "%{http_code}" \
-            https://${{ secrets.EC2_HOST }}/api/auth/login \
-            -H "Host: api.thechitwise.com" \
-            -X POST -H "Content-Type: application/json" \
-            -d '{"username":"invalid","password":"invalid"}')
-          echo "Auth endpoint HTTP status: $HTTP_STATUS"
-          if [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "400" ]; then
-            echo "Health check PASSED"
-          else
-            echo "Health check FAILED (got $HTTP_STATUS)"
-            exit 1
-          fi
+          commands=$(jq -nc \
+            --arg bucket "${{ vars.AWS_DEPLOY_BUCKET }}" \
+            --arg sha "$GITHUB_SHA" \
+            --arg backend "$DEPLOY_BACKEND" \
+            --arg frontend "$DEPLOY_FRONTEND" \
+            '[
+              "set -euo pipefail",
+              "release_dir=/tmp/chitwise-release-\($sha)",
+              "install -d -m 0700 $release_dir",
+              "aws s3 cp s3://\($bucket)/releases/\($sha).tar.gz $release_dir/release.tar.gz --region ap-south-1 --only-show-errors",
+              "tar -C $release_dir -xzf $release_dir/release.tar.gz",
+              "DEPLOY_BACKEND=\($backend) DEPLOY_FRONTEND=\($frontend) RELEASE_DIR=$release_dir bash $release_dir/deploy-mumbai.sh"
+            ]')
+          parameters=$(jq -nc --argjson commands "$commands" \
+            '{commands:$commands,executionTimeout:["1800"]}')
+          command_id=$(aws ssm send-command \
+            --instance-ids "${{ vars.AWS_INSTANCE_ID }}" \
+            --document-name AWS-RunShellScript \
+            --timeout-seconds 120 \
+            --comment "Deploy ChitWise ${GITHUB_SHA}" \
+            --parameters "$parameters" \
+            --query 'Command.CommandId' --output text)
+
+          for attempt in $(seq 1 180); do
+            status=$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "${{ vars.AWS_INSTANCE_ID }}" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in
+              Success)
+                aws ssm get-command-invocation --command-id "$command_id" \
+                  --instance-id "${{ vars.AWS_INSTANCE_ID }}" \
+                  --query StandardOutputContent --output text
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled)
+                aws ssm get-command-invocation --command-id "$command_id" \
+                  --instance-id "${{ vars.AWS_INSTANCE_ID }}" \
+                  --query '{Output:StandardOutputContent,Error:StandardErrorContent}' --output json
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo "Deployment did not finish within 30 minutes" >&2
+          exit 1

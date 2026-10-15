@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import process from 'node:process'
+
+const devProxyTarget = process.env.VITE_DEV_PROXY_TARGET ?? 'http://localhost:8080'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -11,8 +14,8 @@ export default defineConfig({
     port: 3000,
     host: true,
     proxy: {
-      '/api': 'http://localhost:8080',
-      '/ws': { target: 'http://localhost:8080', ws: true },
+      '/api': devProxyTarget,
+      '/ws': { target: devProxyTarget, ws: true },
     },
   },
 })

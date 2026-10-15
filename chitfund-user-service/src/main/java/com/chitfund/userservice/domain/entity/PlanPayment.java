@@ -93,6 +93,15 @@ public class PlanPayment {
     @Column(length = 255, unique = true)
     private String idempotencyKey;
 
+    @Column(length = 64)
+    private String requestFingerprint;
+
+    @Column(length = 255)
+    private String refundIdempotencyKey;
+
+    @Column(length = 64)
+    private String refundRequestFingerprint;
+
     @Column(nullable = false, length = 36)
     private String createdBy;
 

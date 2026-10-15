@@ -49,8 +49,10 @@ public class MemberController {
             @Valid @RequestBody CreateMemberRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String actorRole = auth.getAuthorities().stream()
+                .findFirst().map(authority -> authority.getAuthority()).orElse("ROLE_ADMIN");
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(memberService.createMember(request, adminId)));
+                .body(ApiResponse.success(memberService.createMember(request, adminId, actorRole)));
     }
 
     /**
@@ -184,8 +186,13 @@ public class MemberController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> updateStatus(
             @PathVariable UUID id,
-            @Valid @RequestBody UpdateStatusRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(memberService.updateStatus(id, request)));
+            @Valid @RequestBody UpdateStatusRequest request,
+            Authentication auth) {
+        UUID actorId = (UUID) auth.getPrincipal();
+        String actorRole = auth.getAuthorities().stream()
+                .findFirst().map(authority -> authority.getAuthority()).orElse("ROLE_ADMIN");
+        return ResponseEntity.ok(ApiResponse.success(
+                memberService.updateStatus(id, request, actorId, actorRole)));
     }
 
     @DeleteMapping("/{id}")

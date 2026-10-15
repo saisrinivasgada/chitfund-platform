@@ -7,6 +7,7 @@ import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.dto.request.RecordPaymentRequest;
 import com.chitfund.userservice.dto.request.RecordRefundRequest;
 import com.chitfund.userservice.dto.request.RecordUpgradeRequest;
+import com.chitfund.userservice.dto.request.ApplyDowngradeRequest;
 import com.chitfund.userservice.dto.response.PaymentResponse;
 import com.chitfund.userservice.dto.response.ReceiptResponse;
 import com.chitfund.userservice.dto.response.TenantResponse;
@@ -124,29 +125,34 @@ public class BillingController {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.cancelMembership(java.util.UUID.fromString(tenantId), principal.getId().toString()),
+                tenantService.cancelMembership(
+                        java.util.UUID.fromString(tenantId), principal.getId().toString(), "ROLE_ADMIN"),
                 "Subscription cancellation scheduled"));
     }
 
     @PostMapping("/api/billing/resume")
     @PreAuthorize("hasAuthority('ADMIN')")
-    public ResponseEntity<ApiResponse<TenantResponse>> resumeMySubscription() {
+    public ResponseEntity<ApiResponse<TenantResponse>> resumeMySubscription(
+            @AuthenticationPrincipal User principal) {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.resumeMembership(java.util.UUID.fromString(tenantId)),
+                tenantService.resumeMembership(
+                        java.util.UUID.fromString(tenantId), principal.getId().toString(), "ROLE_ADMIN"),
                 "Subscription resumed"));
     }
 
     @PostMapping("/api/billing/downgrade")
     @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<ApiResponse<PaymentResponse>> applyDowngrade(
-            @RequestParam String toPlan,
+            @Valid @RequestBody ApplyDowngradeRequest request,
             @AuthenticationPrincipal User principal) {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         return ResponseEntity.ok(ApiResponse.success(
-                billingService.applyDowngrade(tenantId, toPlan, principal.getId().toString()),
+                billingService.applyDowngrade(tenantId, request.getToPlan(),
+                        request.getReason(), request.getIdempotencyKey(),
+                        principal.getId().toString()),
                 "Plan downgraded successfully — credit added to your balance"));
     }
 

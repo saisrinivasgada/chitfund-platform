@@ -39,6 +39,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String username  = claims.get("username",  String.class);
                 String tenantId  = claims.get("tenantId",  String.class);
                 String tenantPlan= claims.get("tenantPlan",String.class);
+                String scope     = claims.get("scope",      String.class);
+
+                if ("SUPER_ADMIN".equals(role) && !"HUB_SUPER_ADMIN".equals(scope)) {
+                    // Legacy users-table Super Admin tokens are not valid. The
+                    // canonical privileged identity is owned by ChitWise Hub.
+                    chain.doFilter(request, response);
+                    return;
+                }
 
                 List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
                 authorities.add(new SimpleGrantedAuthority("ROLE_" + role));

@@ -15,11 +15,13 @@ import {
   superAdminListUpgradeRequests,
   superAdminChitUsageSummary,
   superAdminMemberUsageSummary,
+  superAdminListPlans,
 } from '../../../services/api';
 import { useAuthStore } from '../../../store/authStore';
 import { C, Badge, fmtDate } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import RoleLogo from '../../../components/RoleLogo';
+import ReasonModal from '../../../components/superadmin/ReasonModal';
 
 const PLAN_COLORS: Record<string, { bg: string; text: string }> = {
   BASIC:      { bg: C.gray100,      text: C.gray600 },
@@ -42,6 +44,7 @@ export default function SuperAdminOrgsPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [pendingPlan, setPendingPlan] = useState<{ id: string; plan: string } | null>(null);
 
   const { data: tenants = [], isLoading, refetch } = useQuery({
     queryKey: ['sa-tenants', statusFilter],
@@ -51,6 +54,8 @@ export default function SuperAdminOrgsPage() {
   const { data: upgrades = [] } = useQuery({ queryKey: ['sa-upgrades'], queryFn: superAdminListUpgradeRequests, staleTime: 120_000 });
   const { data: chitUsage = [] } = useQuery({ queryKey: ['sa-chit-usage'], queryFn: superAdminChitUsageSummary, staleTime: 120_000 });
   const { data: memberUsage = [] } = useQuery({ queryKey: ['sa-member-usage'], queryFn: superAdminMemberUsageSummary, staleTime: 120_000 });
+  const { data: plans = [] } = useQuery({ queryKey: ['sa-plans'], queryFn: superAdminListPlans, staleTime: 300_000 });
+  const assignablePlans = (plans as any[]).filter((p) => p.isActive && p.plan !== 'CUSTOM');
 
   const activateMut = useMutation({
     mutationFn: (id: string) => superAdminActivateTenant(id),
@@ -63,8 +68,8 @@ export default function SuperAdminOrgsPage() {
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed'),
   });
   const planMut = useMutation({
-    mutationFn: ({ id, plan }: { id: string; plan: string }) => superAdminUpdatePlan(id, plan),
-    onSuccess: (_d, vars) => { qc.invalidateQueries({ queryKey: ['sa-tenants'] }); toast.saved(`Plan → ${vars.plan}`); },
+    mutationFn: ({ id, plan, reason }: { id: string; plan: string; reason: string }) => superAdminUpdatePlan(id, plan, reason),
+    onSuccess: (_d, vars) => { qc.invalidateQueries({ queryKey: ['sa-tenants'] }); setPendingPlan(null); toast.saved(`Plan → ${vars.plan}`); },
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed'),
   });
 
@@ -302,21 +307,32 @@ export default function SuperAdminOrgsPage() {
               onPress={() => router.push({ pathname: '/(app)/(superadmin)/org-detail', params: { tenantId: t.id } })}
               onActivate={() => activateMut.mutate(t.id)}
               onSuspend={() => suspendMut.mutate(t.id)}
-              onPlan={(plan) => planMut.mutate({ id: t.id, plan })}
+              onPlan={(plan) => setPendingPlan({ id: t.id, plan })}
+              availablePlans={assignablePlans}
             />
           ))
         )}
       </ScrollView>
+      <ReasonModal
+        visible={!!pendingPlan}
+        title={`Change plan to ${pendingPlan?.plan ?? ''}`}
+        message="This changes organization entitlements. The reason will be stored in the audit trail."
+        confirmLabel="Change Plan"
+        busy={planMut.isPending}
+        onCancel={() => setPendingPlan(null)}
+        onConfirm={(reason) => pendingPlan && planMut.mutate({ ...pendingPlan, reason })}
+      />
     </SafeAreaView>
   );
 }
 
-function TenantCard({ tenant, onPress, onActivate, onSuspend, onPlan }: {
+function TenantCard({ tenant, onPress, onActivate, onSuspend, onPlan, availablePlans }: {
   tenant: any;
   onPress: () => void;
   onActivate: () => void;
   onSuspend: () => void;
   onPlan: (plan: string) => void;
+  availablePlans: any[];
 }) {
   const [showActions, setShowActions] = useState(false);
 
@@ -386,13 +402,13 @@ function TenantCard({ tenant, onPress, onActivate, onSuspend, onPlan }: {
           {/* Plan */}
           <Text style={{ fontSize: 11, fontWeight: '600', color: C.gray400, letterSpacing: 0.5 }}>CHANGE PLAN</Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {['BASIC', 'PRO', 'ENTERPRISE'].filter((p) => p !== tenant.plan).map((p) => (
+            {availablePlans.filter((p) => p.plan !== tenant.plan).map((p) => (
               <TouchableOpacity
-                key={p}
-                onPress={() => onPlan(p)}
-                style={{ flex: 1, backgroundColor: PLAN_COLORS[p]?.bg, borderRadius: 10, padding: 10, alignItems: 'center' }}
+                key={p.plan}
+                onPress={() => onPlan(p.plan)}
+                style={{ flex: 1, backgroundColor: PLAN_COLORS[p.plan]?.bg ?? C.navy50, borderRadius: 10, padding: 10, alignItems: 'center' }}
               >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: PLAN_COLORS[p]?.text }}>{p}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: PLAN_COLORS[p.plan]?.text ?? C.navy }}>{p.displayName ?? p.plan}</Text>
               </TouchableOpacity>
             ))}
           </View>

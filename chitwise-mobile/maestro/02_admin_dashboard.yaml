@@ -16,6 +16,7 @@ name: Admin Dashboard — Stats and Cards
       - tapOn:
           text: "Enter your password"
       - inputText: ${ADMIN_PASSWORD}
+      - waitForAnimationToEnd
       - pressKey: Enter
       - waitForAnimationToEnd
       - waitForAnimationToEnd
@@ -28,7 +29,12 @@ name: Admin Dashboard — Stats and Cards
             - runScript: helpers/read_otp.js
             - tapOn:
                 text: "123456"
-            - inputText: ${output.otp}
+            - inputText: ${output.digit1}
+            - inputText: ${output.digit2}
+            - inputText: ${output.digit3}
+            - inputText: ${output.digit4}
+            - inputText: ${output.digit5}
+            - inputText: ${output.digit6}
             - tapOn:
                 text: "Verify & Sign In"
             - waitForAnimationToEnd
@@ -47,7 +53,9 @@ name: Admin Dashboard — Stats and Cards
 - assertVisible:
     text: "Quick Actions"
 - assertVisible:
-    text: "+ Cash Request"
+    text: "+ New Chit"
+- assertVisible:
+    text: "+ Add Member"
 
 - swipe:
     direction: DOWN

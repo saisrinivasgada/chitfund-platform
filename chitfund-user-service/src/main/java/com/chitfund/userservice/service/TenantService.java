@@ -18,6 +18,7 @@ import com.chitfund.userservice.dto.response.TenantInfo;
 import com.chitfund.userservice.dto.response.TenantResponse;
 import com.chitfund.userservice.domain.entity.PlanLimits;
 import com.chitfund.userservice.domain.entity.TenantCustomLimits;
+import com.chitfund.userservice.domain.entity.TenantCreditAdjustment;
 import com.chitfund.userservice.dto.request.SetCustomLimitsRequest;
 import com.chitfund.userservice.dto.response.EffectiveLimitsResponse;
 import com.chitfund.userservice.dto.response.BillingInfoResponse;
@@ -27,6 +28,8 @@ import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
+import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
+import com.chitfund.userservice.repository.TenantCreditAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -35,9 +38,13 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.chitfund.userservice.util.CapabilityJson;
+import com.chitfund.userservice.util.PlanInputValidator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 @Service
 @RequiredArgsConstructor
@@ -45,17 +52,23 @@ import java.util.UUID;
 @Slf4j
 public class TenantService {
 
+    private static final java.time.LocalDateTime FREE_PLAN_EXPIRY =
+            java.time.LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+    private static final int MANUAL_PAID_PLAN_DAYS = 30;
+
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final MemberUserLinkRepository memberLinkRepository;
     private final TenantCustomLimitsRepository customLimitsRepository;
     private final PlanLimitsRepository planLimitsRepository;
+    private final PlanCapabilityDefRepository capabilityDefRepository;
     private final PromotionRepository promotionRepository;
     private final PasswordEncoder passwordEncoder;
     private final PromotionService promotionService;
     private final NotificationEventPublisher notificationEventPublisher;
     private final AuditClient auditClient;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final TenantCreditAdjustmentRepository creditAdjustmentRepository;
 
     // ── Public org self-registration ─────────────────────────────────────────
 
@@ -74,6 +87,10 @@ public class TenantService {
         }
 
         String plan = (req.getPlan() != null && !req.getPlan().isBlank()) ? req.getPlan().toUpperCase() : "BASIC";
+        planLimitsRepository.findById(plan)
+                .filter(candidate -> candidate.isActive() && candidate.isPublic())
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Select a public active subscription plan"));
 
         // Create tenant (status = PENDING until super-admin activates)
         String referralCode = "REF-" + req.getSlug().toUpperCase().replace("-", "");
@@ -200,29 +217,31 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public ActivationResponse activateTenant(UUID tenantId) {
-        Tenant t = tenantRepository.findById(tenantId)
+    public ActivationResponse activateTenant(UUID tenantId, String actorId) {
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String planCode = t.getPlan() != null ? t.getPlan().trim().toUpperCase() : "BASIC";
+        PlanLimits planLimits = planLimitsRepository.findById(planCode)
+                .filter(PlanLimits::isActive)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "The assigned subscription plan is missing or inactive"));
         String prevStatus = t.getStatus();
+        applyAssignmentExpiry(t, planCode);
         t.setStatus("ACTIVE");
         tenantRepository.save(t);
 
         // Ensure a limits row exists (seed from plan if not already set)
         if (!customLimitsRepository.existsById(tenantId.toString())) {
-            String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
-            planLimitsRepository.findById(planCode).ifPresent(p -> seedLimitsFromPlan(tenantId.toString(), p));
+            seedLimitsFromPlan(tenantId.toString(), planLimits);
         }
 
         promotionService.onTenantActivated(tenantId);
         auditClient.log("TENANT", tenantId.toString(),
-                "TENANT_ACTIVATED", null, "ROLE_SUPER_ADMIN",
+                "TENANT_ACTIVATED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("status", prevStatus != null ? prevStatus : "PENDING"),
-                java.util.Map.of("status", "ACTIVE", "plan", t.getPlan() != null ? t.getPlan() : "BASIC"),
+                java.util.Map.of("status", "ACTIVE", "plan", planCode,
+                        "planExpiresAt", t.getPlanExpiresAt().toString()),
                 tenantId.toString());
-
-        // Look up plan limits once to include in approval email
-        String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
-        PlanLimits planLimits = planLimitsRepository.findById(planCode).orElse(null);
 
         // Check if an ADMIN user already exists for this org
         List<User> admins = userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(
@@ -300,11 +319,16 @@ public class TenantService {
                 .build();
     }
 
-    public TenantResponse suspendTenant(UUID tenantId) {
+    public TenantResponse suspendTenant(UUID tenantId, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String previous = t.getStatus();
         t.setStatus("SUSPENDED");
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId.toString(),
+                "TENANT_SUSPENDED", actorId, "ROLE_SUPER_ADMIN",
+                java.util.Map.of("status", previous != null ? previous : "UNKNOWN"),
+                java.util.Map.of("status", "SUSPENDED"), tenantId.toString());
         sendStatusEmail(t, "SUSPENDED");
         return toResponse(t);
     }
@@ -320,7 +344,7 @@ public class TenantService {
         return tenantRepository.existsBySlugAndStatusNot(slug, "REJECTED");
     }
 
-    public TenantResponse setTenantStatus(UUID tenantId, String newStatus) {
+    public TenantResponse setTenantStatus(UUID tenantId, String newStatus, String actorId) {
         String upper = newStatus.toUpperCase();
         if (!java.util.Set.of("PENDING", "ACTIVE", "SUSPENDED", "REJECTED").contains(upper)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Invalid status: " + newStatus);
@@ -331,7 +355,7 @@ public class TenantService {
         t.setStatus(upper);
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
-                "STATUS_CHANGED", null, "ROLE_SUPER_ADMIN",
+                "STATUS_CHANGED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("status", prevStatus != null ? prevStatus : "UNKNOWN"),
                 java.util.Map.of("status", upper),
                 tenantId.toString());
@@ -341,7 +365,7 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public TenantResponse reactivateTenant(UUID tenantId, String newSlug) {
+    public TenantResponse reactivateTenant(UUID tenantId, String newSlug, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         if (!"REJECTED".equals(t.getStatus())) {
@@ -360,35 +384,75 @@ public class TenantService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Subdomain '" + targetSlug + "' is already taken — please choose another", HttpStatus.CONFLICT);
         }
+        String previousSlug = t.getSlug();
+        String previousStatus = t.getStatus();
         t.setSlug(targetSlug);
         t.setStatus("PENDING");
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId.toString(),
+                "TENANT_REACTIVATED", actorId, "ROLE_SUPER_ADMIN",
+                java.util.Map.of("status", previousStatus, "slug", previousSlug),
+                java.util.Map.of("status", "PENDING", "slug", targetSlug), tenantId.toString());
         return toResponse(t);
     }
 
-    public TenantResponse updatePlan(UUID tenantId, String plan) {
-        Tenant t = tenantRepository.findById(tenantId)
+    public TenantResponse updatePlan(UUID tenantId, String plan, String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        String prevPlan = t.getPlan();
-        t.setPlan(plan.toUpperCase());
+        String targetPlan = plan == null ? "" : plan.trim().toUpperCase(java.util.Locale.ROOT);
+        PlanLimits targetLimits = planLimitsRepository.findById(targetPlan)
+                .filter(PlanLimits::isActive)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Active plan not found: " + targetPlan));
+        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(),
+                customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt());
+        applyAssignmentExpiry(t, targetPlan);
+        t.setPlan(targetPlan);
         t.setRequestedPlan(null);
         t.setUpgradeRequestedAt(null);
         tenantRepository.save(t);
+        // This row is the effective source used by member/chit services. Keep
+        // it in the same transaction as the tenant plan assignment so an
+        // upgrade or downgrade cannot expose stale limits.
+        seedLimitsFromPlan(tenantId.toString(), targetLimits);
         auditClient.log("TENANT", tenantId.toString(),
-                "PLAN_CHANGED", null, "ROLE_SUPER_ADMIN",
-                java.util.Map.of("plan", prevPlan != null ? prevPlan : "BASIC"),
-                java.util.Map.of("plan", plan.toUpperCase()),
-                tenantId.toString());
+                "PLAN_CHANGED", actorId, "ROLE_SUPER_ADMIN",
+                before, entitlementSnapshot(targetPlan,
+                        customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt()),
+                tenantId.toString(), auditReason);
         return toResponse(t);
     }
 
     @Transactional
-    public void requestPlanUpgrade(String tenantId, String toPlan) {
-        Tenant t = tenantRepository.findById(UUID.fromString(tenantId))
+    public void requestPlanUpgrade(String tenantId, String toPlan, String actorId) {
+        String targetPlan = toPlan == null ? "" : toPlan.trim().toUpperCase(java.util.Locale.ROOT);
+        PlanLimits target = planLimitsRepository.findById(targetPlan)
+                .filter(plan -> plan.isActive() && plan.isPublic())
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Public active plan not found: " + targetPlan));
+        Tenant t = tenantRepository.findByIdForUpdate(UUID.fromString(tenantId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        t.setRequestedPlan(toPlan.toUpperCase());
+        PlanLimits current = planLimitsRepository.findById(
+                        t.getPlan() == null ? "" : t.getPlan().trim().toUpperCase(java.util.Locale.ROOT))
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Organization subscription plan is invalid"));
+        if (target.getPlan().equalsIgnoreCase(current.getPlan())
+                || target.getPriceMonthlyInr() <= current.getPriceMonthlyInr()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Upgrade requests must select a higher-priced active plan");
+        }
+        if (targetPlan.equalsIgnoreCase(t.getRequestedPlan())) {
+            return;
+        }
+        String previousRequest = t.getRequestedPlan();
+        t.setRequestedPlan(targetPlan);
         t.setUpgradeRequestedAt(java.time.LocalDateTime.now());
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId,
+                "PLAN_UPGRADE_REQUESTED", actorId, "ROLE_ADMIN",
+                java.util.Map.of("requestedPlan", previousRequest != null ? previousRequest : "none"),
+                java.util.Map.of("requestedPlan", targetPlan), tenantId);
     }
 
     public List<TenantResponse> listPendingUpgradeRequests() {
@@ -401,37 +465,46 @@ public class TenantService {
                 .stream().map(this::toResponse).toList();
     }
 
-    public void clearRenewalRequest(UUID tenantId) {
+    public void clearRenewalRequest(UUID tenantId, String actorId) {
         tenantRepository.findById(tenantId).ifPresent(t -> {
             t.setRenewalRequestedAt(null);
             tenantRepository.save(t);
         });
         auditClient.log("TENANT", tenantId.toString(),
-                "RENEWAL_APPROVED", null, "ROLE_SUPER_ADMIN",
+                "RENEWAL_APPROVED", actorId, "ROLE_SUPER_ADMIN",
                 null, null, tenantId.toString());
     }
 
-    public void requestRenewal(String tenantId) {
-        Tenant t = tenantRepository.findById(UUID.fromString(tenantId))
+    public void requestRenewal(String tenantId, String actorId) {
+        Tenant t = tenantRepository.findByIdForUpdate(UUID.fromString(tenantId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        if ("BASIC".equalsIgnoreCase(t.getPlan())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "The free Basic plan does not require renewal");
+        }
+        if (t.getRenewalRequestedAt() != null) {
+            return;
+        }
         t.setRenewalRequestedAt(java.time.LocalDateTime.now());
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId,
-                "RENEWAL_REQUESTED", null, "ROLE_ADMIN",
+                "RENEWAL_REQUESTED", actorId, "ROLE_ADMIN",
                 null, java.util.Map.of("plan", t.getPlan() != null ? t.getPlan() : "BASIC"),
                 tenantId);
 
         // Notify all super-admin accounts
         userRepository.findByRoleIn(java.util.List.of(com.chitfund.userservice.domain.enums.Role.SUPER_ADMIN))
                 .forEach(admin -> notificationEventPublisher.publishInApp(
-                        admin.getId(),
+                        null, admin.getId(),
                         "Renewal Request",
                         t.getName() + " (" + t.getPlan() + " plan) has requested a renewal.",
                         "RENEWAL_REQUEST", null,
                         "/superadmin/tenants/" + tenantId));
     }
 
-    public TenantResponse setPlanExpiry(UUID tenantId, java.time.LocalDateTime expiresAt) {
+    public TenantResponse setPlanExpiry(UUID tenantId, java.time.LocalDateTime expiresAt,
+                                        String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         java.time.LocalDateTime prev = t.getPlanExpiresAt();
@@ -439,10 +512,10 @@ public class TenantService {
         t.setRenewalRequestedAt(null); // clear renewal request when expiry is updated
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
-                "PLAN_EXPIRY_SET", null, "ROLE_SUPER_ADMIN",
+                "PLAN_EXPIRY_SET", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("planExpiresAt", prev != null ? prev.toString() : "none"),
                 java.util.Map.of("planExpiresAt", expiresAt != null ? expiresAt.toString() : "none"),
-                tenantId.toString());
+                tenantId.toString(), auditReason);
         return toResponse(t);
     }
 
@@ -502,9 +575,10 @@ public class TenantService {
         return java.util.stream.Stream.concat(staffUsers.stream(), memberUsers.stream()).toList();
     }
 
-    public TenantResponse updateTenant(UUID tenantId, UpdateTenantRequest req) {
+    public TenantResponse updateTenant(UUID tenantId, UpdateTenantRequest req, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        java.util.Map<String, Object> before = tenantAuditSnapshot(t);
         t.setName(req.getName().trim());
         if (req.getSlug() != null && !req.getSlug().isBlank()) {
             String newSlug = req.getSlug().toLowerCase().trim();
@@ -525,6 +599,9 @@ public class TenantService {
             t.setSupportPhoneNumber(req.getSupportPhoneNumber().isBlank() ? null : req.getSupportPhoneNumber().trim());
         }
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId.toString(),
+                "TENANT_DETAILS_UPDATED", actorId, "ROLE_SUPER_ADMIN",
+                before, tenantAuditSnapshot(t), tenantId.toString());
         return toResponse(t);
     }
 
@@ -539,7 +616,7 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public OrgUserResponse addOrgUser(UUID tenantId, AddOrgUserRequest req) {
+    public OrgUserResponse addOrgUser(UUID tenantId, AddOrgUserRequest req, String actorId) {
         tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         Role role = Role.valueOf(req.getRole().toUpperCase());
@@ -575,6 +652,11 @@ public class TenantService {
                 .tenantId(tenantId.toString())
                 .build();
         userRepository.save(user);
+
+        auditClient.log("USER", user.getId().toString(),
+                "ORG_USER_CREATED", actorId, "ROLE_SUPER_ADMIN", null,
+                java.util.Map.of("tenantId", tenantId.toString(), "role", role.name()),
+                tenantId.toString());
 
         return OrgUserResponse.builder()
                 .userId(user.getId().toString())
@@ -642,71 +724,168 @@ public class TenantService {
 
     // ── Custom plan limits ───────────────────────────────────────────────────
 
-    public EffectiveLimitsResponse setCustomLimits(UUID tenantId, SetCustomLimitsRequest req) {
-        Tenant t = tenantRepository.findById(tenantId)
+    public EffectiveLimitsResponse setCustomLimits(UUID tenantId, SetCustomLimitsRequest req,
+                                                    String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
         TenantCustomLimits limits = customLimitsRepository.findById(tenantId.toString())
                 .orElse(TenantCustomLimits.builder().tenantId(tenantId.toString()).build());
+        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(), limits, t.getPlanExpiresAt());
         limits.setMaxActiveChits(req.getMaxActiveChits());
         limits.setMaxMembers(req.getMaxMembers());
         limits.setMaxStaff(req.getMaxStaff());
-        limits.setAllowedChitTypes(req.getAllowedChitTypes().toUpperCase());
+        limits.setAllowedChitTypes(PlanInputValidator.normalizeAllowedChitTypes(req.getAllowedChitTypes()));
         limits.setPriceMonthlyInr(req.getPriceMonthlyInr());
         limits.setPlanCode("CUSTOM");
         limits.setNotes(req.getNotes());
-        if (req.getEnabledCapabilities() != null) {
-            try { limits.setCapabilities(objectMapper.writeValueAsString(req.getEnabledCapabilities())); }
-            catch (Exception ignored) {}
-        }
+        // A custom plan is an explicit allow-list. Omitting the field must not
+        // inherit capabilities copied from the tenant's previous standard plan.
+        java.util.List<String> validatedCapabilities = req.getEnabledCapabilities() != null
+                ? validateCapabilityKeys(req.getEnabledCapabilities())
+                : java.util.List.of();
+        limits.setCapabilities(serializeCapabilityKeys(validatedCapabilities));
         customLimitsRepository.save(limits);
 
         // Automatically set plan to CUSTOM
-        String prevPlan = t.getPlan();
+        applyAssignmentExpiry(t, "CUSTOM");
         t.setPlan("CUSTOM");
         t.setRequestedPlan(null);
         t.setUpgradeRequestedAt(null);
         tenantRepository.save(t);
 
         auditClient.log("TENANT", tenantId.toString(),
-                "CUSTOM_LIMITS_SET", null, "ROLE_SUPER_ADMIN",
-                java.util.Map.of("plan", prevPlan != null ? prevPlan : "BASIC"),
-                java.util.Map.of("plan", "CUSTOM",
-                        "maxActiveChits", String.valueOf(req.getMaxActiveChits()),
-                        "maxMembers", String.valueOf(req.getMaxMembers()),
-                        "maxStaff", String.valueOf(req.getMaxStaff())),
-                tenantId.toString());
+                "CUSTOM_LIMITS_SET", actorId, "ROLE_SUPER_ADMIN",
+                before, entitlementSnapshot("CUSTOM", limits, t.getPlanExpiresAt()),
+                tenantId.toString(), auditReason);
 
-        return toEffectiveLimits(limits, t.getPlanExpiresAt(), CapabilityJson.parse(limits.getCapabilities(), objectMapper));
+        return toEffectiveLimits(limits, t.getStatus(), t.getPlanExpiresAt(),
+                validatedCapabilities);
     }
 
-    public void removeCustomLimits(UUID tenantId, String fallbackPlan) {
-        String planCode = fallbackPlan != null ? fallbackPlan.toUpperCase() : "BASIC";
+    public void removeCustomLimits(UUID tenantId, String fallbackPlan, String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
+        String planCode = fallbackPlan != null
+                ? fallbackPlan.trim().toUpperCase(java.util.Locale.ROOT) : "BASIC";
         PlanLimits plan = planLimitsRepository.findById(planCode)
-                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Plan not found: " + planCode));
+                .filter(PlanLimits::isActive)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Active fallback plan not found: " + planCode));
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(),
+                customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt());
         // Reset limits row to plan defaults (never delete — always keep a row)
         seedLimitsFromPlan(tenantId.toString(), plan);
-
-        Tenant t = tenantRepository.findById(tenantId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        String prevPlan = t.getPlan();
+        applyAssignmentExpiry(t, planCode);
         t.setPlan(planCode);
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
-                "CUSTOM_LIMITS_REMOVED", null, "ROLE_SUPER_ADMIN",
-                java.util.Map.of("plan", prevPlan != null ? prevPlan : "CUSTOM"),
-                java.util.Map.of("plan", planCode),
-                tenantId.toString());
+                "CUSTOM_LIMITS_REMOVED", actorId, "ROLE_SUPER_ADMIN",
+                before, entitlementSnapshot(planCode,
+                        customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt()),
+                tenantId.toString(), auditReason);
+    }
+
+    private static String requireEntitlementReason(String reason) {
+        String normalized = reason == null ? "" : reason.trim();
+        if (normalized.length() < 5) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A reason of at least 5 characters is required for entitlement changes");
+        }
+        return normalized;
+    }
+
+    private static java.util.Map<String, Object> entitlementSnapshot(
+            String planCode, TenantCustomLimits limits, java.time.LocalDateTime planExpiresAt) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("plan", planCode != null ? planCode : "UNASSIGNED");
+        snapshot.put("planExpiresAt", planExpiresAt != null ? planExpiresAt.toString() : "none");
+        if (limits != null) {
+            snapshot.put("maxActiveChits", limits.getMaxActiveChits());
+            snapshot.put("maxMembers", limits.getMaxMembers());
+            snapshot.put("maxStaff", limits.getMaxStaff());
+            snapshot.put("allowedChitTypes", limits.getAllowedChitTypes());
+            snapshot.put("priceMonthlyInr", limits.getPriceMonthlyInr());
+            snapshot.put("capabilities", limits.getCapabilities());
+        }
+        return snapshot;
+    }
+
+    private static void applyAssignmentExpiry(Tenant tenant, String targetPlan) {
+        if ("BASIC".equalsIgnoreCase(targetPlan)) {
+            tenant.setPlanExpiresAt(FREE_PLAN_EXPIRY);
+            return;
+        }
+        java.time.LocalDateTime current = tenant.getPlanExpiresAt();
+        // Null historically meant unlimited, and BASIC uses a year-9999 sentinel.
+        // Neither may leak into a paid/custom entitlement during a manual change.
+        if (current == null || current.getYear() >= 9000) {
+            tenant.setPlanExpiresAt(java.time.LocalDateTime.now().plusDays(MANUAL_PAID_PLAN_DAYS));
+        }
+    }
+
+    private static java.util.Map<String, Object> standardPlanSnapshot(PlanLimits plan) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("plan", plan.getPlan());
+        snapshot.put("maxActiveChits", plan.getMaxActiveChits());
+        snapshot.put("maxMembers", plan.getMaxMembers());
+        snapshot.put("maxStaff", plan.getMaxStaff());
+        snapshot.put("allowedChitTypes", plan.getAllowedChitTypes());
+        snapshot.put("priceMonthlyInr", plan.getPriceMonthlyInr());
+        snapshot.put("capabilities", plan.getCapabilities());
+        return snapshot;
+    }
+
+    private java.util.List<String> validateCapabilityKeys(java.util.List<String> requested) {
+        java.util.List<String> normalized = requested.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(value -> value.trim().toLowerCase(java.util.Locale.ROOT))
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
+        java.util.Set<String> known = capabilityDefRepository.findAllById(normalized).stream()
+                .map(com.chitfund.userservice.domain.entity.PlanCapabilityDef::getKey)
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.List<String> unknown = normalized.stream()
+                .filter(key -> !known.contains(key)).toList();
+        if (!unknown.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Unknown capability keys: " + String.join(", ", unknown));
+        }
+        return normalized;
+    }
+
+    private String serializeCapabilityKeys(java.util.List<String> capabilities) {
+        if (capabilities == null || capabilities.isEmpty()) return "[]";
+        try {
+            return objectMapper.writeValueAsString(capabilities);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Capabilities could not be saved safely");
+        }
     }
 
     @Transactional(readOnly = true)
     public EffectiveLimitsResponse getEffectiveLimits(String tenantId) {
         TenantCustomLimits limits = customLimitsRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        Tenant tenant = tenantRepository.findById(java.util.UUID.fromString(tenantId)).orElse(null);
-        java.time.LocalDateTime expiresAt = tenant != null ? tenant.getPlanExpiresAt() : null;
-        java.util.List<String> caps = resolveCaps(limits);
-        return toEffectiveLimits(limits, expiresAt, caps);
+        Tenant tenant = tenantRepository.findById(java.util.UUID.fromString(tenantId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String assignedPlan = tenant.getPlan() == null
+                ? "" : tenant.getPlan().trim().toUpperCase(java.util.Locale.ROOT);
+        String limitsPlan = limits.getPlanCode() == null
+                ? "" : limits.getPlanCode().trim().toUpperCase(java.util.Locale.ROOT);
+        if (assignedPlan.isBlank() || !assignedPlan.equals(limitsPlan)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Organization subscription configuration is inconsistent");
+        }
+        boolean activeSubscription = "ACTIVE".equalsIgnoreCase(tenant.getStatus())
+                && (tenant.getPlanExpiresAt() == null
+                    || !tenant.getPlanExpiresAt().isBefore(java.time.LocalDateTime.now()));
+        java.util.List<String> caps = activeSubscription ? resolveCaps(limits) : java.util.List.of();
+        return toEffectiveLimits(limits, tenant.getStatus(), tenant.getPlanExpiresAt(), caps);
     }
 
     @Transactional(readOnly = true)
@@ -721,10 +900,12 @@ public class TenantService {
                 .toList();
     }
 
-    private EffectiveLimitsResponse toEffectiveLimits(TenantCustomLimits c, java.time.LocalDateTime planExpiresAt,
+    private EffectiveLimitsResponse toEffectiveLimits(TenantCustomLimits c, String tenantStatus,
+                                                      java.time.LocalDateTime planExpiresAt,
                                                       java.util.List<String> caps) {
         return EffectiveLimitsResponse.builder()
                 .plan(c.getPlanCode())
+                .tenantStatus(tenantStatus)
                 .isCustom("CUSTOM".equals(c.getPlanCode()))
                 .maxActiveChits(c.getMaxActiveChits())
                 .maxMembers(c.getMaxMembers())
@@ -755,7 +936,12 @@ public class TenantService {
     public java.util.List<String> resolveCapabilitiesForTenant(String tenantId) {
         Tenant t = tenantRepository.findById(java.util.UUID.fromString(tenantId)).orElse(null);
         if (t == null) return java.util.List.of();
-        String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
+        if (!"ACTIVE".equalsIgnoreCase(t.getStatus())) return java.util.List.of();
+        if (t.getPlanExpiresAt() != null && t.getPlanExpiresAt().isBefore(java.time.LocalDateTime.now())) {
+            return java.util.List.of();
+        }
+        if (t.getPlan() == null || t.getPlan().isBlank()) return java.util.List.of();
+        String planCode = t.getPlan().trim().toUpperCase(java.util.Locale.ROOT);
         if ("CUSTOM".equals(planCode)) {
             return customLimitsRepository.findById(tenantId)
                     .map(c -> CapabilityJson.parse(c.getCapabilities(), objectMapper))
@@ -883,57 +1069,140 @@ public class TenantService {
     // ── Super-admin: manually add credit to a tenant ─────────────────────────
 
     @Transactional
-    public TenantResponse addCredit(UUID tenantId, java.math.BigDecimal amountInr) {
-        Tenant t = tenantRepository.findById(tenantId)
+    public TenantResponse addCredit(UUID tenantId, java.math.BigDecimal amountInr,
+                                    String reason, String idempotencyKey, String actorId) {
+        validateCreditAdjustment(amountInr, reason);
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        if (amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Credit amount must be positive");
-        }
+        String fingerprint = creditAdjustmentFingerprint("ADD", tenantId, amountInr, reason);
+        TenantResponse replay = replayCreditAdjustment(t, "ADD", idempotencyKey, fingerprint);
+        if (replay != null) return replay;
         java.math.BigDecimal current = t.getCreditBalanceInr() != null ? t.getCreditBalanceInr() : java.math.BigDecimal.ZERO;
         java.math.BigDecimal newBalance = current.add(amountInr);
         t.setCreditBalanceInr(newBalance);
         TenantResponse result = toResponse(tenantRepository.save(t));
-        auditClient.log("TENANT", tenantId.toString(),
-                "CREDIT_ADDED", null, "ROLE_SUPER_ADMIN",
+        TenantCreditAdjustment adjustment = saveCreditAdjustment(t, "ADD", amountInr, reason,
+                idempotencyKey, fingerprint, current, newBalance, actorId);
+        auditClient.log("TENANT_CREDIT_ADJUSTMENT", adjustment.getId(),
+                "CREDIT_ADDED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "addedInr", amountInr.toPlainString()),
-                tenantId.toString());
+                tenantId.toString(), "HUB", "SUCCESS", reason.trim(),
+                adjustment.getId(), idempotencyKey.trim());
         return result;
     }
 
     @Transactional
-    public TenantResponse deductCredit(UUID tenantId, java.math.BigDecimal amountInr) {
-        Tenant t = tenantRepository.findById(tenantId)
+    public TenantResponse deductCredit(UUID tenantId, java.math.BigDecimal amountInr,
+                                       String reason, String idempotencyKey, String actorId) {
+        validateCreditAdjustment(amountInr, reason);
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        if (amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Deduction amount must be positive");
-        }
+        String fingerprint = creditAdjustmentFingerprint("DEDUCT", tenantId, amountInr, reason);
+        TenantResponse replay = replayCreditAdjustment(t, "DEDUCT", idempotencyKey, fingerprint);
+        if (replay != null) return replay;
         java.math.BigDecimal current = t.getCreditBalanceInr() != null ? t.getCreditBalanceInr() : java.math.BigDecimal.ZERO;
-        java.math.BigDecimal newBalance = current.subtract(amountInr).max(java.math.BigDecimal.ZERO);
+        if (amountInr.compareTo(current) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Deduction cannot exceed the available credit balance");
+        }
+        java.math.BigDecimal newBalance = current.subtract(amountInr);
         t.setCreditBalanceInr(newBalance);
         TenantResponse result = toResponse(tenantRepository.save(t));
-        auditClient.log("TENANT", tenantId.toString(),
-                "CREDIT_DEDUCTED", null, "ROLE_SUPER_ADMIN",
+        TenantCreditAdjustment adjustment = saveCreditAdjustment(t, "DEDUCT", amountInr, reason,
+                idempotencyKey, fingerprint, current, newBalance, actorId);
+        auditClient.log("TENANT_CREDIT_ADJUSTMENT", adjustment.getId(),
+                "CREDIT_DEDUCTED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "deductedInr", amountInr.toPlainString()),
-                tenantId.toString());
+                tenantId.toString(), "HUB", "SUCCESS", reason.trim(),
+                adjustment.getId(), idempotencyKey.trim());
         return result;
     }
 
-    public TenantResponse cancelMembership(UUID tenantId, String requestedByUserId) {
+    private TenantResponse replayCreditAdjustment(Tenant tenant, String operation,
+                                                  String idempotencyKey, String fingerprint) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "An idempotency key is required for credit adjustments");
+        }
+        return creditAdjustmentRepository.findByIdempotencyKey(idempotencyKey.trim())
+                .map(existing -> {
+                    if (!tenant.getId().toString().equals(existing.getTenantId())
+                            || !operation.equals(existing.getOperation())
+                            || !fingerprint.equals(existing.getRequestFingerprint())) {
+                        throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                                "Idempotency key was already used for a different credit adjustment",
+                                HttpStatus.CONFLICT);
+                    }
+                    TenantResponse response = toResponse(tenant);
+                    response.setCreditBalanceInr(existing.getBalanceAfterInr());
+                    return response;
+                }).orElse(null);
+    }
+
+    private TenantCreditAdjustment saveCreditAdjustment(Tenant tenant, String operation,
+                                                         java.math.BigDecimal amountInr,
+                                                         String reason, String idempotencyKey,
+                                                         String fingerprint,
+                                                         java.math.BigDecimal before,
+                                                         java.math.BigDecimal after,
+                                                         String actorId) {
+        return creditAdjustmentRepository.save(TenantCreditAdjustment.builder()
+                .id(UUID.randomUUID().toString()).tenantId(tenant.getId().toString())
+                .operation(operation).amountInr(amountInr).reason(reason.trim())
+                .idempotencyKey(idempotencyKey.trim()).requestFingerprint(fingerprint)
+                .balanceBeforeInr(before).balanceAfterInr(after).actorId(actorId).build());
+    }
+
+    private static String creditAdjustmentFingerprint(String operation, UUID tenantId,
+                                                       java.math.BigDecimal amountInr,
+                                                       String reason) {
+        String canonical = String.join("\u001f", operation, tenantId.toString(),
+                amountInr.stripTrailingZeros().toPlainString(), reason.trim());
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not fingerprint credit adjustment", exception);
+        }
+    }
+
+    private static void validateCreditAdjustment(java.math.BigDecimal amountInr, String reason) {
+        if (amountInr == null || amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0
+                || amountInr.scale() > 2) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Credit amount must be positive with at most two decimal places");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A reason is required for every credit adjustment");
+        }
+    }
+
+    public TenantResponse cancelMembership(UUID tenantId, String requestedByUserId, String actorRole) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         t.setCancellationRequestedAt(java.time.LocalDateTime.now());
         t.setCancellationRequestedBy(requestedByUserId);
-        return toResponse(tenantRepository.save(t));
+        TenantResponse response = toResponse(tenantRepository.save(t));
+        auditClient.log("TENANT", tenantId.toString(),
+                "CANCELLATION_REQUESTED", requestedByUserId, actorRole,
+                null, java.util.Map.of("cancellationRequested", true), tenantId.toString());
+        return response;
     }
 
-    public TenantResponse resumeMembership(UUID tenantId) {
+    public TenantResponse resumeMembership(UUID tenantId, String actorId, String actorRole) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         t.setCancellationRequestedAt(null);
         t.setCancellationRequestedBy(null);
-        return toResponse(tenantRepository.save(t));
+        TenantResponse response = toResponse(tenantRepository.save(t));
+        auditClient.log("TENANT", tenantId.toString(),
+                "CANCELLATION_REVOKED", actorId, actorRole,
+                java.util.Map.of("cancellationRequested", true),
+                java.util.Map.of("cancellationRequested", false), tenantId.toString());
+        return response;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -967,9 +1236,18 @@ public class TenantService {
     private String generateTempPassword() {
         String chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
         StringBuilder sb = new StringBuilder(10);
-        java.util.Random rng = new java.util.Random();
+        java.security.SecureRandom rng = new java.security.SecureRandom();
         for (int i = 0; i < 10; i++) sb.append(chars.charAt(rng.nextInt(chars.length())));
         return sb.toString();
+    }
+
+    private static java.util.Map<String, Object> tenantAuditSnapshot(Tenant tenant) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("name", tenant.getName());
+        snapshot.put("slug", tenant.getSlug());
+        snapshot.put("businessRegNumber", tenant.getBusinessRegNumber());
+        snapshot.put("supportPhoneNumber", tenant.getSupportPhoneNumber());
+        return snapshot;
     }
 
     // ── Org settings (admin self-service) ────────────────────────────────────

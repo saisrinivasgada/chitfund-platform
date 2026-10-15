@@ -11,9 +11,9 @@
 #   docker compose -f docker-compose.test.yml up -d --wait
 #   ./scripts/test-reset.sh
 #
-# Only the services that move money are here. notification, audit, reporting and
-# management are not required to prove a calculation, and every extra container
-# is another thing that can fail for reasons unrelated to the test.
+# The gateway and the five services that own the core financial/member journey
+# are here. notification, audit, reporting and management remain opt-in overlays
+# so calculation tests do not fail for unrelated infrastructure.
 
 name: chitwise-test
 
@@ -29,6 +29,11 @@ x-test-common: &test-common
   SPRING_PROFILES_ACTIVE: test
   OTP_LOGGING_ENABLED: "true"
   OTP_COOLDOWN_ENABLED: "false"
+  # The disposable event overlay runs eight Spring services against one MySQL
+  # instance. Four connections per service are ample for its two-worker tests
+  # and avoid an 80-connection default footprint on 4 GB Docker hosts.
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "4"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
   # Keep the seven-service event overlay reliable on 4 GB developer/CI Docker
   # hosts. Production does not use this compose file or this heap limit.
   JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
@@ -162,6 +167,7 @@ services:
       DB_NAME: chitfund_payout
       PAYMENT_SERVICE_URL: http://payment-service:8084
       CHIT_SERVICE_URL: http://chit-service:8082
+      USER_SERVICE_URL: http://user-service:8081
       NOTIFICATION_SERVICE_URL: http://localhost:9999
       AUDIT_SERVICE_URL: http://localhost:9999
       CHITWISE_EVENTS_MODE: OUTBOX
@@ -201,6 +207,46 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
+    networks: [chitwise-test]
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: chitfund-api-gateway/Dockerfile
+    container_name: chitwise-test-gateway
+    environment:
+      <<: *test-common
+      USER_SERVICE_URL: http://user-service:8081
+      CHIT_SERVICE_URL: http://chit-service:8082
+      MEMBER_SERVICE_URL: http://member-service:8083
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      PAYOUT_SERVICE_URL: http://payout-service:8085
+      # These services are intentionally absent from the financial base stack.
+      # Their routes fail visibly if a gateway-browser test accidentally needs
+      # them instead of being mistaken for a successful response.
+      NOTIFICATION_SERVICE_URL: http://notification-service:8086
+      REPORTING_SERVICE_URL: http://reporting-service:8087
+      AUDIT_SERVICE_URL: http://audit-service:8088
+      MANAGEMENT_SERVICE_URL: http://management-service:8091
+    ports:
+      - "127.0.0.1:9080:8080"
+    depends_on:
+      user-service:
+        condition: service_healthy
+      member-service:
+        condition: service_healthy
+      chit-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      payout-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     networks: [chitwise-test]
 
 networks:

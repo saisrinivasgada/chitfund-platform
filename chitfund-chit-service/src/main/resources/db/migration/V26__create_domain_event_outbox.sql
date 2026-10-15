@@ -1,0 +1,21 @@
+CREATE TABLE domain_event_outbox (
+    delivery_id      VARCHAR(36) NOT NULL,
+    event_id         VARCHAR(36) NOT NULL,
+    event_type       VARCHAR(64) NOT NULL,
+    destination      VARCHAR(128) NOT NULL,
+    payload          JSON NOT NULL,
+    status           VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    attempts         INT NOT NULL DEFAULT 0,
+    available_at     DATETIME(6) NOT NULL,
+    lease_token      VARCHAR(36) NULL,
+    claimed_until    DATETIME(6) NULL,
+    last_error_code  VARCHAR(100) NULL,
+    last_error       VARCHAR(2000) NULL,
+    created_at       DATETIME(6) NOT NULL,
+    published_at     DATETIME(6) NULL,
+    PRIMARY KEY (delivery_id),
+    UNIQUE KEY uq_domain_outbox_event_destination (event_id, destination),
+    INDEX idx_domain_outbox_pending (status, available_at, delivery_id),
+    INDEX idx_domain_outbox_expired_lease (status, claimed_until, delivery_id),
+    INDEX idx_domain_outbox_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

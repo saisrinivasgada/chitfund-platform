@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Pressable, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
@@ -22,6 +22,7 @@ import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useUIStore } from '../../../store/uiStore';
+import { useAuthStore } from '../../../store/authStore';
 import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLACKLISTED'];
@@ -80,9 +81,10 @@ function MemberCreditBadge({ memberId }: { memberId: string }) {
 
 export default function AdminMembersScreen() {
   const { isExpired } = useUIStore();
+  const settlementEnabled = useAuthStore((state) => state.user?.settlementEnabled === true);
   const qc = useQueryClient();
   const router = useRouter();
-  const params = useLocalSearchParams<{ filter?: string; openAdd?: string }>();
+  const params = useLocalSearchParams<{ filter?: string; openAdd?: string; openMemberId?: string; openHistory?: string }>();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(params.filter ?? null);
   const [selected, setSelected] = useState<any>(null);
@@ -158,6 +160,22 @@ export default function AdminMembersScreen() {
 
   // Full list for dropdowns, referral search, status counts, limit check
   const { data: allMembers = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const consumedOpenMemberId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!params.openMemberId || params.openMemberId === consumedOpenMemberId.current) return;
+    const target = (allMembers as any[]).find((member: any) => member.id === params.openMemberId);
+    if (!target) return;
+    consumedOpenMemberId.current = params.openMemberId;
+    setSelected(target);
+    setShowStatusInline(false);
+    setShowEditInline(false);
+    setNewStatus('');
+    setStatusReason('');
+    setShowCreateLogin(false);
+    setPayHistChitId('');
+    setShowDetail(true);
+    if (params.openHistory === '1') setShowProfileHistory(true);
+  }, [params.openMemberId, params.openHistory, allMembers]);
   const { data: tenantLimits } = useQuery({ queryKey: ['my-tenant-limits'], queryFn: getMyTenantLimits, staleTime: 5 * 60 * 1000 });
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const collectors = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER'].includes(s.role));
@@ -398,22 +416,13 @@ export default function AdminMembersScreen() {
   });
 
   const reminderMutation = useOnlineMutation({
-    mutationFn: () => sendPaymentReminder(selected!.userId ?? selected!.linkedUserId),
+    mutationFn: () => sendPaymentReminder(selected!.id),
     onSuccess: () => toast.noted('Payment reminder sent'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send reminder'),
   });
 
   const whatsappMutation = useOnlineMutation({
-    mutationFn: () => {
-      const totalOutstanding = Number((memberBalance as any)?.totalBalance ?? 0);
-      return sendWhatsAppReminder({
-        userId: selected!.userId ?? selected!.linkedUserId,
-        phone: selected!.phone,
-        memberName: selected!.fullName ?? selected!.name,
-        outstandingAmount: totalOutstanding > 0 ? `₹${totalOutstanding.toLocaleString('en-IN')}` : '',
-        chitName: '',
-      });
-    },
+    mutationFn: () => sendWhatsAppReminder(selected!.id),
     onSuccess: (res: any) => toast.noted(res?.message ?? 'WhatsApp reminder sent'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send WhatsApp message'),
   });
@@ -492,7 +501,7 @@ export default function AdminMembersScreen() {
   const { data: memberSettlementsPage } = useQuery({
     queryKey: ['m-member-settlements', selected?.id],
     queryFn: () => getMemberSettlements(selected!.id),
-    enabled: !!selected?.id && showDetail,
+    enabled: settlementEnabled && !!selected?.id && showDetail,
     staleTime: 60_000,
   });
 
@@ -615,9 +624,10 @@ export default function AdminMembersScreen() {
 
   // Profile change history from audit log — admin only
   const [showProfileHistory, setShowProfileHistory] = useState(false);
-  const { data: profileHistory = [] } = useQuery({
+  const { data: profileHistory = [], isLoading: profileHistoryLoading,
+    isError: profileHistoryError, refetch: refetchProfileHistory } = useQuery({
     queryKey: ['m-profile-history', selected?.id],
-    queryFn: () => getAuditLogs({ entityType: 'MEMBER', entityId: selected!.id, size: 30, sort: 'createdAt,desc' }),
+    queryFn: () => getAuditLogs({ entityType: 'MEMBER', entityId: selected!.id, size: 30, sort: 'occurredAt,desc' }),
     enabled: !!selected?.id && showDetail && showProfileHistory,
     staleTime: 60_000,
   });
@@ -1542,7 +1552,20 @@ export default function AdminMembersScreen() {
                       borderTopLeftRadius: 0, borderTopRightRadius: 0,
                       padding: 14, borderWidth: 1.5, borderTopWidth: 0, borderColor: C.gray200,
                     }}>
-                      {(profileHistory as any[]).length === 0 ? (
+                      {profileHistoryLoading ? (
+                        <View style={{ alignItems: 'center', paddingVertical: 20, gap: 8 }}>
+                          <ActivityIndicator color={C.navy} />
+                          <Text style={{ fontSize: 13, color: C.gray400 }}>Loading profile history…</Text>
+                        </View>
+                      ) : profileHistoryError ? (
+                        <View style={{ alignItems: 'center', paddingVertical: 20, gap: 8 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>Profile history could not be loaded</Text>
+                          <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center' }}>This does not mean that no changes were recorded.</Text>
+                          <TouchableOpacity onPress={() => refetchProfileHistory()} style={{ borderWidth: 1.5, borderColor: C.red, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 }}>
+                            <Text style={{ color: C.red, fontSize: 12, fontWeight: '700' }}>Try again</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (profileHistory as any[]).length === 0 ? (
                         <View style={{ alignItems: 'center', paddingVertical: 20 }}>
                           <Text style={{ fontSize: 13, color: C.gray400 }}>No profile changes recorded yet</Text>
                         </View>
@@ -1571,7 +1594,7 @@ export default function AdminMembersScreen() {
                                 ) : null}
                                 {log.reason ? <Text style={{ fontSize: 11, color: C.gray400, fontStyle: 'italic', marginTop: 2 }}>"{log.reason}"</Text> : null}
                                 <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                                  <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(log.createdAt)}</Text>
+                                  <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(log.occurredAt ?? log.createdAt)}</Text>
                                   {log.actorRole && <Text style={{ fontSize: 11, color: C.gray400 }}>· {log.actorRole}</Text>}
                                 </View>
                               </View>
@@ -1731,11 +1754,13 @@ export default function AdminMembersScreen() {
 
                 {/* Settle + Delete — bottom of detail */}
                 <View style={{ marginTop: 24, gap: 10, paddingBottom: 8 }}>
-                  <Button label="Settle Account" variant="outline" fullWidth
-                    onPress={() => {
-                      setShowDetail(false);
-                      setTimeout(() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'settlement', memberId: selected.id } }), 300);
-                    }} />
+                  {settlementEnabled && (
+                    <Button label="Settle Account" variant="outline" fullWidth
+                      onPress={() => {
+                        setShowDetail(false);
+                        setTimeout(() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'settlement', memberId: selected.id } }), 300);
+                      }} />
+                  )}
                   {selected.status !== 'DELETED' && (
                     <Button label="Delete Member" variant="danger" fullWidth
                       loading={deleteMutation.isPending}

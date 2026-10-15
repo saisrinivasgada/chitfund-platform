@@ -35,6 +35,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -159,17 +160,20 @@ class FinancialIdempotencyTest {
                 .thenReturn(Optional.empty());
         when(memberServiceClient.isMemberActive(any())).thenReturn(true);
         when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findTotalOutstandingByMemberId(any(), any())).thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                any(), any(), any())).thenReturn(java.util.List.of());
-        when(paymentRecordRepository.findOutstandingAcrossOtherChitsForUpdate(any(), any(), any()))
+        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
+                anyString(), any(), any())).thenReturn(BigDecimal.ZERO);
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                anyString(), any(), any(), any())).thenReturn(java.util.List.of());
+        when(paymentRecordRepository.findOutstandingAcrossOtherChitsForUpdateByTenant(
+                anyString(), any(), any(), any()))
                 .thenReturn(java.util.List.of());
         when(batchRepository.saveAndFlush(any())).thenAnswer(inv -> {
             PaymentBatch b = inv.getArgument(0);
             b.setId(UUID.randomUUID());
             return b;
         });
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(any(), any()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                anyString(), any(), any()))
                 .thenReturn(java.util.List.of());
 
         PaymentService service = new PaymentService(
@@ -204,17 +208,27 @@ class FinancialIdempotencyTest {
                 .thenReturn(Optional.empty());
         when(settlementRepository.findByIdWithLock(settlementId, "tenant-a"))
                 .thenReturn(Optional.of(settlement));
-        when(transactionRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(transactionRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            SettlementPaymentTransaction transaction = invocation.getArgument(0);
+            transaction.setId(UUID.randomUUID());
+            return transaction;
+        });
 
         SettlementTransactionService service = new SettlementTransactionService(
-                transactionRepository, settlementRepository, adminWalletService);
-        service.recordTransaction(settlementId, request, UUID.randomUUID());
+                transactionRepository, settlementRepository, adminWalletService, auditClient);
+        UUID managerId = UUID.randomUUID();
+        service.recordTransaction(settlementId, request, managerId, "MANAGER");
 
         ArgumentCaptor<SettlementPaymentTransaction> captor =
                 ArgumentCaptor.forClass(SettlementPaymentTransaction.class);
         verify(transactionRepository).saveAndFlush(captor.capture());
         assertThat(captor.getValue().getTenantId()).isEqualTo("tenant-a");
         assertThat(captor.getValue().getIdempotencyRequestHash()).hasSize(64);
+        ArgumentCaptor<AuditClient.AuditDetails> audit =
+                ArgumentCaptor.forClass(AuditClient.AuditDetails.class);
+        verify(auditClient).log(audit.capture());
+        assertThat(audit.getValue().actorId()).isEqualTo(managerId.toString());
+        assertThat(audit.getValue().actorRole()).isEqualTo("MANAGER");
     }
 
     @Test
@@ -232,7 +246,7 @@ class FinancialIdempotencyTest {
                 .thenReturn(Optional.of(existing));
 
         SettlementTransactionService service = new SettlementTransactionService(
-                transactionRepository, settlementRepository, adminWalletService);
+                transactionRepository, settlementRepository, adminWalletService, auditClient);
 
         assertThatThrownBy(() -> service.recordTransaction(
                 settlementId, settlementRequest(new BigDecimal("50.00")), UUID.randomUUID()))
@@ -240,6 +254,7 @@ class FinancialIdempotencyTest {
                         assertThat(ex.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT));
 
         verify(settlementRepository, never()).findByIdWithLock(any(), any());
+        verify(auditClient, never()).log(any(AuditClient.AuditDetails.class));
     }
 
     @Test
@@ -262,7 +277,7 @@ class FinancialIdempotencyTest {
                 .thenReturn(Optional.of(settlement));
 
         SettlementTransactionService service = new SettlementTransactionService(
-                transactionRepository, settlementRepository, adminWalletService);
+                transactionRepository, settlementRepository, adminWalletService, auditClient);
 
         assertThatThrownBy(() -> service.recordTransaction(
                 settlementId, settlementRequest(new BigDecimal("50.00")), UUID.randomUUID()))

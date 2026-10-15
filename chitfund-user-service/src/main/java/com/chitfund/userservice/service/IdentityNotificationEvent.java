@@ -7,9 +7,10 @@ public record IdentityNotificationEvent(
         Type type,
         UUID recipientUserId,
         UUID requestId,
+        UUID tenantId,
         String organizationName,
         List<UUID> affectedTenantIds,
-        // Present only for CHITFUND_ACCESS_ACTIVATED — used to call member-service post-commit
+        // Present only for CHITFUND_ACCESS_ACTIVATED — persisted as a retryable member-service command
         UUID activationTenantId,
         UUID activationMemberId,
         // Fallback email when the user record has no verified email yet (e.g. revoke before setup)

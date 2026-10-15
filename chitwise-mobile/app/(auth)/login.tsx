@@ -386,9 +386,11 @@ export default function LoginScreen() {
       token:              data.token,
       refreshToken:       data.refreshToken,
       tenantId:           data.tenantId,
-      tenantName:         tenantName,
+      tenantName:         data.tenantName ?? tenantName,
       mustChangePassword: data.mustChangePassword,
-      chatEnabled:        data.chatEnabled !== false,
+      analyticsEnabled:   data.analyticsEnabled === true,
+      chatEnabled:        data.chatEnabled === true,
+      settlementEnabled:  data.settlementEnabled === true,
       adminPhone:         data.adminPhone ?? undefined,
       adminEmail:         data.adminEmail ?? undefined,
     });

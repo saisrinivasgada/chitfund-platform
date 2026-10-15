@@ -1,5 +1,8 @@
 package com.chitfund.paymentservice.client;
 
+import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
@@ -47,6 +51,15 @@ public class PayoutServiceClient {
         private String status;  // PENDING / PARTIALLY_DISBURSED / DISBURSED / CANCELLED / VOIDED
     }
 
+    @Data
+    public static class DrawDependencyDto {
+        private long payoutCount;
+
+        public boolean hasHistory() {
+            return payoutCount > 0;
+        }
+    }
+
     /**
      * Returns the most relevant payout for a member+chit pair.
      * payout-service's internal endpoint prefers DISBURSED/PARTIALLY_DISBURSED over PENDING,
@@ -59,6 +72,7 @@ public class PayoutServiceClient {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", requireTenant());
 
             ResponseEntity<Map> resp = restTemplate.exchange(
                     payoutServiceUrl + "/internal/payouts/member/" + memberId + "/chit/" + chitId,
@@ -67,15 +81,73 @@ public class PayoutServiceClient {
                     Map.class);
 
             Map<String, Object> body = resp.getBody();
-            if (body == null) return null;
+            if (body == null) {
+                throw unavailable("Payout service returned an empty response", null);
+            }
             Object data = body.get("data");
-            if (!(data instanceof Map)) return null;
-            return mapToPayoutDto((Map<String, Object>) data);
+            if (data == null) return null;
+            if (!(data instanceof Map)) {
+                throw unavailable("Payout service returned an invalid response", null);
+            }
+            PayoutDto payout = mapToPayoutDto((Map<String, Object>) data);
+            if (!memberId.equals(payout.getMemberId()) || !chitId.equals(payout.getChitId())) {
+                throw unavailable("Payout service returned data outside the requested scope", null);
+            }
+            return payout;
 
         } catch (RestClientException e) {
-            log.warn("payout-service unreachable for member {} chit {}: {}", memberId, chitId, e.getMessage());
-            return null;
+            log.error("payout-service unavailable while verifying settlement inputs for member {} chit {}: {}",
+                    memberId, chitId, e.getClass().getSimpleName());
+            throw unavailable("Payout data could not be verified. Please try again.", e);
         }
+    }
+
+    /** Strict dependency check used before physically discarding a draw. */
+    @SuppressWarnings("unchecked")
+    public DrawDependencyDto getDrawDependencies(UUID chitId, int monthNumber) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", requireTenant());
+            ResponseEntity<Map> resp = restTemplate.exchange(
+                    payoutServiceUrl + "/internal/payouts/chit/" + chitId
+                            + "/draw/" + monthNumber + "/dependencies",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class);
+            Map<String, Object> body = resp.getBody();
+            if (body == null || !(body.get("data") instanceof Map<?, ?> raw)) {
+                throw unavailable("Payout history service returned an invalid response", null);
+            }
+            Object value = raw.get("payoutCount");
+            DrawDependencyDto result = new DrawDependencyDto();
+            try {
+                result.setPayoutCount(value == null ? 0L : Long.parseLong(value.toString()));
+            } catch (NumberFormatException e) {
+                throw unavailable("Payout history service returned an invalid count", e);
+            }
+            return result;
+        } catch (RestClientException e) {
+            log.error("payout-service unavailable while checking draw dependencies for chit {} month {}: {}",
+                    chitId, monthNumber, e.getClass().getSimpleName());
+            throw unavailable("Payout history could not be verified. Please try again.", e);
+        }
+    }
+
+    private String requireTenant() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
+        return tenantId;
+    }
+
+    private BusinessException unavailable(String message, Exception cause) {
+        BusinessException exception = new BusinessException(
+                ErrorCode.INTERNAL_SERVER_ERROR, message, HttpStatus.SERVICE_UNAVAILABLE);
+        if (cause != null) exception.initCause(cause);
+        return exception;
     }
 
     @SuppressWarnings("unchecked")

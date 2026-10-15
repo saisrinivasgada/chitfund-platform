@@ -3,15 +3,18 @@ package com.chitfund.chitservice.controller;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
-import com.chitfund.chitservice.domain.enums.ChitStatus;
-import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitEnrollmentResponse;
 import com.chitfund.chitservice.dto.response.ChitResponse;
 import com.chitfund.chitservice.dto.response.MonthReservationResponse;
+import com.chitfund.chitservice.dto.response.DrawMemberAmountResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
+import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
+import com.chitfund.chitservice.repository.AuctionSessionRepository;
+import com.chitfund.chitservice.domain.enums.ReservationStatus;
+import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.ResourceNotFoundException;
@@ -24,6 +27,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -48,6 +54,8 @@ public class InternalSettlementController {
     private final ChitEnrollmentRepository enrollmentRepository;
     private final ChitRepository chitRepository;
     private final MonthReservationRepository reservationRepository;
+    private final MonthlyWinnerRepository winnerRepository;
+    private final AuctionSessionRepository auctionSessionRepository;
     private final ChitMapper chitMapper;
     private final ChitService chitService;
 
@@ -66,6 +74,7 @@ public class InternalSettlementController {
     @GetMapping("/enrollments/member/{memberId}")
     public ResponseEntity<?> getEnrollmentsForMember(
             @PathVariable UUID memberId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
@@ -73,7 +82,8 @@ public class InternalSettlementController {
         }
 
         // Find all enrollments — active AND inactive (settlement covers completed chits too)
-        List<ChitEnrollment> enrollments = enrollmentRepository.findAllByMemberId(memberId);
+        List<ChitEnrollment> enrollments = enrollmentRepository
+                .findAllByMemberIdAndTenantId(memberId, tenantId);
 
         List<ChitEnrollmentResponse> responses = enrollments.stream()
                 .map(chitMapper::toEnrollmentResponse)
@@ -90,13 +100,14 @@ public class InternalSettlementController {
     @GetMapping("/chits/{chitId}")
     public ResponseEntity<?> getChit(
             @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        Chit chit = chitRepository.findById(chitId)
+        Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", chitId));
 
         // Map manually to include all fields needed by settlement service
@@ -114,6 +125,7 @@ public class InternalSettlementController {
     public ResponseEntity<?> getReservationsForMemberInChit(
             @PathVariable UUID chitId,
             @PathVariable UUID memberId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
@@ -121,7 +133,7 @@ public class InternalSettlementController {
         }
 
         List<MonthReservationResponse> responses = reservationRepository
-                .findByChitIdAndMemberId(chitId, memberId)
+                .findByChitIdAndMemberIdAndTenantId(chitId, memberId, tenantId)
                 .stream()
                 .map(chitMapper::toReservationResponse)
                 .collect(Collectors.toList());
@@ -138,22 +150,16 @@ public class InternalSettlementController {
     @PostMapping("/chits/{chitId}/complete")
     public ResponseEntity<?> completeChit(
             @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        try {
-            UpdateChitStatusRequest req = new UpdateChitStatusRequest();
-            req.setStatus(ChitStatus.COMPLETED);
-            chitService.updateStatus(chitId, req);
-            log.info("Internal: chit {} marked COMPLETED — all draws disbursed", chitId);
-            return ResponseEntity.ok(ApiResponse.success("Chit completed"));
-        } catch (Exception e) {
-            log.warn("Internal: could not auto-complete chit {} — {}", chitId, e.getMessage());
-            return ResponseEntity.ok(ApiResponse.success("Skipped — " + e.getMessage()));
-        }
+        chitService.completeAfterFinalDisbursement(chitId, tenantId);
+        log.info("Internal: chit {} marked COMPLETED — all draws disbursed", chitId);
+        return ResponseEntity.ok(ApiResponse.success("Chit completed"));
     }
 
     /**
@@ -163,14 +169,125 @@ public class InternalSettlementController {
     @GetMapping("/chits/{chitId}/member-ids")
     public ResponseEntity<?> getActiveMemberIds(
             @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitId(chitId)
+        List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitIdAndTenantId(chitId, tenantId)
                 .stream().distinct().map(UUID::toString).toList();
         return ResponseEntity.ok(ApiResponse.success(memberIds));
+    }
+
+    /**
+     * Returns server-calculated dues for draw creation. Payment-service must not
+     * trust amounts supplied by web/mobile clients for this financial operation.
+     */
+    @GetMapping("/chits/{chitId}/draw-member-amounts")
+    public ResponseEntity<?> getDrawMemberAmounts(
+            @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", chitId));
+        BigDecimal base = chit.getInstallmentAmount();
+        Map<UUID, BigDecimal> dues = new LinkedHashMap<>();
+        enrollmentRepository.findActiveMemberIdsByChitIdAndTenantId(chitId, tenantId)
+                .forEach(memberId -> dues.merge(memberId, base, BigDecimal::add));
+
+        if (chit.isPostPayoutContributionEnabled()
+                && chit.getWinnerSelectionMode() != WinnerSelectionMode.AUCTION) {
+            BigDecimal fallback = chit.getDefaultPostPayoutContribution() == null
+                    ? base : chit.getDefaultPostPayoutContribution();
+            if (chit.getWinnerSelectionMode() == WinnerSelectionMode.RESERVATION) {
+                reservationRepository.findByChitIdAndTenantId(chitId, tenantId).stream()
+                        .filter(r -> r.getStatus() == ReservationStatus.PROCESSED && r.getMemberId() != null)
+                        .forEach(r -> replaceOneSpotDue(dues, r.getMemberId(), base,
+                                r.getPostPayoutContribution() == null ? fallback : r.getPostPayoutContribution()));
+            } else {
+                winnerRepository.findWinnerMemberIdsByChitIdAndTenantId(chitId, tenantId)
+                        .forEach(memberId -> replaceOneSpotDue(dues, memberId, base, fallback));
+            }
+        }
+
+        List<DrawMemberAmountResponse> response = dues.entrySet().stream()
+                .map(e -> new DrawMemberAmountResponse(e.getKey(), e.getValue()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Returns immutable/history-bearing dependencies that make physical draw deletion unsafe.
+     * Payment-service uses this as a fail-closed guard before discarding a pristine draw.
+     */
+    @GetMapping("/chits/{chitId}/draws/{monthNumber}/dependencies")
+    public ResponseEntity<?> getDrawDependencies(
+            @PathVariable UUID chitId,
+            @PathVariable Integer monthNumber,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        // Resolve the parent through the tenant-scoped repository before exposing dependency state.
+        chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", chitId));
+
+        long winnerCount = winnerRepository
+                .countByChitIdAndMonthNumberAndTenantId(chitId, monthNumber, tenantId);
+        long processedReservationCount = reservationRepository
+                .countByChitIdAndMonthNumberAndTenantIdAndStatus(
+                        chitId, monthNumber, tenantId, ReservationStatus.PROCESSED);
+        boolean auctionHistory = auctionSessionRepository
+                .existsByChitIdAndMonthNumberAndTenantId(chitId, monthNumber, tenantId);
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "winnerCount", winnerCount,
+                "processedReservationCount", processedReservationCount,
+                "auctionHistory", auctionHistory)));
+    }
+
+    /** Authoritative winner record used by payout-service before creating a liability. */
+    @GetMapping("/chits/{chitId}/draws/{monthNumber}/winners/{memberId}")
+    public ResponseEntity<?> getWinnerForPayout(
+            @PathVariable UUID chitId,
+            @PathVariable Integer monthNumber,
+            @PathVariable UUID memberId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        List<com.chitfund.chitservice.domain.entity.MonthlyWinner> winners = winnerRepository
+                .findForPayoutValidation(chitId, monthNumber, memberId, tenantId);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("winnerCount", winners.size());
+        if (winners.size() == 1) {
+            var winner = winners.get(0);
+            data.put("id", winner.getId());
+            data.put("chitId", winner.getChit().getId());
+            data.put("memberId", winner.getMemberId());
+            data.put("monthNumber", winner.getMonthNumber());
+            data.put("winningAmount", winner.getWinningAmount());
+            data.put("auctionDiscountAmount", winner.getDiscountAmount());
+        }
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    private void replaceOneSpotDue(Map<UUID, BigDecimal> dues, UUID memberId,
+                                   BigDecimal base, BigDecimal postPayout) {
+        dues.computeIfPresent(memberId, (ignored, current) -> current.subtract(base).add(postPayout));
     }
 }

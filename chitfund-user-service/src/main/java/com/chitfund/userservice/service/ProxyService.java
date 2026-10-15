@@ -6,6 +6,7 @@ import com.chitfund.userservice.domain.entity.MemberUserLink;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.client.AuditClient;
 import com.chitfund.userservice.dto.response.ProxyTokenResponse;
 import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.TenantRepository;
@@ -16,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -27,12 +30,28 @@ public class ProxyService {
     private final UserRepository userRepository;
     private final MemberUserLinkRepository memberLinkRepository;
     private final JwtTokenProvider jwtTokenProvider;
+    private final AuditClient auditClient;
 
-    public ProxyTokenResponse generateProxyToken(UUID tenantId, String roleStr, UUID userId) {
+    private static final Set<Role> PROXY_ROLES = Set.of(
+            Role.ADMIN, Role.MANAGER, Role.STAFF, Role.MEMBER);
+
+    @Transactional
+    public ProxyTokenResponse generateProxyToken(UUID tenantId, String roleStr, UUID userId,
+                                                 String actorId, String reason) {
+        String auditReason = requireReason(reason);
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
-        Role targetRole = Role.valueOf(roleStr.toUpperCase());
+        Role targetRole;
+        try {
+            targetRole = Role.valueOf(roleStr == null ? "" : roleStr.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Unsupported proxy role");
+        }
+        if (!PROXY_ROLES.contains(targetRole)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Super Admin and platform roles cannot be proxied");
+        }
 
         User user;
         String memberId = null;
@@ -44,6 +63,9 @@ public class ProxyService {
                 MemberUserLink link = memberLinkRepository.findByUserIdAndTenantId(userId, tenantId)
                         .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Member link not found"));
                 memberId = link.getMemberId().toString();
+            } else if (!tenantId.toString().equals(user.getTenantId())) {
+                throw new BusinessException(ErrorCode.FORBIDDEN,
+                        "The selected user does not belong to this organization");
             }
         } else if (targetRole == Role.MEMBER) {
             // For MEMBER proxy: find via member_user_links
@@ -65,6 +87,15 @@ public class ProxyService {
                             "No user with role " + roleStr.toUpperCase() + " found in this org"));
         }
 
+        if (user.getRole() != targetRole) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "The selected user does not have the requested role");
+        }
+        if (!user.isEnabled() || user.getDeletedAt() != null || user.isLocked()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "The selected user account is not available for proxy access");
+        }
+
         String token = jwtTokenProvider.generateScopedToken(
                 user,
                 tenantId.toString(),
@@ -75,7 +106,7 @@ public class ProxyService {
                 memberId
         );
 
-        return ProxyTokenResponse.builder()
+        ProxyTokenResponse response = ProxyTokenResponse.builder()
                 .token(token)
                 .proxyUserId(user.getId().toString())
                 .proxyUsername(user.getUsername())
@@ -84,5 +115,21 @@ public class ProxyService {
                 .tenantSlug(tenant.getSlug())
                 .planExpiresAt(tenant.getPlanExpiresAt())
                 .build();
+        auditClient.log("PROXY_SESSION", user.getId().toString(),
+                "PROXY_TOKEN_ISSUED", actorId, "SUPER_ADMIN",
+                null,
+                Map.of("tenantId", tenantId.toString(),
+                        "targetUserId", user.getId().toString(),
+                        "targetRole", targetRole.name()),
+                tenantId.toString(), "HUB", "SUCCESS", auditReason);
+        return response;
+    }
+
+    private String requireReason(String reason) {
+        if (reason == null || reason.trim().length() < 5) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A reason of at least 5 characters is required for proxy access");
+        }
+        return reason.trim();
     }
 }

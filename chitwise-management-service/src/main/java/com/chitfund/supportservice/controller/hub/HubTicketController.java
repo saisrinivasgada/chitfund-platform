@@ -13,6 +13,7 @@ import com.chitfund.supportservice.dto.response.TicketMessageResponse;
 import com.chitfund.supportservice.dto.response.TicketResponse;
 import com.chitfund.supportservice.service.EmployeeService;
 import com.chitfund.supportservice.service.TicketService;
+import com.chitfund.supportservice.service.HubPermissionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -32,16 +33,18 @@ public class HubTicketController {
 
     private final TicketService ticketService;
     private final EmployeeService employeeService;
+    private final HubPermissionService permissionService;
 
     @PostMapping
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
     public ResponseEntity<?> createTicket(@Valid @RequestBody CreateHubTicketRequest request,
                                            Authentication auth) {
         String employeeId = (String) auth.getPrincipal();
+        permissionService.requireTicketType(employeeId, request.getType());
         var employee = employeeService.getById(employeeId);
         TicketResponse ticket = ticketService.createTicketByHub(
                 employeeId, employee.getFullName() != null ? employee.getFullName() : employee.getUsername(),
-                request);
+                employee.getRole(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("success", true, "data", ticket));
     }
@@ -55,18 +58,23 @@ public class HubTicketController {
                                       @RequestParam(required = false) TicketPriority priority,
                                       @RequestParam(required = false) LocalDate fromDate,
                                       @RequestParam(required = false) LocalDate toDate,
-                                      @RequestParam(required = false, name = "q") String query) {
+                                      @RequestParam(required = false, name = "q") String query,
+                                      Authentication auth) {
+        String employeeId = (String) auth.getPrincipal();
+        var allowedTypes = permissionService.visibleTicketTypes(employeeId);
+        if (type != null) permissionService.requireTicketType(employeeId, type);
         var from = fromDate != null ? fromDate.atStartOfDay(ZoneOffset.UTC).toInstant() : null;
         var toExclusive = toDate != null ? toDate.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant() : null;
         PagedResponse<TicketResponse> result = ticketService.listAll(
-                page, size, status, type, priority, from, toExclusive, query);
+                page, size, status, type, priority, from, toExclusive, query, allowedTypes);
         return ResponseEntity.ok(Map.of("success", true, "data", result));
     }
 
     @GetMapping("/{ticketId}")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
-    public ResponseEntity<?> getTicket(@PathVariable String ticketId) {
-        TicketResponse ticket = ticketService.getTicket(ticketId, null, true);
+    public ResponseEntity<?> getTicket(@PathVariable String ticketId, Authentication auth) {
+        permissionService.requireTicket((String) auth.getPrincipal(), ticketId);
+        TicketResponse ticket = ticketService.getTicket(ticketId, null, true, null, false);
         return ResponseEntity.ok(Map.of("success", true, "data", ticket));
     }
 
@@ -74,9 +82,11 @@ public class HubTicketController {
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
     public ResponseEntity<?> getMessages(@PathVariable String ticketId,
                                           @RequestParam(required = false) String cursor,
-                                          @RequestParam(defaultValue = "50") int limit) {
+                                          @RequestParam(defaultValue = "50") int limit,
+                                          Authentication auth) {
+        permissionService.requireTicket((String) auth.getPrincipal(), ticketId);
         PagedResponse<TicketMessageResponse> result = ticketService.getMessages(
-                ticketId, null, true, cursor, limit);
+                ticketId, null, true, null, false, cursor, limit);
         return ResponseEntity.ok(Map.of("success", true, "data", result));
     }
 
@@ -86,6 +96,7 @@ public class HubTicketController {
                                           @Valid @RequestBody SendMessageRequest request,
                                           Authentication auth) {
         String employeeId = (String) auth.getPrincipal();
+        permissionService.requireTicket(employeeId, ticketId);
         var employee = employeeService.getById(employeeId);
 
         var senderType = "SUPER_ADMIN".equals(employee.getRole())
@@ -102,33 +113,48 @@ public class HubTicketController {
     public ResponseEntity<?> deleteMessage(@PathVariable String ticketId,
                                             @PathVariable String messageId,
                                             Authentication auth) {
+        String employeeId = (String) auth.getPrincipal();
+        permissionService.requireTicket(employeeId, ticketId);
+        var employee = employeeService.getById(employeeId);
         ticketService.softDeleteMessage(ticketId, messageId,
-                (String) auth.getPrincipal(), null, true);
+                employeeId, employee.getRole(), null, true);
         return ResponseEntity.ok(Map.of("success", true, "message", "Message deleted"));
     }
 
     @PutMapping("/{ticketId}/status")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
     public ResponseEntity<?> updateStatus(@PathVariable String ticketId,
-                                           @Valid @RequestBody UpdateStatusRequest request) {
-        TicketResponse ticket = ticketService.updateStatus(ticketId, request);
+                                           @Valid @RequestBody UpdateStatusRequest request,
+                                           Authentication auth) {
+        String employeeId = (String) auth.getPrincipal();
+        permissionService.requireStatusChange(employeeId, ticketId, request.getStatus());
+        var employee = employeeService.getById(employeeId);
+        TicketResponse ticket = ticketService.updateStatus(
+                ticketId, request, employeeId, employee.getRole());
         return ResponseEntity.ok(Map.of("success", true, "data", ticket));
     }
 
     @PutMapping("/{ticketId}/read")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
-    public ResponseEntity<?> markRead(@PathVariable String ticketId) {
-        ticketService.markRead(ticketId, null, true);
+    public ResponseEntity<?> markRead(@PathVariable String ticketId, Authentication auth) {
+        permissionService.requireTicket((String) auth.getPrincipal(), ticketId);
+        ticketService.markRead(ticketId, null, true, null, false);
         return ResponseEntity.ok(Map.of("success", true));
     }
 
     @PatchMapping("/{ticketId}/assign")
-    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
     public ResponseEntity<?> assignTicket(@PathVariable String ticketId,
                                            @Valid @RequestBody AssignTicketRequest request,
                                            Authentication auth) {
         String assignedById = (String) auth.getPrincipal();
-        var ticket = ticketService.assignTicket(ticketId, assignedById, request, employeeService);
+        permissionService.requireTicket(assignedById, ticketId);
+        permissionService.requirePermission(assignedById, "TICKET_ASSIGN_ANY");
+        var ticketToAssign = ticketService.getTicket(ticketId, null, true, null, false);
+        permissionService.requireTicketType(request.getAssigneeId(), ticketToAssign.getType());
+        var assignedBy = employeeService.getById(assignedById);
+        var ticket = ticketService.assignTicket(
+                ticketId, assignedById, assignedBy.getRole(), request, employeeService);
         return ResponseEntity.ok(Map.of("success", true, "data", ticket));
     }
 }

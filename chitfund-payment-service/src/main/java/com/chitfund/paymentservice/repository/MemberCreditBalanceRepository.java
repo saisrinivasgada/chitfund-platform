@@ -11,9 +11,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface MemberCreditBalanceRepository extends JpaRepository<MemberCreditBalance, UUID> {
-    Optional<MemberCreditBalance> findByMemberId(UUID memberId);
+    Optional<MemberCreditBalance> findByTenantIdAndMemberId(String tenantId, UUID memberId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT c FROM MemberCreditBalance c WHERE c.memberId = :memberId")
-    Optional<MemberCreditBalance> findByMemberIdForUpdate(@Param("memberId") UUID memberId);
+    @Query("SELECT c FROM MemberCreditBalance c WHERE c.tenantId = :tenantId AND c.memberId = :memberId")
+    Optional<MemberCreditBalance> findByTenantIdAndMemberIdForUpdate(
+            @Param("tenantId") String tenantId, @Param("memberId") UUID memberId);
 }

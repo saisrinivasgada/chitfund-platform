@@ -88,8 +88,23 @@ class PaymentOutboxRelayTest {
     }
 
     @Test
-    void relayDoesNothingUntilOutboxModeIsEnabled() {
+    void relayDrainsCommittedAuditRowsWhileDomainModeIsLegacy() {
         properties.setMode(EventDeliveryProperties.Mode.LEGACY);
+        OutboxDelivery auditDelivery = new OutboxDelivery(
+                "audit-delivery", "audit-event", "AUDIT_LOG", "audit-events",
+                "{\"action\":\"CASH_REQUEST_ASSIGNED\"}", 0, "audit-lease");
+        when(store.claimBatch(25, Duration.ofSeconds(20))).thenReturn(List.of(auditDelivery));
+        when(store.markPublished(auditDelivery)).thenReturn(true);
+
+        relay.drain();
+
+        verify(sqsTemplate).send(eq("audit-events"), anyString());
+        verify(store).markPublished(auditDelivery);
+    }
+
+    @Test
+    void relayCanBeExplicitlyPausedWithoutClaimingRows() {
+        properties.setRelayEnabled(false);
 
         relay.drain();
 

@@ -25,16 +25,24 @@ export default function TransferPage() {
         const authData = await selectTenant({ loginToken: token, tenantId });
         const accessToken = authData?.accessToken ?? authData?.token;
         const role = authData?.user?.role ?? 'MEMBER';
+        const scopedTenant = authData?.tenant;
         login(accessToken, {
           name: authData?.user?.fullName ?? authData?.user?.username,
           role,
           id: authData?.user?.id,
           mustChangePassword: authData?.user?.mustChangePassword ?? false,
         }, {
-          tenantId,
-          tenantSlug: authData?.tenantSlug,
-          tenantName: tenantName ?? authData?.tenantName,
-          tenantPlan: authData?.tenantPlan ?? 'BASIC',
+          tenantId: scopedTenant?.tenantId ?? tenantId,
+          tenantSlug: scopedTenant?.slug,
+          tenantName: scopedTenant?.name ?? tenantName,
+          tenantPlan: scopedTenant?.plan ?? 'BASIC',
+          tenantStatus: scopedTenant?.status ?? 'ACTIVE',
+          planExpiresAt: scopedTenant?.planExpiresAt ?? null,
+          analyticsEnabled: scopedTenant?.analyticsEnabled === true,
+          chatEnabled: scopedTenant?.chatEnabled === true,
+          settlementEnabled: scopedTenant?.settlementEnabled === true,
+          adminPhone: scopedTenant?.adminPhone ?? null,
+          adminEmail: scopedTenant?.adminEmail ?? null,
         });
 
         if (authData?.user?.mustChangePassword) {

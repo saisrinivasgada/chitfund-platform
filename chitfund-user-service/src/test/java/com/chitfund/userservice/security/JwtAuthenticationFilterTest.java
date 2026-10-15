@@ -43,7 +43,7 @@ class JwtAuthenticationFilterTest {
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Optional.of(
                 new HubIdentityClient.HubAuthState(
                         "EMP-001", "owner", "Owner", "owner@example.com",
-                        "SUPER_ADMIN", true, false, 7L)));
+                        "SUPER_ADMIN", true, false, 7L, true)));
 
         var request = requestWithToken();
         new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
@@ -66,7 +66,47 @@ class JwtAuthenticationFilterTest {
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Optional.of(
                 new HubIdentityClient.HubAuthState(
                         "EMP-001", "owner", "Owner", "owner@example.com",
-                        "SUPER_ADMIN", true, false, 7L)));
+                        "SUPER_ADMIN", true, false, 7L, true)));
+
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+                .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void acceptsSupportEmployeeWithExplicitPlatformConsoleCapability() throws Exception {
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("hub-saas-token")).thenReturn(true);
+        when(tokenProvider.extractScope("hub-saas-token")).thenReturn("HUB_SUPER_ADMIN");
+        when(tokenProvider.extractClaims("hub-saas-token")).thenReturn(claims);
+        when(claims.get("hubEmployeeId", String.class)).thenReturn("EMP-001");
+        when(claims.get("authVersion", Number.class)).thenReturn(7L);
+        when(claims.getSubject()).thenReturn("77715cc1-cbaa-3c8c-bac8-884737c4687e");
+        when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Optional.of(
+                new HubIdentityClient.HubAuthState(
+                        "EMP-001", "agent", "Support Agent", "agent@example.com",
+                        "SUPPORT_AGENT", true, false, 7L, true)));
+
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+                .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication())
+                .isNotNull();
+    }
+
+    @Test
+    void rejectsSupportEmployeeWithoutPlatformConsoleCapability() throws Exception {
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("hub-saas-token")).thenReturn(true);
+        when(tokenProvider.extractScope("hub-saas-token")).thenReturn("HUB_SUPER_ADMIN");
+        when(tokenProvider.extractClaims("hub-saas-token")).thenReturn(claims);
+        when(claims.get("hubEmployeeId", String.class)).thenReturn("EMP-001");
+        when(claims.get("authVersion", Number.class)).thenReturn(7L);
+        when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Optional.of(
+                new HubIdentityClient.HubAuthState(
+                        "EMP-001", "agent", "Support Agent", "agent@example.com",
+                        "SUPPORT_AGENT", true, false, 7L, false)));
 
         new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
                 .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());

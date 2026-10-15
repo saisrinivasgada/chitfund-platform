@@ -6,8 +6,8 @@ import com.chitfund.notificationservice.domain.enums.NotificationStatus;
 import com.chitfund.notificationservice.dto.request.BulkNotifyRequest;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
+import com.chitfund.notificationservice.outbox.NotificationDeliveryQueue;
 import com.chitfund.notificationservice.repository.NotificationRepository;
-import com.chitfund.notificationservice.sender.NotificationSender;
 import com.chitfund.notificationservice.template.NotificationTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,8 +16,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -25,13 +25,19 @@ import java.util.List;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
-    private final NotificationSender sender;
+    private final NotificationDeliveryQueue deliveryQueue;
 
     @Transactional
-    public NotificationResponse send(NotifyRequest request) {
+    public NotificationResponse send(String tenantId, NotifyRequest request) {
+        return send(UUID.randomUUID().toString(), tenantId, request);
+    }
+
+    @Transactional
+    public NotificationResponse send(String eventId, String tenantId, NotifyRequest request) {
+        requireTenant(tenantId);
         if (request.getRecipientPhone() == null && request.getRecipientEmail() == null) {
             log.warn("Notification skipped — no contact info for recipient {}", request.getRecipientId());
-            return saveAndReturn(buildSkipped(request, "No contact information available"));
+            return saveAndReturn(buildSkipped(tenantId, request, "No contact information available"));
         }
 
         NotificationChannel channel = resolveChannel(request.getPreferredChannel(),
@@ -45,22 +51,20 @@ public class NotificationService {
                 .forEventType(request.getEventType())
                 .format(request.getTemplateParams());
 
-        NotificationSender.SendResult result = sender.send(to, message, channel);
-
         Notification notification = Notification.builder()
+                .tenantId(tenantId)
                 .recipientId(request.getRecipientId())
                 .recipientPhone(request.getRecipientPhone())
                 .recipientEmail(request.getRecipientEmail())
                 .channel(channel)
                 .eventType(request.getEventType())
                 .message(message)
-                .status(result.success() ? NotificationStatus.SENT : NotificationStatus.FAILED)
-                .errorMessage(result.errorMessage())
-                .externalId(result.externalId())
-                .sentAt(result.success() ? LocalDateTime.now() : null)
+                .status(NotificationStatus.PENDING)
                 .build();
-
-        return saveAndReturn(notification);
+        notificationRepository.save(notification);
+        deliveryQueue.enqueueChannel(eventId, tenantId, notification.getId(),
+                request.getRecipientId(), to, message, channel);
+        return toResponse(notification);
     }
 
     /**
@@ -69,7 +73,8 @@ public class NotificationService {
      * Each send is independent — one failure doesn't block the rest.
      */
     @Transactional
-    public List<NotificationResponse> sendBulk(BulkNotifyRequest request) {
+    public List<NotificationResponse> sendBulk(String tenantId, BulkNotifyRequest request) {
+        requireTenant(tenantId);
         return request.getRecipients().stream().map(recipient -> {
             NotifyRequest single = new NotifyRequest();
             single.setRecipientId(recipient.getRecipientId());
@@ -78,14 +83,15 @@ public class NotificationService {
             single.setEventType(request.getEventType());
             single.setPreferredChannel(request.getPreferredChannel());
             single.setTemplateParams(request.getTemplateParams());
-            return send(single);
+            return send(tenantId, single);
         }).toList();
     }
 
     @Transactional(readOnly = true)
-    public Page<NotificationResponse> getHistory(java.util.UUID recipientId, Pageable pageable) {
+    public Page<NotificationResponse> getHistory(String tenantId, java.util.UUID recipientId, Pageable pageable) {
+        requireTenant(tenantId);
         return notificationRepository
-                .findByRecipientIdOrderByCreatedAtDesc(recipientId, pageable)
+                .findByTenantIdAndRecipientIdOrderByCreatedAtDesc(tenantId, recipientId, pageable)
                 .map(this::toResponse);
     }
 
@@ -105,8 +111,9 @@ public class NotificationService {
         return phone != null ? NotificationChannel.SMS : NotificationChannel.EMAIL;
     }
 
-    private Notification buildSkipped(NotifyRequest request, String reason) {
+    private Notification buildSkipped(String tenantId, NotifyRequest request, String reason) {
         return Notification.builder()
+                .tenantId(tenantId)
                 .recipientId(request.getRecipientId())
                 .recipientPhone(request.getRecipientPhone())
                 .recipientEmail(request.getRecipientEmail())
@@ -116,6 +123,12 @@ public class NotificationService {
                 .status(NotificationStatus.SKIPPED)
                 .errorMessage(reason)
                 .build();
+    }
+
+    private void requireTenant(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId is required for notification delivery");
+        }
     }
 
     private NotificationResponse saveAndReturn(Notification notification) {

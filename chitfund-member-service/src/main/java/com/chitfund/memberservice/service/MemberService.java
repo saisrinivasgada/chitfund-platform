@@ -51,6 +51,11 @@ public class MemberService {
 
     @Transactional
     public MemberResponse createMember(CreateMemberRequest request, UUID adminId) {
+        return createMember(request, adminId, "ROLE_ADMIN");
+    }
+
+    @Transactional
+    public MemberResponse createMember(CreateMemberRequest request, UUID adminId, String actorRole) {
         planLimitChecker.checkCanAddMember();
 
         String tid = tenantId();
@@ -66,7 +71,8 @@ public class MemberService {
                     "Direct account linking is disabled. Use Send ChitWise App Access.",
                     HttpStatus.FORBIDDEN);
         }
-        if (request.getReferredById() != null && !memberRepository.existsById(request.getReferredById())) {
+        if (request.getReferredById() != null
+                && !memberRepository.existsByIdAndTenantIdAndDeletedAtIsNull(request.getReferredById(), tid)) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Referring member not found");
         }
 
@@ -91,6 +97,10 @@ public class MemberService {
 
         memberRepository.save(member);
         log.info("Admin {} created member {} ({}) in tenant {}", adminId, member.getId(), member.getPhone(), tid);
+
+        auditClient.log("MEMBER", member.getId().toString(), "CREATED",
+                adminId != null ? adminId.toString() : null, actorRole,
+                null, profileSnapshot(member), tid);
 
         MemberResponse response = toResponse(member);
         if (request.isSendAppAccess()) {
@@ -122,19 +132,13 @@ public class MemberService {
 
     @Transactional(readOnly = true)
     public MemberResponse getById(UUID id) {
-        Member member = findOrThrow(id);
-        // Tenant isolation check: member must belong to current tenant
-        if (!tenantId().equals(member.getTenantId())) {
-            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Member not found: " + id);
-        }
-        return toResponse(member);
+        return toResponse(findOrThrowScoped(id));
     }
 
     @Transactional(readOnly = true)
     public MemberResponse getByPhone(String phone) {
         String tid = tenantId();
-        return memberRepository.findByPhoneAndDeletedAtIsNull(phone)
-                .filter(m -> tid.equals(m.getTenantId()))
+        return memberRepository.findByPhoneAndTenantIdAndDeletedAtIsNull(phone, tid)
                 .map(this::toResponse)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "No member found with phone " + phone));
@@ -169,6 +173,11 @@ public class MemberService {
         member.setDeletedBy(deletedBy);
         memberRepository.save(member);
         log.info("Admin {} soft-deleted member {}", deletedBy, id);
+        auditClient.log("MEMBER", id.toString(), "DELETED",
+                deletedBy != null ? deletedBy.toString() : null, "ROLE_ADMIN",
+                java.util.Map.of("deleted", false, "status", member.getStatus().name()),
+                java.util.Map.of("deleted", true, "status", member.getStatus().name()),
+                member.getTenantId());
         return toResponse(member);
     }
 
@@ -214,7 +223,7 @@ public class MemberService {
                 ? request.getReferredById() : oldReferredById;
         if (!Objects.equals(oldReferredById, newReferredById)
                 && newReferredById != null
-                && memberRepository.findByIdAndTenantId(newReferredById, tenantId()).isEmpty()) {
+                && !memberRepository.existsByIdAndTenantIdAndDeletedAtIsNull(newReferredById, tenantId())) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Referring member not found");
         }
         if (request.isReferredByIdPresent()) member.setReferredById(newReferredById);
@@ -230,10 +239,13 @@ public class MemberService {
         if (!Objects.equals(oldReferredById, newReferredById)) {
             String tenantCtx = tenantId();
             String prevName = oldReferredById != null
-                    ? memberRepository.findByIdAndTenantId(oldReferredById, tenantCtx).map(Member::getFullName).orElse(null) : null;
+                    ? memberRepository.findByIdAndTenantId(oldReferredById, tenantId())
+                            .map(Member::getFullName).orElse(null) : null;
             String newName = newReferredById != null
-                    ? memberRepository.findByIdAndTenantId(newReferredById, tenantCtx).map(Member::getFullName).orElse(null) : null;
+                    ? memberRepository.findByIdAndTenantId(newReferredById, tenantId())
+                            .map(Member::getFullName).orElse(null) : null;
             memberEventPublisher.publish(new MemberUpdatedEvent(
+                    tenantId(),
                     id.toString(), "referredById",
                     oldReferredById != null ? oldReferredById.toString() : null,
                     newReferredById != null ? newReferredById.toString() : null,
@@ -276,7 +288,7 @@ public class MemberService {
         map.put("bankAccountNumber", maskTail(m.getBankAccountNumber(), 4));
         map.put("bankIfsc", maskTail(m.getBankIfsc(), 4));
         map.put("referredById", m.getReferredById());
-        map.put("notes", m.getNotes());
+        map.put("notesPresent", m.getNotes() != null && !m.getNotes().isBlank());
         return map;
     }
 
@@ -295,6 +307,12 @@ public class MemberService {
 
     @Transactional
     public MemberResponse updateStatus(UUID id, UpdateStatusRequest request) {
+        return updateStatus(id, request, null, "ROLE_ADMIN");
+    }
+
+    @Transactional
+    public MemberResponse updateStatus(UUID id, UpdateStatusRequest request,
+                                       UUID actorId, String actorRole) {
         if (request.getStatus() == MemberStatus.BLACKLISTED
                 && (request.getReason() == null || request.getReason().isBlank())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -310,6 +328,11 @@ public class MemberService {
         }
         memberRepository.save(member);
         log.info("Member {} status changed {} → {}", id, previous, request.getStatus());
+        auditClient.log("MEMBER", id.toString(), "STATUS_CHANGED",
+                actorId != null ? actorId.toString() : null, actorRole,
+                java.util.Map.of("status", previous.name()),
+                java.util.Map.of("status", request.getStatus().name()),
+                member.getTenantId(), request.getReason());
         return toResponse(member);
     }
 
@@ -426,24 +449,17 @@ public class MemberService {
         return result;
     }
 
-    private Member findOrThrow(UUID id) {
-        return memberRepository.findById(id)
+    // Tenant-scoped findOrThrow: returns 404 for cross-tenant access (no existence disclosure)
+    private Member findOrThrowScoped(UUID id) {
+        return memberRepository.findByIdAndTenantId(id, tenantId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "Member not found: " + id));
     }
 
-    // Tenant-scoped findOrThrow: returns 404 for cross-tenant access (no existence disclosure)
-    private Member findOrThrowScoped(UUID id) {
-        Member m = findOrThrow(id);
-        if (!tenantId().equals(m.getTenantId())) {
-            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Member not found: " + id);
-        }
-        return m;
-    }
-
     private MemberResponse toResponse(Member m) {
         String referredByName = m.getReferredById() != null
-                ? memberRepository.findByIdAndTenantId(m.getReferredById(), m.getTenantId()).map(Member::getFullName).orElse(null)
+                ? memberRepository.findByIdAndTenantId(m.getReferredById(), m.getTenantId())
+                        .map(Member::getFullName).orElse(null)
                 : null;
         return MemberResponse.builder()
                 .id(m.getId())

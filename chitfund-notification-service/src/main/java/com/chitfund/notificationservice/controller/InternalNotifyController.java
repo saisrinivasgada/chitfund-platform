@@ -5,8 +5,7 @@ import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.dto.request.BulkNotifyRequest;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
-import com.chitfund.notificationservice.sender.EmailSender;
-import com.chitfund.notificationservice.service.ExpoPushService;
+import com.chitfund.notificationservice.outbox.NotificationDeliveryQueue;
 import com.chitfund.notificationservice.service.InAppNotificationService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
@@ -21,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Internal endpoints — called by other microservices, not by the frontend.
@@ -35,8 +35,7 @@ public class InternalNotifyController {
     private final InAppNotificationService inAppService;
     private final WebSocketBroadcaster broadcaster;
     private final MemberServiceClient memberServiceClient;
-    private final ExpoPushService expoPushService;
-    private final EmailSender emailSender;
+    private final NotificationDeliveryQueue deliveryQueue;
 
     @Value("${notification.internal-key}")
     private String internalKey;
@@ -57,13 +56,14 @@ public class InternalNotifyController {
     @PostMapping
     public ResponseEntity<ApiResponse<NotificationResponse>> notify(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @Valid @RequestBody NotifyRequest request) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
         }
-        return ResponseEntity.ok(ApiResponse.success(notificationService.send(request)));
+        return ResponseEntity.ok(ApiResponse.success(notificationService.send(tenantId, request)));
     }
 
     /**
@@ -73,6 +73,7 @@ public class InternalNotifyController {
     @PostMapping("/in-app")
     public ResponseEntity<ApiResponse<Void>> inAppNotify(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
@@ -89,11 +90,13 @@ public class InternalNotifyController {
             @SuppressWarnings("unchecked")
             Map<String, String> meta = (Map<String, String>) body.getOrDefault("metadata", Map.of());
 
-            inAppService.create(recipientId, title, message, type, meta, link);
+            inAppService.create(tenantId, recipientId, title, message, type, meta, link);
             String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
-            if (wsEvent != null) broadcaster.broadcast(wsEvent);
-            if (RENEWAL_TYPES.contains(type)) broadcaster.broadcast("RENEWAL_REQUESTS_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            if (wsEvent != null) broadcaster.broadcast(tenantId, wsEvent);
+            if (RENEWAL_TYPES.contains(type)) {
+                broadcaster.broadcast(tenantId, "RENEWAL_REQUESTS_UPDATED");
+            }
+            broadcaster.broadcast(tenantId, "IN_APP_UPDATED");
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to create in-app notification: {}", e.getMessage());
@@ -111,11 +114,16 @@ public class InternalNotifyController {
     @PostMapping("/in-app/bulk-by-member-ids")
     public ResponseEntity<ApiResponse<Void>> inAppBulkByMemberIds(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("AUTH_003", "Organization context is required"));
         }
 
         try {
@@ -132,20 +140,20 @@ public class InternalNotifyController {
                 return ResponseEntity.ok(ApiResponse.success(null));
             }
 
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(memberIds);
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(tenantId, memberIds);
             int count = 0;
             for (String memberId : memberIds) {
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
-                    inAppService.create(UUID.fromString(userId), title, message, type, meta, link);
+                    inAppService.create(tenantId, UUID.fromString(userId), title, message, type, meta, link);
                     count++;
                 }
             }
             log.info("Bulk in-app by member IDs: {} recipients out of {} member IDs", count, memberIds.size());
 
             String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
-            if (wsEvent != null) broadcaster.broadcast(wsEvent);
-            broadcaster.broadcast("IN_APP_UPDATED");
+            if (wsEvent != null) broadcaster.broadcast(tenantId, wsEvent);
+            broadcaster.broadcast(tenantId, "IN_APP_UPDATED");
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to create bulk in-app notifications: {}", e.getMessage());
@@ -156,6 +164,8 @@ public class InternalNotifyController {
     @PostMapping("/push")
     public ResponseEntity<ApiResponse<Void>> pushNotify(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
@@ -169,7 +179,8 @@ public class InternalNotifyController {
             String message = (String) body.getOrDefault("body", "");
             @SuppressWarnings("unchecked")
             Map<String, String> data = (Map<String, String>) body.getOrDefault("data", null);
-            expoPushService.sendToUserWithData(userId, title, message, data);
+            deliveryQueue.enqueuePush(requestEventId(idempotencyKey), tenantId,
+                    userId, title, message, data);
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to send direct push notification: {}", e.getMessage());
@@ -180,6 +191,7 @@ public class InternalNotifyController {
     @PostMapping("/bulk")
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> notifyBulk(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @Valid @RequestBody BulkNotifyRequest request) {
 
         if (!internalKey.equals(key)) {
@@ -187,7 +199,7 @@ public class InternalNotifyController {
                     .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
         }
 
-        List<NotificationResponse> results = notificationService.sendBulk(request);
+        List<NotificationResponse> results = notificationService.sendBulk(tenantId, request);
         log.info("Bulk notification sent: {} recipients, event={}",
                 results.size(), request.getEventType());
         return ResponseEntity.ok(ApiResponse.success(results));
@@ -201,6 +213,7 @@ public class InternalNotifyController {
     @PostMapping("/email")
     public ResponseEntity<ApiResponse<Void>> sendEmail(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
@@ -219,13 +232,24 @@ public class InternalNotifyController {
         }
 
         try {
-            emailSender.send(toEmail, subject, textBody, htmlBody);
-            log.info("Transactional email dispatched to {}", toEmail.replaceAll("(?<=.).(?=[^@]*@)", "*"));
+            deliveryQueue.enqueueEmail(requestEventId(idempotencyKey), null,
+                    toEmail, subject, textBody, htmlBody);
+            log.info("Transactional email queued for {}",
+                    toEmail.replaceAll("(?<=.).(?=[^@]*@)", "*"));
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to send transactional email to {}: {}", toEmail, e.getMessage());
             return ResponseEntity.internalServerError()
                     .body(ApiResponse.error("GENERAL_500", "Email delivery failed"));
         }
+    }
+
+    private String requestEventId(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return UUID.randomUUID().toString();
+        }
+        return UUID.nameUUIDFromBytes(
+                ("notification-delivery:" + idempotencyKey)
+                        .getBytes(StandardCharsets.UTF_8)).toString();
     }
 }

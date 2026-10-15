@@ -137,6 +137,7 @@ public class WinnerService {
 
     @Transactional
     public void deleteWinnerForDraw(UUID chitId, Integer monthNumber) {
+        chitService.findByIdScoped(chitId);
         // No-op if no winner was recorded — non-fatal when called as part of cycle deletion
         winnerRepository.deleteByChitIdAndMonthNumber(chitId, monthNumber);
     }

@@ -80,6 +80,16 @@ public class OrgJwtTokenProvider {
             if ("TENANT_SELECT".equals(scope) || "LOGIN_OTP_PENDING".equals(scope)) {
                 return null;
             }
+            String subject = claims.getSubject();
+            String role = claims.get("role", String.class);
+            String tenantId = claims.get("tenantId", String.class);
+            // The support socket has a separate Hub credential path.  An org
+            // token without a tenant must never be interpreted as a Hub user.
+            if (subject == null || subject.isBlank()
+                    || role == null || role.isBlank()
+                    || tenantId == null || tenantId.isBlank()) {
+                return null;
+            }
             return claims;
         } catch (JwtException | IllegalArgumentException e) {
             log.debug("Invalid org JWT on WebSocket CONNECT: {}", e.getMessage());

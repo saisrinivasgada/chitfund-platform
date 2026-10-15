@@ -3,17 +3,18 @@ package com.chitfund.paymentservice.controller;
 import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.dto.PayoutFinancialCommandRequest;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.dto.request.CollectCashRequest;
-import com.chitfund.paymentservice.dto.request.MarkPayoutDeductedRequest;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
 import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.MemberBalanceResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
 import com.chitfund.paymentservice.service.PaymentService;
+import com.chitfund.paymentservice.service.PayoutFinancialCommandService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +39,7 @@ public class PaymentController {
 
     private final PaymentService paymentService;
     private final MemberServiceClient memberServiceClient;
+    private final PayoutFinancialCommandService payoutFinancialCommandService;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -308,31 +310,6 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success(paymentService.voidPayment(batchId, request, adminId)));
     }
 
-    /**
-     * Marks a payment record as PAYOUT_DEDUCTED — installment withheld from winner's payout.
-     * No batch, no treasury movement. Sets amountPaid = amountDue so draw card shows paid.
-     */
-    @PostMapping("/mark-payout-deducted")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<Void> markPayoutDeducted(
-            @Valid @RequestBody MarkPayoutDeductedRequest request) {
-        paymentService.markPayoutDeducted(
-                request.getChitId(), request.getMemberId(),
-                request.getMonthNumber(), request.getPayoutId());
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Reverts all PAYOUT_DEDUCTED records linked to a payout back to OUTSTANDING.
-     * Called when a payout is cancelled or its draw is deleted.
-     */
-    @PostMapping("/revert-payout-deductions/{payoutId}")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<Void> revertPayoutDeductions(@PathVariable UUID payoutId) {
-        paymentService.revertPayoutDeductions(payoutId);
-        return ResponseEntity.noContent().build();
-    }
-
     @PatchMapping("/records/{recordId}/promised-date")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PaymentRecordResponse>> updatePromisedDate(
@@ -344,54 +321,19 @@ public class PaymentController {
     }
 
     /**
-     * Internal endpoint — called by payout-service during payout creation to atomically
-     * mark the winner's installment as PAYOUT_DEDUCTED without requiring a user JWT.
+     * Durable internal financial command endpoint. The command receipt and its
+     * payment/treasury side effect commit in one payment-service transaction.
      */
-    @PostMapping("/internal/mark-payout-deducted")
-    public ResponseEntity<Void> markPayoutDeductedInternal(
-            @Valid @RequestBody MarkPayoutDeductedRequest request,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+    @PostMapping("/internal/payout-financial-command")
+    public ResponseEntity<Void> executePayoutFinancialCommand(
+            @RequestBody PayoutFinancialCommandRequest request,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        paymentService.markPayoutDeducted(
-                request.getChitId(), request.getMemberId(),
-                request.getMonthNumber(), request.getPayoutId());
+        payoutFinancialCommandService.execute(request, tenantId);
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * Internal endpoint — called by payout-service for cross-chit dues withheld from payout.
-     * Applies FIFO across outstanding months of the specified chit, no treasury movement.
-     */
-    @PostMapping("/internal/mark-cross-chit-disbursement-settled")
-    public ResponseEntity<Void> markCrossChitDisbursementSettledInternal(
-            @RequestBody Map<String, Object> body,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-        UUID chitId   = UUID.fromString((String) body.get("chitId"));
-        UUID memberId = UUID.fromString((String) body.get("memberId"));
-        UUID payoutId = UUID.fromString((String) body.get("payoutId"));
-        java.math.BigDecimal amount = new java.math.BigDecimal(body.get("amount").toString());
-        paymentService.markCrossChitDisbursementSettled(chitId, memberId, amount, payoutId);
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Internal endpoint — called by payout-service when a payout is voided.
-     * Reverts all PAYOUT_DEDUCTED records linked to this payout back to OUTSTANDING
-     * so the draw still shows those members as owing their installment.
-     */
-    @PostMapping("/internal/revert-payout-deductions/{payoutId}")
-    public ResponseEntity<Void> revertPayoutDeductionsInternal(
-            @PathVariable UUID payoutId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
-        paymentService.revertPayoutDeductions(payoutId);
-        return ResponseEntity.noContent().build();
-    }
 }

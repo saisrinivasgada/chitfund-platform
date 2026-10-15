@@ -17,6 +17,7 @@ name: Member Requests — View cash requests
       - tapOn:
           text: "Enter your password"
       - inputText: ${MEMBER_PASSWORD}
+      - waitForAnimationToEnd
       - pressKey: Enter
       - waitForAnimationToEnd
       - runFlow:

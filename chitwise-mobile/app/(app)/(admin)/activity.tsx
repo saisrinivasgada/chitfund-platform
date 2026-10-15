@@ -1,31 +1,30 @@
-import { useState, useEffect, useRef } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Animated, Modal } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import {
-  getAuditLogs, getAllPaymentBatches, getActiveCashRequests,
-  getAllPayouts, getMembers, getChits, getRecentDraws,
-} from '../../../services/api';
-import { C, T, Card, EmptyState, fmtDateTime, fmtDate } from '../../../components/ui';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { getAuditLogPage, getMembers, getChits } from '../../../services/api';
+import { C, T, Card, EmptyState, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 const TYPE_FILTERS = [
   { key: 'ALL',           label: 'All' },
   { key: 'PAYMENT_BATCH', label: 'Payments' },
   { key: 'CASH_REQUEST',  label: 'Pickups' },
   { key: 'PAYOUT',        label: 'Payouts' },
-  { key: 'DRAW',          label: 'Draws' },
+  { key: 'CHIT_DRAW',     label: 'Draws' },
   { key: 'CHIT',          label: 'Chits' },
   { key: 'SETTLEMENT',    label: 'Settlements' },
   { key: 'MEMBER',        label: 'Members' },
+  { key: 'AUCTION_SESSION', label: 'Auctions' },
+  { key: 'RESERVATION_SLOT', label: 'Reservations' },
+  { key: 'INVITATION',     label: 'Invitations' },
+  { key: 'TICKET',         label: 'Tickets' },
 ];
-
-const HIDDEN_ENTITY_TYPES = new Set(['WALLET_TRANSACTION', 'RESERVATION_SLOT', 'WINNER_ASSIGNMENT']);
 
 const DATE_PRESETS = [
   { key: 'all',    label: 'All Time' },
@@ -66,7 +65,7 @@ const ACTION_TITLE: Record<string, { title: string; color: string; subtitle?: st
 function entityTypeLabel(t: string) {
   const m: Record<string, string> = {
     PAYMENT_BATCH: 'Payment', CASH_REQUEST: 'Pickup', PAYOUT: 'Payout',
-    DRAW: 'Draw', CHIT: 'Chit', SETTLEMENT: 'Settlement', MEMBER: 'Member',
+    CHIT_DRAW: 'Draw', DRAW: 'Draw', CHIT: 'Chit', SETTLEMENT: 'Settlement', MEMBER: 'Member',
   };
   return m[t] ?? (t ?? '').replace(/_/g, ' ');
 }
@@ -96,7 +95,7 @@ function activityIconFor(entityType?: string, action?: string): ActivityIcon {
     if (ac.includes('DISBURS')) return { emoji: '🏆', bg: '#DCFCE7' };
     return { emoji: '🏆', bg: C.navy50 };
   }
-  if (et === 'DRAW') {
+  if (et === 'DRAW' || et === 'CHIT_DRAW') {
     if (ac.includes('DELETE'))  return { emoji: '🎯', bg: '#FEE2E2' };
     if (ac.includes('CLOSE'))   return { emoji: '🎯', bg: '#DCFCE7' };
     if (ac.includes('SKIP'))    return { emoji: '🎯', bg: C.gray100 };
@@ -160,90 +159,62 @@ function inDateRange(iso: string | undefined, preset: string, from: string, to: 
   return true;
 }
 
-// ── Normalise real-data entities to audit-like shape ─────────────────────────
-
-function batchToItem(b: any) {
-  const action =
-    b.status === 'REMITTED'             ? 'REMITTED' :
-    b.status === 'AWAITING_REMITTANCE'  ? 'AWAITING_REMITTANCE' :
-    b.status === 'VOIDED'               ? 'VOIDED' : 'CREATED';
-  return {
-    id: 'batch-' + b.id, entityType: 'PAYMENT_BATCH', _source: 'live',
-    action,
-    memberId: b.memberId, chitId: b.chitId, reason: b.voidReason ?? b.notes,
-    newValue: `₹${Number(b.amount ?? b.totalAmount ?? 0).toLocaleString('en-IN')}`,
-    paymentMode: b.paymentMode ?? null,
-    actorRole: b.collectedBy ? 'STAFF' : 'ADMIN',
-    createdAt: b.remittedAt ?? b.collectedAt ?? b.createdAt,
-  };
-}
-function requestToItem(r: any) {
-  const actionMap: Record<string,string> = {
-    PENDING:'CREATED', ASSIGNED:'ASSIGNED', PICKED_UP:'PICKED_UP',
-    COLLECTED:'COLLECTED', CANCELLED:'CANCELLED', VOIDED:'VOIDED',
-  };
-  return {
-    id: 'req-' + r.id, entityType: 'CASH_REQUEST', _source: 'live',
-    action: actionMap[r.status] ?? r.status,
-    memberId: r.memberId, chitId: r.chitId,
-    newValue: `₹${Number(r.requestedAmount ?? 0).toLocaleString('en-IN')}`,
-    actorRole: 'ADMIN', createdAt: r.requestedAt ?? r.createdAt,
-  };
-}
-function drawToItem(d: any) {
-  const action = d.skippedAt ? 'SKIPPED' : d.closedAt ? 'CLOSED' : 'OPENED';
-  return {
-    id: 'draw-' + d.id, entityType: 'DRAW', entityId: d.id, _source: 'live',
-    action,
-    chitId: d.chitId,
-    newValue: `Month ${d.monthNumber}`,
-    actorRole: 'ADMIN',
-    reason: d.skipReason ?? null,
-    createdAt: d.skippedAt ?? d.openedAt ?? d.closedAt,
-  };
-}
-function payoutToItem(p: any) {
-  const actionMap: Record<string,string> = {
-    PENDING:'CREATED', DISBURSED:'DISBURSED', CANCELLED:'CANCELLED', VOIDED:'VOIDED',
-  };
-  return {
-    id: 'po-' + p.id, entityType: 'PAYOUT', _source: 'live',
-    action: actionMap[p.status] ?? p.status,
-    memberId: p.memberId, chitId: p.chitId,
-    newValue: p.amount ? `₹${Number(p.amount).toLocaleString('en-IN')}` : undefined,
-    actorRole: 'ADMIN', createdAt: p.disbursedAt ?? p.createdAt,
-  };
-}
-// ── Smart deduplication ───────────────────────────────────────────────────────
-// For CASH_REQUEST and PAYMENT_BATCH, show only the most advanced state per entity.
-// e.g. if a cash request reached COLLECTED, suppress the earlier PICKED_UP card.
-const DEDUP_ENTITY_TYPES = new Set(['CASH_REQUEST', 'PAYMENT_BATCH']);
-const ACTION_PRIORITY: Record<string, number> = {
-  CREATED: 1, ASSIGNED: 2, EDITED: 2,
-  AWAITING_REMITTANCE: 3, PICKED_UP: 3,
-  REMITTED: 10, COLLECTED: 10, VOIDED: 10, CANCELLED: 10,
-};
-// Actions that are never useful to surface
-const HIDDEN_ACTIONS = new Set(['DRAW.CLOSED']);
-
-function smartDedup(items: any[]): any[] {
-  const best = new Map<string, any>();
-  const keep: any[] = [];
-  for (const item of items) {
-    const key = `${item.entityType}.${item.action}`;
-    if (HIDDEN_ACTIONS.has(key)) continue;
-    if (!DEDUP_ENTITY_TYPES.has(item.entityType) || !item.entityId) {
-      keep.push(item);
-      continue;
-    }
-    const dedupKey = `${item.entityType}:${item.entityId}`;
-    const existing = best.get(dedupKey);
-    const itemPri = ACTION_PRIORITY[item.action] ?? 0;
-    const existingPri = existing ? (ACTION_PRIORITY[existing.action] ?? -1) : -1;
-    if (!existing || itemPri >= existingPri) best.set(dedupKey, item);
+function auditDateRange(preset: string, from: string, to: string) {
+  const now = new Date();
+  if (preset === 'today') {
+    const start = new Date(now); start.setHours(0, 0, 0, 0);
+    const end = new Date(now); end.setHours(23, 59, 59, 999);
+    return { from: start.toISOString(), to: end.toISOString() };
   }
-  return [...keep, ...best.values()]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  if (preset === 'week' || preset === 'month') {
+    const start = new Date(now);
+    start.setDate(start.getDate() - (preset === 'week' ? 7 : 30));
+    return { from: start.toISOString(), to: now.toISOString() };
+  }
+  if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    const start = new Date(`${from}T00:00:00`);
+    const end = /^\d{4}-\d{2}-\d{2}$/.test(to)
+      ? new Date(`${to}T23:59:59.999`)
+      : now;
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  return {};
+}
+
+function jsonObject(value: unknown): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === 'object') return value as Record<string, any>;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function auditRecordRoute(log: any): { pathname: string; params?: Record<string, string> } | null {
+  if (log.entityType === 'MEMBER') {
+    return {
+      pathname: '/(app)/(admin)/members',
+      params: { openMemberId: String(log.entityId), openHistory: '1' },
+    };
+  }
+  if (log.chitId) {
+    return {
+      pathname: '/(app)/(admin)/chits',
+      params: { openChitId: String(log.chitId), openTab: 'audit' },
+    };
+  }
+  if (log.entityType === 'CHIT') {
+    return {
+      pathname: '/(app)/(admin)/chits',
+      params: { openChitId: String(log.entityId), openTab: 'audit' },
+    };
+  }
+  if (log.entityType === 'PAYMENT_BATCH' || log.entityType === 'CASH_REQUEST') {
+    return { pathname: '/(app)/(admin)/payments' };
+  }
+  return null;
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -255,40 +226,55 @@ export default function ActivityScreen() {
   const [datePreset, setDatePreset] = useState('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo,   setCustomTo]   = useState('');
-  const [showCount,  setShowCount]  = useState(PAGE_SIZE);
+  const [outcomeFilter, setOutcomeFilter] = useState('ALL');
+  const [sourceFilter, setSourceFilter] = useState('ALL');
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [recordedBefore, setRecordedBefore] = useState(() => new Date().toISOString());
   const [detailLog,  setDetailLog]  = useState<any>(null);
 
   useEffect(() => { markActivitySeen(); }, []);
-  useEffect(() => { setShowCount(PAGE_SIZE); }, [typeFilter, datePreset, customFrom, customTo]);
-
-  // Blinking LIVE dot
-  const blink = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(blink, { toValue: 0, duration: 600, useNativeDriver: true }),
-        Animated.timing(blink, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
+    const timer = setTimeout(() => setDebouncedSearch(searchText.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+  useEffect(() => {
+    setRecordedBefore(new Date().toISOString());
+  }, [typeFilter, outcomeFilter, sourceFilter, datePreset, customFrom, customTo, debouncedSearch]);
 
-  // Audit logs — silently returns [] on error (try/catch inside getAuditLogs)
-  const { data: auditData = [], isLoading: auditLoading, refetch: ra } = useQuery({
-    queryKey: ['act-audit', typeFilter],
-    queryFn: () => getAuditLogs({
-      page: 0, size: 500, sort: 'createdAt,desc',
+  // This screen is an audit timeline. It must not synthesize or hide events from
+  // current entity state: a void, retry, denial, or intermediate state is itself
+  // important evidence for an administrator.
+  const dateRange = auditDateRange(datePreset, customFrom, customTo);
+  const {
+    data: auditPages,
+    isLoading: auditLoading,
+    isError: auditError,
+    isRefetching,
+    isFetchingNextPage,
+    fetchNextPage,
+    hasNextPage,
+    refetch: ra,
+  } = useInfiniteQuery({
+    queryKey: ['act-audit', typeFilter, outcomeFilter, sourceFilter,
+      datePreset, customFrom, customTo, debouncedSearch, recordedBefore],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => getAuditLogPage({
+      page: pageParam, size: 50, sort: 'occurredAt,desc',
       ...(typeFilter !== 'ALL' ? { entityType: typeFilter } : {}),
+      ...(outcomeFilter !== 'ALL' ? { outcome: outcomeFilter } : {}),
+      ...(sourceFilter !== 'ALL' ? { source: sourceFilter } : {}),
+      ...(debouncedSearch ? { q: debouncedSearch } : {}),
+      recordedBefore,
+      ...dateRange,
     }),
+    getNextPageParam: (lastPage: any) => lastPage?.last
+      ? undefined
+      : Number(lastPage?.number ?? 0) + 1,
     staleTime: 30_000,
   });
-
-  // Real data — always fetched, used as fallback/supplement. Silent try/catch so they never retry on failure.
-  const { data: batches  = [], isLoading: l2, refetch: rb } = useQuery({ queryKey: ['act-batches'],  staleTime: 60_000, retry: 0, queryFn: async () => { try { return await getAllPaymentBatches({ size: 300 }); } catch { return []; } } });
-  const { data: requests = [], isLoading: l3, refetch: rr } = useQuery({ queryKey: ['act-requests'], staleTime: 60_000, retry: 0, queryFn: async () => { try { return await getActiveCashRequests();          } catch { return []; } } });
-  const { data: payouts  = [], isLoading: l4, refetch: rp } = useQuery({ queryKey: ['act-payouts'],  staleTime: 60_000, retry: 0, queryFn: async () => { try { return await getAllPayouts();                  } catch { return []; } } });
-  const { data: draws    = [], isLoading: l5, refetch: rd } = useQuery({ queryKey: ['act-draws'],    staleTime: 60_000, retry: 0, queryFn: () => getRecentDraws(60) });
+  const auditData = auditPages?.pages.flatMap((page: any) => page?.content ?? []) ?? [];
+  const totalEvents = Number(auditPages?.pages[0]?.totalElements ?? auditData.length);
 
   // Name maps
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 120_000 });
@@ -296,46 +282,40 @@ export default function ActivityScreen() {
   const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id?.toLowerCase(), m.fullName ?? m.name]));
   const chitMap   = Object.fromEntries((chits   as any[]).map((c: any) => [c.id?.toLowerCase(), c.name]));
 
-  const isLoading = auditLoading || l2 || l3 || l4 || l5;
+  const isLoading = auditLoading;
 
-  // Build feed: audit logs (if available) + draws always from live data (not in audit)
-  const auditItems = (auditData as any[]).filter((i: any) => !HIDDEN_ENTITY_TYPES.has(i.entityType));
-  const hasAudit = auditItems.length > 0;
-  const drawItems = (draws as any[])
-    .map(drawToItem)
-    .filter((d) => !!d.createdAt);
-
-  let feed: any[] = [];
-  if (hasAudit) {
-    // Audit logs + draw live data (draws not in audit service)
-    const combined = [...auditItems, ...drawItems]
-      .filter((i) => !!i.createdAt)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    feed = typeFilter === 'ALL' ? combined : combined.filter((i) => i.entityType === typeFilter);
-  } else {
-    // Full fallback to live data
-    const items = [
-      ...(batches  as any[]).map(batchToItem),
-      ...(requests as any[]).map(requestToItem),
-      ...(payouts  as any[]).map(payoutToItem),
-      ...drawItems,
-    ].filter((i) => !!i.createdAt)
-     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    feed = typeFilter === 'ALL' ? items : items.filter((i) => i.entityType === typeFilter);
+  let feed: any[] = (auditData as any[])
+    .filter((i: any) => !!(i.occurredAt ?? i.createdAt))
+    .map((i: any) => {
+      const before = jsonObject(i.beforeState);
+      const after = jsonObject(i.afterState);
+      return {
+        ...i,
+        createdAt: i.occurredAt ?? i.createdAt,
+        memberId: i.memberId ?? after.memberId ?? before.memberId,
+        paymentMode: i.paymentMode ?? after.mode ?? before.mode,
+      };
+    });
+  if (typeFilter !== 'ALL') feed = feed.filter((i) => i.entityType === typeFilter);
+  if (outcomeFilter !== 'ALL') feed = feed.filter((i) => i.outcome === outcomeFilter);
+  if (sourceFilter !== 'ALL') feed = feed.filter((i) => i.source === sourceFilter);
+  const needle = debouncedSearch.toLowerCase();
+  if (needle) {
+    feed = feed.filter((i) => [i.action, i.entityType, i.entityId, i.chitId,
+      i.actorId, i.actorRole, i.reason, i.source, i.outcome, i.metadata,
+      i.beforeState, i.afterState].some((value) => String(value ?? '').toLowerCase().includes(needle)));
   }
-
-  // Smart deduplication: collapse intermediate states, hide DRAW.CLOSED
-  feed = smartDedup(feed);
+  feed.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   // Date filter
   if (datePreset !== 'all') {
     feed = feed.filter((i) => inDateRange(i.createdAt, datePreset, customFrom, customTo));
   }
 
-  const displayed = feed.slice(0, showCount);
-  const hasMore   = feed.length > showCount;
+  const displayed = feed;
+  const hasMore = hasNextPage === true;
 
-  function onRefresh() { ra(); rb(); rr(); rp(); rd(); }
+  function onRefresh() { setRecordedBefore(new Date().toISOString()); }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -349,16 +329,15 @@ export default function ActivityScreen() {
             <Text style={T.h1}>Activity</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Animated.View style={{
-                width: 8, height: 8, borderRadius: 4,
-                backgroundColor: '#16A34A',
-                opacity: blink,
-              }} />
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#16A34A' }}>LIVE</Text>
-              {!isLoading && feed.length > 0 && (
-                <Text style={{ fontSize: 12, color: C.gray400 }}>· {Math.min(showCount, feed.length)}/{feed.length}</Text>
+            <View style={{ alignItems: 'flex-end', gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#16A34A' }}>AUDITED</Text>
+              {!isLoading && totalEvents > 0 && (
+                <Text style={{ fontSize: 12, color: C.gray400 }}>· {feed.length}/{totalEvents}</Text>
               )}
+              </View>
+              <Text style={{ fontSize: 10, color: C.gray400 }}>Snapshot {smartTime(recordedBefore)}</Text>
             </View>
             <ProfileAvatarButton size={34} />
           </View>
@@ -423,18 +402,61 @@ export default function ActivityScreen() {
         </View>
       )}
 
+      {/* Audit dimensions: outcome/source/search are intentionally explicit so an
+          admin can find failures and offline/system activity without reading raw rows. */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 8, gap: 8 }}>
+        <TextInput value={searchText} onChangeText={setSearchText}
+          placeholder="Search action, actor, chit or record…" placeholderTextColor={C.gray400}
+          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, color: C.gray900, backgroundColor: C.surface }} />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {['ALL', 'SUCCESS', 'FAILURE', 'DENIED'].map((value) => (
+            <TouchableOpacity key={value} onPress={() => setOutcomeFilter(value)}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: outcomeFilter === value ? C.navy : C.white, borderWidth: 1.5, borderColor: outcomeFilter === value ? C.navy : C.gray300 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: outcomeFilter === value ? C.white : C.gray700 }}>{value === 'ALL' ? 'All outcomes' : value}</Text>
+            </TouchableOpacity>
+          ))}
+          {['ALL', 'WEB', 'MOBILE', 'HUB', 'OFFLINE_SYNC', 'INTERNAL_API', 'WORKER', 'SYSTEM', 'UNKNOWN'].map((value) => (
+            <TouchableOpacity key={value} onPress={() => setSourceFilter(value)}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: sourceFilter === value ? C.navy : C.white, borderWidth: 1.5, borderColor: sourceFilter === value ? C.navy : C.gray300 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: sourceFilter === value ? C.white : C.gray700 }}>{value === 'ALL' ? 'All sources' : value.replace('_', ' ')}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {auditError && displayed.length > 0 && (
+        <View style={{ marginHorizontal: 16, marginBottom: 10, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 10, padding: 12 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>Could not refresh audited activity</Text>
+          <Text style={{ fontSize: 11, color: '#B91C1C', marginTop: 3 }}>Showing the last successfully loaded snapshot.</Text>
+          <TouchableOpacity onPress={() => ra()} style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={{ height: 1, backgroundColor: C.gray200 }} />
 
       <FlatList
           data={displayed}
           keyExtractor={(item: any, i) => String(item.id ?? i)}
-          refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={C.navy} />}
+          refreshControl={<RefreshControl refreshing={isRefetching && !isFetchingNextPage} onRefresh={onRefresh} tintColor={C.navy} />}
           contentContainerStyle={{ padding: 16, paddingTop: 14, paddingBottom: 40 }}
           ListEmptyComponent={
             isLoading ? (
               <View style={{ alignItems: 'center', paddingVertical: 48, gap: 12 }}>
                 <ActivityIndicator color={C.navy} size="large" />
                 <Text style={{ color: C.gray500, fontSize: 14 }}>Loading activity…</Text>
+              </View>
+            ) : auditError ? (
+              <View style={{ alignItems: 'center', paddingVertical: 48, gap: 8 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.red }}>Activity could not be loaded</Text>
+                <Text style={{ color: C.gray500, fontSize: 13, textAlign: 'center' }}>
+                  This does not mean that no audit events were recorded.
+                </Text>
+                <TouchableOpacity onPress={() => ra()}
+                  style={{ marginTop: 6, borderWidth: 1.5, borderColor: C.red, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}>
+                  <Text style={{ color: C.red, fontSize: 13, fontWeight: '700' }}>Try again</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <EmptyState
@@ -446,7 +468,9 @@ export default function ActivityScreen() {
             )
           }
           renderItem={({ item: log, index }) => {
-            const key    = `${log.entityType}.${log.action}`;
+            const normalizedAction = String(log.action ?? '').replace(
+              new RegExp(`^${String(log.entityType ?? '')}_`), '');
+            const key    = `${log.entityType}.${normalizedAction}`;
             const meta   = ACTION_TITLE[key];
             const title  = meta?.title ?? (log.action ?? '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
             const subtitle = meta?.subtitle ?? null;
@@ -555,7 +579,12 @@ export default function ActivityScreen() {
                   ) : null}
 
                   {/* Smart time */}
-                  <Text style={{ fontSize: 11, color: C.gray400 }}>{smartTime(log.createdAt)}</Text>
+                  <Text style={{ fontSize: 11, color: C.gray400 }}>{smartTime(log.occurredAt ?? log.createdAt)}</Text>
+                  {(log.source || log.outcome) && (
+                    <Text style={{ fontSize: 10, color: log.outcome === 'FAILURE' || log.outcome === 'DENIED' ? C.red : C.gray400, marginTop: 2 }}>
+                      {(log.source ?? 'UNKNOWN').replace('_', ' ')} · {log.outcome ?? 'SUCCESS'}
+                    </Text>
+                  )}
                   <Text style={{ fontSize: 10, color: C.gray300, marginTop: 2 }}>Tap for details</Text>
                 </Card>
               </View>
@@ -564,11 +593,11 @@ export default function ActivityScreen() {
           }}
           ListFooterComponent={
             hasMore ? (
-              <TouchableOpacity onPress={() => setShowCount((c) => c + PAGE_SIZE)}
+              <TouchableOpacity disabled={isFetchingNextPage} onPress={() => fetchNextPage()}
                 style={{ marginTop: 12, padding: 14, borderRadius: 12,
                   backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
                 <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>
-                  Load More ({feed.length - showCount} remaining)
+                  {isFetchingNextPage ? 'Loading more…' : `Load More (${Math.max(totalEvents - feed.length, 0)} remaining)`}
                 </Text>
               </TouchableOpacity>
             ) : feed.length > PAGE_SIZE ? (
@@ -721,9 +750,38 @@ export default function ActivityScreen() {
                 );
               })()}
 
-              {/* Timestamp */}
+              {auditRecordRoute(detailLog.log) && (
+                <TouchableOpacity
+                  onPress={() => {
+                    const destination = auditRecordRoute(detailLog.log);
+                    if (!destination) return;
+                    setDetailLog(null);
+                    router.push(destination as any);
+                  }}
+                  style={{ marginTop: 12, borderWidth: 1.5, borderColor: C.navy, borderRadius: 10, padding: 12, alignItems: 'center' }}>
+                  <Text style={{ color: C.navy, fontSize: 13, fontWeight: '700' }}>Open affected record →</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Business occurrence and evidence-recording timestamps are deliberately
+                  separate. An offline payment happened on the device before it synchronized. */}
               <View style={{ marginTop: 16, padding: 14, backgroundColor: C.gray50, borderRadius: 12 }}>
-                <Text style={{ fontSize: 12, color: C.gray400, textAlign: 'center' }}>{fmtDateTime(detailLog.log.createdAt)}</Text>
+                <Text style={{ fontSize: 11, color: C.gray500 }}>Occurred</Text>
+                <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.occurredAt ?? detailLog.log.createdAt)}</Text>
+                <Text style={{ fontSize: 11, color: C.gray500, marginTop: 10 }}>Recorded in audit history</Text>
+                <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.createdAt)}</Text>
+                {detailLog.log.originalOfflineAt ? (
+                  <>
+                    <Text style={{ fontSize: 11, color: C.gray500, marginTop: 10 }}>Recorded offline on device</Text>
+                    <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.originalOfflineAt)}</Text>
+                  </>
+                ) : null}
+                {detailLog.log.synchronizedAt ? (
+                  <>
+                    <Text style={{ fontSize: 11, color: C.gray500, marginTop: 10 }}>Synchronized</Text>
+                    <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.synchronizedAt)}</Text>
+                  </>
+                ) : null}
               </View>
             </ScrollView>
           </SafeAreaView>

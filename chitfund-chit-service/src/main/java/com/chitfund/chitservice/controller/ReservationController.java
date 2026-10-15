@@ -55,7 +55,7 @@ public class ReservationController {
     @GetMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> list(@PathVariable UUID chitId) {
-        chitService.findByIdScoped(chitId); // validates existence + tenant ownership
+        chitService.findByIdScoped(chitId); // validates tenant ownership
         List<MonthReservationResponse> list = reservationRepository
                 .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
                 .stream().map(chitMapper::toReservationResponse).collect(Collectors.toList());
@@ -75,7 +75,7 @@ public class ReservationController {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member context not found");
         }
         UUID memberId = UUID.fromString(memberIdStr);
-        chitService.findByIdScoped(chitId); // validates existence + tenant ownership
+        chitService.findByIdScoped(chitId); // validates tenant ownership
 
         List<MonthReservation> slots = reservationRepository
                 .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
@@ -116,6 +116,7 @@ public class ReservationController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> addSlot(
             @PathVariable UUID chitId,
             @Valid @RequestBody ReservationSlotRequest request,
@@ -178,6 +179,7 @@ public class ReservationController {
 
     @PutMapping("/{reservationId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> updateSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -186,8 +188,7 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         String actorRole = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
-        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
+        MonthReservation r = findScopedReservation(chitId, reservationId);
 
         Map<String, Object> beforeSnap = slotSnapshot(r);
         UUID oldMemberId = r.getMemberId();
@@ -214,7 +215,7 @@ public class ReservationController {
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_UPDATED", adminId.toString(), actorRole, beforeSnap, slotSnapshot(saved),
-                TenantContext.get());
+                com.chitfund.common.context.TenantContext.get());
         var chit = chitService.findByIdScoped(chitId);
         if (chit.getStatus() == ChitStatus.ACTIVE) {
             UUID newMemberId = saved.getMemberId();
@@ -228,6 +229,7 @@ public class ReservationController {
 
     @PatchMapping("/{reservationId}/process")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> processSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -235,8 +237,7 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         String actorRole = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
-        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
+        MonthReservation r = findScopedReservation(chitId, reservationId);
         if (r.getStatus() != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Only RESERVED slots can be marked as processed");
@@ -253,14 +254,14 @@ public class ReservationController {
 
     @DeleteMapping("/{reservationId}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public ResponseEntity<ApiResponse<Void>> removeSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
             @RequestParam(required = false) String reason,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
+        MonthReservation r = findScopedReservation(chitId, reservationId);
         Map<String, Object> beforeVoidSnap = slotSnapshot(r);
 
         UUID voidedMemberId = r.getMemberId();
@@ -299,6 +300,8 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         chitService.findByIdScoped(chitId); // validates tenant ownership
 
+        chitService.findByIdScoped(chitId);
+
         List<MonthReservation> slots = reservationRepository.findShiftableFromMonth(
                 chitId, fromMonth,
                 List.of(ReservationStatus.RESERVED, ReservationStatus.UNALLOCATED));
@@ -311,6 +314,12 @@ public class ReservationController {
             slot.setUpdatedBy(adminId);
         }
         reservationRepository.saveAll(slots);
+
+        auditClient.log("RESERVATION_SCHEDULE", chitId.toString(), chitId.toString(),
+                "SLOTS_SHIFTED", adminId.toString(), actorRole(auth),
+                Map.of("fromMonth", fromMonth),
+                Map.of("fromMonth", fromMonth, "monthsShifted", 1, "slotCount", slots.size()),
+                com.chitfund.common.context.TenantContext.get());
 
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("shifted", slots.size()),
@@ -327,14 +336,12 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         chitService.findByIdScoped(chitId); // validates tenant ownership
 
-        MonthReservation a = reservationRepository.findById(request.getSlotAId())
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation", request.getSlotAId()));
-        MonthReservation b = reservationRepository.findById(request.getSlotBId())
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation", request.getSlotBId()));
+        chitService.findByIdScoped(chitId);
 
-        if (!a.getChit().getId().equals(chitId) || !b.getChit().getId().equals(chitId)) {
-            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Both slots must belong to this chit");
-        }
+        MonthReservation a = reservationRepository.findByIdAndChitId(request.getSlotAId(), chitId)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation", request.getSlotAId()));
+        MonthReservation b = reservationRepository.findByIdAndChitId(request.getSlotBId(), chitId)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation", request.getSlotBId()));
         if (a.getStatus() != ReservationStatus.RESERVED || b.getStatus() != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Only RESERVED slots can be swapped");
         }
@@ -371,13 +378,13 @@ public class ReservationController {
 
     @PostMapping("/{reservationId}/realize-org")
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> realizeOrgPayout(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
-                .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
+        MonthReservation r = findScopedReservation(chitId, reservationId);
 
         if (!r.isOrgHeld()) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -417,21 +424,28 @@ public class ReservationController {
         return m;
     }
 
-    // Permanently deletes a slot — only allowed if it is already VOIDED.
-    // Use this after confirming with the admin; the void audit trail is lost on hard delete.
+    // Historical schedule rows are part of the financial/operational audit trail.
+    // A slot can be voided, but it must never be physically deleted.
     @DeleteMapping("/{reservationId}/permanent")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> permanentlyDeleteSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
             Authentication auth) {
-        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
+        findScopedReservation(chitId, reservationId);
+        throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                "Reservation history is retained for audit. Void the slot instead of deleting it.");
+    }
+
+    private MonthReservation findScopedReservation(UUID chitId, UUID reservationId) {
+        chitService.findByIdScoped(chitId);
+        return reservationRepository.findByIdAndChitId(reservationId, chitId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
-        if (r.getStatus() != ReservationStatus.VOIDED) {
-            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
-                    "Only VOIDED slots can be permanently deleted");
-        }
-        reservationRepository.delete(r);
-        return ResponseEntity.ok(ApiResponse.success(null, "Reservation permanently deleted"));
+    }
+
+    private String actorRole(Authentication auth) {
+        return auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", ""))
+                .orElse("UNKNOWN");
     }
 }

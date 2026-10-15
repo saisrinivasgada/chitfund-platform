@@ -160,8 +160,9 @@ class TestPlanCapabilities:
         )
 
         response = api.as_role(
-            "GET", f"{api.payment}/settlement/all",
-            token("ADMIN", tenant=tenant_id))
+            "POST", f"{api.payment}/settlement/preview",
+            token("ADMIN", tenant=tenant_id),
+            json={"memberId": str(uuid.uuid4())})
         assert response.status_code == 403, response.text[:300]
         assert response.json().get("errorCode") == "CAPABILITY_REQUIRED"
 

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
-  getTodaysChitActivity, listStaff, getMembers, getChits,
+  getTodaysChitActivity, getRecentAuditLogs, listStaff, getMembers, getChits,
 } from '../services/api';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import {
@@ -192,7 +192,9 @@ function ChitStatusRow({ chit, staffMap, onDismiss }) {
 
 export default function TodaysActivityFeed() {
   const { hidden } = useHiddenAmounts();
+  const navigate = useNavigate();
   const [dismissed, setDismissed] = useState(new Set());
+  const [auditFilter, setAuditFilter] = useState('ALL');
   const dismiss = useCallback((key) => setDismissed((prev) => new Set([...prev, key])), []);
 
   const { data: batches = [], isLoading: batchesLoading, refetch: refetchBatches } =
@@ -211,7 +213,14 @@ export default function TodaysActivityFeed() {
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => getMembers({ size: 50 }), staleTime: 60_000 });
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 30_000 });
 
-  const isLoading = batchesLoading || drawsLoading || payoutsLoading || chitLoading;
+  const { data: recentAudit = [], isLoading: auditLoading, isError: auditError,
+    refetch: refetchAudit } = useQuery({
+    queryKey: ['dashboard-audit', auditFilter],
+    queryFn: () => getRecentAuditLogs({ entityType: auditFilter, size: 100 }),
+    staleTime: 30_000,
+  });
+
+  const isLoading = batchesLoading || drawsLoading || payoutsLoading || chitLoading || auditLoading;
 
   const staffMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.fullName ?? s.username ?? 'Staff']));
   const staffRoleMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.role ?? '']));
@@ -249,13 +258,66 @@ export default function TodaysActivityFeed() {
 
   function refetchAll() {
     setDismissed(new Set());
-    refetchBatches(); refetchDraws(); refetchPayouts(); refetchChits();
+    refetchBatches(); refetchDraws(); refetchPayouts(); refetchChits(); refetchAudit();
   }
 
   const amt = (v) => hidden ? HIDDEN : fmtAmt(v);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+      {/* Authoritative organization activity. The older operational cards below
+          remain useful summaries; this timeline is the audit source of truth. */}
+      <div className="border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Recent Activity</h3>
+            <p className="text-xs text-gray-400 mt-0.5">What changed across your chits in the last 24 hours</p>
+          </div>
+          <button type="button" onClick={() => navigate('/activity')}
+            className="text-xs font-semibold text-[#1E3A5F] hover:underline cursor-pointer">View full activity →</button>
+        </div>
+        <div className="flex items-center gap-1.5 px-6 pb-3 overflow-x-auto">
+          {[['ALL', 'All'], ['PAYMENT_BATCH', 'Payments'], ['CASH_REQUEST', 'Pickups'], ['CHIT_DRAW', 'Draws'], ['PAYOUT', 'Payouts'], ['CHIT', 'Chits'], ['MEMBER', 'Members'], ['SETTLEMENT', 'Settlements']].map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setAuditFilter(value)}
+              className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full border font-medium cursor-pointer transition-colors ${auditFilter === value ? 'bg-[#1E3A5F] border-[#1E3A5F] text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {auditLoading ? (
+          <div className="px-6 py-8 text-sm text-gray-400">Loading audited activity…</div>
+        ) : auditError ? (
+          <div className="px-6 py-6 bg-red-50 border-t border-red-100">
+            <p className="text-sm font-semibold text-red-700">Audited activity is temporarily unavailable</p>
+            <p className="text-xs text-red-600 mt-1">Do not interpret this as no activity. The operational summary below may be incomplete.</p>
+            <button type="button" onClick={() => refetchAudit()}
+              className="mt-3 text-xs font-semibold text-red-700 hover:underline cursor-pointer">Try audit history again</button>
+          </div>
+        ) : recentAudit.length === 0 ? (
+          <div className="px-6 py-8 text-sm text-gray-400">No audited activity in the last 24 hours.</div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {recentAudit.slice(0, 8).map((event) => {
+              const eventTime = event.occurredAt ?? event.createdAt;
+              const failed = event.outcome === 'FAILURE' || event.outcome === 'DENIED';
+              const entity = String(event.entityType ?? 'EVENT').replace(/_/g, ' ');
+              const action = String(event.action ?? 'UPDATED').replace(/_/g, ' ');
+              return (
+                <button key={event.id} type="button" onClick={() => navigate('/activity')}
+                  className="w-full flex items-start gap-3 px-6 py-3 text-left hover:bg-gray-50 cursor-pointer">
+                  <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${failed ? 'bg-red-500' : 'bg-[#1E3A5F]'}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-gray-900 capitalize">{action.toLowerCase()}</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">{entity} · {event.actorRole ?? event.source ?? 'SYSTEM'}{event.reason ? ` · ${event.reason}` : ''}</span>
+                  </span>
+                  <span className={`text-xs flex-shrink-0 ${failed ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{eventTime ? fmtTime(eventTime) : ''}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <div>

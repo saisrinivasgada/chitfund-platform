@@ -44,6 +44,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -69,7 +70,7 @@ public class PaymentService {
 
     private String tenantId() {
         String tid = TenantContext.get();
-        if (tid == null) throw new com.chitfund.common.exception.BusinessException(
+        if (tid == null || tid.isBlank()) throw new com.chitfund.common.exception.BusinessException(
                 com.chitfund.common.exception.ErrorCode.UNAUTHORIZED, "No tenant context");
         return tid;
     }
@@ -115,13 +116,14 @@ public class PaymentService {
             if (existing.isPresent()) {
                 PaymentBatch b = existing.get();
                 assertMatchingIdempotencyRequest(b.getIdempotencyRequestHash(), requestHash);
-                return toBatchResponse(b, allocationRepository.findByBatchId(b.getId()));
+                return toBatchResponse(b, allocationRepository.findByTenantIdAndBatchId(tenantId, b.getId()));
             }
         }
 
         if (!skipMemberCheck
                 && !memberServiceClient.isMemberActive(request.getMemberId())
-                && !paymentRecordRepository.existsByMemberIdAndChitId(request.getMemberId(), request.getChitId())) {
+                && !paymentRecordRepository.existsByTenantIdAndMemberIdAndChitId(
+                        tenantId, request.getMemberId(), request.getChitId())) {
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
                     "Member " + request.getMemberId() + " is not active");
         }
@@ -221,7 +223,7 @@ public class PaymentService {
             if (existing.isPresent()) {
                 PaymentBatch b = existing.get();
                 assertMatchingIdempotencyRequest(b.getIdempotencyRequestHash(), requestHash);
-                return toBatchResponse(b, allocationRepository.findByBatchId(b.getId()));
+                return toBatchResponse(b, allocationRepository.findByTenantIdAndBatchId(tenantId, b.getId()));
             }
         }
         if (paymentReference != null && batchRepository
@@ -232,7 +234,8 @@ public class PaymentService {
                     "This payment reference has already been recorded", HttpStatus.CONFLICT);
         }
         if (!memberServiceClient.isMemberActive(request.getMemberId())
-                && !paymentRecordRepository.existsByMemberIdAndChitId(request.getMemberId(), request.getChitId())) {
+                && !paymentRecordRepository.existsByTenantIdAndMemberIdAndChitId(
+                        tenantId, request.getMemberId(), request.getChitId())) {
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
                     "Member " + request.getMemberId() + " is not active");
         }
@@ -353,7 +356,7 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse remitCash(UUID batchId, UUID adminId) {
-        PaymentBatch batch = batchRepository.findByIdAndTenantIdForUpdate(batchId, TenantContext.get())
+        PaymentBatch batch = batchRepository.findByIdAndTenantIdForUpdate(batchId, tenantId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
                         "Payment batch not found: " + batchId));
 
@@ -401,7 +404,8 @@ public class PaymentService {
                     "This batch is already voided");
         }
 
-        List<PaymentAllocation> allocations = allocationRepository.findByBatchId(batchId);
+        List<PaymentAllocation> allocations =
+                allocationRepository.findByTenantIdAndBatchId(tenantId(), batchId);
 
         List<UUID> recordIds = allocations.stream()
                 .map(PaymentAllocation::getPaymentRecordId).distinct().sorted().toList();
@@ -522,41 +526,59 @@ public class PaymentService {
     }
 
     /**
-     * Marks a specific month's payment record as PAYOUT_DEDUCTED — the installment was
-     * withheld from the winner's payout. No batch, no treasury movement. amountPaid is set to
-     * amountDue so the draw card shows balance = 0. settledByPayoutId links back for reversal.
-     *
-     * Idempotent: safe to call even if already PAYOUT_DEDUCTED or SETTLED.
+     * Applies an exact payout-withheld amount to one installment under a row lock.
+     * Partial deductions remain linked to the payout so a later void can reverse them.
      */
     @Transactional
-    public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber, UUID payoutId) {
-        paymentRecordRepository.findByChitIdAndMemberIdAndMonthNumber(chitId, memberId, monthNumber)
-                .ifPresent(record -> {
-                    if (record.getStatus() == PaymentRecordStatus.SETTLED
-                            || record.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED) return;
-                    record.setAmountPaid(record.getAmountDue());
-                    record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
-                    record.setSettledByPayoutId(payoutId);
-                    paymentRecordRepository.save(record);
-                    log.info("Marked payment record ({}/{}/{}) as PAYOUT_DEDUCTED for payout {}",
-                            chitId, memberId, monthNumber, payoutId);
-                });
+    public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber,
+                                   BigDecimal amount, UUID payoutId, String tenantId) {
+        PaymentRecord record = paymentRecordRepository
+                .findByTenantIdAndChitIdAndMemberIdAndMonthNumberForUpdate(
+                        tenantId, chitId, memberId, monthNumber)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
+                        "Installment record was not found for payout deduction"));
+        BigDecimal outstanding = record.getAmountDue().subtract(record.getAmountPaid());
+        if (record.getSettledByPayoutId() != null
+                && !record.getSettledByPayoutId().equals(payoutId)) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Installment already has a payout deduction in progress");
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0
+                || amount.compareTo(outstanding) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Payout deduction must be positive and cannot exceed the installment balance");
+        }
+        record.setAmountPaid(record.getAmountPaid().add(amount));
+        record.setStatus(amount.compareTo(outstanding) == 0
+                ? PaymentRecordStatus.PAYOUT_DEDUCTED
+                : PaymentRecordStatus.PARTIALLY_PAID);
+        record.setSettledByPayoutId(payoutId);
+        paymentRecordRepository.save(record);
         chitMonthDrawService.autoCloseIfAllSettled(chitId, monthNumber);
     }
 
     /**
      * Clears cross-chit dues withheld from a payout using FIFO — oldest outstanding month first.
-     * Fully cleared months get PAYOUT_DEDUCTED. If the amount runs out mid-month, that
-     * month stays PARTIALLY_PAID (no settledByPayoutId link — cannot be auto-reverted).
-     * No batch, no treasury movement.
+     * Fully cleared months get PAYOUT_DEDUCTED. A partially cleared month remains
+     * PARTIALLY_PAID but keeps its payout link for exact reversal. No batch or
+     * treasury movement occurs here.
      */
     @Transactional
-    public void markCrossChitDisbursementSettled(UUID chitId, UUID memberId, BigDecimal amount, UUID payoutId) {
+    public void markCrossChitDisbursementSettled(UUID chitId, UUID memberId, BigDecimal amount,
+                                                 UUID payoutId, String tenantId) {
         List<PaymentRecord> records = paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                        memberId, chitId,
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                        tenantId, memberId, chitId,
                         List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+        BigDecimal applied = applyCrossChitDeduction(chitId, memberId, amount, payoutId, records);
+        if (applied.compareTo(amount) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Cross-chit payout deduction exceeds the outstanding balance");
+        }
+    }
 
+    private BigDecimal applyCrossChitDeduction(UUID chitId, UUID memberId, BigDecimal amount,
+                                               UUID payoutId, List<PaymentRecord> records) {
         BigDecimal remaining = amount;
         for (PaymentRecord record : records) {
             if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
@@ -568,6 +590,8 @@ public class PaymentService {
                 remaining = remaining.subtract(owed);
             } else {
                 record.setAmountPaid(record.getAmountPaid().add(remaining));
+                record.setStatus(PaymentRecordStatus.PARTIALLY_PAID);
+                record.setSettledByPayoutId(payoutId);
                 remaining = BigDecimal.ZERO;
             }
             paymentRecordRepository.save(record);
@@ -575,45 +599,39 @@ public class PaymentService {
         log.info("Cross-chit PAYOUT_DEDUCTED applied — chit {} member {} ₹{} for payout {}",
                 chitId, memberId, amount, payoutId);
 
-        // Auto-close any draw that is now fully settled after these deductions
         records.stream()
                 .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
                 .map(PaymentRecord::getMonthNumber)
                 .distinct()
-                .forEach(mn -> {
-                    try { chitMonthDrawService.autoCloseIfAllSettled(chitId, mn); }
-                    catch (Exception e) { log.warn("Auto-close check failed for chit {} month {} — {}", chitId, mn, e.getMessage()); }
-                });
+                .forEach(mn -> chitMonthDrawService.autoCloseIfAllSettled(chitId, mn));
+        return amount.subtract(remaining);
     }
 
     /**
-     * Reverses all PAYOUT_DEDUCTED records linked to a payout (across all chits).
+     * Reverses every full or partial payout deduction linked to a payout.
      * Called when a payout is cancelled or its draw is deleted.
      */
     @Transactional
-    public void revertPayoutDeductions(UUID payoutId) {
-        List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
+    public void revertPayoutDeductions(UUID payoutId, String tenantId) {
+        List<PaymentRecord> records =
+                paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(tenantId, payoutId);
         List<PaymentRecord> reverted = new java.util.ArrayList<>();
 
         // Batch-load all allocations and batch statuses upfront to avoid N+1
-        List<UUID> deductedRecordIds = records.stream()
-                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
-                .map(PaymentRecord::getId).toList();
+        List<UUID> deductedRecordIds = records.stream().map(PaymentRecord::getId).toList();
         Map<UUID, List<PaymentAllocation>> allocsByRecord = deductedRecordIds.isEmpty()
                 ? Map.of()
-                : allocationRepository.findByPaymentRecordIdIn(deductedRecordIds).stream()
+                : allocationRepository.findByTenantIdAndPaymentRecordIdIn(tenantId, deductedRecordIds).stream()
                         .collect(Collectors.groupingBy(PaymentAllocation::getPaymentRecordId));
         Set<UUID> batchIdSet = allocsByRecord.values().stream()
                 .flatMap(List::stream).map(PaymentAllocation::getBatchId)
                 .collect(java.util.stream.Collectors.toSet());
-        Map<UUID, BatchStatus> batchStatusMap = batchRepository.findAllById(batchIdSet).stream()
-                .collect(Collectors.toMap(PaymentBatch::getId, PaymentBatch::getStatus));
+        Map<UUID, BatchStatus> batchStatusMap = batchIdSet.isEmpty()
+                ? Map.of()
+                : batchRepository.findAllByTenantIdAndIdIn(tenantId, List.copyOf(batchIdSet)).stream()
+                        .collect(Collectors.toMap(PaymentBatch::getId, PaymentBatch::getStatus));
 
         for (PaymentRecord r : records) {
-            if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
-            // Re-derive how much was actually paid via cash/UPI before the payout withheld the rest.
-            // Sum allocations from COMPLETED (non-voided) batches only — voided batches were already
-            // reversed and their amount was subtracted from amountPaid at void time.
             BigDecimal cashPaid = allocsByRecord.getOrDefault(r.getId(), List.of()).stream()
                     .filter(a -> batchStatusMap.get(a.getBatchId()) == BatchStatus.COMPLETED)
                     .map(PaymentAllocation::getAllocatedAmount)
@@ -621,21 +639,22 @@ public class PaymentService {
             r.setAmountPaid(cashPaid);
             r.setStatus(cashPaid.compareTo(BigDecimal.ZERO) == 0
                     ? PaymentRecordStatus.OUTSTANDING
-                    : PaymentRecordStatus.PARTIALLY_PAID);
+                    : cashPaid.compareTo(r.getAmountDue()) >= 0
+                            ? PaymentRecordStatus.SETTLED
+                            : PaymentRecordStatus.PARTIALLY_PAID);
             r.setSettledByPayoutId(null);
             paymentRecordRepository.save(r);
             reverted.add(r);
         }
         log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", reverted.size(), payoutId);
-
         // Reopen any draws that were auto-closed by this payout's deductions
         reverted.stream()
                 .collect(java.util.stream.Collectors.groupingBy(
                         r -> r.getChitId().toString() + ":" + r.getMonthNumber()))
                 .forEach((key, group) -> {
                     PaymentRecord first = group.get(0);
-                    try { chitMonthDrawService.autoReopenIfNotFullySettled(first.getChitId(), first.getMonthNumber()); }
-                    catch (Exception e) { log.warn("Auto-reopen check failed for chit {} month {} — {}", first.getChitId(), first.getMonthNumber(), e.getMessage()); }
+                    chitMonthDrawService.autoReopenIfNotFullySettled(
+                            first.getChitId(), first.getMonthNumber());
                 });
     }
 
@@ -673,12 +692,15 @@ public class PaymentService {
         primary.forEach(b -> seen.add(b.getId()));
 
         // Cross-chit batches: recorded for another chit but have allocations that spilled into this one
-        List<UUID> allBatchIds = allocationRepository.findBatchIdsWithAllocationsForChit(memberId, chitId);
-        List<PaymentBatch> crossChit = batchRepository.findAllById(
-                allBatchIds.stream().filter(id -> !seen.contains(id)).toList())
-                .stream()
-                .sorted(java.util.Comparator.comparing(PaymentBatch::getCreatedAt).reversed())
-                .toList();
+        String currentTenant = tenantId();
+        List<UUID> allBatchIds = allocationRepository.findBatchIdsWithAllocationsForChit(
+                currentTenant, memberId, chitId);
+        List<UUID> unseenBatchIds = allBatchIds.stream().filter(id -> !seen.contains(id)).toList();
+        List<PaymentBatch> crossChit = unseenBatchIds.isEmpty()
+                ? List.of()
+                : batchRepository.findAllByTenantIdAndIdIn(currentTenant, unseenBatchIds).stream()
+                        .sorted(java.util.Comparator.comparing(PaymentBatch::getCreatedAt).reversed())
+                        .toList();
 
         List<PaymentBatch> combined = new ArrayList<>();
         combined.addAll(primary);
@@ -698,13 +720,11 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public PaymentBatchResponse getBatchById(UUID batchId) {
-        PaymentBatch batch = batchRepository.findById(batchId)
+        String currentTenant = tenantId();
+        PaymentBatch batch = batchRepository.findByIdAndTenantId(batchId, currentTenant)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND, "Batch not found: " + batchId));
-        // Return 404 for cross-tenant access (no existence disclosure)
-        if (!tenantId().equals(batch.getTenantId())) {
-            throw new BusinessException(ErrorCode.PAYMENT_NOT_FOUND, "Batch not found: " + batchId);
-        }
-        return toBatchResponse(batch, allocationRepository.findByBatchId(batchId));
+        return toBatchResponse(batch,
+                allocationRepository.findByTenantIdAndBatchId(currentTenant, batchId));
     }
 
     /**
@@ -766,7 +786,8 @@ public class PaymentService {
         // unlocked read here let two concurrent payments both be granted the same
         // credit, destroying a real balance or fabricating credit from a stale value.
         BigDecimal totalOwedAllChits = paymentRecordRepository
-                .findTotalOutstandingByMemberId(batch.getMemberId(), pendingStatuses);
+                .findTotalOutstandingByTenantIdAndMemberId(
+                        batch.getTenantId(), batch.getMemberId(), pendingStatuses);
         BigDecimal creditAvailable = memberCreditService.getBalanceForUpdate(batch.getMemberId());
         BigDecimal creditToUse = creditAvailable.min(totalOwedAllChits);
 
@@ -781,15 +802,16 @@ public class PaymentService {
 
         // Step 2: FIFO within the current chit — acquire row-level write locks to prevent concurrent double-allocation
         List<PaymentRecord> sameChit = paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                        batch.getMemberId(), batch.getChitId(), pendingStatuses);
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                        batch.getTenantId(), batch.getMemberId(), batch.getChitId(), pendingStatuses);
 
         remaining = applyToRecords(sameChit, remaining, batch.getId(), allocations);
 
         // Step 3: Spill into other chits (ordered by dueDate ascending — oldest debt first)
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
             List<PaymentRecord> otherChits = paymentRecordRepository
-                    .findOutstandingAcrossOtherChitsForUpdate(batch.getMemberId(), batch.getChitId(), pendingStatuses);
+                    .findOutstandingAcrossOtherChitsForUpdateByTenant(
+                            batch.getTenantId(), batch.getMemberId(), batch.getChitId(), pendingStatuses);
             if (!otherChits.isEmpty()) {
                 log.info("Batch {} — ₹{} spills across {} other-chit record(s) for member {}",
                         batch.getId(), remaining, otherChits.size(), batch.getMemberId());
@@ -867,8 +889,8 @@ public class PaymentService {
         // when two admins pay the same member's chits concurrently.
         for (RequestedChitAllocation entry : ordered) {
             List<PaymentRecord> records = paymentRecordRepository
-                    .findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                            batch.getMemberId(), entry.getChitId(), pendingStatuses);
+                    .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                            batch.getTenantId(), batch.getMemberId(), entry.getChitId(), pendingStatuses);
             BigDecimal remainder = applyToRecords(records, entry.getAmount(), batch.getId(), allocations);
             if (remainder.compareTo(BigDecimal.ZERO) > 0) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -896,6 +918,7 @@ public class PaymentService {
             BigDecimal applying = remaining.min(owed);
 
             PaymentAllocation alloc = PaymentAllocation.builder()
+                    .tenantId(record.getTenantId())
                     .batchId(batchId)
                     .paymentRecordId(record.getId())
                     .chitId(record.getChitId())       // actual chit of the record, may differ from batch
@@ -925,8 +948,8 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public MemberBalanceResponse getMemberBalance(UUID memberId, UUID chitId) {
         List<PaymentRecord> nonSettled = paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                        memberId, chitId,
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                        tenantId(), memberId, chitId,
                         List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
 
         BigDecimal totalOutstanding = nonSettled.stream()
@@ -955,7 +978,8 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public List<PaymentRecordResponse> getPaymentHistory(UUID memberId, UUID chitId) {
         List<PaymentRecord> records = paymentRecordRepository
-                .findByMemberIdAndChitIdOrderByMonthNumberAsc(memberId, chitId);
+                .findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                        tenantId(), memberId, chitId);
         LocalDate today = LocalDate.now();
         return records.stream()
                 .map(r -> PaymentRecordResponse.builder()
@@ -1054,14 +1078,18 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public BigDecimal getMemberTotalBalance(UUID memberId) {
         List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
-        return paymentRecordRepository.findTotalOutstandingByMemberId(memberId, pending);
+        return paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
+                tenantId(), memberId, pending);
     }
 
     @Transactional(readOnly = true)
     public Map<String, Object> getChitOutstandingSummary(UUID chitId) {
         List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
-        BigDecimal total = paymentRecordRepository.findTotalOutstandingByChitId(chitId, pending);
-        long memberCount = paymentRecordRepository.countDistinctMembersWithOutstandingByChitId(chitId, pending);
+        String currentTenant = tenantId();
+        BigDecimal total = paymentRecordRepository.findTotalOutstandingByTenantIdAndChitId(
+                currentTenant, chitId, pending);
+        long memberCount = paymentRecordRepository
+                .countDistinctMembersWithOutstandingByTenantIdAndChitId(currentTenant, chitId, pending);
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("totalOutstanding", total);
         result.put("membersWithOutstanding", memberCount);
@@ -1071,7 +1099,8 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public Map<UUID, BigDecimal> getMemberTotalBalanceBulk(List<UUID> memberIds) {
         List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
-        List<Object[]> rows = paymentRecordRepository.findTotalOutstandingByMemberIds(memberIds, pending);
+        List<Object[]> rows = paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberIds(
+                tenantId(), memberIds, pending);
         Map<UUID, BigDecimal> result = new HashMap<>();
         for (Object[] row : rows) {
             result.put((UUID) row[0], (BigDecimal) row[1]);
@@ -1085,7 +1114,8 @@ public class PaymentService {
      */
     private PaymentCompletedEvent buildCompletedEvent(PaymentBatch batch, UUID actorId) {
         List<PaymentRecord> all = paymentRecordRepository
-                .findByMemberIdAndChitIdOrderByMonthNumberAsc(batch.getMemberId(), batch.getChitId());
+                .findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                        batch.getTenantId(), batch.getMemberId(), batch.getChitId());
 
         BigDecimal totalDue  = all.stream().map(PaymentRecord::getAmountDue).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalPaid = all.stream().map(PaymentRecord::getAmountPaid).reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -1094,6 +1124,10 @@ public class PaymentService {
         long partial  = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID).count();
         long outstanding = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.OUTSTANDING).count();
         long waived   = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.WAIVED).count();
+        Instant occurredAt = batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now();
+        Instant synchronizedAt = batch.getSyncedAt() != null ? batch.getSyncedAt() : occurredAt;
+        boolean offlineSync = Duration.between(occurredAt, synchronizedAt).abs().compareTo(
+                Duration.ofSeconds(30)) > 0;
 
         return new PaymentCompletedEvent(
                 batch.getId().toString(),
@@ -1105,9 +1139,12 @@ public class PaymentService {
                 totalPaid,
                 totalDue.subtract(totalPaid),
                 (int) settled, (int) partial, (int) outstanding, (int) waived,
-                LocalDate.ofInstant(batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now(), java.time.ZoneOffset.UTC),
+                LocalDate.ofInstant(occurredAt, java.time.ZoneOffset.UTC),
                 actorId.toString(),
-                batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now(),
+                occurredAt,
+                batch.getIdempotencyKey(),
+                offlineSync ? "OFFLINE_SYNC" : "UNKNOWN",
+                synchronizedAt,
                 TenantContext.get()
         );
     }
@@ -1115,7 +1152,8 @@ public class PaymentService {
     private List<PaymentBatchResponse> toBatchResponses(List<PaymentBatch> batches) {
         if (batches.isEmpty()) return List.of();
         List<UUID> ids = batches.stream().map(PaymentBatch::getId).toList();
-        Map<UUID, List<PaymentAllocation>> allocMap = allocationRepository.findByBatchIdIn(ids)
+        Map<UUID, List<PaymentAllocation>> allocMap =
+                allocationRepository.findByTenantIdAndBatchIdIn(tenantId(), ids)
                 .stream().collect(Collectors.groupingBy(PaymentAllocation::getBatchId));
         return batches.stream()
                 .map(b -> toBatchResponse(b, allocMap.getOrDefault(b.getId(), List.of())))

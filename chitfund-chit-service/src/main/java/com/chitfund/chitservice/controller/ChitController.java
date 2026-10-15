@@ -1,6 +1,5 @@
 package com.chitfund.chitservice.controller;
 
-import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.dto.request.CreateChitRequest;
@@ -8,13 +7,14 @@ import com.chitfund.chitservice.dto.request.UpdateChitDetailsRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
+import com.chitfund.chitservice.dto.response.ChitLifecycleSyncResponse;
 import com.chitfund.chitservice.dto.response.MonthReservationResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.common.context.MemberContext;
-import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.common.dto.PagedResponse;
@@ -41,7 +41,6 @@ public class ChitController {
     private final ChitService chitService;
     private final MonthReservationRepository reservationRepository;
     private final ChitMapper chitMapper;
-    private final AuditClient auditClient;
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -121,30 +120,18 @@ public class ChitController {
             @Valid @RequestBody UpdateChitDetailsRequest request,
             Authentication auth) {
         UUID actorId = (UUID) auth.getPrincipal();
-        ChitResponse before = chitService.getChit(id);
         ChitResponse updated = chitService.updateDetails(id, request, actorId);
-        auditClient.log("CHIT", id.toString(), id.toString(),
-                "CHIT_DETAILS_UPDATED", actorId.toString(), "ADMIN",
-                java.util.Map.of(
-                    "name", before.getName() != null ? before.getName() : "",
-                    "chitValue", before.getChitValue() != null ? before.getChitValue() : 0,
-                    "installmentAmount", before.getInstallmentAmount() != null ? before.getInstallmentAmount() : 0
-                ),
-                java.util.Map.of(
-                    "name", updated.getName() != null ? updated.getName() : "",
-                    "chitValue", updated.getChitValue() != null ? updated.getChitValue() : 0,
-                    "installmentAmount", updated.getInstallmentAmount() != null ? updated.getInstallmentAmount() : 0
-                ),
-                TenantContext.get());
         return ResponseEntity.ok(ApiResponse.success(updated, "Chit updated"));
     }
 
     @PatchMapping("/{id}/name")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ChitResponse>> updateName(
-            @PathVariable UUID id,
-            @Valid @RequestBody UpdateChitNameRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(chitService.updateName(id, request), "Chit name updated"));
+            @PathVariable UUID id, @Valid @RequestBody UpdateChitNameRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.success(
+                chitService.updateName(id, request, (UUID) auth.getPrincipal(), role(auth)),
+                "Chit name updated"));
     }
 
     @PutMapping("/{id}/status")
@@ -154,7 +141,7 @@ public class ChitController {
             @Valid @RequestBody UpdateChitStatusRequest request,
             Authentication auth) {
         request.setUpdatedBy((UUID) auth.getPrincipal());
-        return ResponseEntity.ok(ApiResponse.success(chitService.updateStatus(id, request)));
+        return ResponseEntity.ok(ApiResponse.success(chitService.updateStatus(id, request, role(auth))));
     }
 
     @PostMapping("/{id}/pause")
@@ -162,7 +149,7 @@ public class ChitController {
     public ResponseEntity<ApiResponse<ChitResponse>> pauseChit(
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
-                chitService.pauseChit(id, (UUID) auth.getPrincipal()), "Chit paused"));
+                chitService.pauseChit(id, (UUID) auth.getPrincipal(), role(auth)), "Chit paused"));
     }
 
     @PostMapping("/{id}/resume")
@@ -170,7 +157,22 @@ public class ChitController {
     public ResponseEntity<ApiResponse<ChitResponse>> resumeChit(
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
-                chitService.resumeChit(id, (UUID) auth.getPrincipal()), "Chit resumed"));
+                chitService.resumeChit(id, (UUID) auth.getPrincipal(), role(auth)), "Chit resumed"));
+    }
+
+    @GetMapping("/{id}/lifecycle-sync")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<ChitLifecycleSyncResponse>> getLifecycleSync(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(chitService.getLifecycleSync(id)));
+    }
+
+    @PostMapping("/{id}/lifecycle-sync/retry")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<ChitLifecycleSyncResponse>> retryLifecycleSync(
+            @PathVariable UUID id, Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.success(chitService.retryLifecycleSync(
+                id, (UUID) auth.getPrincipal(), role(auth))));
     }
 
     @DeleteMapping("/{id}")
@@ -181,11 +183,17 @@ public class ChitController {
                 chitService.softDeleteChit(id, (UUID) auth.getPrincipal()), "Chit deleted"));
     }
 
+    private String role(Authentication auth) {
+        return auth.getAuthorities().stream().findFirst()
+                .map(authority -> authority.getAuthority().replaceFirst("^ROLE_", ""))
+                .orElse("UNKNOWN");
+    }
+
     @GetMapping("/org-reservations")
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> getOrgReservations() {
         LocalDate today = LocalDate.now();
-        List<MonthReservationResponse> list = reservationRepository.findAllOrgHeld()
+        List<MonthReservationResponse> list = reservationRepository.findAllOrgHeldByTenant(TenantContext.get())
                 .stream()
                 .map(r -> {
                     MonthReservationResponse resp = chitMapper.toReservationResponse(r);

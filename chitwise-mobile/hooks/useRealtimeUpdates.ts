@@ -50,9 +50,10 @@ const INVALIDATIONS: Record<string, string[][]> = {
 export function useRealtimeUpdates(enabled = true) {
   const qc = useQueryClient();
   const token = useAuthStore((s) => s.user?.token);
+  const tenantId = useAuthStore((s) => s.user?.tenantId);
 
   useEffect(() => {
-    if (!enabled || !token) return;
+    if (!enabled || !token || !tenantId) return;
 
     const client = new Client({
       webSocketFactory: () => new WebSocket(WS_URL) as any,
@@ -64,7 +65,7 @@ export function useRealtimeUpdates(enabled = true) {
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
       onConnect: () => {
-        client.subscribe('/topic/data-update', (frame) => {
+        client.subscribe(`/topic/data-update/${tenantId}`, (frame) => {
           try {
             const { type } = JSON.parse(frame.body);
             const keys = INVALIDATIONS[type] ?? [];
@@ -78,5 +79,5 @@ export function useRealtimeUpdates(enabled = true) {
 
     client.activate();
     return () => { client.deactivate(); };
-  }, [enabled, token, qc]);
+  }, [enabled, token, tenantId, qc]);
 }

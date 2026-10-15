@@ -87,7 +87,7 @@ class PayoutEventPublisherTest {
         ArgumentCaptor<String> eventId = ArgumentCaptor.forClass(String.class);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String>> destinations = ArgumentCaptor.forClass(List.class);
-        verify(store).enqueue(eventId.capture(), eq("tenant-test"), eq("payout"),
+        verify(store).enqueue(eventId.capture(), eq("tenant-test"), eq("PAYOUT"), eq("payout"),
                 eq(SqsQueues.EVT_PAYOUT_CREATED), anyString(), destinations.capture());
         assertThat(eventId.getValue()).hasSize(36);
         assertThat(destinations.getValue()).containsExactly(
@@ -99,7 +99,7 @@ class PayoutEventPublisherTest {
         properties.setMode(EventDeliveryProperties.Mode.DUAL);
         publisher.publish(event());
         ArgumentCaptor<String> eventId = ArgumentCaptor.forClass(String.class);
-        verify(store).enqueue(eventId.capture(), anyString(), anyString(),
+        verify(store).enqueue(eventId.capture(), anyString(), anyString(), anyString(),
                 anyString(), anyString(), any());
         TransactionSynchronizationUtils.invokeAfterCommit(
                 TransactionSynchronizationManager.getSynchronizations());

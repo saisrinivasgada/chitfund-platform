@@ -13,6 +13,8 @@ import java.util.UUID;
 
 public interface MonthReservationRepository extends JpaRepository<MonthReservation, UUID> {
 
+    Optional<MonthReservation> findByIdAndChitId(UUID id, UUID chitId);
+
     // All slots for a chit, ordered by calendar month
     List<MonthReservation> findByChitIdOrderByReservationMonthAscMonthNumberAsc(UUID chitId);
 
@@ -22,8 +24,25 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
     // All slots assigned to a specific member within a chit
     List<MonthReservation> findByChitIdAndMemberId(UUID chitId, UUID memberId);
 
+    @Query("SELECT r FROM MonthReservation r WHERE r.chit.id = :chitId AND r.chit.tenantId = :tenantId")
+    List<MonthReservation> findByChitIdAndTenantId(@Param("chitId") UUID chitId,
+                                                   @Param("tenantId") String tenantId);
+
+    @Query("SELECT r FROM MonthReservation r WHERE r.chit.id = :chitId AND r.chit.tenantId = :tenantId AND r.memberId = :memberId")
+    List<MonthReservation> findByChitIdAndMemberIdAndTenantId(@Param("chitId") UUID chitId,
+                                                              @Param("memberId") UUID memberId,
+                                                              @Param("tenantId") String tenantId);
+
     // Legacy: look up by ordinal month number
     List<MonthReservation> findByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
+
+    @Query("SELECT COUNT(r) FROM MonthReservation r WHERE r.chit.id = :chitId " +
+            "AND r.chit.tenantId = :tenantId AND r.monthNumber = :monthNumber AND r.status = :status")
+    long countByChitIdAndMonthNumberAndTenantIdAndStatus(
+            @Param("chitId") UUID chitId,
+            @Param("monthNumber") Integer monthNumber,
+            @Param("tenantId") String tenantId,
+            @Param("status") ReservationStatus status);
 
     boolean existsByChitIdAndMemberIdAndStatusNot(UUID chitId, UUID memberId, ReservationStatus status);
 
@@ -41,12 +60,7 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
     @Query("SELECT r FROM MonthReservation r WHERE r.chit.id = :chitId AND r.monthNumber >= :fromMonth AND r.status IN :statuses ORDER BY r.monthNumber ASC")
     List<MonthReservation> findShiftableFromMonth(@Param("chitId") UUID chitId, @Param("fromMonth") int fromMonth, @Param("statuses") List<ReservationStatus> statuses);
 
-    // All org-held slots across all chits (excludes VOIDED)
-    @Query("SELECT r FROM MonthReservation r JOIN FETCH r.chit WHERE r.orgHeld = true AND r.status != com.chitfund.chitservice.domain.enums.ReservationStatus.VOIDED ORDER BY r.reservationMonth ASC")
-    List<MonthReservation> findAllOrgHeld();
-
-    // Tenant-scoped reservation lookup — verifies the reservation belongs to the specified chit
-    // AND that chit belongs to the current tenant. Use this for all write operations.
-    @Query("SELECT r FROM MonthReservation r JOIN r.chit c WHERE r.id = :id AND c.id = :chitId AND c.tenantId = :tenantId AND c.deletedAt IS NULL")
-    Optional<MonthReservation> findByIdAndChitIdAndTenantId(@Param("id") UUID id, @Param("chitId") UUID chitId, @Param("tenantId") String tenantId);
+    // All org-held slots for one tenant (excludes VOIDED)
+    @Query("SELECT r FROM MonthReservation r JOIN FETCH r.chit c WHERE c.tenantId = :tenantId AND c.deletedAt IS NULL AND r.orgHeld = true AND r.status != com.chitfund.chitservice.domain.enums.ReservationStatus.VOIDED ORDER BY r.reservationMonth ASC")
+    List<MonthReservation> findAllOrgHeldByTenant(@Param("tenantId") String tenantId);
 }

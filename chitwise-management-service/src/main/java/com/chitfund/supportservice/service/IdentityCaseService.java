@@ -13,6 +13,7 @@ import com.chitfund.supportservice.repository.EmployeeRepository;
 import com.chitfund.supportservice.repository.IdentityCaseAuditRepository;
 import com.chitfund.supportservice.repository.IdentityCaseRepository;
 import com.chitfund.supportservice.client.IdentityExecutionClient;
+import com.chitfund.supportservice.client.AuditClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class IdentityCaseService {
     private final ObjectMapper objectMapper;
     private final IdentityExecutionClient executionClient;
     private final PlatformTransactionManager transactionManager;
+    private final AuditClient auditClient;
 
     @Transactional
     public IdentityCase openForTicket(SupportTicket ticket) {
@@ -52,7 +54,10 @@ public class IdentityCaseService {
                 .subjectUserId(ticket.getSubjectUserId())
                 .status(IdentityCaseStatus.OPEN)
                 .build();
-        return repository.save(identityCase);
+        identityCase = repository.save(identityCase);
+        audit(identityCase, "OPENED", ticket.getCreatedBy(), null,
+                "Account access case opened from ticket");
+        return identityCase;
     }
 
     @Transactional(readOnly = true)
@@ -77,6 +82,7 @@ public class IdentityCaseService {
     public IdentityCaseResponse prepare(String actorId, String caseId, PrepareIdentityCaseRequest request) {
         requirePreparer(actorId);
         IdentityCase identityCase = locked(caseId);
+        IdentityCaseStatus previousStatus = identityCase.getStatus();
         if (!(identityCase.getStatus() == IdentityCaseStatus.OPEN
                 || identityCase.getStatus() == IdentityCaseStatus.INVESTIGATING
                 || identityCase.getStatus() == IdentityCaseStatus.REJECTED
@@ -99,7 +105,8 @@ public class IdentityCaseService {
         identityCase.setDecidedAt(null);
         identityCase.setDecidedBy(null);
         identityCase.setStatus(IdentityCaseStatus.PROPOSED);
-        audit(identityCase.getId(), "PROPOSED", actorId, "Proposal prepared for owner review");
+        audit(identityCase, "PROPOSED", actorId, previousStatus,
+                "Proposal prepared for owner review");
         return toResponse(repository.save(identityCase));
     }
 
@@ -107,6 +114,7 @@ public class IdentityCaseService {
     public IdentityCaseResponse approve(String actorId, String caseId, IdentityCaseDecisionRequest request) {
         requireOwner(actorId);
         IdentityCase identityCase = locked(caseId);
+        IdentityCaseStatus previousStatus = identityCase.getStatus();
         if ((identityCase.getStatus() == IdentityCaseStatus.APPROVED
                 || identityCase.getStatus() == IdentityCaseStatus.EXECUTING
                 || identityCase.getStatus() == IdentityCaseStatus.EXECUTED)
@@ -128,7 +136,7 @@ public class IdentityCaseService {
         identityCase.setDecidedBy(actorId);
         identityCase.setDecisionReason(request.getReason().trim());
         identityCase.setExecutionKey("identity-case:" + identityCase.getId());
-        audit(identityCase.getId(), "APPROVED", actorId, request.getReason().trim());
+        audit(identityCase, "APPROVED", actorId, previousStatus, request.getReason().trim());
         return toResponse(repository.save(identityCase));
     }
 
@@ -136,6 +144,7 @@ public class IdentityCaseService {
     public IdentityCaseResponse reject(String actorId, String caseId, IdentityCaseDecisionRequest request) {
         requireOwner(actorId);
         IdentityCase identityCase = locked(caseId);
+        IdentityCaseStatus previousStatus = identityCase.getStatus();
         if (identityCase.getStatus() != IdentityCaseStatus.PROPOSED) {
             throw new IllegalStateException("Only a proposed identity case can be rejected");
         }
@@ -143,7 +152,7 @@ public class IdentityCaseService {
         identityCase.setDecidedAt(Instant.now());
         identityCase.setDecidedBy(actorId);
         identityCase.setDecisionReason(request.getReason().trim());
-        audit(identityCase.getId(), "REJECTED", actorId, request.getReason().trim());
+        audit(identityCase, "REJECTED", actorId, previousStatus, request.getReason().trim());
         return toResponse(repository.save(identityCase));
     }
 
@@ -152,6 +161,7 @@ public class IdentityCaseService {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         IdentityCase claimed = tx.execute(status -> {
             IdentityCase c = locked(caseId);
+            IdentityCaseStatus previousStatus = c.getStatus();
             boolean staleExecution = c.getStatus() == IdentityCaseStatus.EXECUTING
                     && c.getExecutingAt() != null && c.getExecutingAt().isBefore(Instant.now().minusSeconds(300));
             if (!(c.getStatus() == IdentityCaseStatus.APPROVED
@@ -165,7 +175,8 @@ public class IdentityCaseService {
             c.setStatus(IdentityCaseStatus.EXECUTING);
             c.setExecutingAt(Instant.now());
             c.setLastError(null);
-            audit(c.getId(), "EXECUTION_CLAIMED", actorId, "Approved operation claimed for execution");
+            audit(c, "EXECUTION_CLAIMED", actorId, previousStatus,
+                    "Approved operation claimed for execution");
             return repository.save(c);
         });
         if (claimed.getStatus() == IdentityCaseStatus.EXECUTED) return toResponse(claimed);
@@ -174,6 +185,7 @@ public class IdentityCaseService {
             var result = executionClient.executePhoneReassignment(claimed.getExecutionKey(), claimed.getProposalJson());
             return tx.execute(status -> {
                 IdentityCase c = locked(caseId);
+                IdentityCaseStatus previousStatus = c.getStatus();
                 try {
                     c.setExecutionResult(objectMapper.writeValueAsString(result));
                 } catch (JsonProcessingException ex) {
@@ -183,16 +195,19 @@ public class IdentityCaseService {
                 c.setExecutedAt(Instant.now());
                 c.setExecutingAt(null);
                 c.setLastError(null);
-                audit(c.getId(), "EXECUTED", actorId, "Phone identity operation completed idempotently");
+                audit(c, "EXECUTED", actorId, previousStatus,
+                        "Phone identity operation completed idempotently");
                 return toResponse(repository.save(c));
             });
         } catch (RuntimeException ex) {
             tx.executeWithoutResult(status -> {
                 IdentityCase c = locked(caseId);
+                IdentityCaseStatus previousStatus = c.getStatus();
                 c.setStatus(IdentityCaseStatus.EXECUTION_FAILED);
                 c.setExecutingAt(null);
                 c.setLastError("Internal identity execution failed; retry is safe with the same operation key");
-                audit(c.getId(), "EXECUTION_FAILED", actorId, ex.getClass().getSimpleName());
+                audit(c, "EXECUTION_FAILED", actorId, previousStatus,
+                        "Internal execution failed; retry remains safe");
                 repository.save(c);
             });
             throw ex;
@@ -246,9 +261,27 @@ public class IdentityCaseService {
         if (!employee(actorId).isPlatformOwner()) throw new SecurityException("Protected owner approval is required");
     }
 
-    private void audit(String caseId, String action, String actorId, String details) {
+    private void audit(IdentityCase identityCase, String action, String actorId,
+                       IdentityCaseStatus previousStatus, String details) {
+        String caseId = identityCase.getId();
         auditRepository.save(IdentityCaseAudit.builder().id(UUID.randomUUID().toString())
                 .identityCaseId(caseId).action(action).actorId(actorId).details(details).build());
+        String actorRole = employeeRepository.findById(actorId)
+                .map(Employee::getRole).orElse("ORG_USER");
+        java.util.Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("ticketId", identityCase.getTicketId());
+        metadata.put("subtype", identityCase.getSubtype().name());
+        if (identityCase.getAssignedEmployeeId() != null) {
+            metadata.put("assignedEmployeeId", identityCase.getAssignedEmployeeId());
+        }
+        auditClient.logEntity("IDENTITY_CASE", caseId, action, actorId, actorRole,
+                previousStatus != null
+                        ? java.util.Map.of("status", previousStatus.name()) : null,
+                java.util.Map.of("status", identityCase.getStatus().name()),
+                metadata,
+                identityCase.getTenantId() != null
+                        ? identityCase.getTenantId() : "PLATFORM",
+                details);
     }
 
     private IdentityCaseResponse toResponse(IdentityCase c) {

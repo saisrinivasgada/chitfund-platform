@@ -87,6 +87,7 @@ export default function SelectCompanyPage() {
     setLoading(true);
     try {
       const authData = await selectTenant({ loginToken, tenantId: tenant.tenantId });
+      const scopedTenant = authData?.tenant ?? tenant;
       const accessToken = authData?.accessToken ?? authData?.token;
       const role = authData?.user?.role ?? 'MEMBER';
       const userData = {
@@ -96,17 +97,17 @@ export default function SelectCompanyPage() {
         mustChangePassword: authData?.user?.mustChangePassword ?? false,
       };
       login(accessToken, userData, {
-        tenantId:     tenant.tenantId,
-        tenantSlug:   tenant.slug,
-        tenantName:   tenant.name,
-        tenantPlan:   tenant.plan ?? 'BASIC',
-        tenantStatus: tenant.status ?? 'ACTIVE',
-        planExpiresAt: tenant.planExpiresAt ?? null,
-        analyticsEnabled: tenant.analyticsEnabled !== false,
-        chatEnabled: tenant.chatEnabled === true,
-        settlementEnabled: tenant.settlementEnabled !== false,
-        adminPhone: tenant.adminPhone ?? null,
-        adminEmail: tenant.adminEmail ?? null,
+        tenantId:     scopedTenant.tenantId,
+        tenantSlug:   scopedTenant.slug,
+        tenantName:   scopedTenant.name,
+        tenantPlan:   scopedTenant.plan ?? 'BASIC',
+        tenantStatus: scopedTenant.status ?? 'ACTIVE',
+        planExpiresAt: scopedTenant.planExpiresAt ?? null,
+        analyticsEnabled: scopedTenant.analyticsEnabled === true,
+        chatEnabled: scopedTenant.chatEnabled === true,
+        settlementEnabled: scopedTenant.settlementEnabled === true,
+        adminPhone: scopedTenant.adminPhone ?? null,
+        adminEmail: scopedTenant.adminEmail ?? null,
       });
       if (userData.mustChangePassword) {
         navigate('/change-password', { replace: true });

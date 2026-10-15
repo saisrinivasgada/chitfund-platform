@@ -4,10 +4,10 @@ import {
   ScrollView, TextInput, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMyIntimations, createPaymentIntimation, withdrawPaymentIntimation,
-  getMyChits,
+  getMyChits, getMyMemberProfile, getMemberBalance,
 } from '../../../services/api';
 import { C, T, Card, Amount, EmptyState, ListLoadingScreen, fmtDate, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -32,7 +32,36 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
     queryFn: getMyChits,
   });
 
+  const { data: memberProfile } = useQuery({
+    queryKey: ['my-member-profile'],
+    queryFn: getMyMemberProfile,
+    staleTime: 60_000,
+  });
+  const memberId: string | undefined = (memberProfile as any)?.id;
+
+  const balanceResults = useQueries({
+    queries: (chits as any[]).map((c: any) => ({
+      queryKey: ['memberBalance', memberId, c.id],
+      queryFn: () => getMemberBalance(memberId!, c.id),
+      enabled: !!memberId,
+      staleTime: 60_000,
+    })),
+  });
+  const balanceMap: Record<string, number | null> = Object.fromEntries(
+    (chits as any[]).map((c: any, i: number) => [
+      c.id,
+      (balanceResults[i]?.data as any)?.totalOutstanding != null
+        ? Number((balanceResults[i].data as any).totalOutstanding)
+        : null,
+    ])
+  );
+  // Only chits (any status — active, paused or completed) where the member still owes money
+  const chitsWithDues = (chits as any[]).filter((c: any) => (balanceMap[c.id] ?? 0) > 0);
+  const duesLoading = balanceResults.some((r) => r.isLoading);
+
   const [items, setItems] = useState<ChitItem[]>([{ chitId: '', claimedAmount: '' }]);
+  const [paymentMode, setPaymentMode] = useState<'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE'>('UPI');
+  const [paymentReference, setPaymentReference] = useState('');
   const [notes, setNotes] = useState('');
 
   const mutation = useMutation({
@@ -41,7 +70,8 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
         .filter(it => it.chitId && it.claimedAmount)
         .map(it => ({ chitId: it.chitId, claimedAmount: Number(it.claimedAmount) }));
       if (payload.length === 0) throw new Error('Add at least one chit and amount');
-      return createPaymentIntimation(payload, notes || undefined);
+      if (paymentMode !== 'CASH' && !paymentReference.trim()) throw new Error('Enter the payment reference');
+      return createPaymentIntimation(payload, paymentMode, paymentReference.trim() || undefined, notes || undefined);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-intimations'] });
@@ -75,7 +105,11 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
               {items.map((it, idx) => (
                 <View key={idx} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>Chit {idx + 1}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>
+                      {it.chitId
+                        ? ((chits as any[]).find((c: any) => c.id === it.chitId)?.name ?? 'Chit')
+                        : `Payment ${idx + 1} — select a chit`}
+                    </Text>
                     {items.length > 1 && (
                       <TouchableOpacity onPress={() => removeItem(idx)}>
                         <Text style={{ fontSize: 12, color: C.red }}>Remove</Text>
@@ -86,20 +120,35 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Select Chit</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                     <View style={{ flexDirection: 'row', gap: 6 }}>
-                      {(chits as any[]).map((c: any) => (
-                        <TouchableOpacity
-                          key={c.id}
-                          onPress={() => updateItem(idx, 'chitId', c.id)}
-                          style={{
-                            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-                            backgroundColor: it.chitId === c.id ? C.navy : C.gray100,
-                          }}
-                        >
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: it.chitId === c.id ? '#fff' : C.gray700 }}>
-                            {c.name ?? c.id.substring(0, 8)}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                      {chitsWithDues.length === 0 && (
+                        <Text style={{ fontSize: 12, color: C.gray400, paddingVertical: 6 }}>
+                          {duesLoading ? 'Loading dues…' : 'No chits with outstanding dues'}
+                        </Text>
+                      )}
+                      {chitsWithDues.map((c: any) => {
+                        const due = balanceMap[c.id];
+                        const selected = it.chitId === c.id;
+                        return (
+                          <TouchableOpacity
+                            key={c.id}
+                            onPress={() => updateItem(idx, 'chitId', c.id)}
+                            style={{
+                              paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+                              backgroundColor: selected ? C.navy : C.gray100,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: selected ? '#fff' : C.gray700 }}>
+                              {c.name ?? c.id.substring(0, 8)}
+                              {c.status && c.status !== 'ACTIVE' ? ` · ${c.status.charAt(0)}${c.status.slice(1).toLowerCase()}` : ''}
+                            </Text>
+                            {due != null && due > 0 && (
+                              <Text style={{ fontSize: 10, color: selected ? '#CBD5E1' : C.gray500, marginTop: 1 }}>
+                                ₹{due.toLocaleString('en-IN')} due
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   </ScrollView>
 
@@ -118,13 +167,43 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
                 <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>+ Add another chit</Text>
               </TouchableOpacity>
 
+              <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>How did you pay?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
+                {(['UPI', 'BANK_TRANSFER', 'CHEQUE', 'CASH'] as const).map(mode => {
+                  const selected = paymentMode === mode;
+                  return (
+                    <TouchableOpacity key={mode} onPress={() => { setPaymentMode(mode); setPaymentReference(''); }}
+                      style={{ paddingHorizontal: 11, paddingVertical: 7, borderRadius: 8, backgroundColor: selected ? C.navy : C.gray100 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: selected ? '#fff' : C.gray700 }}>
+                        {mode === 'BANK_TRANSFER' ? 'Bank' : mode.charAt(0) + mode.slice(1).toLowerCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {paymentMode !== 'CASH' && (
+                <>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>
+                    {paymentMode === 'CHEQUE' ? 'Cheque number' : 'Transaction reference'}
+                  </Text>
+                  <TextInput
+                    value={paymentReference}
+                    onChangeText={setPaymentReference}
+                    maxLength={100}
+                    autoCapitalize="characters"
+                    placeholder={paymentMode === 'UPI' ? 'UPI UTR / transaction ID' : paymentMode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
+                    style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: C.gray200, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: C.gray900, marginBottom: 12 }}
+                  />
+                </>
+              )}
+
               <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Notes (optional)</Text>
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
                 multiline
                 numberOfLines={2}
-                placeholder="e.g. Paid via UPI on 25 Sep"
+                placeholder="Anything the admin should know"
                 style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: C.gray200, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: C.gray900, marginBottom: 16 }}
               />
 
@@ -144,9 +223,24 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Who approved / rejected / voided an intimation, for the "Approved by …" line.
+function intimationActor(item: any): { text: string; color: string } | null {
+  const roleLabel = (r?: string) => (r === 'MANAGER' ? 'Manager' : 'Admin');
+  const make = (verb: string, name: string | undefined, role: string | undefined, at: string | undefined, color: string) => ({
+    text: `${verb} by ${name ?? 'Unknown'} (${roleLabel(role)})${at ? ` · ${fmtDate(at)}` : ''}`,
+    color,
+  });
+  if (item.status === 'APPROVED' && item.approvedBy) return make('Approved', item.approvedByName, item.approvedByRole, item.approvedAt, '#15803D');
+  if (item.status === 'REJECTED' && item.rejectedBy) return make('Rejected', item.rejectedByName, item.rejectedByRole, item.rejectedAt, '#DC2626');
+  if (item.status === 'VOIDED' && item.voidedBy) return make('Voided', item.voidedByName, item.voidedByRole, item.voidedAt, '#DC2626');
+  return null;
+}
+
 function IntimationDetailModal({ item, onClose, onWithdraw }: { item: any; onClose: () => void; onWithdraw: () => void }) {
   const status = STATUS_STYLE[item.status] ?? { label: item.status, bg: C.gray100, text: C.gray700 };
   const canWithdraw = item.status === 'PENDING';
+  const { data: chits = [] } = useQuery({ queryKey: ['my-chits'], queryFn: getMyChits });
+  const chitNames: Record<string, string> = Object.fromEntries((chits as any[]).map((c: any) => [c.id, c.name]));
 
   return (
     <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
@@ -167,6 +261,24 @@ function IntimationDetailModal({ item, onClose, onWithdraw }: { item: any; onClo
               <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(item.createdAt)}</Text>
             </View>
 
+            {item.paymentMode && (
+              <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
+                  {item.paymentMode.replace(/_/g, ' ')}
+                </Text>
+                {item.paymentReference && (
+                  <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }}>Reference: {item.paymentReference}</Text>
+                )}
+              </View>
+            )}
+
+            {(() => {
+              const a = intimationActor(item);
+              return a ? (
+                <Text style={{ fontSize: 13, fontWeight: '600', color: a.color, marginBottom: 12 }}>{a.text}</Text>
+                ) : null;
+            })()}
+
             {item.rejectReason && (
               <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 12 }}>
                 <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '600' }}>Reject reason</Text>
@@ -181,8 +293,11 @@ function IntimationDetailModal({ item, onClose, onWithdraw }: { item: any; onClo
             )}
 
             <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Chit Payments Reported</Text>
-            {(item.items ?? []).map((it: any) => (
+            {(item.items ?? []).map((it: any, idx: number) => (
               <View key={it.id} style={{ backgroundColor: C.gray50, borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy, marginBottom: 6 }} numberOfLines={1}>
+                  {it.chitName ?? chitNames[it.chitId] ?? `Chit ${idx + 1}`}
+                </Text>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <Text style={{ fontSize: 12, color: C.gray500 }}>Claimed</Text>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>
@@ -295,9 +410,20 @@ export default function MemberIntimationsScreen() {
                       <Text style={{ fontSize: 11, color: C.gray400 }}>{(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</Text>
                     </View>
                     <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(item.createdAt)}</Text>
+                    {item.paymentMode && (
+                      <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', marginTop: 2 }}>
+                        {item.paymentMode.replace(/_/g, ' ')}
+                      </Text>
+                    )}
                     {item.notes && (
                       <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }} numberOfLines={1}>{item.notes}</Text>
                     )}
+                    {(() => {
+                      const a = intimationActor(item);
+                      return a ? (
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: a.color, marginTop: 4 }} numberOfLines={1}>{a.text}</Text>
+                      ) : null;
+                    })()}
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Amount value={total} size="md" color={C.gray900} />

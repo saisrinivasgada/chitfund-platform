@@ -10,21 +10,12 @@ name: Offline Payment — Phase 3 (sync after service restored)
       text: "Dashboard"
     timeout: 15000
 
-# Tap sync indicator to trigger immediate sync
-- tapOn:
-    text: "waiting"
-- waitForAnimationToEnd
-
-# Syncing animation should appear briefly
+# Reconnect/relaunch triggers sync automatically; no extra user tap is required.
+# The transient "Syncing" animation may complete before XCTest attaches on a fast
+# local network, so the deterministic contract is the durable final state.
 - extendedWaitUntil:
     visible:
-      text: "Syncing"
-    timeout: 8000
-
-# Wait for sync to complete — must reach "Synced at HH:MM"
-- extendedWaitUntil:
-    visible:
-      text: "Synced at"
+      text: "Synced at.*"
     timeout: 20000
 
 # No pending, no errors
@@ -34,23 +25,35 @@ name: Offline Payment — Phase 3 (sync after service restored)
     text: "Sync needs attention"
 
 # Take screenshot after sync
-- takeScreenshot: ${SCREENSHOT_DIR}/after_sync
+- takeScreenshot: after_sync
 
 # Navigate to Finance → History to verify one server batch
 - tapOn:
     point: "70%,94%"
 - waitForAnimationToEnd
+# Finance uses a horizontally scrollable tab strip. Reveal the later History tab
+# without relying on a particular screen width.
+- swipe:
+    start: "90%,16%"
+    end: "10%,16%"
+    duration: 500
+- swipe:
+    start: "90%,16%"
+    end: "10%,16%"
+    duration: 500
+- waitForAnimationToEnd
 - tapOn:
     text: "History"
 - waitForAnimationToEnd
 
-# The payment should appear with UPI mode and ₹3,500
-- assertVisible:
-    text: "3,500"
-- assertVisible:
-    text: "UPI"
+# The payment card is exposed to iOS accessibility as one compound label.
+# Verify member, amount and mode together so a different history row cannot satisfy it.
+- extendedWaitUntil:
+    visible:
+      text: "${TEST_MEMBER_NAME}.*₹3,500.*UPI.*"
+    timeout: 15000
 
 # Verify no duplicate — there should be exactly one entry for this amount
 - assertNotVisible:
     index: 1
-    text: "3,500"
+    text: "${TEST_MEMBER_NAME}.*₹3,500.*UPI.*"

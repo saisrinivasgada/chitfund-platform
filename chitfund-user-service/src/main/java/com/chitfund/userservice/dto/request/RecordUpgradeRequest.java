@@ -2,6 +2,8 @@ package com.chitfund.userservice.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.time.LocalDate;
@@ -25,8 +27,11 @@ public class RecordUpgradeRequest {
 
     private String notes;
 
+    @NotBlank
+    @Size(max = 255)
     private String idempotencyKey;
 
     /** Account credit to deduct from tenant balance (paise). Null = no credit applied. */
+    @PositiveOrZero
     private Long creditAppliedPaise;
 }

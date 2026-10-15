@@ -63,7 +63,7 @@ public class EnrollmentService {
     }
 
     public List<ChitEnrollmentResponse> listEnrollments(UUID chitId) {
-        chitService.findByIdScoped(chitId); // validate chit exists
+        chitService.findByIdScoped(chitId); // validate tenant ownership
         return enrollmentRepository.findByChitIdAndActiveTrue(chitId)
                 .stream()
                 .map(chitMapper::toEnrollmentResponse)

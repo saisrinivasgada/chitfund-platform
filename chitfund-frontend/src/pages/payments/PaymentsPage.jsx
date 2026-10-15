@@ -8,7 +8,7 @@ import {
   getPendingRemittance, remitPayment, voidPaymentBatch,
   adminCreateCashRequest, collectForRequest, voidCashPickup, getCashRequestAuditLog,
   updateCashRequest, getCashRequestSummary, getCancelledCashRequests,
-  getAllIntimations, approveIntimation, rejectIntimation, voidIntimation,
+  getAllIntimations, approveIntimation, rejectIntimation, voidIntimation, getIntimationHistory,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -2066,6 +2066,86 @@ export function HistoryTab() {
   );
 }
 
+// ─── Intimation history timeline ───────────────────────────────────────────
+
+const ACTION_META = {
+  CREATED:   { label: 'Submitted',   dot: 'bg-blue-500' },
+  WITHDRAWN: { label: 'Withdrawn',   dot: 'bg-gray-400' },
+  APPROVED:  { label: 'Approved',    dot: 'bg-green-500' },
+  REJECTED:  { label: 'Rejected',    dot: 'bg-red-500' },
+  VOIDED:    { label: 'Voided',      dot: 'bg-red-500' },
+};
+
+function IntimationHistorySection({ intimationId }) {
+  const [open, setOpen] = useState(false);
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: ['intimation-history', intimationId],
+    queryFn: () => getIntimationHistory(intimationId),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  const fmtTs = (s) => {
+    if (!s) return '—';
+    const d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
+    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="border-t border-gray-100 mt-3 pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1"
+      >
+        {open ? '▲' : '▼'} Activity
+      </button>
+      {open && (
+        <div className="mt-2">
+          {isLoading ? (
+            <p className="text-xs text-gray-400">Loading…</p>
+          ) : logs.length === 0 ? (
+            <p className="text-xs text-gray-400">No history yet.</p>
+          ) : (
+            <ol className="relative border-l border-gray-200 ml-1.5 space-y-3">
+              {logs.map(log => {
+                const meta = ACTION_META[log.action] ?? { label: log.action, dot: 'bg-gray-400' };
+                return (
+                  <li key={log.id} className="ml-4">
+                    <span className={`absolute -left-1.5 mt-1 w-3 h-3 rounded-full border-2 border-white ${meta.dot}`} />
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xs font-semibold text-gray-700">{meta.label}</span>
+                      <span className="text-xs text-gray-400">{fmtTs(log.performedAt)}</span>
+                      {log.performedByRole && (
+                        <span className="text-xs text-gray-400">by {log.performedByRole.toLowerCase()}</span>
+                      )}
+                    </div>
+                    {log.reason && (
+                      <p className="text-xs text-gray-500 mt-0.5 italic">"{log.reason}"</p>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Who approved / rejected / voided an intimation, for the "Approved by …" line.
+function intimationActor(item) {
+  const roleLabel = (r) => (r === 'MANAGER' ? 'Manager' : 'Admin');
+  if (item.status === 'APPROVED' && item.approvedBy)
+    return { verb: 'Approved', name: item.approvedByName, role: roleLabel(item.approvedByRole), at: item.approvedAt, cls: 'text-green-700' };
+  if (item.status === 'REJECTED' && item.rejectedBy)
+    return { verb: 'Rejected', name: item.rejectedByName, role: roleLabel(item.rejectedByRole), at: item.rejectedAt, cls: 'text-red-600' };
+  if (item.status === 'VOIDED' && item.voidedBy)
+    return { verb: 'Voided', name: item.voidedByName, role: roleLabel(item.voidedByRole), at: item.voidedAt, cls: 'text-red-600' };
+  return null;
+}
+
 // ─── Intimations Tab ───────────────────────────────────────────────────────
 
 const INTIMATION_STATUS = {
@@ -2078,7 +2158,7 @@ const INTIMATION_STATUS = {
 
 export function IntimationsTab() {
   const qc = useQueryClient();
-  const { toast } = useToastContext();
+  const toast = useToastContext();
   const [statusFilter, setStatusFilter] = useState('PENDING');
   const [approveTarget, setApproveTarget] = useState(null);
   const [approvedAmounts, setApprovedAmounts] = useState({});
@@ -2087,12 +2167,24 @@ export function IntimationsTab() {
   const [voidTarget, setVoidTarget] = useState(null);
   const [voidReason, setVoidReason] = useState('');
 
-  const { data: all = [], isLoading, refetch } = useQuery({
+  const { data: all = [], isLoading } = useQuery({
     queryKey: ['admin-intimations'],
     queryFn: getAllIntimations,
     refetchOnMount: true,
     refetchInterval: 30_000,
   });
+
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 60_000 });
+  const { data: allChitsList = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 60_000 });
+  const memberMap = Object.fromEntries([
+    ...(staff ?? []).map((s) => [s.id, `${s.fullName ?? s.username ?? 'Staff'} (Admin)`]),
+    ...(allMembers ?? []).flatMap((m) => {
+      const name = m.fullName ?? m.name ?? 'Member';
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    }),
+  ]);
+  const chitMap = Object.fromEntries((allChitsList?.content ?? allChitsList ?? []).map((c) => [c.id, c.name]));
 
   const filtered = all.filter(i => statusFilter === 'ALL' || i.status === statusFilter);
   const pendingCount = all.filter(i => i.status === 'PENDING').length;
@@ -2107,32 +2199,32 @@ export function IntimationsTab() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-intimations'] });
-      toast('Intimation approved and payment recorded');
+      toast.success('Intimation approved and payment recorded');
       setApproveTarget(null);
     },
-    onError: (e) => toast(e?.response?.data?.message ?? 'Approval failed', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? 'Approval failed'),
   });
 
   const rejectMut = useMutation({
     mutationFn: () => rejectIntimation(rejectTarget.id, rejectReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-intimations'] });
-      toast('Intimation rejected');
+      toast.success('Intimation rejected');
       setRejectTarget(null);
       setRejectReason('');
     },
-    onError: (e) => toast(e?.response?.data?.message ?? 'Rejection failed', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? 'Rejection failed'),
   });
 
   const voidMut = useMutation({
     mutationFn: () => voidIntimation(voidTarget.id, voidReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-intimations'] });
-      toast('Intimation voided and payments reversed');
+      toast.success('Intimation voided and payments reversed');
       setVoidTarget(null);
       setVoidReason('');
     },
-    onError: (e) => toast(e?.response?.data?.message ?? 'Void failed', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? 'Void failed'),
   });
 
   const fmtAmt = (n) => n != null ? `₹${Number(n).toLocaleString('en-IN')}` : '—';
@@ -2154,11 +2246,15 @@ export function IntimationsTab() {
           <p className="text-sm text-gray-500 mb-4">
             Edit the approved amounts if needed, then confirm.
           </p>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 mb-4 text-sm text-blue-900">
+            <span className="font-semibold">{approveTarget.paymentMode?.replaceAll('_', ' ') ?? 'Unknown method'}</span>
+            {approveTarget.paymentReference && <span> · Ref: {approveTarget.paymentReference}</span>}
+          </div>
           <div className="space-y-3 mb-4">
             {(approveTarget.items ?? []).map((it, idx) => (
               <div key={it.id} className="bg-gray-50 rounded-lg p-3">
                 <div className="text-xs text-gray-500 mb-1">
-                  Chit {idx + 1} · Member claimed {fmtAmt(it.claimedAmount)}
+                  {it.chitName ?? chitMap[it.chitId] ?? `Chit ${idx + 1}`} · Member claimed {fmtAmt(it.claimedAmount)}
                 </div>
                 <FormField label="Approved Amount (₹)">
                   <Input
@@ -2183,7 +2279,7 @@ export function IntimationsTab() {
       {/* Reject modal */}
       {rejectTarget && (
         <Modal title="Reject Intimation" onClose={() => setRejectTarget(null)}>
-          <FormField label="Reason (optional)">
+          <FormField label="Reason (required)">
             <Textarea
               value={rejectReason}
               onChange={e => setRejectReason(e.target.value)}
@@ -2193,7 +2289,10 @@ export function IntimationsTab() {
           </FormField>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="secondary" onClick={() => setRejectTarget(null)}>Cancel</Button>
-            <Button variant="danger" onClick={() => rejectMut.mutate()} disabled={rejectMut.isPending}>
+            <Button variant="danger" onClick={() => {
+              if (!rejectReason.trim()) { toast.error('Reason is required'); return; }
+              rejectMut.mutate();
+            }} disabled={rejectMut.isPending}>
               {rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'}
             </Button>
           </div>
@@ -2204,7 +2303,7 @@ export function IntimationsTab() {
       {voidTarget && (
         <Modal title="Void Approved Intimation" onClose={() => setVoidTarget(null)}>
           <p className="text-sm text-red-600 mb-3">
-            This will reverse all payment batches created for this intimation.
+            This will reverse the payment created for this intimation and all of its chit allocations.
           </p>
           <FormField label="Reason (required)">
             <Textarea
@@ -2218,7 +2317,7 @@ export function IntimationsTab() {
             <Button variant="secondary" onClick={() => setVoidTarget(null)}>Cancel</Button>
             <Button
               variant="danger"
-              onClick={() => { if (!voidReason.trim()) { toast('Reason is required', 'error'); return; } voidMut.mutate(); }}
+              onClick={() => { if (!voidReason.trim()) { toast.error('Reason is required'); return; } voidMut.mutate(); }}
               disabled={voidMut.isPending}
             >
               {voidMut.isPending ? 'Voiding…' : 'Void & Reverse Payments'}
@@ -2258,20 +2357,26 @@ export function IntimationsTab() {
             const total = (item.items ?? []).reduce((sum, it) => sum + Number(it.claimedAmount ?? 0), 0);
             return (
               <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
-                    <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
-                    <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
-                  </div>
+                <div className="flex items-start justify-between mb-1">
+                  <span className="text-sm font-semibold text-gray-900">
+                    {memberMap[item.memberId] ?? <span className="font-mono text-xs text-gray-400">{item.memberId?.slice(0, 8)}…</span>}
+                  </span>
                   <span className="text-base font-bold" style={{ color: '#1E3A5F' }}>{fmtAmt(total)}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap mb-3">
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
+                  <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
+                  <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
+                  {item.paymentMode && <span className="text-xs font-medium text-blue-700">· {item.paymentMode.replaceAll('_', ' ')}</span>}
                 </div>
 
                 {/* Per-chit breakdown */}
                 <div className="bg-gray-50 rounded-lg divide-y divide-gray-100 mb-3">
                   {(item.items ?? []).map((it, idx) => (
                     <div key={it.id} className="flex justify-between items-center px-3 py-2 text-sm">
-                      <span className="text-gray-500">Chit {idx + 1}</span>
+                      <span className="text-gray-600 font-medium">
+                        {it.chitName ?? chitMap[it.chitId] ?? `Chit ${idx + 1}`}
+                      </span>
                       <div className="text-right">
                         <div className="text-gray-700">Claimed {fmtAmt(it.claimedAmount)}</div>
                         {it.approvedAmount != null && (
@@ -2285,12 +2390,23 @@ export function IntimationsTab() {
                 {item.notes && (
                   <p className="text-xs text-gray-500 mb-3 italic">"{item.notes}"</p>
                 )}
+                {item.paymentReference && (
+                  <p className="text-xs text-gray-500 mb-3">Reference: {item.paymentReference}</p>
+                )}
                 {item.rejectReason && (
                   <p className="text-xs text-red-600 mb-3">Reject reason: {item.rejectReason}</p>
                 )}
                 {item.voidReason && (
                   <p className="text-xs text-red-600 mb-3">Void reason: {item.voidReason}</p>
                 )}
+                {(() => {
+                  const a = intimationActor(item);
+                  return a ? (
+                    <p className={`text-xs font-medium mb-3 ${a.cls}`}>
+                      {a.verb} by {a.name ?? 'Unknown'} ({a.role}){a.at ? ` · ${fmtTs(a.at)}` : ''}
+                    </p>
+                  ) : null;
+                })()}
 
                 {/* Action buttons */}
                 {item.status === 'PENDING' && (
@@ -2322,6 +2438,8 @@ export function IntimationsTab() {
                     Void & Reverse
                   </Button>
                 )}
+
+                <IntimationHistorySection intimationId={item.id} />
               </div>
             );
           })}

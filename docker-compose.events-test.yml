@@ -17,7 +17,9 @@ services:
       AWS_DEFAULT_REGION: us-east-2
       EAGER_SERVICE_LOADING: "1"
     ports:
-      - "127.0.0.1:4566:4566"
+      # Keep the disposable event stack independent from the regular local-dev
+      # LocalStack, which intentionally owns host port 4566.
+      - "127.0.0.1:${CHITWISE_TEST_LOCALSTACK_PORT:-4567}:4566"
     volumes:
       - ./scripts/localstack/init-sqs.sh:/etc/localstack/init/ready.d/10-init-sqs.sh:ro
     healthcheck:
@@ -30,6 +32,7 @@ services:
 
   payment-service:
     environment:
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       CHITWISE_EVENTS_MODE: DUAL
       CHITWISE_EVENTS_MAX_ATTEMPTS: 10
       SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
@@ -40,6 +43,7 @@ services:
 
   payout-service:
     environment:
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       CHITWISE_EVENTS_MODE: DUAL
       CHITWISE_EVENTS_MAX_ATTEMPTS: 10
       SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
@@ -50,6 +54,7 @@ services:
 
   user-service:
     environment:
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
     depends_on:
       localstack:
@@ -57,6 +62,7 @@ services:
 
   member-service:
     environment:
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
     depends_on:
       localstack:
@@ -64,6 +70,7 @@ services:
 
   chit-service:
     environment:
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
     depends_on:
       localstack:
@@ -83,7 +90,7 @@ services:
       JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
       INTERNAL_SERVICE_KEY: test-internal-service-key
       SPRING_PROFILES_ACTIVE: test
-      JAVA_TOOL_OPTIONS: -Xms64m -Xmx512m
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       AWS_REGION: us-east-2
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
@@ -126,7 +133,7 @@ services:
       JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
       INTERNAL_SERVICE_KEY: test-internal-service-key
       SPRING_PROFILES_ACTIVE: test
-      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       AWS_REGION: us-east-2
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
@@ -162,7 +169,7 @@ services:
       JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
       INTERNAL_SERVICE_KEY: test-internal-service-key
       SPRING_PROFILES_ACTIVE: test
-      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx192m
       AWS_REGION: us-east-2
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test

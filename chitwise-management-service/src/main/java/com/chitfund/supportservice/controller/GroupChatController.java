@@ -21,8 +21,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/groups")
 @RequiredArgsConstructor
@@ -68,8 +66,9 @@ public class GroupChatController {
             @PathVariable String id,
             @Valid @RequestBody AddGroupMemberRequest body) {
         OrgRequestContext ctx = orgCtx(req);
+        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(groupChatService.addMember(id, ctx.getTenantId(), ctx.getRole(), body));
+                .body(groupChatService.addMember(id, ctx.getTenantId(), ctx.getUserId(), ctx.getRole(), body));
     }
 
     @DeleteMapping("/{id}/members/{userId}")
@@ -78,6 +77,7 @@ public class GroupChatController {
             @PathVariable String id,
             @PathVariable String userId) {
         OrgRequestContext ctx = orgCtx(req);
+        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         groupChatService.removeMember(id, ctx.getTenantId(), userId, ctx.getUserId(), ctx.getRole());
         return ResponseEntity.noContent().build();
     }
@@ -120,6 +120,7 @@ public class GroupChatController {
             @PathVariable String id,
             @PathVariable String msgId) {
         OrgRequestContext ctx = orgCtx(req);
+        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         groupChatService.softDeleteMessage(id, msgId, ctx.getTenantId(), ctx.getUserId());
         return ResponseEntity.noContent().build();
     }
@@ -138,14 +139,15 @@ public class GroupChatController {
         }
     }
 
-    /** Fail-open: only deny when user-service explicitly confirms live_chat is absent. */
+    /** Default deny: live chat is allowed only when user-service proves entitlement. */
     private boolean chatCapabilityDenied(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) return true;
         try {
             List<String> caps = tenantSupportClient.getCapabilities(tenantId);
-            return caps != null && !caps.contains("live_chat");
+            return caps == null || !caps.contains("live_chat");
         } catch (Exception e) {
-            log.warn("live_chat capability check failed for tenant {} — failing open: {}", tenantId, e.getMessage());
-            return false;
+            log.warn("live_chat capability check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
+            return true;
         }
     }
 

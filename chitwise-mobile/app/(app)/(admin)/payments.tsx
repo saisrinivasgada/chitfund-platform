@@ -29,8 +29,8 @@ import { useAuthStore } from '../../../store/authStore';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 
-const TABS = ['Cash Requests', 'Intimations', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
-type Tab = typeof TABS[number];
+const ALL_TABS = ['Cash Requests', 'Intimations', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
+type Tab = typeof ALL_TABS[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Status config for cash pickups
@@ -1481,9 +1481,11 @@ function PayoutsTab() {
   const [cpSameChitOtherCollect, setCpSameChitOtherCollect] = useState<Record<string, { enabled: boolean; amount: string }>>({});
   const [cpDiscount, setCpDiscount] = useState('0');
   const [cpNotes, setCpNotes] = useState('');
+  const [cpIdempotencyKey, setCpIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   // ── Disburse state ────────────────────────────────────────────────────────
   const [disburseTarget, setDisburseTarget] = useState<any>(null);
+  const [disburseIdempotencyKey, setDisburseIdempotencyKey] = useState(() => Crypto.randomUUID());
   const [disburseAmt, setDisburseAmt] = useState('');
   const [disburseMode, setDisburseMode] = useState('CASH');
   const [disburseNotes, setDisburseNotes] = useState('');
@@ -1674,6 +1676,7 @@ function PayoutsTab() {
           .map(([mNum, v]) => ({ month: Number(mNum), amount: Number(v.amount) })),
       ].sort((a, b) => a.month - b.month);
       return createPayout({
+        idempotencyKey: cpIdempotencyKey,
         chitId: cpChitId,
         memberId: mid,
         monthNumber: selectedWinner.monthNumber,
@@ -1691,6 +1694,7 @@ function PayoutsTab() {
       });
     },
     onSuccess: () => {
+      setCpIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
       qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
       qc.invalidateQueries({ queryKey: ['m-cp-all-payouts'] });
@@ -1707,12 +1711,13 @@ function PayoutsTab() {
 
   const disburseMut = useMutation({
     mutationFn: () => disbursePayout(disburseTarget.id, {
-      amount: Number(disburseAmt), paymentMode: disburseMode, notes: disburseNotes || undefined,
-    }),
+      amount: Number(disburseAmt), disbursementMode: disburseMode, notes: disburseNotes || undefined,
+    }, disburseIdempotencyKey),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
       qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
       setDisburseTarget(null); setDisburseAmt(''); setDisburseNotes('');
+      setDisburseIdempotencyKey(Crypto.randomUUID());
       toast.saved('Payout disbursed successfully');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Disbursement failed — please try again.'),
@@ -3965,6 +3970,19 @@ const INTIMATION_STATUS: Record<string, { label: string; bg: string; text: strin
   VOIDED:    { label: 'Voided',    bg: '#FEE2E2', text: '#DC2626' },
 };
 
+// Who approved / rejected / voided an intimation, for the "Approved by …" line.
+function intimationActor(item: any): { text: string; color: string } | null {
+  const roleLabel = (r?: string) => (r === 'MANAGER' ? 'Manager' : 'Admin');
+  const make = (verb: string, name: string | undefined, role: string | undefined, at: string | undefined, color: string) => ({
+    text: `${verb} by ${name ?? 'Unknown'} (${roleLabel(role)})${at ? ` · ${fmtDate(at)}` : ''}`,
+    color,
+  });
+  if (item.status === 'APPROVED' && item.approvedBy) return make('Approved', item.approvedByName, item.approvedByRole, item.approvedAt, '#15803D');
+  if (item.status === 'REJECTED' && item.rejectedBy) return make('Rejected', item.rejectedByName, item.rejectedByRole, item.rejectedAt, '#DC2626');
+  if (item.status === 'VOIDED' && item.voidedBy) return make('Voided', item.voidedByName, item.voidedByRole, item.voidedAt, '#DC2626');
+  return null;
+}
+
 function IntimationApproveModal({
   intimation,
   onClose,
@@ -4008,11 +4026,17 @@ function IntimationApproveModal({
             <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
               Edit the approved amounts if needed, then tap Approve.
             </Text>
+            <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 10, marginBottom: 12 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
+                {(intimation.paymentMode ?? 'Unknown method').replace(/_/g, ' ')}
+                {intimation.paymentReference ? ` · Ref: ${intimation.paymentReference}` : ''}
+              </Text>
+            </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               {(intimation.items ?? []).map((it: any, idx: number) => (
                 <View key={it.id} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>
-                    Chit {idx + 1} · Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
+                    {it.chitName ?? `Chit ${idx + 1}`} · Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
                   </Text>
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Approved Amount (₹)</Text>
                   <TextInput
@@ -4094,7 +4118,7 @@ function IntimationsTab() {
             <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
               <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
                 <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 12 }}>Reject Intimation</Text>
-                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (optional)</Text>
+                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (required)</Text>
                 <TextInput
                   value={rejectReason}
                   onChangeText={setRejectReason}
@@ -4102,7 +4126,12 @@ function IntimationsTab() {
                   placeholder="Why are you rejecting this?"
                   style={{ backgroundColor: C.gray50, borderRadius: 8, borderWidth: 1, borderColor: C.gray200, padding: 10, fontSize: 13, marginBottom: 14 }}
                 />
-                <Button label={rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'} variant="danger" onPress={() => rejectMut.mutate()} disabled={rejectMut.isPending} />
+                <Button
+                  label={rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'}
+                  variant="danger"
+                  onPress={() => { if (!rejectReason.trim()) { toast.noted('Reason is required'); return; } rejectMut.mutate(); }}
+                  disabled={rejectMut.isPending}
+                />
                 <View style={{ height: 8 }} />
                 <Button label="Cancel" variant="ghost" onPress={() => setRejectTarget(null)} />
                 <View style={{ height: 16 }} />
@@ -4120,7 +4149,7 @@ function IntimationsTab() {
               <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
                 <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Void Approved Intimation</Text>
                 <Text style={{ fontSize: 12, color: '#DC2626', marginBottom: 10 }}>
-                  This will reverse all payment batches created for this intimation.
+                  This will reverse the payment created for this intimation and all chit allocations.
                 </Text>
                 <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (required)</Text>
                 <TextInput
@@ -4198,6 +4227,11 @@ function IntimationsTab() {
                     </Text>
                   </View>
                   <Text style={{ fontSize: 12, color: C.gray500 }}>{fmtDate(item.createdAt)}</Text>
+                  {item.paymentMode && (
+                    <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', marginTop: 2 }}>
+                      {item.paymentMode.replace(/_/g, ' ')}{item.paymentReference ? ` · ${item.paymentReference}` : ''}
+                    </Text>
+                  )}
                   {item.notes && (
                     <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }} numberOfLines={1}>{item.notes}</Text>
                   )}
@@ -4208,7 +4242,7 @@ function IntimationsTab() {
               {/* Per-chit breakdown */}
               {(item.items ?? []).map((it: any, idx: number) => (
                 <View key={it.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderTopWidth: idx === 0 ? 1 : 0, borderTopColor: C.gray100 }}>
-                  <Text style={{ fontSize: 12, color: C.gray500 }}>Chit {idx + 1}</Text>
+                  <Text style={{ fontSize: 12, color: C.gray700, fontWeight: '600', flex: 1, marginRight: 8 }} numberOfLines={1}>{it.chitName ?? `Chit ${idx + 1}`}</Text>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={{ fontSize: 12, color: C.gray700 }}>
                       Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
@@ -4221,6 +4255,13 @@ function IntimationsTab() {
                   </View>
                 </View>
               ))}
+
+              {(() => {
+                const a = intimationActor(item);
+                return a ? (
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: a.color, marginTop: 8 }}>{a.text}</Text>
+                ) : null;
+              })()}
 
               {/* Action buttons */}
               {item.status === 'PENDING' && (
@@ -4262,12 +4303,17 @@ function IntimationsTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AdminPaymentsScreen() {
   const params = useLocalSearchParams<{ tab?: string; filter?: string; memberId?: string }>();
+  const settlementEnabled = useAuthStore((state) => state.user?.settlementEnabled === true);
+  const tabs: readonly Tab[] = settlementEnabled
+    ? ALL_TABS
+    : ALL_TABS.filter((tab) => tab !== 'Settlement');
   const [activeTab, setActiveTab] = useState<Tab>('Cash Requests');
 
   useEffect(() => {
     const t = params.tab === 'settlement' ? 'Settlement' : params.tab as Tab;
-    if (t && TABS.includes(t)) setActiveTab(t);
-  }, [params.tab]);
+    if (t && tabs.includes(t)) setActiveTab(t);
+    else if (activeTab === 'Settlement' && !settlementEnabled) setActiveTab('Cash Requests');
+  }, [params.tab, settlementEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -4284,7 +4330,7 @@ export default function AdminPaymentsScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
         contentContainerStyle={{ paddingHorizontal: 16 }}>
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)}
             style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: activeTab === tab ? C.navy : 'transparent', marginRight: 4 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: activeTab === tab ? C.navy : C.gray400 }}>
@@ -4303,7 +4349,7 @@ export default function AdminPaymentsScreen() {
         {activeTab === 'History'        && <HistoryTab />}
         {activeTab === 'Payouts'        && <PayoutsTab />}
         {activeTab === 'Treasury'       && <TreasuryTab />}
-        {activeTab === 'Settlement'     && <SettlementTab initialMemberId={params.memberId} />}
+        {activeTab === 'Settlement' && settlementEnabled && <SettlementTab initialMemberId={params.memberId} />}
       </View>
     </SafeAreaView>
   );

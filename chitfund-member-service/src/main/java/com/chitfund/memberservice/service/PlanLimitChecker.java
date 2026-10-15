@@ -3,13 +3,13 @@ package com.chitfund.memberservice.service;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.common.plan.PlanEntitlementVerifier;
 import com.chitfund.memberservice.client.UserServiceClient;
 import com.chitfund.memberservice.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.util.Map;
 
 @Component
@@ -18,6 +18,7 @@ public class PlanLimitChecker {
 
     private final MemberRepository memberRepository;
     private final UserServiceClient userServiceClient;
+    private final TenantOperationLock tenantOperationLock;
 
     public void checkCanAddMember() {
         String tenantId = TenantContext.get();
@@ -27,19 +28,14 @@ public class PlanLimitChecker {
         }
 
         Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
-        if (limits == null) {
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "Subscription could not be verified. Please try again.", HttpStatus.SERVICE_UNAVAILABLE);
-        }
-
-        checkNotExpired(limits);
+        PlanEntitlementVerifier.requireActiveSubscription(limits);
 
         String planName = (String) limits.getOrDefault("plan", "current");
 
-        Object maxMembersRaw = limits.get("maxMembers");
-        int maxMembers = maxMembersRaw instanceof Number ? ((Number) maxMembersRaw).intValue() : 20;
+        int maxMembers = PlanEntitlementVerifier.requireLimit(limits, "maxMembers");
         if (maxMembers == -1) return; // unlimited
 
+        tenantOperationLock.acquire(tenantId);
         long current = memberRepository.countByTenantIdAndDeletedAtIsNull(tenantId);
         if (current >= maxMembers) {
             throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,
@@ -49,18 +45,4 @@ public class PlanLimitChecker {
         }
     }
 
-    private void checkNotExpired(Map<String, Object> limits) {
-        Object expiresAtRaw = limits.get("planExpiresAt");
-        if (expiresAtRaw == null) return;
-        try {
-            LocalDateTime expiresAt = LocalDateTime.parse(expiresAtRaw.toString());
-            if (expiresAt.isBefore(LocalDateTime.now())) {
-                throw new BusinessException(ErrorCode.PLAN_EXPIRED,
-                        "Your subscription has expired. Please renew your plan to continue adding members.");
-            }
-        } catch (java.time.format.DateTimeParseException invalidPlanData) {
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "Subscription data is invalid. Please contact support.", HttpStatus.SERVICE_UNAVAILABLE);
-        }
-    }
 }

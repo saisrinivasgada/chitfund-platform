@@ -31,6 +31,7 @@ import SuperAdminAlertsPage from './pages/superadmin/SuperAdminAlertsPage';
 import SuperAdminBillingPage from './pages/superadmin/SuperAdminBillingPage';
 import SuperAdminPaymentDetailPage from './pages/superadmin/SuperAdminPaymentDetailPage';
 import DashboardPage from './pages/DashboardPage';
+import ActivityPage from './pages/ActivityPage';
 import MembersPage from './pages/members/MembersPage';
 import MemberDetailPage from './pages/members/MemberDetailPage';
 import ChitsPage from './pages/chits/ChitsPage';
@@ -116,6 +117,7 @@ export default function App() {
       {/* Admin/Staff routes */}
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/activity" element={<ActivityPage />} />
         <Route path="/members" element={<MembersPage />} />
         <Route path="/members/:id" element={<MemberDetailPage />} />
         <Route path="/admin/member-view/:memberId" element={<AdminMemberViewPage />} />

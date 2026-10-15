@@ -1,45 +1,114 @@
 package com.chitfund.paymentservice.client;
 
 import com.chitfund.common.event.AuditLogEvent;
-import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.logging.AuditRequestContext;
+import com.chitfund.paymentservice.kafka.PaymentOutboxStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class AuditClient {
 
-    private final SqsTemplate sqsTemplate;
+    private final PaymentOutboxStore outboxStore;
     private final ObjectMapper objectMapper;
 
     public void log(String entityType, String entityId, String chitId,
                     String action, String actorId, String actorRole,
                     Object before, Object after, String tenantId) {
-        CompletableFuture.runAsync(() -> {
-            try {
-                String beforeJson = before != null ? objectMapper.writeValueAsString(before) : null;
-                String afterJson  = after  != null ? objectMapper.writeValueAsString(after)  : null;
-                publish(new AuditLogEvent("payment-service", entityType, entityId, chitId,
-                        action, actorId, actorRole, null, beforeJson, afterJson, null, tenantId));
-            } catch (Exception e) {
-                log.error("AUDIT_FAILURE: failed to queue audit event entity={} id={} action={}: {}",
-                        entityType, entityId, action, e.getMessage());
-            }
-        });
+        log(AuditDetails.builder()
+                .entityType(entityType)
+                .entityId(entityId)
+                .chitId(chitId)
+                .action(action)
+                .actorId(actorId)
+                .actorRole(actorRole)
+                .before(before)
+                .after(after)
+                .tenantId(tenantId)
+                .build());
     }
 
-    private void publish(AuditLogEvent event) throws Exception {
-        String payload  = objectMapper.writeValueAsString(event);
-        String envelope = objectMapper.writeValueAsString(
-                new SqsEventEnvelope(UUID.randomUUID().toString(), SqsQueues.EVT_AUDIT_LOG, payload));
-        sqsTemplate.send(SqsQueues.AUDIT_EVENTS, envelope);
+    /**
+     * Records a durable organization-activity fact in the same transaction as
+     * the financial operation. Optional context is deliberately explicit so
+     * retries, offline occurrence time and sensitive reasons are not flattened
+     * into an unsearchable metadata string.
+     */
+    public void log(AuditDetails details) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "A payment audit event must be recorded inside the business transaction");
+        }
+        try {
+            AuditRequestContext context = AuditRequestContext.current();
+            String eventId = UUID.randomUUID().toString();
+            AuditLogEvent event = new AuditLogEvent(
+                    "payment-service",
+                    details.entityType(),
+                    details.entityId(),
+                    details.chitId(),
+                    details.action(),
+                    details.actorId(),
+                    details.actorRole(),
+                    context.actorIp(),
+                    toJson(details.before()),
+                    toJson(details.after()),
+                    toJson(details.metadata()),
+                    details.tenantId(),
+                    context.correlationIdOr(details.correlationId()),
+                    context.idempotencyKeyOr(details.idempotencyKey()),
+                    context.sourceOr(details.source()),
+                    details.outcome() != null ? details.outcome() : "SUCCESS",
+                    details.reason(),
+                    details.effectiveActorId(),
+                    details.effectiveActorRole(),
+                    context.deviceSessionHashOr(details.deviceSessionHash()),
+                    details.occurredAt() != null ? details.occurredAt() : Instant.now(),
+                    details.originalOfflineAt(),
+                    details.synchronizedAt());
+            outboxStore.enqueue(eventId, details.tenantId(), details.entityType(), details.entityId(),
+                    SqsQueues.EVT_AUDIT_LOG, objectMapper.writeValueAsString(event),
+                    List.of(SqsQueues.AUDIT_EVENTS));
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "Could not record the payment audit event in the transactional outbox", exception);
+        }
     }
+
+    private String toJson(Object value) throws Exception {
+        return value != null ? objectMapper.writeValueAsString(value) : null;
+    }
+
+    @lombok.Builder
+    public record AuditDetails(
+            String entityType,
+            String entityId,
+            String chitId,
+            String action,
+            String actorId,
+            String actorRole,
+            Object before,
+            Object after,
+            Object metadata,
+            String tenantId,
+            String correlationId,
+            String idempotencyKey,
+            String source,
+            String outcome,
+            String reason,
+            String effectiveActorId,
+            String effectiveActorRole,
+            String deviceSessionHash,
+            Instant occurredAt,
+            Instant originalOfflineAt,
+            Instant synchronizedAt
+    ) { }
 }

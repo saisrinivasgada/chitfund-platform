@@ -45,14 +45,17 @@ function RecordPaymentModal({ visible, tenant, onClose, onDone }: {
   const [method, setMethod] = useState('UPI');
   const [pType, setPType] = useState('RENEWAL');
   const METHODS = ['UPI', 'CASH', 'BANK_TRANSFER'];
-  const TYPES   = ['PURCHASE', 'RENEWAL', 'UPGRADE'];
+  const TYPES   = ['PURCHASE', 'RENEWAL'];
 
   const mut = useMutation({
     mutationFn: () => billingRecordPayment({
       tenantId: tenant?.id,
       amountPaise: Math.round(Number(amount) * 100),
+      grossAmountPaise: Math.round(Number(amount) * 100),
       paymentMethod: method,
       type: pType,
+      toPlan: tenant?.plan,
+      paymentDate: new Date().toISOString().slice(0, 10),
     }),
     onSuccess: () => { toast.saved('Payment recorded'); onDone(); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),

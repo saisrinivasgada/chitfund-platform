@@ -1,0 +1,25 @@
+CREATE TABLE notification_delivery_outbox (
+    delivery_id       VARCHAR(36)  NOT NULL,
+    event_id          VARCHAR(36)  NOT NULL,
+    dedupe_key        VARCHAR(191) NOT NULL,
+    tenant_id         VARCHAR(36),
+    notification_id   VARCHAR(36),
+    delivery_type     VARCHAR(20)  NOT NULL,
+    payload           JSON         NOT NULL,
+    status            VARCHAR(16)  NOT NULL DEFAULT 'PENDING',
+    attempts          INT          NOT NULL DEFAULT 0,
+    available_at      DATETIME(6)  NOT NULL,
+    lease_token       VARCHAR(36),
+    claimed_until     DATETIME(6),
+    last_error_code   VARCHAR(100),
+    last_error        TEXT,
+    created_at        DATETIME(6)  NOT NULL,
+    published_at      DATETIME(6),
+
+    PRIMARY KEY (delivery_id),
+    UNIQUE KEY uq_notification_delivery_dedupe (dedupe_key),
+    INDEX idx_notification_delivery_claim (status, available_at),
+    INDEX idx_notification_delivery_lease (status, claimed_until),
+    INDEX idx_notification_delivery_event (event_id),
+    INDEX idx_notification_delivery_notification (notification_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -55,6 +55,29 @@ public class AdminWalletService {
         return toResponse(walletRepository.save(entry));
     }
 
+    /** Records an already-authorized payout fact. Plan expiry must not suppress
+     * accounting, and the command id becomes the immutable wallet entry id. */
+    @Transactional
+    public void addPayoutCommandEntry(UUID commandId, UUID payoutId, BigDecimal amount,
+                                      AccountType accountType, WalletEntryType entryType,
+                                      String category, String description, UUID actorId,
+                                      String tenantId) {
+        AdminWalletEntry entry = AdminWalletEntry.builder()
+                .id(commandId)
+                .tenantId(tenantId)
+                .accountType(accountType)
+                .entryType(entryType)
+                .amount(amount)
+                .amountPaise(MoneyPaise.exact(amount))
+                .category(category)
+                .description(description)
+                .referenceId(payoutId)
+                .createdAt(LocalDateTime.now())
+                .createdBy(actorId)
+                .build();
+        walletRepository.save(entry);
+    }
+
     public AdminWalletBalanceResponse getBalance(String tenantId) {
         BigDecimal cashIn  = walletRepository.sumByTenantAndAccountTypeAndEntryType(tenantId, AccountType.CASH, WalletEntryType.IN);
         BigDecimal cashOut = walletRepository.sumByTenantAndAccountTypeAndEntryType(tenantId, AccountType.CASH, WalletEntryType.OUT);

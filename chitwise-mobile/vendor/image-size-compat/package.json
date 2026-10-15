@@ -1,0 +1,11 @@
+{
+  "name": "image-size",
+  "version": "2.0.4-compat.0",
+  "description": "Metro-compatible adapter for the patched image-size API",
+  "main": "index.js",
+  "private": true,
+  "license": "MIT",
+  "dependencies": {
+    "image-size-secure": "npm:image-size@2.0.4"
+  }
+}

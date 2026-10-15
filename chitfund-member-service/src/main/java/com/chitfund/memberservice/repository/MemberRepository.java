@@ -23,11 +23,20 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     Optional<Member> findByPhoneAndPhoneCountryCodeAndTenantIdAndDeletedAtIsNull(
             String phone, String phoneCountryCode, String tenantId);
 
+    Optional<Member> findByPhoneAndTenantIdAndDeletedAtIsNull(String phone, String tenantId);
+
     boolean existsByUserIdAndTenantId(UUID userId, String tenantId);
 
     Optional<Member> findByUserIdAndTenantId(UUID userId, String tenantId);
 
     Optional<Member> findByIdAndTenantId(UUID id, String tenantId);
+
+    boolean existsByIdAndTenantIdAndDeletedAtIsNull(UUID id, String tenantId);
+
+    boolean existsByIdAndTenantIdAndStatusAndDeletedAtIsNull(
+            UUID id, String tenantId, MemberStatus status);
+
+    List<Member> findAllByTenantIdAndIdInAndDeletedAtIsNull(String tenantId, List<UUID> ids);
 
     // Clears userId on any member in the same tenant that already occupies the unique slot,
     // so a new member can claim it without violating uk_member_user_tenant.
@@ -47,10 +56,6 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     boolean existsByUserId(UUID userId);
 
     Optional<Member> findByPhoneAndDeletedAtIsNull(String phone);
-
-    Optional<Member> findByUserId(UUID userId);
-
-    boolean existsByIdAndStatus(UUID id, MemberStatus status);
 
     // Tenant-scoped search
     @Query("""

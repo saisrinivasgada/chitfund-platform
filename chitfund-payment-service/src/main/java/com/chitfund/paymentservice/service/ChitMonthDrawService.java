@@ -14,6 +14,7 @@ import com.chitfund.paymentservice.dto.request.SkipMonthRequest;
 import com.chitfund.paymentservice.dto.response.DrawSummaryResponse;
 import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
+import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.repository.ChitMonthDrawRepository;
 import com.chitfund.paymentservice.repository.PaymentAllocationRepository;
 import com.chitfund.paymentservice.repository.PaymentRecordRepository;
@@ -28,6 +29,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -40,22 +42,30 @@ public class ChitMonthDrawService {
     private final PaymentRecordRepository paymentRecordRepository;
     private final PaymentAllocationRepository allocationRepository;
     private final PaymentEventPublisher eventPublisher;
-    private final NotificationService notificationService;
-    private final com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
     private final com.chitfund.paymentservice.client.AuditClient auditClient;
     private final PlanExpiryChecker planExpiryChecker;
     private final MemberCreditService memberCreditService;
+    private final ChitServiceClient chitServiceClient;
+    private final com.chitfund.paymentservice.client.PayoutServiceClient payoutServiceClient;
 
     @Transactional
     public DrawSummaryResponse openDraw(OpenMonthRequest request, UUID adminId, String actorRole) {
         planExpiryChecker.assertNotExpired();
-        long realCycles = drawRepository.countByChitIdAndStatusNot(request.getChitId(), DrawStatus.SKIPPED);
-        if (realCycles >= request.getMaxCycles()) {
+        String tenantId = requireTenantContext();
+        ValidatedDrawInput validated = validateChitAndMembers(
+                request.getChitId(), request.getMembers().stream()
+                        .map(OpenMonthRequest.MemberAmount::getMemberId).toList());
+        ChitServiceClient.ChitDto chit = validated.chit();
+        validateOpenDrawContract(request, chit, validated.amounts());
+        long realCycles = drawRepository.countByTenantIdAndChitIdAndStatusNot(
+                tenantId, request.getChitId(), DrawStatus.SKIPPED);
+        if (realCycles >= chit.getDurationMonths()) {
             throw new BusinessException(ErrorCode.CHIT_CYCLES_EXHAUSTED,
-                    "All " + request.getMaxCycles() + " real cycles for this chit have already been opened. Skipped draws do not count toward the total.");
+                    "All " + chit.getDurationMonths() + " real cycles for this chit have already been opened. Skipped draws do not count toward the total.");
         }
 
-        if (drawRepository.existsByChitIdAndMonthNumber(request.getChitId(), request.getMonthNumber())) {
+        if (drawRepository.existsByTenantIdAndChitIdAndMonthNumber(
+                tenantId, request.getChitId(), request.getMonthNumber())) {
             throw new BusinessException(ErrorCode.MONTH_ALREADY_OPEN,
                     "Draw " + request.getMonthNumber() + " is already open or skipped for this chit");
         }
@@ -64,7 +74,7 @@ public class ChitMonthDrawService {
         DrawStatus initialStatus = isAuctionDraw ? DrawStatus.AWAITING_AUCTION : DrawStatus.OPEN;
 
         ChitMonthDraw cycle = ChitMonthDraw.builder()
-                .tenantId(com.chitfund.common.context.TenantContext.get())
+                .tenantId(tenantId)
                 .chitId(request.getChitId())
                 .monthNumber(request.getMonthNumber())
                 .dueDate(request.getDueDate())
@@ -83,7 +93,6 @@ public class ChitMonthDrawService {
             records = List.of();
         } else {
             records = new java.util.ArrayList<>();
-            String tenantId = com.chitfund.common.context.TenantContext.get();
             for (var m : request.getMembers()) {
                 BigDecimal amountDue = m.getAmountDue();
                 BigDecimal creditBalance = memberCreditService.getBalanceForUpdate(m.getMemberId());
@@ -152,25 +161,6 @@ public class ChitMonthDrawService {
         );
         eventPublisher.publish(openedEvent);
 
-        // Notify enrolled members: their payment is due
-        try {
-            List<java.util.UUID> memberIds = request.getMembers().stream()
-                    .map(m -> m.getMemberId()).toList();
-            java.util.Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(memberIds);
-            List<java.util.UUID> userIds = userIdMap.values().stream()
-                    .map(java.util.UUID::fromString).toList();
-            if (!userIds.isEmpty()) {
-                notificationService.notifyUsers(userIds,
-                        com.chitfund.paymentservice.domain.enums.NotificationType.CYCLE_OPENED,
-                        "Payment Due — Cycle #" + request.getMonthNumber(),
-                        "Your installment of ₹" + request.getInstallmentAmount() +
-                                " is due by " + request.getDueDate() + ".",
-                        "CYCLE", cycle.getId(), "/member");
-            }
-        } catch (Exception ex) {
-            log.warn("Could not send cycle notifications: {}", ex.getMessage());
-        }
-
         return buildSummary(cycle, records);
     }
 
@@ -186,7 +176,7 @@ public class ChitMonthDrawService {
                                      List<MemberSpotEntry> memberSpots,
                                      String tenantId) {
         applyAuctionDividend(chitId, monthNumber, grossInstallmentAmount,
-                dividendPerSpot, memberSpots, tenantId, null);
+                dividendPerSpot, memberSpots, tenantId, null, null);
     }
 
     /**
@@ -201,14 +191,70 @@ public class ChitMonthDrawService {
                                      List<MemberSpotEntry> memberSpots,
                                      String tenantId,
                                      BigDecimal distributableDiscount) {
-        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
+        applyAuctionDividend(chitId, monthNumber, grossInstallmentAmount,
+                dividendPerSpot, memberSpots, tenantId, distributableDiscount, null);
+    }
+
+    @Transactional
+    public void applyAuctionDividend(UUID chitId, Integer monthNumber,
+                                     BigDecimal grossInstallmentAmount,
+                                     BigDecimal dividendPerSpot,
+                                     List<MemberSpotEntry> memberSpots,
+                                     String tenantId,
+                                     BigDecimal distributableDiscount,
+                                     UUID actorId) {
+        requireTenant(tenantId);
+        ChitMonthDraw draw = drawRepository.findAuctionDrawForUpdate(tenantId, chitId, monthNumber)
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
                         chitId + "/" + monthNumber));
 
-        if (draw.getStatus() != DrawStatus.AWAITING_AUCTION) {
+        AuctionAssessment assessment = buildAuctionAssessment(
+                draw, chitId, monthNumber, grossInstallmentAmount, dividendPerSpot,
+                memberSpots, tenantId, distributableDiscount);
+        List<PaymentRecord> expectedRecords = assessment.records();
+
+        if (draw.getStatus() == DrawStatus.OPEN && draw.getAuctionMode() != null) {
+            List<PaymentRecord> existing = paymentRecordRepository
+                    .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
+            if (sameAuctionAssessment(existing, expectedRecords)) {
+                log.info("Auction dividend command already applied for chit {} month {}; returning idempotently",
+                        chitId, monthNumber);
+                return;
+            }
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Auction dividend was already applied with different financial values");
+        }
+
+        if (draw.getStatus() != DrawStatus.AWAITING_AUCTION || draw.getAuctionMode() == null) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Draw is not in AWAITING_AUCTION state. Current: " + draw.getStatus());
         }
+
+        paymentRecordRepository.saveAll(expectedRecords);
+        assessment.excessCredits().forEach(credit -> memberCreditService.addCreditForAuctionDraw(
+                credit.memberId(), credit.amount(), draw.getId(), chitId, actorId, credit.description()));
+
+        draw.setStatus(DrawStatus.OPEN);
+        drawRepository.save(draw);
+
+        log.info("Auction dividend applied: drawId={} chit={} month={} members={} grossInstallment={} dividendPerSpot={}",
+                draw.getId(), chitId, monthNumber, expectedRecords.size(), grossInstallmentAmount, dividendPerSpot);
+
+        if (log.isDebugEnabled()) {
+            expectedRecords.forEach(r -> log.debug(
+                    "  payment record: memberId={} spots={} gross={} dividend={} netDue={}",
+                    r.getMemberId(),
+                    r.getGrossInstallmentAmount() == null ? 1
+                            : r.getGrossInstallmentAmount().divide(grossInstallmentAmount, 0, java.math.RoundingMode.DOWN).intValue(),
+                    r.getGrossInstallmentAmount(), r.getDividendDeductedAmount(), r.getAmountDue()));
+        }
+    }
+
+    private AuctionAssessment buildAuctionAssessment(
+            ChitMonthDraw draw, UUID chitId, Integer monthNumber,
+            BigDecimal grossInstallmentAmount, BigDecimal dividendPerSpot,
+            List<MemberSpotEntry> memberSpots, String tenantId,
+            BigDecimal distributableDiscount) {
 
         // dividendPerSpot is rounded down, so spots x perSpot can fall a few paise
         // short of what was actually distributable. Those paise belong to the
@@ -225,6 +271,7 @@ public class ChitMonthDrawService {
                 .toList();
 
         List<PaymentRecord> records = new java.util.ArrayList<>();
+        List<ExcessDividendCredit> excessCredits = new java.util.ArrayList<>();
         for (MemberSpotEntry ms : ordered) {
             BigDecimal dividend = dividendPerSpot.multiply(BigDecimal.valueOf(ms.spots()));
             // A member holding N spots can be short up to N spare paise (one per spot),
@@ -244,10 +291,9 @@ public class ChitMonthDrawService {
                 // flooring it to zero silently destroyed it instead of carrying it forward
                 // as credit against next month's installment.
                 BigDecimal excess = netDue.negate();
-                memberCreditService.addCredit(ms.memberId(), excess, null, chitId,
-                        UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                excessCredits.add(new ExcessDividendCredit(ms.memberId(), excess,
                         "Dividend exceeded installment — draw #" + monthNumber + " chit " + chitId
-                                + " (dividend ₹" + dividend + " vs installment ₹" + gross + ")");
+                                + " (dividend ₹" + dividend + " vs installment ₹" + gross + ")"));
                 netDue = BigDecimal.ZERO;
             }
             records.add(PaymentRecord.builder()
@@ -264,25 +310,39 @@ public class ChitMonthDrawService {
                     .build());
         }
 
-        paymentRecordRepository.saveAll(records);
+        return new AuctionAssessment(records, excessCredits);
+    }
 
-        draw.setStatus(DrawStatus.OPEN);
-        drawRepository.save(draw);
+    private boolean sameAuctionAssessment(List<PaymentRecord> existing, List<PaymentRecord> expected) {
+        if (existing.size() != expected.size()) return false;
+        Map<UUID, PaymentRecord> byMember = existing.stream()
+                .collect(Collectors.toMap(PaymentRecord::getMemberId, record -> record, (a, b) -> a));
+        return expected.stream().allMatch(wanted -> {
+            PaymentRecord actual = byMember.get(wanted.getMemberId());
+            return actual != null
+                    && sameMoney(actual.getGrossInstallmentAmount(), wanted.getGrossInstallmentAmount())
+                    && sameMoney(actual.getDividendDeductedAmount(), wanted.getDividendDeductedAmount())
+                    && sameMoney(actual.getAmountDue(), wanted.getAmountDue())
+                    && Objects.equals(actual.getDueDate(), wanted.getDueDate());
+        });
+    }
 
-        log.info("Auction dividend applied: drawId={} chit={} month={} members={} grossInstallment={} dividendPerSpot={}",
-                draw.getId(), chitId, monthNumber, records.size(), grossInstallmentAmount, dividendPerSpot);
+    private boolean sameMoney(BigDecimal left, BigDecimal right) {
+        return left != null && right != null && left.compareTo(right) == 0;
+    }
 
-        if (log.isDebugEnabled()) {
-            records.forEach(r -> log.debug(
-                    "  payment record: memberId={} spots={} gross={} dividend={} netDue={}",
-                    r.getMemberId(),
-                    r.getGrossInstallmentAmount() == null ? 1
-                            : r.getGrossInstallmentAmount().divide(grossInstallmentAmount, 0, java.math.RoundingMode.DOWN).intValue(),
-                    r.getGrossInstallmentAmount(), r.getDividendDeductedAmount(), r.getAmountDue()));
+    private void requireTenant(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Organization context is required");
         }
     }
 
     public record MemberSpotEntry(UUID memberId, int spots) {}
+
+    private record ExcessDividendCredit(UUID memberId, BigDecimal amount, String description) {}
+
+    private record AuctionAssessment(List<PaymentRecord> records,
+                                     List<ExcessDividendCredit> excessCredits) {}
 
     /**
      * How many paise the rounded-down per-spot dividend failed to distribute.
@@ -321,17 +381,35 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId) {
-        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
+        reverseAuctionDividend(chitId, monthNumber, tenantId, null);
+    }
+
+    @Transactional
+    public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId, UUID actorId) {
+        requireTenant(tenantId);
+        ChitMonthDraw draw = drawRepository.findAuctionDrawForUpdate(tenantId, chitId, monthNumber)
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
                         chitId + "/" + monthNumber));
 
-        if (draw.getStatus() != DrawStatus.OPEN) {
+        if (draw.getStatus() == DrawStatus.AWAITING_AUCTION) {
+            List<PaymentRecord> remaining = paymentRecordRepository
+                    .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
+            if (remaining.isEmpty()) {
+                log.info("Auction dividend command already reversed for chit {} month {}; returning idempotently",
+                        chitId, monthNumber);
+                return;
+            }
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Auction draw is awaiting auction but payment records still exist");
+        }
+
+        if (draw.getStatus() != DrawStatus.OPEN || draw.getAuctionMode() == null) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Draw is not in OPEN state. Cannot reverse auction dividend. Current: " + draw.getStatus());
         }
 
         List<com.chitfund.paymentservice.domain.PaymentRecord> records =
-                paymentRecordRepository.findByChitIdAndMonthNumber(chitId, monthNumber);
+                paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
 
         boolean hasPayments = records.stream()
                 .anyMatch(r -> r.getAmountPaid() != null
@@ -345,7 +423,8 @@ public class ChitMonthDrawService {
                     count + " member(s) have already paid. Void their payment batches first, then re-auction.");
         }
 
-        paymentRecordRepository.deleteByChitIdAndMonthNumber(chitId, monthNumber);
+        memberCreditService.reverseCreditForAuctionDraw(draw.getId(), actorId);
+        paymentRecordRepository.deleteByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
         draw.setStatus(DrawStatus.AWAITING_AUCTION);
         drawRepository.save(draw);
 
@@ -356,12 +435,20 @@ public class ChitMonthDrawService {
     @Transactional
     public DrawSummaryResponse skipDraw(SkipMonthRequest request, UUID adminId, String actorRole) {
         planExpiryChecker.assertNotExpired();
-        if (drawRepository.existsByChitIdAndMonthNumber(request.getChitId(), request.getMonthNumber())) {
+        String tenantId = requireTenantContext();
+        ValidatedDrawInput validated = validateChitAndMembers(request.getChitId(), request.getMemberIds());
+        if (request.getInstallmentAmount().compareTo(validated.chit().getInstallmentAmount()) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Installment amount does not match the chit configuration");
+        }
+        if (drawRepository.existsByTenantIdAndChitIdAndMonthNumber(
+                tenantId, request.getChitId(), request.getMonthNumber())) {
             throw new BusinessException(ErrorCode.MONTH_ALREADY_OPEN,
                     "Draw " + request.getMonthNumber() + " is already open or skipped for this chit");
         }
 
         ChitMonthDraw cycle = ChitMonthDraw.builder()
+                .tenantId(tenantId)
                 .chitId(request.getChitId())
                 .monthNumber(request.getMonthNumber())
                 .dueDate(request.getDueDate())
@@ -422,7 +509,8 @@ public class ChitMonthDrawService {
 
     @Transactional
     public DrawSummaryResponse closeDraw(UUID cycleId, UUID adminId, String actorRole) {
-        ChitMonthDraw cycle = drawRepository.findByIdAndTenantId(cycleId, com.chitfund.common.context.TenantContext.get())
+        ChitMonthDraw cycle = drawRepository.findByIdAndTenantIdForUpdate(
+                        cycleId, com.chitfund.common.context.TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
 
@@ -460,11 +548,13 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void autoCloseIfAllSettled(UUID chitId, int monthNumber) {
-        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber).orElse(null);
+        String tenantId = requireTenantContext();
+        ChitMonthDraw draw = drawRepository
+                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber).orElse(null);
         if (draw == null || draw.getStatus() != DrawStatus.OPEN) return;
 
         List<PaymentRecord> records = paymentRecordRepository
-                .findByChitIdAndMonthNumber(chitId, monthNumber);
+                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
 
         boolean allDone = records.stream().allMatch(r ->
                 r.getStatus() == PaymentRecordStatus.SETTLED
@@ -492,11 +582,13 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void autoReopenIfNotFullySettled(UUID chitId, int monthNumber) {
-        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber).orElse(null);
+        String tenantId = requireTenantContext();
+        ChitMonthDraw draw = drawRepository
+                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber).orElse(null);
         if (draw == null || draw.getStatus() != DrawStatus.CLOSED) return;
 
         List<PaymentRecord> records = paymentRecordRepository
-                .findByChitIdAndMonthNumber(chitId, monthNumber);
+                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
 
         boolean allDone = records.stream().allMatch(r ->
                 r.getStatus() == PaymentRecordStatus.SETTLED
@@ -520,8 +612,10 @@ public class ChitMonthDrawService {
      * Called internally from chit-service via X-Internal-Key endpoint.
      */
     @Transactional
-    public void closeOpenDrawsForChit(UUID chitId) {
-        List<ChitMonthDraw> openDraws = drawRepository.findByChitIdAndStatus(chitId, DrawStatus.OPEN);
+    public void closeOpenDrawsForChit(UUID chitId, String tenantId) {
+        requireTenant(tenantId);
+        List<ChitMonthDraw> openDraws = drawRepository
+                .findByTenantIdAndChitIdAndStatus(tenantId, chitId, DrawStatus.OPEN);
         if (openDraws.isEmpty()) return;
         LocalDateTime now = LocalDateTime.now();
         // Use a fixed system UUID for system-initiated closes
@@ -548,7 +642,8 @@ public class ChitMonthDrawService {
 
     @Transactional(readOnly = true)
     public List<DrawSummaryResponse> getCyclesForChit(UUID chitId) {
-        return drawRepository.findByChitIdOrderByMonthNumberAsc(chitId).stream()
+        return drawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                        requireTenantContext(), chitId).stream()
                 .map(this::buildSummaryWithLiveStats)
                 .toList();
     }
@@ -575,7 +670,8 @@ public class ChitMonthDrawService {
 
     private DrawSummaryResponse buildSummaryWithLiveStats(ChitMonthDraw cycle) {
         List<PaymentRecord> records = paymentRecordRepository
-                .findByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber());
+                .findByTenantIdAndChitIdAndMonthNumber(
+                        cycle.getTenantId(), cycle.getChitId(), cycle.getMonthNumber());
 
         // "Settled" = fully resolved, no further collection needed. "Partial" = some
         // balance still owed (whether via cash or credit). PARTIAL_CREDIT was previously
@@ -659,16 +755,16 @@ public class ChitMonthDrawService {
     }
 
     /**
-     * Deletes an accidentally-opened cycle and all its payment records.
+     * Discards an accidentally-opened, pristine cycle and its generated unpaid records.
      *
-     * WHY require zero payments? Deletion reverses time — if any member already paid,
-     * that money is physically with the admin. Deleting the cycle silently would create
-     * untracked cash. Force admin to void those batches first (which reverses FIFO and
-     * returns the record to OUTSTANDING), so the audit trail stays intact.
+     * Financial, winner, auction, reservation, payout, allocation, credit, and settlement
+     * history is never physically erased here. Those states require explicit audited
+     * reversal/void operations. Cross-service checks deliberately fail closed.
      */
     @Transactional
     public void deleteDraw(UUID cycleId, UUID adminId, String actorRole) {
-        ChitMonthDraw cycle = drawRepository.findByIdAndTenantId(cycleId, com.chitfund.common.context.TenantContext.get())
+        ChitMonthDraw cycle = drawRepository.findByIdAndTenantIdForUpdate(
+                        cycleId, com.chitfund.common.context.TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
 
@@ -678,36 +774,42 @@ public class ChitMonthDrawService {
         }
 
         List<PaymentRecord> records = paymentRecordRepository
-                .findByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber());
+                .findByTenantIdAndChitIdAndMonthNumber(
+                        cycle.getTenantId(), cycle.getChitId(), cycle.getMonthNumber());
 
-        // Auto-revert PAYOUT_DEDUCTED records — no real batch exists, safe to undo silently
-        records.stream()
-                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
-                .forEach(r -> {
-                    r.setAmountPaid(BigDecimal.ZERO);
-                    r.setStatus(PaymentRecordStatus.OUTSTANDING);
-                    r.setSettledByPayoutId(null);
-                    paymentRecordRepository.save(r);
-                });
-
-        boolean hasPayments = records.stream()
-                .anyMatch(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
-                        && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0);
-
-        if (hasPayments) {
-            long count = records.stream()
-                    .filter(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
-                            && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0)
-                    .count();
+        boolean hasFinancialState = records.stream().anyMatch(r ->
+                r.getStatus() != PaymentRecordStatus.OUTSTANDING
+                        || r.getAmountPaid() == null
+                        || r.getAmountPaid().compareTo(BigDecimal.ZERO) != 0
+                        || r.getSettledByPayoutId() != null);
+        if (hasFinancialState) {
             throw new BusinessException(ErrorCode.CYCLE_HAS_PAYMENTS,
-                    count + " member(s) have already paid for this cycle. Void their payment batches first, then delete.");
+                    "This draw has payment, credit, payout-deduction, waiver, or settlement history and cannot be deleted. Use the matching audited reversal flow.");
         }
 
-        // Delete any orphaned allocations pointing to these records (from previously voided batches)
         List<UUID> recordIds = records.stream().map(PaymentRecord::getId).toList();
+        if (!recordIds.isEmpty() && !allocationRepository
+                .findByTenantIdAndPaymentRecordIdIn(cycle.getTenantId(), recordIds).isEmpty()) {
+            throw new BusinessException(ErrorCode.CYCLE_HAS_PAYMENTS,
+                    "This draw has payment allocation history and cannot be deleted. Void the related payment through its audited reversal flow.");
+        }
+
+        ChitServiceClient.DrawDependencyDto chitDependencies = chitServiceClient
+                .getDrawDependencies(cycle.getChitId(), cycle.getMonthNumber());
+        if (chitDependencies.hasHistory()) {
+            throw new BusinessException(ErrorCode.CYCLE_NOT_DELETABLE,
+                    "This draw has winner, auction, or processed reservation history and cannot be deleted. Use the matching audited void flow.");
+        }
+        var payoutDependencies = payoutServiceClient
+                .getDrawDependencies(cycle.getChitId(), cycle.getMonthNumber());
+        if (payoutDependencies.hasHistory()) {
+            throw new BusinessException(ErrorCode.CYCLE_NOT_DELETABLE,
+                    "This draw has payout history and cannot be deleted. Cancel or void the payout through its audited workflow.");
+        }
+
         if (!recordIds.isEmpty()) {
-            allocationRepository.deleteByPaymentRecordIdIn(recordIds);
-            paymentRecordRepository.deleteByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber());
+            paymentRecordRepository.deleteByTenantIdAndChitIdAndMonthNumber(
+                    cycle.getTenantId(), cycle.getChitId(), cycle.getMonthNumber());
         }
 
         drawRepository.delete(cycle);
@@ -727,7 +829,7 @@ public class ChitMonthDrawService {
     @Transactional(readOnly = true)
     public Map<UUID, Integer> getLatestCycleNumbers(List<UUID> chitIds) {
         if (chitIds == null || chitIds.isEmpty()) return Map.of();
-        return drawRepository.findMaxMonthNumberByChitIds(chitIds).stream()
+        return drawRepository.findMaxMonthNumberByTenantAndChitIds(requireTenantContext(), chitIds).stream()
                 .collect(Collectors.toMap(
                         row -> (UUID) row[0],
                         row -> ((Number) row[1]).intValue()
@@ -740,7 +842,8 @@ public class ChitMonthDrawService {
                 .orElseThrow(() -> new ResourceNotFoundException("Cycle", cycleId));
         LocalDate today = LocalDate.now();
         return paymentRecordRepository
-                .findByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber())
+                .findByTenantIdAndChitIdAndMonthNumber(
+                        cycle.getTenantId(), cycle.getChitId(), cycle.getMonthNumber())
                 .stream()
                 .map(r -> PaymentRecordResponse.builder()
                         .id(r.getId())
@@ -767,4 +870,75 @@ public class ChitMonthDrawService {
     private long count(List<PaymentRecord> records, PaymentRecordStatus status) {
         return records.stream().filter(r -> r.getStatus() == status).count();
     }
+
+    private String requireTenantContext() {
+        String tenantId = com.chitfund.common.context.TenantContext.get();
+        requireTenant(tenantId);
+        return tenantId;
+    }
+
+    /**
+     * Never trust a client-supplied chit/member UUID list. The authenticated
+     * tenant must own the chit and the request must cover exactly its active
+     * members before any financial rows are created.
+     */
+    private ValidatedDrawInput validateChitAndMembers(UUID chitId, List<UUID> requestedMemberIds) {
+        ChitServiceClient.ChitDto chit = chitServiceClient.getChit(chitId);
+        if (chit == null || chit.getId() == null) {
+            throw new BusinessException(ErrorCode.CHIT_NOT_FOUND, "Chit not found in this organization");
+        }
+        if (!"ACTIVE".equals(chit.getStatus())) {
+            throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE, "Only an active chit can open or skip a draw");
+        }
+        if (chit.getDurationMonths() == null || chit.getDurationMonths() < 1) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chit duration is not configured");
+        }
+
+        Map<UUID, BigDecimal> amounts = chitServiceClient.getDrawMemberAmounts(chitId).stream()
+                .filter(amount -> amount.getMemberId() != null && amount.getAmountDue() != null)
+                .collect(Collectors.toMap(ChitServiceClient.MemberAmountDto::getMemberId,
+                        ChitServiceClient.MemberAmountDto::getAmountDue, (left, right) -> left));
+        java.util.Set<UUID> requested = new java.util.HashSet<>(requestedMemberIds);
+        java.util.Set<UUID> active = amounts.keySet();
+        if (requested.size() != requestedMemberIds.size() || !requested.equals(active)) {
+            throw new BusinessException(ErrorCode.MEMBER_NOT_ENROLLED,
+                    "Draw members must exactly match the chit's active members");
+        }
+        return new ValidatedDrawInput(chit, amounts);
+    }
+
+    private void validateOpenDrawContract(OpenMonthRequest request, ChitServiceClient.ChitDto chit,
+                                          Map<UUID, BigDecimal> expected) {
+        if (request.getMaxCycles() == null || !request.getMaxCycles().equals(chit.getDurationMonths())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Draw cycle limit does not match the chit configuration");
+        }
+        if (chit.getInstallmentAmount() == null
+                || request.getInstallmentAmount().compareTo(chit.getInstallmentAmount()) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Installment amount does not match the chit configuration");
+        }
+        boolean auctionChit = "AUCTION".equals(chit.getWinnerSelectionMode());
+        if (auctionChit && !Objects.equals(request.getAuctionMode(), chit.getAuctionMode())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Auction mode does not match the chit configuration");
+        }
+        if (!auctionChit && request.getAuctionMode() != null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Auction mode is not allowed for this chit");
+        }
+        if (!auctionChit) {
+            boolean amountsMatch = request.getMembers().stream().allMatch(member -> {
+                BigDecimal canonical = expected.get(member.getMemberId());
+                return canonical != null && canonical.compareTo(member.getAmountDue()) == 0;
+            });
+            if (!amountsMatch || expected.size() != request.getMembers().size()) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Member amounts do not match the chit ledger configuration");
+            }
+        }
+    }
+
+    private record ValidatedDrawInput(ChitServiceClient.ChitDto chit,
+                                      Map<UUID, BigDecimal> amounts) {}
 }

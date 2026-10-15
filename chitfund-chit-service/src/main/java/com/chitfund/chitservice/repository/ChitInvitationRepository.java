@@ -12,4 +12,6 @@ public interface ChitInvitationRepository extends JpaRepository<ChitInvitation, 
     List<ChitInvitation> findByChitIdAndTenantIdOrderByCreatedAtDesc(UUID chitId, String tenantId);
 
     Optional<ChitInvitation> findByIdAndTenantId(UUID id, String tenantId);
+
+    Optional<ChitInvitation> findByIdAndChitIdAndTenantId(UUID id, UUID chitId, String tenantId);
 }

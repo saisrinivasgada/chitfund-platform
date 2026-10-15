@@ -10,7 +10,9 @@ import java.time.Instant;
 public class HubRefreshSession {
     @Id private String id;
     @Column(name = "employee_id", nullable = false) private String employeeId;
-    @Column(name = "token_hash", nullable = false, unique = true) private String tokenHash;
+    @Column(name = "token_hash", nullable = false, unique = true,
+            length = 64, columnDefinition = "CHAR(64)")
+    private String tokenHash;
     @Column(name = "auth_version", nullable = false) private long authVersion;
     @Column(name = "expires_at", nullable = false) private Instant expiresAt;
     @Column(name = "revoked_at") private Instant revokedAt;
@@ -18,4 +20,3 @@ public class HubRefreshSession {
 
     @PrePersist void onCreate() { if (createdAt == null) createdAt = Instant.now(); }
 }
-

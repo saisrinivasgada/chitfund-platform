@@ -40,7 +40,7 @@ public class RegisterOrgRequest {
     @NotBlank
     private String adminPhoneCountryCode;
 
-    private String plan; // BASIC | GROWTH | ENTERPRISE — defaults to BASIC
+    private String plan; // Must be a public active plan; defaults to BASIC
 
     private String promoCode; // optional promo or referral code applied at registration
 

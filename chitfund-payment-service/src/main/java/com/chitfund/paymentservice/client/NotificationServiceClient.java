@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.client;
 
+import com.chitfund.common.context.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +33,7 @@ public class NotificationServiceClient {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", requireTenant());
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             Map<String, Object> body = new HashMap<>();
@@ -54,6 +56,7 @@ public class NotificationServiceClient {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", requireTenant());
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             Map<String, Object> body = new HashMap<>();
@@ -69,5 +72,13 @@ public class NotificationServiceClient {
         } catch (RestClientException e) {
             log.warn("notification-service push unreachable for user {}: {}", userId, e.getMessage());
         }
+    }
+
+    private String requireTenant() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("Organization context is required for notifications");
+        }
+        return tenantId;
     }
 }

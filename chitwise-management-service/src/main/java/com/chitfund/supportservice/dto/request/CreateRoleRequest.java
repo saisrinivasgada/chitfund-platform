@@ -16,4 +16,8 @@ public class CreateRoleRequest {
     private String description;
 
     private Set<String> permissions;
+
+    @NotBlank(message = "Reason is required")
+    @Size(max = 500)
+    private String reason;
 }
