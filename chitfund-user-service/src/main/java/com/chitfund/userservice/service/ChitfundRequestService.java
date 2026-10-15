@@ -261,12 +261,10 @@ public class ChitfundRequestService {
         otpService.verifyOtp(request.getRequestedPhone(), ACCEPT_OTP, request.getId().toString(), code);
         ChitfundRequestStatus previous = request.getStatus();
         request.setMemberVerifiedAt(LocalDateTime.now());
-        request.setStatus(ChitfundRequestStatus.MEMBER_VERIFIED);
+        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
         requestRepository.save(request);
-        audit(request, "MEMBER_VERIFIED", previous, ChitfundRequestStatus.MEMBER_VERIFIED, userId,
+        audit(request, "MEMBER_VERIFIED", previous, ChitfundRequestStatus.AWAITING_ADMIN, userId,
                 "MEMBER", "Existing account accepted with a fresh phone OTP");
-        // Admin initiated; no second confirmation needed — activate immediately.
-        activateAccess(request, userId, "MEMBER", "Auto-activated after existing account accepted");
         return toResponse(request, null);
     }
 
@@ -538,16 +536,13 @@ public class ChitfundRequestService {
         token.setUsedAt(LocalDateTime.now());
         setupTokenRepository.save(token);
         request.setMemberVerifiedAt(LocalDateTime.now());
-        // Admin initiated this request; member verification is the final step —
-        // activate immediately without a second admin confirmation.
-        request.setStatus(ChitfundRequestStatus.MEMBER_VERIFIED);
+        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
         requestRepository.save(request);
         audit(request, "ACCOUNT_SETUP_VERIFIED", ChitfundRequestStatus.PENDING_MEMBER,
-                ChitfundRequestStatus.MEMBER_VERIFIED, user.getId(), "MEMBER",
+                ChitfundRequestStatus.AWAITING_ADMIN, user.getId(), "MEMBER",
                 smsProviderConfigured
                     ? "New account completed phone and recovery-email verification"
                     : "New account completed email verification (phone pending — SMS provider not configured)");
-        activateAccess(request, user.getId(), "MEMBER", "Auto-activated after member completed setup");
         requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(user.getId(), OPEN)
                 .stream()
                 .filter(other -> !other.getId().equals(request.getId()))

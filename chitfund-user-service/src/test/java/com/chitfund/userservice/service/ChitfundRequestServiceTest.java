@@ -313,7 +313,7 @@ class ChitfundRequestServiceTest {
     // ─── Auto-activation ──────────────────────────────────────────────────────
 
     @Test
-    void completingSetupAutoActivatesWithoutSecondAdminConfirmation() {
+    void completingSetupAdvancesToAwaitingAdmin() {
         UUID tenantId = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
@@ -331,7 +331,7 @@ class ChitfundRequestServiceTest {
                 .build();
         User user = User.builder().id(userId).role(Role.MEMBER)
                 .phone("9876543210").phoneCountryCode("+91").email("m@test.com")
-                .username("mtest").build();
+                .username("mtest").hasAppAccess(false).build();
 
         when(setupTokenRepository.findByTokenHash(any())).thenReturn(Optional.of(token));
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
@@ -354,13 +354,13 @@ class ChitfundRequestServiceTest {
 
         var response = service.completeSetup(input);
 
-        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.ACTIVE);
-        verify(tenantService).addUserToTenant(userId, tenantId, Role.MEMBER, memberId);
-        assertThat(user.isHasAppAccess()).isTrue();
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.AWAITING_ADMIN);
+        verify(tenantService, never()).addUserToTenant(any(), any(), any(), any());
+        assertThat(user.isHasAppAccess()).isFalse();
     }
 
     @Test
-    void acceptingExistingAccountAutoActivatesOnPhoneMatch() {
+    void acceptingExistingAccountAdvancesToAwaitingAdmin() {
         UUID requestId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         UUID tenantId = UUID.randomUUID();
@@ -374,19 +374,18 @@ class ChitfundRequestServiceTest {
                 .expiresAt(LocalDateTime.now().plusHours(1)).lastSentAt(LocalDateTime.now())
                 .build();
         User user = User.builder().id(userId).role(Role.MEMBER)
-                .phone("9876543210").phoneCountryCode("+91").build();
+                .phone("9876543210").phoneCountryCode("+91").hasAppAccess(false).build();
 
         when(requestStateService.expireIfDue(eq(requestId), any())).thenReturn(false);
         when(requestRepository.findByIdForUpdate(requestId)).thenReturn(Optional.of(request));
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        when(userRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         when(requestRepository.save(any())).thenAnswer(call -> call.getArgument(0));
 
         var response = service.accept(requestId, userId, "123456");
 
-        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.ACTIVE);
-        verify(tenantService).addUserToTenant(userId, tenantId, Role.MEMBER, memberId);
-        assertThat(user.isHasAppAccess()).isTrue();
+        assertThat(response.getStatus()).isEqualTo(ChitfundRequestStatus.AWAITING_ADMIN);
+        verify(tenantService, never()).addUserToTenant(any(), any(), any(), any());
+        assertThat(user.isHasAppAccess()).isFalse();
     }
 
     // ─── Suspend ──────────────────────────────────────────────────────────────
