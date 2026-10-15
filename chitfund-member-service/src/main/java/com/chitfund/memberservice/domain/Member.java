@@ -55,13 +55,8 @@ public class Member {
     @Column(nullable = false, columnDefinition = "varchar(20)")
     private MemberStatus status;
 
-    // Nullable — only set when member has an app login in user-service
+    // Nullable — only set when member has an app login in user-service; non-null means access granted
     private UUID userId;
-
-    // True only when admin explicitly creates an app login (not auto-linked on member creation)
-    @Column(nullable = false)
-    @Builder.Default
-    private boolean hasAppAccess = false;
 
     // Admin-only notes: "Pays on 5th of every month", "Contact via WhatsApp only"
     @Column(columnDefinition = "text")

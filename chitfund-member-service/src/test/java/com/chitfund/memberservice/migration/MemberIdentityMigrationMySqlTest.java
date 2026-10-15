@@ -33,7 +33,7 @@ class MemberIdentityMigrationMySqlTest {
             connection.createStatement().executeUpdate("UPDATE members SET deleted_at=NOW() WHERE id='20000000-0000-0000-0000-000000000001'");
             insert(connection, "10000000-0000-0000-0000-000000000001", "20000000-0000-0000-0000-000000000004", null);
             assertThatThrownBy(() -> connection.createStatement().executeUpdate(
-                    "INSERT INTO members(id,full_name,phone,phone_country_code,status,created_by,created_at,updated_at,has_app_access) " +
+                    "INSERT INTO members(id,full_name,phone,phone_country_code,status,created_by,created_at,updated_at,app_access_granted) " +
                             "VALUES('20000000-0000-0000-0000-000000000005','No Tenant','9000000000','+91','ACTIVE'," +
                             "'20000000-0000-0000-0000-000000000005',NOW(),NOW(),FALSE)"))
                     .isInstanceOf(SQLException.class);
@@ -41,7 +41,7 @@ class MemberIdentityMigrationMySqlTest {
     }
 
     private static void insert(java.sql.Connection connection, String tenantId, String id, String deletedAt) throws SQLException {
-        String sql = "INSERT INTO members(id,tenant_id,full_name,phone,phone_country_code,status,created_by,created_at,updated_at,deleted_at,has_app_access) " +
+        String sql = "INSERT INTO members(id,tenant_id,full_name,phone,phone_country_code,status,created_by,created_at,updated_at,deleted_at,app_access_granted) " +
                 "VALUES(?,?,?,?,?,'ACTIVE',?,NOW(),NOW(),?,FALSE)";
         try (var ps = connection.prepareStatement(sql)) {
             ps.setString(1, id); ps.setString(2, tenantId); ps.setString(3, "Member");

@@ -177,7 +177,7 @@ public class MemberService {
         Member member = findOrThrowScoped(id);
         java.util.Map<String, Object> before = profileSnapshot(member);
 
-        if (member.isHasAppAccess() && adminChangesMemberOwnedFields(member, request)) {
+        if (member.getUserId() != null && adminChangesMemberOwnedFields(member, request)) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "This member controls personal, identity and bank details after app access is activated. " +
                             "Use an Account Access or Identity Link Dispute ticket when support is required.",
@@ -213,7 +213,8 @@ public class MemberService {
         UUID newReferredById = request.isReferredByIdPresent()
                 ? request.getReferredById() : oldReferredById;
         if (!Objects.equals(oldReferredById, newReferredById)
-                && newReferredById != null && !memberRepository.existsById(newReferredById)) {
+                && newReferredById != null
+                && memberRepository.findByIdAndTenantId(newReferredById, tenantId()).isEmpty()) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Referring member not found");
         }
         if (request.isReferredByIdPresent()) member.setReferredById(newReferredById);
@@ -227,10 +228,11 @@ public class MemberService {
                 com.chitfund.common.context.TenantContext.get());
 
         if (!Objects.equals(oldReferredById, newReferredById)) {
+            String tenantCtx = tenantId();
             String prevName = oldReferredById != null
-                    ? memberRepository.findById(oldReferredById).map(Member::getFullName).orElse(null) : null;
+                    ? memberRepository.findByIdAndTenantId(oldReferredById, tenantCtx).map(Member::getFullName).orElse(null) : null;
             String newName = newReferredById != null
-                    ? memberRepository.findById(newReferredById).map(Member::getFullName).orElse(null) : null;
+                    ? memberRepository.findByIdAndTenantId(newReferredById, tenantCtx).map(Member::getFullName).orElse(null) : null;
             memberEventPublisher.publish(new MemberUpdatedEvent(
                     id.toString(), "referredById",
                     oldReferredById != null ? oldReferredById.toString() : null,
@@ -326,7 +328,7 @@ public class MemberService {
                     "App access cannot be requested for a deleted or blacklisted member",
                     HttpStatus.FORBIDDEN);
         }
-        if (member.isHasAppAccess()) {
+        if (member.getUserId() != null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "This member already has app access");
         }
         java.util.Map<String, Object> result = userServiceClient.createAppAccessRequest(
@@ -337,6 +339,58 @@ public class MemberService {
                     "Could not create the Chitfund Request", HttpStatus.SERVICE_UNAVAILABLE);
         }
         return result;
+    }
+
+    /** Step 1: admin sends OTP to the member's phone — returns masked phone string. */
+    @Transactional(readOnly = true)
+    public java.util.Map<String, Object> grantAppAccessSendOtp(UUID memberId) {
+        Member member = findOrThrowScoped(memberId);
+        if (member.getPhone() == null || member.getPhone().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "This member has no phone number on record. Add a phone number first.");
+        }
+        java.util.Map<String, Object> result;
+        try {
+            result = userServiceClient.grantAppAccessSendOtp(
+                    tenantId(), memberId, member.getPhone(), member.getPhoneCountryCode());
+        } catch (RuntimeException e) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, e.getMessage() != null ? e.getMessage() : "Could not send OTP", HttpStatus.BAD_REQUEST);
+        }
+        if (result == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Could not send OTP", HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        return result;
+    }
+
+    /** Step 2: admin enters OTP (read by member) — creates account and grants access. */
+    @Transactional
+    public void grantAppAccessVerify(UUID memberId, String otp) {
+        Member member = findOrThrowScoped(memberId);
+        java.util.UUID userId;
+        try {
+            userId = userServiceClient.grantAppAccessVerify(
+                    tenantId(), memberId, member.getPhone(), member.getPhoneCountryCode(), otp);
+        } catch (RuntimeException e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.contains("expired") || msg.contains("not found") || msg.contains("Invalid"))) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Invalid or expired OTP", HttpStatus.BAD_REQUEST);
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Could not verify OTP", HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        if (userId != null && member.getUserId() == null) {
+            member.setUserId(userId);
+        }
+        memberRepository.save(member);
+    }
+
+    /** Revoke per-org app access for this member. */
+    @Transactional
+    public void revokeAppAccess(UUID memberId) {
+        Member member = findOrThrowScoped(memberId);
+        userServiceClient.revokeAppAccess(tenantId(), memberId);
+        member.setUserId(null);
+        memberRepository.save(member);
     }
 
     @Transactional
@@ -389,7 +443,7 @@ public class MemberService {
 
     private MemberResponse toResponse(Member m) {
         String referredByName = m.getReferredById() != null
-                ? memberRepository.findById(m.getReferredById()).map(Member::getFullName).orElse(null)
+                ? memberRepository.findByIdAndTenantId(m.getReferredById(), m.getTenantId()).map(Member::getFullName).orElse(null)
                 : null;
         return MemberResponse.builder()
                 .id(m.getId())
@@ -406,7 +460,7 @@ public class MemberService {
                 .bankIfsc(m.getBankIfsc())
                 .status(m.getStatus())
                 .userId(m.getUserId())
-                .hasAppAccess(m.isHasAppAccess())
+                .appAccessGranted(m.getUserId() != null)
                 .notes(m.getNotes())
                 .referredById(m.getReferredById())
                 .referredByName(referredByName)

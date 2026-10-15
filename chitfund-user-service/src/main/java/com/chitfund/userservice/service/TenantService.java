@@ -149,7 +149,7 @@ public class TenantService {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) return List.of();
 
-        // MEMBER role — get memberId from member_user_links
+        // MEMBER role — a link row existing means access is granted; revoke deletes the row
         if (user.getRole() == Role.MEMBER) {
             List<MemberUserLink> links = memberLinkRepository.findAllByUserId(userId);
             return links.stream()

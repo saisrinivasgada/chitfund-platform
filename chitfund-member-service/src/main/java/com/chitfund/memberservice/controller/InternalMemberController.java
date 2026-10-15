@@ -187,7 +187,6 @@ public class InternalMemberController {
                         .body(Map.<String, Object>of("success", false, "reason", "user is linked to another member"));
             }
             member.setUserId(requestedUserId);
-            member.setHasAppAccess(true);
             memberRepository.save(member);
             return ResponseEntity.ok(Map.<String, Object>of("success", true));
         }).orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)

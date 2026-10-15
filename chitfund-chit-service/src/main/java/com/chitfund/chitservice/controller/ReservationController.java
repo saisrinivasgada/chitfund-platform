@@ -13,6 +13,7 @@ import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.chitservice.service.PlanLimitChecker;
 import com.chitfund.common.context.MemberContext;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
@@ -54,7 +55,7 @@ public class ReservationController {
     @GetMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> list(@PathVariable UUID chitId) {
-        chitService.findById(chitId); // validates existence
+        chitService.findByIdScoped(chitId); // validates existence + tenant ownership
         List<MonthReservationResponse> list = reservationRepository
                 .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
                 .stream().map(chitMapper::toReservationResponse).collect(Collectors.toList());
@@ -74,7 +75,7 @@ public class ReservationController {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member context not found");
         }
         UUID memberId = UUID.fromString(memberIdStr);
-        chitService.findById(chitId); // validates existence
+        chitService.findByIdScoped(chitId); // validates existence + tenant ownership
 
         List<MonthReservation> slots = reservationRepository
                 .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
@@ -121,7 +122,7 @@ public class ReservationController {
             Authentication auth) {
         planLimitChecker.checkNotExpired();
         UUID adminId = (UUID) auth.getPrincipal();
-        var chit = chitService.findById(chitId);
+        var chit = chitService.findByIdScoped(chitId);
 
         long activeSlots = reservationRepository.countByChitIdAndStatusNot(chitId, ReservationStatus.VOIDED);
         if (activeSlots >= chit.getCapacity()) {
@@ -185,7 +186,7 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         String actorRole = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
-        MonthReservation r = reservationRepository.findById(reservationId)
+        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
 
         Map<String, Object> beforeSnap = slotSnapshot(r);
@@ -193,7 +194,7 @@ public class ReservationController {
 
         boolean isOrg = Boolean.TRUE.equals(request.getOrgHeld());
         if (isOrg && !r.isOrgHeld()) {
-            var chit = chitService.findById(chitId);
+            var chit = chitService.findByIdScoped(chitId);
             int limit = chit.getOrgHeldSpotsCount() != null ? chit.getOrgHeldSpotsCount() : 0;
             long current = reservationRepository.countByChitIdAndOrgHeldTrueAndStatusNot(chitId, ReservationStatus.VOIDED);
             if (current >= limit) {
@@ -213,8 +214,8 @@ public class ReservationController {
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_UPDATED", adminId.toString(), actorRole, beforeSnap, slotSnapshot(saved),
-                com.chitfund.common.context.TenantContext.get());
-        var chit = chitService.findById(chitId);
+                TenantContext.get());
+        var chit = chitService.findByIdScoped(chitId);
         if (chit.getStatus() == ChitStatus.ACTIVE) {
             UUID newMemberId = saved.getMemberId();
             if (oldMemberId != null) chitService.syncEnrollmentForMember(chit, oldMemberId);
@@ -234,7 +235,7 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         String actorRole = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
-        MonthReservation r = reservationRepository.findById(reservationId)
+        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
         if (r.getStatus() != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -245,7 +246,7 @@ public class ReservationController {
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_PROCESSED", adminId.toString(), actorRole, null, slotSnapshot(saved),
-                com.chitfund.common.context.TenantContext.get());
+                TenantContext.get());
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot marked as processed"));
     }
@@ -258,7 +259,7 @@ public class ReservationController {
             @RequestParam(required = false) String reason,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        MonthReservation r = reservationRepository.findById(reservationId)
+        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
         Map<String, Object> beforeVoidSnap = slotSnapshot(r);
 
@@ -271,9 +272,9 @@ public class ReservationController {
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoidSnap, slotSnapshot(saved),
-                com.chitfund.common.context.TenantContext.get());
+                TenantContext.get());
         if (voidedMemberId != null) {
-            var chit = chitService.findById(chitId);
+            var chit = chitService.findByIdScoped(chitId);
             if (chit.getStatus() == ChitStatus.ACTIVE)
                 chitService.syncEnrollmentForMember(chit, voidedMemberId);
         }
@@ -296,6 +297,7 @@ public class ReservationController {
             @RequestParam int fromMonth,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        chitService.findByIdScoped(chitId); // validates tenant ownership
 
         List<MonthReservation> slots = reservationRepository.findShiftableFromMonth(
                 chitId, fromMonth,
@@ -323,6 +325,7 @@ public class ReservationController {
             @Valid @RequestBody SwapSlotsRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        chitService.findByIdScoped(chitId); // validates tenant ownership
 
         MonthReservation a = reservationRepository.findById(request.getSlotAId())
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", request.getSlotAId()));
@@ -351,7 +354,7 @@ public class ReservationController {
         reservationRepository.save(a);
         reservationRepository.save(b);
 
-        String tenantId = com.chitfund.common.context.TenantContext.get();
+        String tenantId = TenantContext.get();
         auditClient.log("RESERVATION_SLOT", a.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
                 java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", b.getId().toString()),
@@ -373,7 +376,7 @@ public class ReservationController {
             @PathVariable UUID reservationId,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        MonthReservation r = reservationRepository.findById(reservationId)
+        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
 
         if (!r.isOrgHeld()) {
@@ -397,7 +400,7 @@ public class ReservationController {
                 "ORG_PAYOUT_REALIZED", adminId.toString(), "ADMIN",
                 Map.of("status", "RESERVED"),
                 Map.of("status", "PROCESSED", "payoutAmount", String.valueOf(saved.getPayoutAmount())),
-                com.chitfund.common.context.TenantContext.get());
+                TenantContext.get());
 
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Org payout realized to treasury"));
@@ -422,7 +425,7 @@ public class ReservationController {
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
             Authentication auth) {
-        MonthReservation r = reservationRepository.findById(reservationId)
+        MonthReservation r = reservationRepository.findByIdAndChitIdAndTenantId(reservationId, chitId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
         if (r.getStatus() != ReservationStatus.VOIDED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,

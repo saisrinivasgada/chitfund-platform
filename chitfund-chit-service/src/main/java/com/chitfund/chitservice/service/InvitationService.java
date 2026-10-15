@@ -59,7 +59,7 @@ public class InvitationService {
 
     @Transactional
     public ChitInvitationResponse sendInvitation(UUID chitId, UUID createdBy, SendInvitationRequest req) {
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,
                     "Invitations can only be sent for DRAFT or ACTIVE chits");
@@ -121,7 +121,7 @@ public class InvitationService {
 
     public List<ChitInvitationResponse> listInvitations(UUID chitId) {
         String tenantId = TenantContext.get();
-        chitService.findById(chitId);
+        chitService.findByIdScoped(chitId);
         return invitationRepository.findByChitIdAndTenantIdOrderByCreatedAtDesc(chitId, tenantId)
                 .stream()
                 .map(inv -> {
@@ -213,7 +213,7 @@ public class InvitationService {
     @Transactional
     public InvitationResponseDTO approveResponse(UUID chitId, UUID invId, UUID responseId, UUID approverId) {
         InvitationResponse r = loadResponse(responseId);
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
 
         if (r.isApproved()) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Response is already approved");
@@ -502,7 +502,7 @@ public class InvitationService {
     }
 
     private InvitationResponse loadResponse(UUID responseId) {
-        return responseRepository.findById(responseId)
+        return responseRepository.findByIdAndTenantId(responseId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("InvitationResponse", responseId));
     }
 

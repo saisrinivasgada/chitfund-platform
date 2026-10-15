@@ -44,4 +44,9 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
     // All org-held slots across all chits (excludes VOIDED)
     @Query("SELECT r FROM MonthReservation r JOIN FETCH r.chit WHERE r.orgHeld = true AND r.status != com.chitfund.chitservice.domain.enums.ReservationStatus.VOIDED ORDER BY r.reservationMonth ASC")
     List<MonthReservation> findAllOrgHeld();
+
+    // Tenant-scoped reservation lookup — verifies the reservation belongs to the specified chit
+    // AND that chit belongs to the current tenant. Use this for all write operations.
+    @Query("SELECT r FROM MonthReservation r JOIN r.chit c WHERE r.id = :id AND c.id = :chitId AND c.tenantId = :tenantId AND c.deletedAt IS NULL")
+    Optional<MonthReservation> findByIdAndChitIdAndTenantId(@Param("id") UUID id, @Param("chitId") UUID chitId, @Param("tenantId") String tenantId);
 }

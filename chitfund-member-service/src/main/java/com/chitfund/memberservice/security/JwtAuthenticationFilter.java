@@ -40,8 +40,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String tenantId  = claims.get("tenantId",  String.class);
                 String tenantPlan= claims.get("tenantPlan",String.class);
 
+                List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+                authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+                // Add bare SUPER_ADMIN authority so hasAuthority('SUPER_ADMIN') works
+                // (matches chit-service filter behavior)
+                if ("SUPER_ADMIN".equals(role)) {
+                    authorities.add(new SimpleGrantedAuthority("SUPER_ADMIN"));
+                }
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                        userId, username, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+                        userId, username, authorities);
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(auth);
 

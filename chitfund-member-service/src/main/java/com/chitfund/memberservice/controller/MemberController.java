@@ -147,6 +147,35 @@ public class MemberController {
                         "Chitfund Request created"));
     }
 
+    @PostMapping("/{id}/grant-app-access/send-otp")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> grantAppAccessSendOtp(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(
+                memberService.grantAppAccessSendOtp(id), "OTP sent to member's phone"));
+    }
+
+    @PostMapping("/{id}/grant-app-access/verify")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> grantAppAccessVerify(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> body) {
+        String otp = body.get("otp");
+        if (otp == null || otp.isBlank()) {
+            throw new com.chitfund.common.exception.BusinessException(
+                    com.chitfund.common.exception.ErrorCode.VALIDATION_FAILED, "otp is required");
+        }
+        memberService.grantAppAccessVerify(id, otp);
+        return ResponseEntity.ok(ApiResponse.success(null, "App access granted"));
+    }
+
+    @PostMapping("/{id}/revoke-app-access")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> revokeAppAccess(@PathVariable UUID id) {
+        memberService.revokeAppAccess(id);
+        return ResponseEntity.ok(ApiResponse.success(null, "App access revoked"));
+    }
+
     /**
      * Change member status: ACTIVE ↔ INACTIVE ↔ BLACKLISTED.
      * Blacklisting requires a reason — appended to member notes for audit trail.

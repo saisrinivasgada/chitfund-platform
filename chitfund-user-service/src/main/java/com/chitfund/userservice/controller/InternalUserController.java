@@ -32,6 +32,7 @@ public class InternalUserController {
     private final PasswordEncoder passwordEncoder;
     private final ChitfundRequestService chitfundRequestService;
     private final IdentityReassignmentService identityReassignmentService;
+    private final com.chitfund.userservice.service.AppAccessGrantService appAccessGrantService;
 
     @PostMapping("/identity-operations/phone-reassignment")
     public ResponseEntity<?> executePhoneReassignment(
@@ -138,6 +139,65 @@ public class InternalUserController {
         return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
                 "error", "AUTH_FLOW_RETIRED",
                 "message", "Resend the active Chitfund Request"));
+    }
+
+    // ── Admin-initiated OTP-gated app access grant/revoke ────────────────────
+
+    @PostMapping("/grant-app-access/send-otp")
+    public ResponseEntity<?> grantAppAccessSendOtp(
+            @RequestHeader(value = "X-Internal-Key", required = true) String key,
+            @RequestBody Map<String, String> body) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        String phone     = body.get("phone");
+        String cc        = body.getOrDefault("phoneCountryCode", "+91");
+        String memberIdS = body.get("memberId");
+        if (phone == null || memberIdS == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "phone and memberId are required"));
+        }
+        try {
+            String maskedPhone = appAccessGrantService.sendOtp(phone, cc, UUID.fromString(memberIdS));
+            return ResponseEntity.ok(Map.of("maskedPhone", maskedPhone));
+        } catch (com.chitfund.common.exception.BusinessException ex) {
+            return ResponseEntity.status(ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/grant-app-access/verify")
+    public ResponseEntity<?> grantAppAccessVerify(
+            @RequestHeader(value = "X-Internal-Key", required = true) String key,
+            @RequestBody Map<String, String> body) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        String phone     = body.get("phone");
+        String cc        = body.getOrDefault("phoneCountryCode", "+91");
+        String memberIdS = body.get("memberId");
+        String tenantIdS = body.get("tenantId");
+        String otp       = body.get("otp");
+        if (phone == null || memberIdS == null || tenantIdS == null || otp == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "phone, memberId, tenantId and otp are required"));
+        }
+        try {
+            UUID userId = appAccessGrantService.verifyAndGrant(phone, cc,
+                    UUID.fromString(memberIdS), UUID.fromString(tenantIdS), otp);
+            return ResponseEntity.ok(Map.of("status", "GRANTED", "userId", userId.toString()));
+        } catch (com.chitfund.common.exception.BusinessException ex) {
+            return ResponseEntity.status(ex.getHttpStatus() != null ? ex.getHttpStatus() : HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/revoke-app-access")
+    public ResponseEntity<?> revokeAppAccess(
+            @RequestHeader(value = "X-Internal-Key", required = true) String key,
+            @RequestBody Map<String, String> body) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        String memberIdS = body.get("memberId");
+        String tenantIdS = body.get("tenantId");
+        if (memberIdS == null || tenantIdS == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "memberId and tenantId are required"));
+        }
+        appAccessGrantService.revokeAccess(UUID.fromString(memberIdS), UUID.fromString(tenantIdS));
+        return ResponseEntity.ok(Map.of("status", "REVOKED"));
     }
 
     private String generateUsername(String phone, String countryCode) {
