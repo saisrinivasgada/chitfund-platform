@@ -1,13 +1,12 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, PanResponder,
+  View, Text, Modal, Pressable, TouchableOpacity, PanResponder,
   Animated, useWindowDimensions, ScrollView, Vibration,
   Platform, StyleSheet,
 } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToolkitStore } from '../store/toolkitStore';
 import { toast } from './Toast';
-import { C } from './ui';
 
 // ─── Calculator button definitions ──────────────────────────────────────────
 
@@ -61,7 +60,7 @@ const Calculator = forwardRef<CalcHandle, { onClose: () => void }>(({ onClose },
   return (
     <Animated.View style={[styles.calcSheet, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
       {/* Close bar */}
-      <TouchableOpacity onPress={handleClose} style={styles.calcCloseBar} activeOpacity={0.6}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close calculator" onPress={handleClose} style={styles.calcCloseBar} activeOpacity={0.6}>
         <View style={styles.calcHandle} />
       </TouchableOpacity>
 
@@ -143,12 +142,15 @@ export function FloatingToolkit() {
   const qc      = useQueryClient();
   const calcRef = useRef<CalcHandle>(null);
   const { width: W, height: H } = useWindowDimensions();
+  const geometry = useRef({ width: W, height: H, size: buttonSize });
+  geometry.current = { width: W, height: H, size: buttonSize };
 
   // Animated position (starts right-centre)
-  const pan    = useRef(new Animated.ValueXY({ x: W - buttonSize - 12, y: H * 0.42 })).current;
+  const pan    = useRef(new Animated.ValueXY({ x: W - buttonSize - 12, y: H * 0.68 })).current;
   const scale  = useRef(new Animated.Value(0)).current;
   const pulseS = useRef(new Animated.Value(1)).current;
   const [refreshVisible, setRefreshVisible] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const refreshAnim    = useRef(new Animated.Value(0)).current;
   const isRefreshing   = useRef(false);
 
@@ -178,7 +180,7 @@ export function FloatingToolkit() {
   const dragOffset = useRef({ x: 0, y: 0 });
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6,
       onPanResponderGrant: () => {
         dragOffset.current = {
@@ -193,8 +195,9 @@ export function FloatingToolkit() {
         pan.flattenOffset();
         const curX = (pan.x as any)._value;
         const curY = (pan.y as any)._value;
-        const snapX = curX < W / 2 ? 12 : W - buttonSize - 12;
-        const clampY = Math.max(80, Math.min(curY, H - buttonSize - 90));
+        const { width, height, size } = geometry.current;
+        const snapX = curX < width / 2 ? 8 : width - size - 8;
+        const clampY = Math.max(80, Math.min(curY, height - size - 100));
         Animated.spring(pan, {
           toValue: { x: snapX, y: clampY },
           useNativeDriver: false,
@@ -215,13 +218,9 @@ export function FloatingToolkit() {
   }, [closeCalc]);
 
   const handleTap = useCallback(() => {
-    if (calcOpen) {
-      animatedClose();
-    } else {
-      openCalc();
-    }
+    setMenuOpen(true);
     Vibration.vibrate(Platform.OS === 'ios' ? [0, 8] : [0, 10]);
-  }, [calcOpen, openCalc, animatedClose]);
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing.current) return;
@@ -251,7 +250,7 @@ export function FloatingToolkit() {
 
   if (!enabled) return null;
 
-  const btnRadius = buttonSize / 2;
+  const btnRadius = buttonSize * 0.28;
 
   return (
     <>
@@ -271,13 +270,24 @@ export function FloatingToolkit() {
       >
         <Animated.View style={{ width: buttonSize, height: buttonSize, transform: [{ scale: Animated.multiply(scale, pulseS) }] }}>
         <TouchableOpacity
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Open assistive menu"
+          accessibilityHint="Calculator and refresh. Drag to move the control."
           onPress={handleTap}
           onLongPress={handleRefresh}
           delayLongPress={500}
           activeOpacity={0.85}
           style={[styles.floatBtn, { width: buttonSize, height: buttonSize, borderRadius: btnRadius }]}
         >
-          <Text style={[styles.floatIcon, { fontSize: buttonSize * 0.38 }]}>⌗</Text>
+          <View pointerEvents="none" style={{ width: buttonSize * 0.72, height: buttonSize * 0.72,
+            borderRadius: buttonSize, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: buttonSize * 0.58, height: buttonSize * 0.58, borderRadius: buttonSize,
+              backgroundColor: 'rgba(255,255,255,0.28)', alignItems: 'center', justifyContent: 'center' }}>
+              <View style={{ width: buttonSize * 0.43, height: buttonSize * 0.43, borderRadius: buttonSize,
+                backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)' }} />
+            </View>
+          </View>
         </TouchableOpacity>
 
         {/* Refresh spinner ring */}
@@ -297,6 +307,37 @@ export function FloatingToolkit() {
         </Animated.View>
         </Animated.View>
       </Animated.View>
+
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable accessibilityLabel="Dismiss assistive menu" onPress={() => setMenuOpen(false)}
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(15,23,42,0.18)' }]} />
+          <View style={{ width: 248, borderRadius: 27, padding: 22, backgroundColor: 'rgba(36,41,49,0.96)',
+            borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', shadowColor: '#000', shadowOpacity: 0.22,
+            shadowOffset: { width: 0, height: 10 }, shadowRadius: 24, elevation: 14 }}>
+            <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', textAlign: 'center', marginBottom: 20 }}>QUICK TOOLS</Text>
+            <View style={{ flexDirection: 'row', gap: 18 }}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open calculator"
+                onPress={() => { setMenuOpen(false); openCalc(); }} style={{ flex: 1, alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 54, height: 54, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
+                  <View style={{ width: 25, height: 31, borderRadius: 5, borderWidth: 2, borderColor: '#F1F5F9', padding: 4, gap: 4 }}>
+                    <View style={{ height: 5, borderRadius: 1, backgroundColor: '#F1F5F9' }} />
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 3 }}>{[0,1,2,3].map((key) => <View key={key} style={{ width: 5, height: 5, borderRadius: 1, backgroundColor: '#F1F5F9' }} />)}</View>
+                  </View>
+                </View>
+                <Text style={{ color: '#F1F5F9', fontSize: 12, fontWeight: '500' }}>Calculator</Text>
+              </TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh this screen"
+                onPress={() => { setMenuOpen(false); handleRefresh(); }} style={{ flex: 1, alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 54, height: 54, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: '#F1F5F9', fontSize: 34 }}>↻</Text>
+                </View>
+                <Text style={{ color: '#F1F5F9', fontSize: 12, fontWeight: '500' }}>Refresh</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Calculator overlay */}
       <Modal
@@ -330,7 +371,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   floatBtn: {
-    backgroundColor: C.navy,
+    backgroundColor: 'rgba(32,37,45,0.9)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },

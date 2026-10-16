@@ -101,7 +101,7 @@ export default function ManagerDashboardScreen() {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Manager Dashboard</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>{user?.tenantName ?? 'Your organization'}</Text>
-              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
+
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -114,6 +114,8 @@ export default function ManagerDashboardScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        <SyncStatusCard compact />
 
         <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
           <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>

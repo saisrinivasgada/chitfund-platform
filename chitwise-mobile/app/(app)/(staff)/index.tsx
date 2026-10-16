@@ -543,11 +543,13 @@ export default function StaffTasksScreen() {
                   <Text style={{ fontSize: 12, color: C.gold, fontWeight: '700', marginTop: 1 }} numberOfLines={1}>
                     {user?.tenantName ?? 'Your organization'}
                   </Text>
-                  <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
+
                 </View>
               </View>
               <ProfileAvatarButton />
             </View>
+
+            <SyncStatusCard compact />
 
             <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
               <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>

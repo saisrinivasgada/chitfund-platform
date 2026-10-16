@@ -308,14 +308,14 @@ export default function AdminDashboard() {
       >
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-            <RoleLogo role={user?.role} size={58} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, marginRight: 12 }}>
+            <RoleLogo role={user?.role} size={48} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Dashboard</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>
                 {user?.tenantName ?? 'Your organization'}
               </Text>
-              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
+
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
@@ -334,6 +334,8 @@ export default function AdminDashboard() {
             <ProfileAvatarButton size={36} />
           </View>
         </View>
+
+        <SyncStatusCard compact />
 
         {/* Over-limit warning — usage exceeds the plan */}
         {limitViolations.length > 0 && (
