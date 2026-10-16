@@ -129,7 +129,8 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
   }
 
   const pickupMut = useMutation({
-    mutationFn: () => markPickupOfflineCapable(task.id),
+    networkMode: 'always',
+    mutationFn: () => markPickupOfflineCapable(task.id, task.updatedAt),
     onSuccess: (res) => {
       invalidate();
       toast.collected(res?.offlineQueued
@@ -137,7 +138,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
         : 'Marked as picked up — hand the cash to admin');
       onClose();
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to mark as picked up'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed to mark as picked up'),
   });
 
   const cancelMut = useMutation({
@@ -151,7 +152,8 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
   });
 
   const partialMut = useMutation({
-    mutationFn: () => partialCollectOfflineCapable(task.id, Number(partialAmount)),
+    networkMode: 'always',
+    mutationFn: () => partialCollectOfflineCapable(task.id, Number(partialAmount), task.updatedAt),
     onSuccess: (res) => {
       invalidate();
       toast.saved(res?.offlineQueued
@@ -159,7 +161,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
         : 'Partial collection submitted — member must approve');
       onClose();
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const reschedMut = useMutation({

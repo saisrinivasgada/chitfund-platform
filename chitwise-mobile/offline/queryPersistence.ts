@@ -128,7 +128,9 @@ export function createOfflineQueryClient(): QueryClient {
 export function offlinePersistenceOptions(accountScope: string) {
   return {
     persister: createEncryptedQueryPersister(accountScope),
-    maxAge: CACHE_MAX_AGE,
+    // Cached reads can be shown with their age even after recording access
+    // expires. The outbox is independent and never subject to cache cleanup.
+    maxAge: Infinity,
     buster: OFFLINE_CACHE_BUSTER,
     dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
   };

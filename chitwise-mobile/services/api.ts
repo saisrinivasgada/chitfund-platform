@@ -3,16 +3,25 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { accountStorageId, useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
+import { getAccountScope } from '../offline/accountScope';
+import { accountForScope, refreshAccountSession } from '../offline/accountClient';
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 const hubApi = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
-api.interceptors.request.use(async (config) => {
+api.interceptors.request.use((config) => {
   config.headers['X-Client-Source'] = 'MOBILE';
-  const token = await SecureStore.getItemAsync('chitwise_token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  if ((config.url ?? '').startsWith('/auth/')) return config;
+  const pinned = config as typeof config & { _accountScope?: string };
+  const scope = pinned._accountScope ?? getAccountScope(useAuthStore.getState().user);
+  if (scope) {
+    pinned._accountScope = scope;
+    const account = accountForScope(scope);
+    if (!account?.sessionValid) throw Object.assign(new Error('Sign in again to continue'), { requiresLogin: true });
+    config.headers.Authorization = `Bearer ${account.token}`;
+  }
   return config;
 });
 
@@ -64,77 +73,31 @@ hubApi.interceptors.response.use((response) => response, async (error) => {
   return Promise.reject(error);
 });
 
-let isRefreshing = false;
-let failedQueue: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
-
-function processQueue(error: any, token: string | null) {
-  failedQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token)));
-  failedQueue = [];
-}
-
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const original = err.config;
-    if (err.response?.status === 401 && !original._retry && !(original.url ?? '').startsWith('/auth/')) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
-          return api(original);
-        });
-      }
+    const scope = original?._accountScope as string | undefined;
+    if (err.response?.status === 401 && original && !original._retry
+        && !(original.url ?? '').startsWith('/auth/') && scope) {
       original._retry = true;
-      isRefreshing = true;
-      try {
-        const currentUser = useAuthStore.getState().user;
-        if (currentUser?.authSource === 'HUB') {
-          const hubData = await refreshHubSession();
-          if (!hubData.saasToken) throw new Error('hub_role_has_no_saas_access');
-          processQueue(null, hubData.saasToken);
-          original.headers.Authorization = `Bearer ${hubData.saasToken}`;
-          return api(original);
-        }
-        const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
-        if (!refreshToken) throw new Error('no_refresh');
-        const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-        const authData = resp.data?.data ?? resp.data;
-        const { accessToken, refreshToken: newRefresh } = authData;
-        await SecureStore.setItemAsync('chitwise_token', accessToken);
-        if (newRefresh) await SecureStore.setItemAsync('chitwise_refresh_token', newRefresh);
-        const { user } = useAuthStore.getState();
-        if (user) {
-          const refreshed = parseAuthResponse(authData);
-          await useAuthStore.getState().setUser({
-            ...user,
-            token: accessToken,
-            refreshToken: newRefresh ?? user.refreshToken,
-            tenantId: refreshed.tenantId ?? user.tenantId,
-            tenantName: refreshed.tenantName ?? user.tenantName,
-            analyticsEnabled: refreshed.analyticsEnabled,
-            chatEnabled: refreshed.chatEnabled,
-            settlementEnabled: refreshed.settlementEnabled,
-          });
-        }
-        processQueue(null, accessToken);
-        original.headers.Authorization = `Bearer ${accessToken}`;
-        return api(original);
-      } catch (refreshErr) {
-        processQueue(refreshErr, null);
-        const { user } = useAuthStore.getState();
-        if (user) await useAuthStore.getState().markSessionInvalid(accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION'));
-        return Promise.reject(refreshErr);
-      } finally {
-        isRefreshing = false;
+      const owner = accountForScope(scope);
+      if (owner?.authSource === 'HUB') {
+        // Hub refresh is foreground-only; never refresh it using another account.
+        if (getAccountScope(useAuthStore.getState().user) !== scope) return Promise.reject(err);
+        const data = await refreshHubSession();
+        original.headers.Authorization = `Bearer ${data.saasToken}`;
+      } else {
+        await refreshAccountSession(scope);
       }
+      return api(original);
     }
-    if (err.response?.data?.errorCode === 'PLAN_002') {
-      useUIStore.getState().showPlanExpired();
-    }
-    if (err.response?.data?.errorCode === 'ADD_ON_REQUIRED') {
-      const key = err.response?.data?.addOnKey ?? err.response?.data?.data?.addOnKey;
-      if (key) useUIStore.getState().showAddOnGate(key);
+    if (!scope || scope === getAccountScope(useAuthStore.getState().user)) {
+      if (err.response?.data?.errorCode === 'PLAN_002') useUIStore.getState().showPlanExpired();
+      if (err.response?.data?.errorCode === 'ADD_ON_REQUIRED') {
+        const key = err.response?.data?.addOnKey ?? err.response?.data?.data?.addOnKey;
+        if (key) useUIStore.getState().showAddOnGate(key);
+      }
     }
     return Promise.reject(err);
   }

@@ -86,6 +86,8 @@ public class SecurityConfig {
                     "/api/auth/setup-account",
                     "/api/auth/transfer-token",
                     "/api/auth/refresh",
+                    "/api/auth/accounts/*/refresh",
+                    "/api/auth/accounts/*/logout",
                     "/api/auth/logout",
                     "/api/auth/logout-all",
                     "/api/auth/verify-reset-otp",

@@ -468,7 +468,7 @@ export default function AdminChitsScreen() {
       setSelected((prev: any) => prev ? { ...prev, status: vars.status } : prev);
       toast.saved('Status updated');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   // Pause/resume go through dedicated endpoints, not updateChitStatus: the
@@ -531,7 +531,7 @@ export default function AdminChitsScreen() {
       qc.invalidateQueries({ queryKey: ['a-enrollments', selected?.id] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const winnerMut = useOnlineMutation({
@@ -543,7 +543,7 @@ export default function AdminChitsScreen() {
       setShowWinner(false); setWinnerMemberId(''); setWinnerDraw(''); setWinnerWinningAmount('');
       toast.saved('Winner recorded');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   // ── Mutations: draws ───────────────────────────────────────────────────────
@@ -645,7 +645,7 @@ export default function AdminChitsScreen() {
       setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
       toast.noted('Draw opened');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const closeDrawMut = useOnlineMutation({
@@ -655,7 +655,7 @@ export default function AdminChitsScreen() {
       qc.invalidateQueries({ queryKey: ['a-chits'] });
       toast.noted('Draw closed');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const skipDrawMut = useOnlineMutation({
@@ -681,7 +681,7 @@ export default function AdminChitsScreen() {
       setShowSkipDraw(false); setSdDrawId(''); setSdDrawNum(''); setSdReason('');
       toast.skipped('Draw skipped — slots shifted forward');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const deleteDrawMut = useOnlineMutation({
@@ -706,6 +706,7 @@ export default function AdminChitsScreen() {
 
   // ── Mutation: collect payment for a draw ──────────────────────────────────
   const collectPayMut = useMutation({
+    networkMode: 'always',
     mutationFn: () => recordPaymentOfflineCapable({
       chitId: selected.id,
       memberId: cpMemberId,
@@ -801,13 +802,13 @@ export default function AdminChitsScreen() {
       setShowShift(false); setShiftFrom('');
       toast.saved('Schedule shifted forward by 1 draw');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const processSlotMut = useOnlineMutation({
     mutationFn: (resId: string) => markSlotProcessed(selected.id, resId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] }),
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const updateSlotMut = useOnlineMutation({

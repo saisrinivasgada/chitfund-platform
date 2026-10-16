@@ -1,6 +1,6 @@
 module.exports = ({ config }) => {
   const hub = process.env.EXPO_PUBLIC_APP_VARIANT === 'hub';
-  if (!hub) return config;
+  if (!hub) return { ...config, plugins: [...config.plugins, 'expo-background-task'] };
 
   return {
     ...config,

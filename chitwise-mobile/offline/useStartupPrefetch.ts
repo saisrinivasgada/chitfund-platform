@@ -29,6 +29,16 @@ import {
   getMyCashRequests,
 } from '../services/api';
 
+import { useOfflineAccessStore } from './access';
+import { getAccountScope } from './accountScope';
+import { useAuthStore } from '../store/authStore';
+
+function useOfflinePreparationEnabled() {
+  const user = useAuthStore((state) => state.user);
+  const scope = getAccountScope(user);
+  return useOfflineAccessStore((state) => !!scope && state.accounts[scope]?.enabled === true);
+}
+
 const STALE = 5 * 60 * 1000; // 5 min — skip re-fetch if already fresh
 
 // Prefetch a list of [queryKey, queryFn] pairs in parallel (fire-and-forget).
@@ -43,10 +53,11 @@ function prefetchAll(qc: ReturnType<typeof useQueryClient>, tasks: Array<[unknow
 
 export function useAdminStartupPrefetch() {
   const qc = useQueryClient();
+  const enabled = useOfflinePreparationEnabled();
   const ran = useRef(false);
 
   useEffect(() => {
-    if (ran.current) return;
+    if (!enabled || ran.current) return;
     ran.current = true;
 
     // Phase 1 — top-level lists (no params needed)
@@ -81,17 +92,18 @@ export function useAdminStartupPrefetch() {
         }
       })
       .catch(() => { /* network unavailable — will serve from SQLite cache */ });
-  }, [qc]);
+  }, [qc, enabled]);
 }
 
 // ─── Manager ─────────────────────────────────────────────────────────────────
 
 export function useManagerStartupPrefetch() {
   const qc = useQueryClient();
+  const enabled = useOfflinePreparationEnabled();
   const ran = useRef(false);
 
   useEffect(() => {
-    if (ran.current) return;
+    if (!enabled || ran.current) return;
     ran.current = true;
 
     prefetchAll(qc, [
@@ -118,17 +130,18 @@ export function useManagerStartupPrefetch() {
         }
       })
       .catch(() => {});
-  }, [qc]);
+  }, [qc, enabled]);
 }
 
 // ─── Staff ────────────────────────────────────────────────────────────────────
 
 export function useStaffStartupPrefetch() {
   const qc = useQueryClient();
+  const enabled = useOfflinePreparationEnabled();
   const ran = useRef(false);
 
   useEffect(() => {
-    if (ran.current) return;
+    if (!enabled || ran.current) return;
     ran.current = true;
 
     prefetchAll(qc, [
@@ -138,17 +151,18 @@ export function useStaffStartupPrefetch() {
       [['staff-tasks'],             getMyAssignedRequests],
       [['worker-pending-batches'],  getMyPendingBatches],
     ]);
-  }, [qc]);
+  }, [qc, enabled]);
 }
 
 // ─── Member ───────────────────────────────────────────────────────────────────
 
 export function useMemberStartupPrefetch() {
   const qc = useQueryClient();
+  const enabled = useOfflinePreparationEnabled();
   const ran = useRef(false);
 
   useEffect(() => {
-    if (ran.current) return;
+    if (!enabled || ran.current) return;
     ran.current = true;
 
     prefetchAll(qc, [
@@ -171,5 +185,5 @@ export function useMemberStartupPrefetch() {
         }
       })
       .catch(() => {});
-  }, [qc]);
+  }, [qc, enabled]);
 }

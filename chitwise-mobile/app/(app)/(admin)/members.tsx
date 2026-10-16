@@ -227,7 +227,7 @@ export default function AdminMembersScreen() {
       toast.created('Member created');
       if (showAccessLink) showChitfundRequestLink(data, 'Member created — Chitfund Request sent');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const changeReferralMutation = useOnlineMutation({
@@ -242,7 +242,7 @@ export default function AdminMembersScreen() {
       setNewReferralId(''); setNewReferralSearch('');
       toast.saved('Referral updated');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const statusMutation = useOnlineMutation({
@@ -256,7 +256,7 @@ export default function AdminMembersScreen() {
       const labels: Record<string, string> = { ACTIVE: 'activated', INACTIVE: 'deactivated', BLACKLISTED: 'blacklisted' };
       toast.saved(`Member ${labels[vars.status] ?? 'updated'}`);
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const deleteMutation = useOnlineMutation({
@@ -330,6 +330,7 @@ export default function AdminMembersScreen() {
   });
 
   const collectMutation = useMutation({
+    networkMode: 'always',
     // Staff/manager collection creates a Cash Pickup Request instead of recording
     // a payment directly — nobody's balance changes until that staff member
     // actually confirms they collected the cash (marks it picked up) and admin
@@ -396,7 +397,7 @@ export default function AdminMembersScreen() {
       }
       toast.saved(useCredits ? 'Credits applied — outstanding settled' : data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const reminderMutation = useOnlineMutation({

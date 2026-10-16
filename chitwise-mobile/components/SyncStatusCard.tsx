@@ -50,6 +50,7 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
     if (state.status === 'offline') return { mark: 'Ⅱ', title: 'Sync paused', color: '#B45309', background: '#FFFBEB' };
     if (state.status === 'conflict' || state.status === 'error') return { mark: '!', title: 'Sync needs attention', color: '#B91C1C', background: '#FEF2F2' };
     if (state.status === 'auth-required') return { mark: '!', title: 'Login required to sync', color: '#B91C1C', background: '#FEF2F2' };
+    if (state.status === 'access-required') return { mark: 'Ⅱ', title: 'Saved payments need access', color: '#B45309', background: '#FFFBEB' };
     if (state.pendingCount > 0 || state.status === 'pending') return { mark: '↑', title: `${state.pendingCount} payment${state.pendingCount === 1 ? '' : 's'} waiting`, color: '#B45309', background: '#FFFBEB' };
     return { mark: '✓', title: syncedClock(state.lastSyncedAt), color: C.green, background: '#F0FDF4' };
   })();

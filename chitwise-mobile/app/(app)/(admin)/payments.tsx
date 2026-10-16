@@ -902,6 +902,7 @@ function RecordPaymentTab() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const recordMut = useMutation({
+    networkMode: 'always',
     // Staff/manager collection creates a Cash Pickup Request instead of recording
     // a payment directly — nobody's balance changes until that staff member
     // confirms they collected the cash and admin confirms receipt. See the

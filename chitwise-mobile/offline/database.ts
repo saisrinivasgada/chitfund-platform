@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as SQLite from 'expo-sqlite';
+import { File } from 'expo-file-system';
 import type { PersistedClient, Persister } from '@tanstack/query-persist-client-core';
 import type { QueuedOperation, SyncCounts, SyncOperationStatus } from './types';
 
@@ -21,10 +22,18 @@ async function scopeHash(accountScope: string): Promise<string> {
 async function databaseKeyForScope(hash: string): Promise<string> {
   const keyId = `chitwise_offline_key_${hash}`;
   const existing = await SecureStore.getItemAsync(keyId);
-  if (existing && /^[a-f0-9]{64}$/i.test(existing)) return existing;
-  const generated = `${Crypto.randomUUID()}${Crypto.randomUUID()}`.replace(/-/g, '');
-  await SecureStore.setItemAsync(keyId, generated);
+  const generated = existing && /^[a-f0-9]{64}$/i.test(existing) ? existing
+    : `${Crypto.randomUUID()}${Crypto.randomUUID()}`.replace(/-/g, '');
+  await SecureStore.setItemAsync(keyId, generated, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY });
   return generated;
+}
+
+/** Detect historical queues without creating a database for online-only accounts. */
+export async function hasOfflineDatabase(accountScope: string): Promise<boolean> {
+  if (openDatabases.has(accountScope)) return true;
+  if (!SQLite.defaultDatabaseDirectory) return false;
+  const hash = await scopeHash(accountScope);
+  return new File(SQLite.defaultDatabaseDirectory, `chitwise-offline-${hash}.db`).exists;
 }
 
 async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDatabase> {
@@ -216,7 +225,7 @@ export async function getReadyOperations(accountScope: string, limit = 25): Prom
   const rows = await db.getAllAsync<any>(
     `SELECT * FROM sync_operations
      WHERE account_scope = ?
-       AND status IN ('QUEUED', 'RETRYABLE_FAILURE')
+       AND status IN ('QUEUED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS')
        AND next_attempt_at <= ?
      ORDER BY created_at ASC
      LIMIT ?`,
@@ -225,6 +234,18 @@ export async function getReadyOperations(accountScope: string, limit = 25): Prom
     limit,
   );
   return rows.map(mapOperation);
+}
+
+/** Atomic per-entry lease shared by foreground and native background runtimes. */
+export async function claimOperation(operation: QueuedOperation): Promise<boolean> {
+  const db = await getOfflineDatabase(operation.accountScope);
+  const result = await db.runAsync(
+    `UPDATE sync_operations SET status = 'SYNCING', attempts = attempts + 1, updated_at = ?
+     WHERE operation_id = ? AND account_scope = ?
+       AND status IN ('QUEUED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS')`,
+    Date.now(), operation.operationId, operation.accountScope,
+  );
+  return result.changes === 1;
 }
 
 export async function recoverInterruptedOperations(accountScope: string): Promise<void> {
@@ -248,7 +269,7 @@ export async function makeRetryableOperationsReady(accountScope: string): Promis
   const db = await getOfflineDatabase(accountScope);
   await db.runAsync(
     `UPDATE sync_operations SET next_attempt_at = ?, updated_at = ?
-     WHERE account_scope = ? AND status = 'RETRYABLE_FAILURE'`,
+     WHERE account_scope = ? AND status IN ('RETRYABLE_FAILURE', 'PAUSED_ACCESS')`,
     Date.now(),
     Date.now(),
     accountScope,
@@ -260,7 +281,7 @@ export async function getVisibleOperations(accountScope: string, limit = 10): Pr
   const rows = await db.getAllAsync<any>(
     `SELECT * FROM sync_operations
      WHERE account_scope = ?
-       AND status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'CONFLICT', 'PERMANENT_FAILURE')
+       AND status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS', 'CONFLICT', 'PERMANENT_FAILURE')
      ORDER BY created_at DESC
      LIMIT ?`,
     accountScope,
@@ -309,7 +330,7 @@ export async function getPendingCountForMember(accountScope: string, memberId: s
     const row = await db.getFirstAsync<{ cnt: number }>(
       `SELECT COUNT(*) AS cnt FROM sync_operations
        WHERE account_scope = ? AND entity_id = ? AND action = 'RECORD_PAYMENT'
-         AND status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE')`,
+         AND status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS')`,
       accountScope,
       memberId,
     );
@@ -321,9 +342,10 @@ export async function getPendingCountForMember(accountScope: string, memberId: s
 
 export async function getSyncCounts(accountScope: string): Promise<SyncCounts> {
   const db = await getOfflineDatabase(accountScope);
-  const row = await db.getFirstAsync<{ pending: number; conflicts: number; failed: number }>(
+  const row = await db.getFirstAsync<{ pending: number; paused: number; conflicts: number; failed: number }>(
     `SELECT
-       SUM(CASE WHEN status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE') THEN 1 ELSE 0 END) AS pending,
+       SUM(CASE WHEN status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS') THEN 1 ELSE 0 END) AS pending,
+       SUM(CASE WHEN status = 'PAUSED_ACCESS' THEN 1 ELSE 0 END) AS paused,
        SUM(CASE WHEN status = 'CONFLICT' THEN 1 ELSE 0 END) AS conflicts,
        SUM(CASE WHEN status = 'PERMANENT_FAILURE' THEN 1 ELSE 0 END) AS failed
      FROM sync_operations WHERE account_scope = ?`,
@@ -331,6 +353,7 @@ export async function getSyncCounts(accountScope: string): Promise<SyncCounts> {
   );
   return {
     pending: Number(row?.pending ?? 0),
+    paused: Number(row?.paused ?? 0),
     conflicts: Number(row?.conflicts ?? 0),
     failed: Number(row?.failed ?? 0),
   };

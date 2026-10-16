@@ -14,6 +14,9 @@ import { createOfflineQueryClient, offlinePersistenceOptions } from '../offline/
 import { SyncRuntime } from '../offline/SyncRuntime';
 import { BrandLaunch } from '../components/BrandLaunch';
 import { FloatingToolkit } from '../components/FloatingToolkit';
+import NetInfo from '@react-native-community/netinfo';
+import { restoreOfflineAccess, refreshOfflineAccess, useOfflineAccessStore } from '../offline/access';
+import { updateBackgroundSyncRegistration } from '../offline/backgroundSync';
 
 const hubQueryClient = new QueryClient({
   defaultOptions: {
@@ -25,11 +28,25 @@ const HUB_BUILD = process.env.EXPO_PUBLIC_APP_VARIANT === 'hub';
 function ScopedQueryProvider({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((state) => state.user);
   const scope = getAccountScope(user);
+  const offlineEnabled = useOfflineAccessStore((state) => !!scope && state.accounts[scope]?.enabled === true);
   const queryClient = useMemo(() => createOfflineQueryClient(), [scope]);
-  const persistence = useMemo(() => scope ? offlinePersistenceOptions(scope) : null, [scope]);
+  const persistence = useMemo(() => scope && offlineEnabled ? offlinePersistenceOptions(scope) : null, [scope, offlineEnabled]);
+
+  useEffect(() => {
+    if (!scope || HUB_BUILD || user?.authSource === 'HUB') return;
+    let active = true;
+    restoreOfflineAccess(scope).catch(() => {}).then(async () => {
+      const network = await NetInfo.fetch();
+      if (active && network.isConnected && network.isInternetReachable !== false) await refreshOfflineAccess(scope);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [scope, user?.authSource]);
 
   if (HUB_BUILD || !scope || !persistence) {
-    return <QueryClientProvider client={HUB_BUILD ? hubQueryClient : queryClient}>{children}</QueryClientProvider>;
+    return <QueryClientProvider client={HUB_BUILD ? hubQueryClient : queryClient}>
+      {!HUB_BUILD && scope && user?.authSource !== 'HUB' && <SyncRuntime />}
+      {children}
+    </QueryClientProvider>;
   }
 
   return (
@@ -167,6 +184,14 @@ function FloatingToolkitRoot() {
 export default function RootLayout() {
   const [showBrandLaunch, setShowBrandLaunch] = useState(true);
   const finishBrandLaunch = useCallback(() => setShowBrandLaunch(false), []);
+
+  useEffect(() => {
+    const update = () => { updateBackgroundSyncRegistration().catch(() => {}); };
+    update();
+    const unsubscribeAuth = useAuthStore.subscribe(update);
+    const unsubscribeAccess = useOfflineAccessStore.subscribe(update);
+    return () => { unsubscribeAuth(); unsubscribeAccess(); };
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

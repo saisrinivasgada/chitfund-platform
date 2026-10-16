@@ -12,6 +12,7 @@ const STATUS: Record<string, { label: string; color: string; background: string 
   QUEUED: { label: 'Saved on device', color: '#92400E', background: '#FFFBEB' },
   SYNCING: { label: 'Syncing', color: C.navy, background: C.navy50 },
   RETRYABLE_FAILURE: { label: 'Will retry', color: '#92400E', background: '#FFFBEB' },
+  PAUSED_ACCESS: { label: 'Saved · access needed', color: '#92400E', background: '#FFFBEB' },
   CONFLICT: { label: 'Review needed', color: '#991B1B', background: '#FEF2F2' },
   PERMANENT_FAILURE: { label: 'Could not post', color: '#991B1B', background: '#FEF2F2' },
 };

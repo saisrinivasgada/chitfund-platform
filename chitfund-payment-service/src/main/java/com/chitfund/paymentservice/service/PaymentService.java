@@ -193,9 +193,24 @@ public class PaymentService {
 
     @Transactional
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId, String idempotencyKey) {
-        planExpiryChecker.assertNotExpired();
+        String offlineGrantId = null;
+        Instant recordedAt;
+        if (request.getOfflineAuthorization() != null) {
+            if (idempotencyKey == null || idempotencyKey.isBlank()
+                    || request.getPaymentMode() == PaymentMode.CREDIT) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Saved payments require an operation identity and cannot apply credit", HttpStatus.BAD_REQUEST);
+            }
+            offlineGrantId = planExpiryChecker.assertRecordedPaymentMaySync(
+                    adminId, request.getOfflineAuthorization(), request.getRecordedAt());
+            // The original signed window replaces the generic 30-day age limit.
+            // It must be verified before accepting this historical date.
+            recordedAt = request.getRecordedAt();
+        } else {
+            planExpiryChecker.assertNotExpired();
+            recordedAt = validatedRecordedAt(request.getRecordedAt());
+        }
         String tenantId = tenantId();
-        Instant recordedAt = validatedRecordedAt(request.getRecordedAt());
         String paymentReference = normalizePaymentReference(request.getPaymentReference());
         request.setPaymentReference(paymentReference);
         // Keep the legacy fingerprint for older clients that do not send a
@@ -268,6 +283,16 @@ public class PaymentService {
                 .idempotencyRequestHash(idempotencyKey != null ? requestHash : null)
                 .build();
         batchRepository.saveAndFlush(batch);
+
+        if (offlineGrantId != null) {
+            auditClient.log(AuditClient.AuditDetails.builder()
+                    .entityType("PAYMENT").entityId(batch.getId().toString())
+                    .chitId(request.getChitId().toString()).action("OFFLINE_PAYMENT_SYNCHRONIZED")
+                    .actorId(adminId.toString()).actorRole("ADMIN").tenantId(tenantId)
+                    .idempotencyKey(idempotencyKey).originalOfflineAt(recordedAt)
+                    .synchronizedAt(batch.getSyncedAt())
+                    .metadata(Map.of("offlineGrantId", offlineGrantId)).build());
+        }
 
         List<PaymentAllocation> allocations = request.getAllocations() == null || request.getAllocations().isEmpty()
                 ? applyFifo(batch, adminId)

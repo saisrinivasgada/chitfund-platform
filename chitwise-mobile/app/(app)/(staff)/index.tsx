@@ -49,7 +49,7 @@ function TaskModal({
     if (collectingFull || collectingPartial) return;
     setCollectingFull(true);
     try {
-      const res = await markPickupOfflineCapable(task.id);
+      const res = await markPickupOfflineCapable(task.id, task.updatedAt);
       // Optimistic update — task moves to PICKED_UP in local cache
       qc.setQueryData(['staff-tasks'], (old: any[]) =>
         (old ?? []).map((t: any) =>
@@ -72,7 +72,7 @@ function TaskModal({
     if (collectingPartial || collectingFull) return;
     setCollectingPartial(true);
     try {
-      const res = await partialCollectOfflineCapable(task.id, amt);
+      const res = await partialCollectOfflineCapable(task.id, amt, task.updatedAt);
       qc.setQueryData(['staff-tasks'], (old: any[]) =>
         (old ?? []).map((t: any) =>
           t.id === task.id

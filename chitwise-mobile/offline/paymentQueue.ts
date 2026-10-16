@@ -13,6 +13,10 @@ import {
 } from './database';
 import type { OfflinePaymentResult, QueuedOperation } from './types';
 import { useSyncStore } from '../store/syncStore';
+import { accountForScope, requestAsAccount } from './accountClient';
+import { refreshOfflineAccess, useOfflineAccessStore } from './access';
+import { canRecordOffline, requireOfflineRecording } from './accessPolicy';
+import { claimOperation } from './database';
 
 export interface RecordPaymentPayload {
   chitId: string;
@@ -24,13 +28,23 @@ export interface RecordPaymentPayload {
   drawNumber?: number;
   idempotencyKey?: string;
   recordedAt?: string;
+  offlineAuthorization?: string;
   allocations?: Array<{ chitId: string; amount: number }>;
+}
+
+async function sendForAccount(scope: string, payload: RecordPaymentPayload, operationId: string) {
+  const { idempotencyKey: _unused, ...data } = payload;
+  const response = await requestAsAccount(scope, {
+    method: 'POST', url: '/payments', data, headers: { 'X-Idempotency-Key': operationId },
+  });
+  return response.data?.data ?? response.data;
 }
 
 export type ProcessOperationResult =
   | { kind: 'succeeded'; result: any }
   | { kind: 'retryable'; error: unknown }
   | { kind: 'auth-required'; error: unknown }
+  | { kind: 'access-required'; error: unknown }
   | { kind: 'conflict'; error: unknown }
   | { kind: 'failed'; error: unknown };
 
@@ -98,20 +112,21 @@ function retryDelay(attempts: number): number {
 }
 
 export async function processPaymentOperation(operation: QueuedOperation<any>): Promise<ProcessOperationResult> {
-  const currentUser = useAuthStore.getState().user;
-  const current = requireOrganizationScope(currentUser);
-  if (current.scope !== operation.accountScope || current.actorId !== operation.actorId) {
-    return { kind: 'auth-required', error: new Error('Switch back to the account that recorded this payment') };
+  const owner = accountForScope(operation.accountScope);
+  if (!owner?.sessionValid || owner.userId !== operation.actorId || owner.tenantId !== operation.tenantId) {
+    return { kind: 'auth-required', error: new Error('Sign in to the account that recorded this payment') };
   }
 
   const attempts = operation.attempts + 1;
 
   try {
-    await updateOperation(operation.operationId, operation.accountScope, 'SYNCING', { attempts });
-    const result = await recordPayment({
-      ...(operation.payload as RecordPaymentPayload),
-      idempotencyKey: operation.operationId,
+    if (!await claimOperation(operation)) return { kind: 'retryable', error: new Error('Payment is already being synchronized') };
+    const response = await requestAsAccount(operation.accountScope, {
+      method: 'POST', url: '/payments', data: operation.payload,
+      headers: { 'X-Idempotency-Key': operation.operationId },
     });
+    const result = response.data?.data ?? response.data;
+    if (!result?.id) throw new Error('Server did not confirm a payment receipt; retrying safely');
     await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
       attempts,
       serverReceiptId: result?.id ? String(result.id) : null,
@@ -119,7 +134,7 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
     return { kind: 'succeeded', result };
   } catch (error) {
     const details = errorDetails(error);
-    if (details.status === 401) {
+    if (details.status === 401 || (error as any)?.requiresLogin) {
       await updateOperation(operation.operationId, operation.accountScope, 'RETRYABLE_FAILURE', {
         attempts,
         nextAttemptAt: Date.now() + 60_000,
@@ -127,6 +142,13 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
         errorMessage: 'Login required before this payment can sync',
       });
       return { kind: 'auth-required', error };
+    }
+    if (details.status === 403 || ['PLAN_002', 'ADD_ON_REQUIRED'].includes(details.code)) {
+      await updateOperation(operation.operationId, operation.accountScope, 'PAUSED_ACCESS', {
+        attempts, nextAttemptAt: Date.now() + 5 * 60_000, errorCode: details.code,
+        errorMessage: 'Saved payment needs access restored or review. It is preserved on this device.',
+      });
+      return { kind: 'access-required', error };
     }
     if (details.status === 409) {
       await updateOperation(operation.operationId, operation.accountScope, 'CONFLICT', {
@@ -182,11 +204,24 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
   }
 
   const account = requireOrganizationScope(user);
+  const network = await NetInfo.fetch();
+  const reachable = network.isConnected === true && network.isInternetReachable !== false;
+  let access = useOfflineAccessStore.getState().accounts[account.scope];
+  if (reachable && !canRecordOffline(access, 'RECORD_PAYMENT')) {
+    try { access = await refreshOfflineAccess(account.scope); } catch { /* Existing valid grants survive transport failure. */ }
+  }
+  if (!canRecordOffline(access, 'RECORD_PAYMENT')) {
+    if (reachable) return sendForAccount(account.scope, input, input.idempotencyKey ?? Crypto.randomUUID());
+    requireOfflineRecording(access, 'RECORD_PAYMENT');
+  }
+  const recordedAt = Date.now();
+  const grant = requireOfflineRecording(access, 'RECORD_PAYMENT', recordedAt);
+  if (!accountForScope(account.scope)?.sessionValid) throw new Error('Sign in again before recording this payment');
   const payload = normalizePayload(input);
+  payload.offlineAuthorization = grant.token;
+  payload.recordedAt = new Date(access!.serverTime + (recordedAt - access!.checkedAt)).toISOString();
   validatePayload(payload);
   const hash = await payloadHash(payload);
-  const network = await NetInfo.fetch();
-  const reachable = network.isConnected === true;
 
   // Try inserting with the provided or generated operationId. In the astronomically
   // unlikely case that a self-generated UUID collides with a different existing
@@ -225,14 +260,14 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
         continue;
       }
       // SQLCipher unavailable (Expo Go) or unrecoverable error
-      if (reachable) return recordPayment({ ...payload, idempotencyKey: operationId });
+      if (reachable && !isCollision) return sendForAccount(account.scope, payload, operationId);
       throw error;
     }
   }
 
   if (!inserted) {
     // All retries exhausted (should never happen in practice)
-    if (reachable) return recordPayment({ ...payload, idempotencyKey: Crypto.randomUUID() });
+    if (reachable) return sendForAccount(account.scope, payload, Crypto.randomUUID());
     throw new Error('The payment could not be saved securely on this device');
   }
 
@@ -267,10 +302,11 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
         ? 'conflict'
         : processed.kind === 'auth-required'
           ? 'auth-required'
+          : processed.kind === 'access-required' ? 'access-required'
           : 'pending',
   });
   if (processed.kind === 'succeeded') return processed.result;
-  if (processed.kind === 'retryable' || processed.kind === 'auth-required') {
+  if (processed.kind === 'retryable' || processed.kind === 'auth-required' || processed.kind === 'access-required') {
     return pendingResult(operationId, payload);
   }
   throw processed.error;

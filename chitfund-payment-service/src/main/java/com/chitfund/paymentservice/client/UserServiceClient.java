@@ -1,15 +1,20 @@
 package com.chitfund.paymentservice.client;
 
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.common.offline.OfflineReconciliationRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +33,34 @@ public class UserServiceClient {
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
+
+    /** Current permission and original recording authority, without requiring renewal. */
+    @SuppressWarnings("unchecked")
+    public String verifyOfflineRecordedAction(OfflineReconciliationRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Key", internalKey);
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    userServiceUrl + "/internal/offline-access/verify-recorded-action",
+                    HttpMethod.POST, new HttpEntity<>(request, headers), Map.class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null
+                    && response.getBody().get("grantId") instanceof String id && !id.isBlank()) {
+                return id;
+            }
+        } catch (HttpClientErrorException rejected) {
+            if (rejected.getStatusCode().value() == 403) {
+                throw new BusinessException(ErrorCode.FORBIDDEN,
+                        "Saved payment needs access restored or authorisation reviewed. It remains on the device.",
+                        HttpStatus.FORBIDDEN);
+            }
+            // Internal authentication/contract errors are infrastructure failures,
+            // not evidence that the user's saved payment should be rejected.
+        } catch (RestClientException unavailable) {
+            // Do not log the request: it contains historical authorisation evidence.
+        }
+        throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                "Saved payment access could not be verified. Sync will retry.", HttpStatus.SERVICE_UNAVAILABLE);
+    }
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> getEffectiveLimits(String tenantId) {
