@@ -5,19 +5,36 @@ import { accountStorageId, useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
 import { getAccountScope } from '../offline/accountScope';
 import { accountForScope, refreshAccountSession } from '../offline/accountClient';
+import { onlineManager } from '@tanstack/react-query';
+import { cachedHttpResponse, saveHttpResponse, forgetHttpResponse } from '../offline/httpCache';
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 const hubApi = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
-api.interceptors.request.use((config) => {
+async function diskResponse(scope: string, config: any) {
+  const saved = await cachedHttpResponse(scope, config);
+  return saved ? { config, data: saved.data, status: 200, statusText: 'Saved on device',
+    headers: { 'x-chitwise-cached-at': String(saved.savedAt) } } : null;
+}
+
+api.interceptors.request.use(async (config) => {
   config.headers['X-Client-Source'] = 'MOBILE';
   if ((config.url ?? '').startsWith('/auth/')) return config;
   const pinned = config as typeof config & { _accountScope?: string };
   const scope = pinned._accountScope ?? getAccountScope(useAuthStore.getState().user);
   if (scope) {
     pinned._accountScope = scope;
+    if (!onlineManager.isOnline()) {
+      try {
+        const cached = await diskResponse(scope, config);
+        if (cached) { config.adapter = async () => cached; return config; }
+      } catch { /* Keep local records intact if a snapshot cannot be read. */ }
+      throw Object.assign(new Error((config.method ?? 'get').toLowerCase() === 'get'
+        ? 'This data has not been downloaded on this device. Connect to refresh it.'
+        : 'This action needs an internet connection. Saved payments remain on this device.'), { config, offlineMissing: true });
+    }
     const account = accountForScope(scope);
     if (!account?.sessionValid) throw Object.assign(new Error('Sign in again to continue'), { requiresLogin: true });
     config.headers.Authorization = `Bearer ${account.token}`;
@@ -74,10 +91,22 @@ hubApi.interceptors.response.use((response) => response, async (error) => {
 });
 
 api.interceptors.response.use(
-  (res) => res,
+  async (res) => {
+    const scope = (res.config as any)?._accountScope;
+    if (scope && !res.headers?.['x-chitwise-cached-at']) {
+      try { await saveHttpResponse(scope, res.config, res.data); } catch { /* Online flow remains available. */ }
+    }
+    return res;
+  },
   async (err) => {
     const original = err.config;
     const scope = original?._accountScope as string | undefined;
+    if (scope && [403, 404, 410].includes(err.response?.status)) {
+      try { await forgetHttpResponse(scope, original); } catch {}
+    }
+    if (scope && !err.requiresLogin && (!err.response || err.response.status >= 500 || [408, 429].includes(err.response.status))) {
+      try { const cached = await diskResponse(scope, original); if (cached) return cached; } catch {}
+    }
     if (err.response?.status === 401 && original && !original._retry
         && !(original.url ?? '').startsWith('/auth/') && scope) {
       original._retry = true;
@@ -253,7 +282,7 @@ function decodeJwtClaims(token: string): Record<string, any> | null {
 
 function parseAuthResponse(auth: any): LoginResponse {
   // UserResponse on the server has no tenantId field — extract it from the JWT claims instead.
-  const tenantId: string | undefined = auth.user?.tenantId
+  const tenantId: string | undefined = auth.tenant?.tenantId ?? auth.user?.tenantId
     ?? decodeJwtClaims(auth.accessToken ?? '')?.tenantId;
   return {
     token: auth.accessToken,
@@ -261,7 +290,7 @@ function parseAuthResponse(auth: any): LoginResponse {
     userId: auth.user.id,
     username: auth.user.username,
     fullName: auth.user.fullName,
-    role: auth.user.role,
+    role: auth.tenant?.role ?? auth.user.role,
     mustChangePassword: auth.user.mustChangePassword ?? false,
     tenantId,
     tenantName: auth.tenant?.name,
@@ -496,6 +525,8 @@ export const recordWinner = async (chitId: string, body: any) =>
 // ── Draws ──────────────────────────────────────────────────────────────────────
 export const getDraws = async (chitId: string) =>
   unwrapList(await api.get(`/admin/draws/chit/${chitId}`));
+export const getMyDraws = async (chitId: string) =>
+  unwrapList(await api.get(`/admin/draws/member/chit/${chitId}`));
 export const openDraw = async (body: any) => unwrapObj(await api.post('/admin/draws/open', body));
 export const closeDraw = async (drawId: string) => unwrapObj(await api.post(`/admin/draws/${drawId}/close`));
 export const skipDraw = async (body: any) => unwrapObj(await api.post('/admin/draws/skip', body));

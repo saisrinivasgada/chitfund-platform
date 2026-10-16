@@ -6,20 +6,24 @@ import { getStoredAccountScope } from './accountScope';
 import { hasOfflineAccess, refreshOfflineAccess, restoreOfflineAccess } from './access';
 import { getSyncCounts, hasOfflineDatabase } from './database';
 import { synchronizeSavedAccounts } from './syncEngine';
+import { prepareSavedAccountData } from './preparation';
 
 const TASK = 'chitwise-saved-account-sync-v1';
 const supported = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_APP_VARIANT !== 'hub';
 
 if (supported && !TaskManager.isTaskDefined(TASK)) {
   TaskManager.defineTask(TASK, async () => {
+    const deadline = Date.now() + 25_000;
     try {
       // Background launch must not restore or change the visible login.
       await useAuthStore.getState().loadSavedAccountsForBackground();
-      await synchronizeSavedAccounts();
+      await synchronizeSavedAccounts(undefined, deadline);
       for (const account of useAuthStore.getState().accounts) {
+        if (Date.now() >= deadline) break;
         if (!account.sessionValid || account.authSource === 'HUB') continue;
         try { await refreshOfflineAccess(getStoredAccountScope(account)); } catch { /* Retry later. */ }
       }
+      if (Date.now() < deadline) await prepareSavedAccountData(deadline);
       return BackgroundTask.BackgroundTaskResult.Success;
     } catch {
       // Outbox rows survive worker expiry, locked-device access and network failure.
@@ -37,8 +41,8 @@ export function updateBackgroundSyncRegistration(): Promise<void> {
       if (!account.sessionValid || account.authSource === 'HUB') continue;
       const scope = getStoredAccountScope(account);
       await restoreOfflineAccess(scope);
-      const pending = await hasOfflineDatabase(scope) ? (await getSyncCounts(scope)).pending : 0;
-      if (hasOfflineAccess(scope) || pending > 0) { eligible = true; break; }
+      const counts = await hasOfflineDatabase(scope) ? await getSyncCounts(scope) : null;
+      if (hasOfflineAccess(scope) || (counts?.pending ?? 0) > 0 || (counts?.conflicts ?? 0) > 0) { eligible = true; break; }
     }
     const registered = await TaskManager.isTaskRegisteredAsync(TASK);
     if (eligible && !registered && await BackgroundTask.getStatusAsync() === BackgroundTask.BackgroundTaskStatus.Available) {

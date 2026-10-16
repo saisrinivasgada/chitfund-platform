@@ -10,6 +10,7 @@ import {
   cancelByStaff, rescheduleRequest,
   getMembers, getChits, listStaff,
 } from '../../../services/api';
+import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 import { markPickupOfflineCapable, partialCollectOfflineCapable } from '../../../offline/staffQueue';
 import {
   C, T, Card, Badge, Button, Amount, EmptyState, ListLoadingScreen, fmtDate, fmtDateTime,
@@ -130,7 +131,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
 
   const pickupMut = useMutation({
     networkMode: 'always',
-    mutationFn: () => markPickupOfflineCapable(task.id, task.updatedAt),
+    mutationFn: () => markPickupOfflineCapable(task.id, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined }),
     onSuccess: (res) => {
       invalidate();
       toast.collected(res?.offlineQueued
@@ -153,7 +154,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
 
   const partialMut = useMutation({
     networkMode: 'always',
-    mutationFn: () => partialCollectOfflineCapable(task.id, Number(partialAmount), task.updatedAt),
+    mutationFn: () => partialCollectOfflineCapable(task.id, Number(partialAmount), task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined }),
     onSuccess: (res) => {
       invalidate();
       toast.saved(res?.offlineQueued
@@ -435,6 +436,7 @@ export default function ManagerPickupsScreen() {
         ListHeaderComponent={
           tab === 'pickups' ? (
             <>
+              <PendingPaymentQueueCard memberNames={memberMap} />
               {/* Cash ledger */}
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
                 <View style={{

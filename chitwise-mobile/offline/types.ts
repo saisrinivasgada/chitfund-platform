@@ -37,6 +37,8 @@ export interface QueuedOperation<TPayload = unknown> {
   lastErrorCode?: string | null;
   lastErrorMessage?: string | null;
   serverReceiptId?: string | null;
+  serverReviewId?: string | null;
+  serverReceipt?: any;
 }
 
 export interface SyncCounts {

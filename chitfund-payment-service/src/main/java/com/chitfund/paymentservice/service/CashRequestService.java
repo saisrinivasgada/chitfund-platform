@@ -422,6 +422,16 @@ public class CashRequestService {
     public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId,
                                                    String actorRole,
                                                    boolean overrideMemberRejection, String overrideReason) {
+        return collectForRequestInternal(requestId, adminId, actorRole, overrideMemberRejection, overrideReason, null, null);
+    }
+
+    @Transactional
+    public PaymentBatchResponse collectReviewedPickup(UUID requestId, UUID adminId, BigDecimal expectedAmount, String balanceVersion) {
+        return collectForRequestInternal(requestId, adminId, "ADMIN", false, null, balanceVersion, expectedAmount);
+    }
+
+    private PaymentBatchResponse collectForRequestInternal(UUID requestId, UUID adminId, String actorRole,
+            boolean overrideMemberRejection, String overrideReason, String reviewedBalanceVersion, BigDecimal expectedAmount) {
         CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() != CashRequestStatus.PICKED_UP
@@ -473,8 +483,24 @@ public class CashRequestService {
         collectReq.setAmount(amountToCredit);
         collectReq.setNotes("Collected via request #" + requestId
                 + (prevStatus == CashRequestStatus.PARTIALLY_COLLECTED ? " (partial)" : ""));
+        if (reviewedBalanceVersion == null) paymentService.assertPickupNotAlreadyInReview(requestId);
 
-        PaymentBatchResponse batch = paymentService.collectCash(collectReq, req.getAssignedStaffId(), true, null, true);
+        var savedCollection = new com.chitfund.paymentservice.dto.request.RecordPaymentRequest();
+        savedCollection.setChitId(req.getChitId()); savedCollection.setMemberId(paymentMemberId);
+        savedCollection.setAmount(amountToCredit); savedCollection.setPaymentMode(com.chitfund.paymentservice.domain.enums.PaymentMode.CASH);
+        var collectedAt = req.getPickedUpAt() != null ? req.getPickedUpAt() : req.getPartiallyCollectedAt();
+        if (collectedAt != null) savedCollection.setRecordedAt(collectedAt.toInstant(java.time.ZoneOffset.UTC));
+        var balance = paymentService.offlineBalanceSnapshot(savedCollection, true);
+        if (reviewedBalanceVersion != null) {
+            if (!reviewedBalanceVersion.equals(balance.version()) || expectedAmount == null || expectedAmount.compareTo(amountToCredit) != 0) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "Pickup amount or balances changed during review. Refresh and review again.", org.springframework.http.HttpStatus.CONFLICT);
+            }
+        } else if (balance.exceedsSelectedDues()) {
+            paymentService.requireCashPickupReview(savedCollection,
+                    req.getPickedUpBy() != null ? req.getPickedUpBy() : req.getAssignedStaffId() != null ? req.getAssignedStaffId() : adminId, requestId);
+        }
+
+        PaymentBatchResponse batch = paymentService.collectCash(collectReq, req.getAssignedStaffId(), true, "CASH_REQUEST:" + requestId, true);
 
         req.setStatus(CashRequestStatus.COLLECTED);
         req.setCollectedBatchId(batch.getId());
@@ -501,6 +527,21 @@ public class CashRequestService {
         publishCashRequestEvent("COLLECTED", req, mName, sName);
 
         return batch;
+    }
+
+    @Transactional
+    public void linkDuplicatePickup(UUID requestId, BigDecimal expectedAmount, UUID adminId, UUID receiptId, String reason) {
+        var request = findOrThrowForWrite(requestId);
+        BigDecimal amount = request.getCollectedAmount() != null ? request.getCollectedAmount() : request.getRequestedAmount();
+        if ((request.getStatus() != CashRequestStatus.PICKED_UP && request.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED)
+                || amount == null || amount.compareTo(expectedAmount) != 0) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "Pickup changed during review", org.springframework.http.HttpStatus.CONFLICT);
+        }
+        var previous = request.getStatus();
+        request.setStatus(CashRequestStatus.CANCELLED);
+        request.setAdminNotes("Duplicate collection linked to receipt " + receiptId + ": " + reason);
+        requestRepository.save(request);
+        logAudit(requestId, "DUPLICATE_COLLECTION_LINKED", previous, CashRequestStatus.CANCELLED, adminId, "ADMIN", request.getAdminNotes());
     }
 
     @Transactional

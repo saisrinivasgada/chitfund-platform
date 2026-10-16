@@ -11,6 +11,7 @@ import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import RoleLogo from '../brand/RoleLogo';
+import OfflineStatus from '../../offline/OfflineStatus';
 
 function SignOutModal({ onConfirm, onClose }) {
   return (
@@ -449,7 +450,8 @@ export default function MemberPortalLayout() {
       </header>
 
       <main className="py-6 px-4 sm:px-8 w-full">
-        <Outlet />
+        <OfflineStatus key={`offline:${user?.id}:${tenantId}:${user?.role}`} />
+        <Outlet key={`screen:${user?.id}:${tenantId}:${user?.role}`} />
       </main>
 
       {showSwitch && altRole && me?.phone && (

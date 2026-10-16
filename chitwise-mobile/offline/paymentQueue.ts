@@ -119,10 +119,17 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
 
   const attempts = operation.attempts + 1;
 
+  if (operation.payload?.localRecoveryRequired) {
+    await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
+      errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: 'Saved record needs local recovery. Its original data is preserved.',
+    });
+    return { kind: 'failed', error: new Error('Saved record needs local recovery') };
+  }
+
   try {
     if (!await claimOperation(operation)) return { kind: 'retryable', error: new Error('Payment is already being synchronized') };
     const response = await requestAsAccount(operation.accountScope, {
-      method: 'POST', url: '/payments', data: operation.payload,
+      method: 'POST', url: operation.payload.offlineAuthorization ? '/payments' : '/payments/offline/reviews/legacy', data: operation.payload,
       headers: { 'X-Idempotency-Key': operation.operationId },
     });
     const result = response.data?.data ?? response.data;
@@ -130,6 +137,7 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
     await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
       attempts,
       serverReceiptId: result?.id ? String(result.id) : null,
+      serverReceipt: result,
     });
     return { kind: 'succeeded', result };
   } catch (error) {
@@ -155,6 +163,7 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
         attempts,
         errorCode: details.code,
         errorMessage: details.message,
+        serverReviewId: axios.isAxiosError(error) ? error.response?.data?.data?.reviewId : undefined,
       });
       return { kind: 'conflict', error };
     }

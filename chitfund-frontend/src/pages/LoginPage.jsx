@@ -564,15 +564,17 @@ export default function LoginPage() {
   async function handleScopedAuth(authResponse, tenantInfo = null) {
     tenantInfo = authResponse?.tenant ?? tenantInfo;
     const accessToken = authResponse?.accessToken ?? authResponse?.token;
-    const role = authResponse?.user?.role ?? 'ADMIN';
+    const role = tenantInfo?.role ?? authResponse?.user?.role ?? 'ADMIN';
     const mustChangePassword = authResponse?.user?.mustChangePassword ?? false;
     const userData = {
       name: authResponse?.user?.fullName ?? authResponse?.user?.name ?? authResponse?.user?.username,
+      fullName: authResponse?.user?.fullName ?? authResponse?.user?.name,
       role, id: authResponse?.user?.id, mustChangePassword,
     };
     const tenantData = tenantInfo
       ? {
           tenantId:      tenantInfo.tenantId,
+          role:          tenantInfo.role,
           tenantSlug:    tenantInfo.slug,
           tenantName:    tenantInfo.name,
           tenantPlan:    tenantInfo.plan ?? 'BASIC',

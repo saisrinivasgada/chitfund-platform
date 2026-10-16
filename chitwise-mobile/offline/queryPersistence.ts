@@ -1,5 +1,6 @@
 import { QueryClient, type Query } from '@tanstack/react-query';
 import { createEncryptedQueryPersister } from './database';
+import { mayKeepReadSnapshot, shouldRetryRead } from '../../shared/offline/readSnapshots';
 
 const CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 export const OFFLINE_CACHE_BUSTER = 'chitwise-mobile-cache-v1';
@@ -103,7 +104,9 @@ const PERSISTED_QUERY_PREFIXES = new Set([
 ]);
 
 export function shouldPersistQuery(query: Query): boolean {
-  if (query.state.status !== 'success') return false;
+  // A failed refresh must not erase the last successful downloaded value.
+  if (query.state.data === undefined || !query.state.dataUpdatedAt) return false;
+  if (!mayKeepReadSnapshot(query.state.error)) return false;
   const prefix = String(query.queryKey[0] ?? '');
   return PERSISTED_QUERY_PREFIXES.has(prefix);
 }
@@ -114,12 +117,12 @@ export function createOfflineQueryClient(): QueryClient {
       queries: {
         staleTime: 30_000,
         gcTime: CACHE_MAX_AGE,
-        retry: 2,
-        networkMode: 'online',
+        retry: (failureCount, error) => shouldRetryRead(failureCount, error),
+        networkMode: 'always',
       },
       mutations: {
         retry: false,
-        networkMode: 'online',
+        networkMode: 'always',
       },
     },
   });

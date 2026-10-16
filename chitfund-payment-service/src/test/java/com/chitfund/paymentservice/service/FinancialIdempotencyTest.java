@@ -55,6 +55,7 @@ class FinancialIdempotencyTest {
     @Mock MemberCreditService memberCreditService;
     @Mock ChitMonthDrawService chitMonthDrawService;
     @Mock AuditClient auditClient;
+    @Mock OfflinePaymentReviewCapture offlineReviews;
     @Mock SettlementPaymentTransactionRepository transactionRepository;
     @Mock SettlementRepository settlementRepository;
 
@@ -81,7 +82,7 @@ class FinancialIdempotencyTest {
                 batchRepository, paymentRecordRepository, allocationRepository,
                 planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
                 adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
-                auditClient);
+                auditClient, offlineReviews);
 
         assertThatThrownBy(() -> service.recordPayment(request, UUID.randomUUID(), "request-1"))
                 .isInstanceOfSatisfying(BusinessException.class, ex ->
@@ -106,7 +107,7 @@ class FinancialIdempotencyTest {
                 batchRepository, paymentRecordRepository, allocationRepository,
                 planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
                 adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
-                auditClient);
+                auditClient, offlineReviews);
 
         assertThatThrownBy(() -> service.recordPayment(request, UUID.randomUUID(), "request-2"))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
@@ -140,7 +141,7 @@ class FinancialIdempotencyTest {
                 batchRepository, paymentRecordRepository, allocationRepository,
                 planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
                 adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
-                auditClient);
+                auditClient, offlineReviews);
 
         assertThatThrownBy(() -> service.recordPayment(request, UUID.randomUUID(), "fresh-key-1"))
                 .isInstanceOfSatisfying(BusinessException.class, ex ->
@@ -180,7 +181,7 @@ class FinancialIdempotencyTest {
                 batchRepository, paymentRecordRepository, allocationRepository,
                 planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
                 adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
-                auditClient);
+                auditClient, offlineReviews);
 
         service.recordPayment(request, UUID.randomUUID(), "fresh-key-2");
 

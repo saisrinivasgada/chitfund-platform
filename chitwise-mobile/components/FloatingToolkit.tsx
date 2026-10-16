@@ -264,12 +264,12 @@ export function FloatingToolkit() {
             height: buttonSize,
             borderRadius: btnRadius,
             opacity,
-            transform: [{ scale: Animated.multiply(scale, pulseS) }],
           },
           pan.getLayout(),
         ]}
         {...panResponder.panHandlers}
       >
+        <Animated.View style={{ width: buttonSize, height: buttonSize, transform: [{ scale: Animated.multiply(scale, pulseS) }] }}>
         <TouchableOpacity
           onPress={handleTap}
           onLongPress={handleRefresh}
@@ -294,6 +294,7 @@ export function FloatingToolkit() {
           ]}
         >
           <RefreshSpinner visible={refreshVisible} />
+        </Animated.View>
         </Animated.View>
       </Animated.View>
 

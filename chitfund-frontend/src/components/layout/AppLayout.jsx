@@ -12,13 +12,14 @@ import Button from '../ui/Button';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import { useRealtimeUpdates } from '../../hooks/useRealtimeUpdates';
 import RoleLogo from '../brand/RoleLogo';
+import OfflineStatus from '../../offline/OfflineStatus';
 
 const ToastContext = createContext(null);
 // eslint-disable-next-line react-refresh/only-export-components
 export const useToastContext = () => useContext(ToastContext);
 
 export default function AppLayout() {
-  const { isAuthenticated, isRestoring, user, tenantName } = useAuth();
+  const { isAuthenticated, isRestoring, user, tenantName, tenantId, offlineSession } = useAuth();
   const { toasts, toast, dismiss } = useToast();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -33,7 +34,7 @@ export default function AppLayout() {
     });
   }
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
-  useRealtimeUpdates(isAuthenticated);
+  useRealtimeUpdates(isAuthenticated && !offlineSession);
   const navigate = useNavigate();
   const [planExpiredOpen, setPlanExpiredOpen] = useState(false);
 
@@ -161,7 +162,8 @@ export default function AppLayout() {
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
             <div className="p-4 sm:p-8 lg:p-10 max-w-7xl mx-auto">
-              <Outlet />
+              <OfflineStatus key={`offline:${user?.id}:${tenantId}:${user?.role}`} />
+              <Outlet key={`screen:${user?.id}:${tenantId}:${user?.role}`} />
             </div>
           </main>
         </div>

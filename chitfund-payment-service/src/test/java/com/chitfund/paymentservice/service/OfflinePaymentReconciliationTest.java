@@ -5,6 +5,10 @@ import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.client.*;
 import com.chitfund.paymentservice.domain.PaymentBatch;
+import com.chitfund.paymentservice.domain.PaymentRecord;
+import com.chitfund.paymentservice.domain.OfflinePaymentReview;
+import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
+import com.chitfund.paymentservice.exception.OfflineReviewRequiredException;
 import com.chitfund.paymentservice.domain.enums.PaymentMode;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
@@ -39,6 +43,7 @@ class OfflinePaymentReconciliationTest {
     @Mock MemberCreditService credit;
     @Mock ChitMonthDrawService draws;
     @Mock AuditClient audit;
+    @Mock OfflinePaymentReviewCapture reviews;
     @InjectMocks PaymentService service;
     private final UUID actor = UUID.randomUUID();
 
@@ -62,8 +67,14 @@ class OfflinePaymentReconciliationTest {
         when(access.assertRecordedPaymentMaySync(actor, request.getOfflineAuthorization(), request.getRecordedAt()))
                 .thenReturn("grant-a");
         when(members.isMemberActive(request.getMemberId())).thenReturn(true);
-        when(records.findTotalOutstandingByTenantIdAndMemberId(anyString(), any(), any())).thenReturn(BigDecimal.ZERO);
+        when(records.findTotalOutstandingByTenantIdAndMemberId(anyString(), any(), any())).thenReturn(request.getAmount());
         when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        var due = PaymentRecord.builder().id(UUID.randomUUID()).chitId(request.getChitId())
+                .memberId(request.getMemberId()).amountDue(request.getAmount()).amountPaid(BigDecimal.ZERO)
+                .monthNumber(1).status(PaymentRecordStatus.OUTSTANDING).build();
+        when(records.findMemberOutstandingForUpdate(anyString(), any(), any())).thenReturn(java.util.List.of(due));
+        when(records.findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(anyString(), any(), any(), any()))
+                .thenReturn(java.util.List.of(due));
         when(batches.saveAndFlush(any())).thenAnswer(call -> {
             PaymentBatch batch = call.getArgument(0);
             batch.setId(UUID.randomUUID());
@@ -128,5 +139,120 @@ class OfflinePaymentReconciliationTest {
         verify(access).assertNotExpired();
         verify(access, never()).assertRecordedPaymentMaySync(any(), any(), any());
         verifyNoInteractions(batches, wallet, events);
+    }
+
+    @Test
+    void clearedDuesPreserveCollectionForReviewWithoutPostingMoneyOrCredit() {
+        var request = savedPayment();
+        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        when(members.isMemberActive(request.getMemberId())).thenReturn(true);
+        when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        var reviewId = UUID.randomUUID();
+        when(reviews.preserve(request, actor, "operation-a", "DUES_CHANGED")).thenReturn(reviewId);
+        assertThatThrownBy(() -> service.recordPayment(request, actor, "operation-a"))
+                .isInstanceOfSatisfying(OfflineReviewRequiredException.class, error -> assertThat(error.getReviewId()).isEqualTo(reviewId));
+        verify(batches, never()).saveAndFlush(any());
+        verify(credit, never()).addCredit(any(), any(), any(), any(), any(), any());
+        verifyNoInteractions(wallet, events);
+    }
+
+    @Test
+    void aMemberRemovedBeforeReconnectStillHasTheOriginalCashPreservedForReview() {
+        var request = savedPayment();
+        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        when(reviews.preserve(request, actor, "operation-a", "MEMBER_CHANGED")).thenReturn(UUID.randomUUID());
+        assertThatThrownBy(() -> service.recordPayment(request, actor, "operation-a"))
+                .isInstanceOf(OfflineReviewRequiredException.class);
+        verify(batches, never()).saveAndFlush(any());
+        verifyNoInteractions(wallet, credit, events, audit);
+    }
+
+    @Test
+    void partialDuesOrOtherChitDuesCannotSilentlyRedirectTheSavedCollection() {
+        var request = savedPayment(); request.setAmount(new BigDecimal("1000"));
+        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        when(members.isMemberActive(request.getMemberId())).thenReturn(true);
+        when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        var own = PaymentRecord.builder().id(UUID.randomUUID()).chitId(request.getChitId()).amountDue(new BigDecimal("400"))
+                .amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build();
+        var other = PaymentRecord.builder().id(UUID.randomUUID()).chitId(UUID.randomUUID()).amountDue(new BigDecimal("2000"))
+                .amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build();
+        when(records.findMemberOutstandingForUpdate(anyString(), any(), any())).thenReturn(java.util.List.of(own, other));
+        when(reviews.preserve(any(), any(), any(), eq("DUES_CHANGED"))).thenReturn(UUID.randomUUID());
+        assertThatThrownBy(() -> service.recordPayment(request, actor, "operation-a")).isInstanceOf(OfflineReviewRequiredException.class);
+        verifyNoInteractions(wallet, events);
+        verify(batches, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void pendingReviewDoesNotAutomaticallyPostWhenDuesLaterIncreaseAgain() {
+        var request = savedPayment();
+        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        var pending = OfflinePaymentReview.builder().id(UUID.randomUUID()).status("PENDING").build();
+        when(reviews.findOperation("operation-a")).thenReturn(Optional.of(pending));
+        assertThatThrownBy(() -> service.recordPayment(request, actor, "operation-a")).isInstanceOf(OfflineReviewRequiredException.class);
+        verifyNoInteractions(credit, wallet, events);
+        verify(batches, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void matchingBankReferenceIsHeldForReviewRatherThanCreatedTwice() {
+        var request = savedPayment(); request.setPaymentMode(PaymentMode.UPI); request.setPaymentReference("UTR-123");
+        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        when(batches.findByTenantIdAndPaymentModeAndPaymentReference("org-a", PaymentMode.UPI, "UTR-123"))
+                .thenReturn(Optional.of(PaymentBatch.builder().id(UUID.randomUUID()).build()));
+        when(reviews.preserve(request, actor, "operation-a", "REFERENCE_ALREADY_USED")).thenReturn(UUID.randomUUID());
+        assertThatThrownBy(() -> service.recordPayment(request, actor, "operation-a")).isInstanceOf(OfflineReviewRequiredException.class);
+        verifyNoInteractions(wallet, credit, events);
+    }
+
+    @Test
+    void aChangedReviewSnapshotCannotApplyExcess() {
+        var request = savedPayment();
+        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        when(members.isMemberActive(request.getMemberId())).thenReturn(true);
+        when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        assertThatThrownBy(() -> service.recordReviewedOfflinePayment(request, actor, "operation-a", "old-balance-version"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("balances changed");
+        verify(batches, never()).saveAndFlush(any());
+        verifyNoInteractions(wallet, events);
+    }
+
+    @Test
+    void explicitlyReviewedLegacyCollectionCanReconcileAfterExpiryWithoutManufacturingAGrant() {
+        var request = savedPayment(); request.setOfflineAuthorization(null);
+        when(members.isMemberActive(request.getMemberId())).thenReturn(true);
+        when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        var due = PaymentRecord.builder().id(UUID.randomUUID()).chitId(request.getChitId()).memberId(request.getMemberId())
+                .monthNumber(1).amountDue(request.getAmount()).amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build();
+        when(records.findMemberOutstandingForUpdate(anyString(), any(), any())).thenReturn(java.util.List.of(due));
+        when(records.findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(anyString(), any(), any(), any()))
+                .thenReturn(java.util.List.of(due));
+        when(records.findTotalOutstandingByTenantIdAndMemberId(anyString(), any(), any())).thenReturn(request.getAmount());
+        when(batches.saveAndFlush(any())).thenAnswer(call -> { PaymentBatch batch = call.getArgument(0); batch.setId(UUID.randomUUID()); return batch; });
+        String version = service.offlineBalanceSnapshot(request, true).version();
+        assertThat(service.recordReviewedLegacyPayment(request, actor, "legacy-operation", version).getRecordedAt()).isEqualTo(request.getRecordedAt());
+        verifyNoInteractions(access);
+        var fact = ArgumentCaptor.forClass(AuditClient.AuditDetails.class); verify(audit).log(fact.capture());
+        assertThat(fact.getValue().action()).isEqualTo("LEGACY_PAYMENT_RECONCILED");
+        assertThat(fact.getValue().metadata()).isEqualTo(java.util.Map.of("authority", "EXPLICIT_ADMIN_LEGACY_REVIEW", "originalTimeVerified", false));
+    }
+
+    @Test
+    void aWebEntryFromDaysEarlierStillTriggersReviewEvenWhenNewInstalmentsAreOwed() {
+        var request = savedPayment();
+        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        when(members.isMemberActive(request.getMemberId())).thenReturn(true);
+        when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        var newDues = PaymentRecord.builder().id(UUID.randomUUID()).chitId(request.getChitId()).amountDue(new BigDecimal("1000"))
+                .amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build();
+        when(records.findMemberOutstandingForUpdate(anyString(), any(), any())).thenReturn(java.util.List.of(newDues));
+        Instant since = request.getRecordedAt().minus(Duration.ofMinutes(10));
+        when(batches.findRecentPossibleDuplicatesForReview(eq("org-a"), eq(request.getMemberId()), eq(request.getChitId()), eq(request.getAmount()),
+                eq(since), eq(java.time.LocalDateTime.ofInstant(since, java.time.ZoneOffset.UTC))))
+                .thenReturn(java.util.List.of(PaymentBatch.builder().id(UUID.randomUUID()).build()));
+        when(reviews.preserve(request, actor, "operation-a", "POSSIBLE_DUPLICATE")).thenReturn(UUID.randomUUID());
+        assertThatThrownBy(() -> service.recordPayment(request, actor, "operation-a")).isInstanceOf(OfflineReviewRequiredException.class);
+        verify(batches, never()).saveAndFlush(any()); verifyNoInteractions(wallet, events);
     }
 }

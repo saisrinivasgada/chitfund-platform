@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
 
-export default function Modal({ title, onClose, children, size = 'md' }) {
+export default function Modal({ title, onClose, children, size = 'md', footer }) {
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
@@ -78,6 +78,7 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
             {children}
           </div>
         </div>
+        {footer && <div className="px-6 sm:px-7 py-4 border-t border-gray-100 flex-shrink-0">{footer}</div>}
       </div>
     </div>
   );

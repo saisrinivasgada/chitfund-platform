@@ -1,0 +1,26 @@
+# Local QA only: signed-in offline-a, fixture server unreachable, cached member/chit prepared.
+appId: com.chitwise.mobile
+---
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "member-row-QA Member A"
+    timeout: 60000
+- tapOn:
+    id: "member-row-QA Member A"
+- tapOn: "QA Monthly Chit A.*"
+- scrollUntilVisible:
+    element:
+      text: "Record ₹1,000 Payment"
+    direction: DOWN
+- tapOn: "Record ₹1,000 Payment"
+- tapOn:
+    text: "Record"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*saved.*device.*|.*waiting.*|.*pending sync.*"
+    timeout: 30000

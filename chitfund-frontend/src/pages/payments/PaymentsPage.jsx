@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { activeAccountScope } from '../../offline/accountClient';
+import { savedPaymentActivity } from '../../offline/outbox';
 import { useNavigate, NavLink, Outlet, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -1088,9 +1090,12 @@ export function RecordPaymentTab() {
   const [selectedAllocations, setSelectedAllocations] = useState({});
   const [amount, setAmount]         = useState('');
   const [notes, setNotes]           = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
   const [paymentMode, setMode]      = useState('CASH');
   const [collectedBy, setCollectedBy] = useState('SELF'); // only relevant for CASH
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [pendingWarning, setPendingWarning] = useState(0);
+  const [checkingSaved, setCheckingSaved] = useState(false);
 
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
@@ -1125,6 +1130,7 @@ export function RecordPaymentTab() {
   });
 
   const mutation = useMutation({
+    networkMode: 'always',
     mutationFn: () => {
       const allocationEntries = Object.entries(selectedAllocations)
         .map(([selectedChitId, selectedAmount]) => ({
@@ -1145,18 +1151,19 @@ export function RecordPaymentTab() {
           memberId,
           amount: Number(amount),
           paymentMode,
+          paymentReference: paymentReference || undefined,
           notes: notes || null,
           allocations: allocationEntries.length > 0 ? allocationEntries : undefined,
           idempotencyKey,
         });
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       const msg = isCredit
         ? 'Credits applied — outstanding settled'
         : paymentMode === 'CASH' && collectedBy !== 'SELF'
         ? 'Cash collection recorded — pending remittance from staff'
-        : 'Payment recorded successfully';
+        : data?.offlineQueued ? 'Payment saved on this browser — waiting to sync' : 'Payment recorded successfully';
       toast.success(msg);
       qc.invalidateQueries({ queryKey: ['pending-remittance'] });
       qc.invalidateQueries({ queryKey: ['payment-batches-all'] });
@@ -1173,12 +1180,12 @@ export function RecordPaymentTab() {
         qc.invalidateQueries({ queryKey: ['wallet-balance'] });
         qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
       }
-      setMemberId(''); setChitId(''); setAmount(''); setNotes('');
+      setMemberId(''); setChitId(''); setAmount(''); setNotes(''); setPaymentReference('');
       setSelectedAllocations({});
       setMode('CASH'); setCollectedBy('SELF');
       setIdempotencyKey(crypto.randomUUID());
     },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
+    onError: (err) => toast.error(err.response?.data?.message ?? err.message ?? 'Failed to record payment'),
   });
 
   // Fetch balances for ALL of this member's chits in parallel once the list loads
@@ -1260,8 +1267,29 @@ export function RecordPaymentTab() {
     ? Math.max(0, amtNum - memberTotalBalance)
     : 0;
 
+  async function submitPayment() {
+    const scope = activeAccountScope();
+    setCheckingSaved(true);
+    try {
+      if (scope && !isCredit && !isWorkerCollect) {
+        const pending = (await savedPaymentActivity(scope)).filter((entry) =>
+          entry.payload?.memberId === memberId && entry.operationId !== idempotencyKey);
+        if (activeAccountScope() !== scope) return;
+        if (pending.length) { setPendingWarning(pending.length); return; }
+      }
+      mutation.mutate();
+    } catch {
+      // Online-only accounts remain usable if optional local storage is unavailable.
+      if (activeAccountScope() === scope) mutation.mutate();
+    } finally { setCheckingSaved(false); }
+  }
+
   return (
     <div className="max-w-lg">
+      {pendingWarning > 0 && <ConfirmDialog title="Payment already saved for this member"
+        description={`${pendingWarning} collection${pendingWarning > 1 ? 's are' : ' is'} still waiting for sync or review on this browser. Continue only if you received separate money.`}
+        actionLabel="Record separate collection" onClose={() => setPendingWarning(0)}
+        onConfirm={() => { setPendingWarning(0); mutation.mutate(); }} /> }
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
         <h3 className="font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
           Record Payment
@@ -1477,6 +1505,11 @@ export function RecordPaymentTab() {
           </FormField>
         )}
 
+        {['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(paymentMode) && <FormField label="Payment reference" required>
+          <Input value={paymentReference} maxLength={100} onChange={(event) => setPaymentReference(event.target.value)}
+            placeholder="UPI UTR, bank reference or cheque number" />
+        </FormField>}
+
         {/* Notes */}
         <FormField label="Notes">
           <Textarea
@@ -1493,8 +1526,8 @@ export function RecordPaymentTab() {
           </div>
         )}
         <Button
-          onClick={() => mutation.mutate()}
-          loading={mutation.isPending}
+          onClick={submitPayment}
+          loading={mutation.isPending || checkingSaved}
           disabled={isExpired || !memberId || (!isExplicitMode && !chitId) || (isExplicitMode
             ? allocationTotal <= 0
             : (isCredit ? !creditCoversAll : (!amount || Number(amount) <= 0)))}

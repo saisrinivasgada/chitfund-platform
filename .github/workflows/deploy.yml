@@ -76,6 +76,7 @@ jobs:
             management:
               - 'chitwise-management-service/**'
             frontend:
+              - 'shared/offline/**'
               - 'chitfund-frontend/**'
               - 'nginx.conf'
             backend:
@@ -335,6 +336,11 @@ jobs:
       - name: Install browser test runtime
         working-directory: chitfund-frontend
         run: npx playwright install --with-deps chromium
+      - name: Shared offline policy and snapshot checks
+        run: node --test shared/offline/*.test.mjs
+      - name: Production offline shell and background delivery
+        working-directory: chitfund-frontend
+        run: npm run test:offline
       - name: Rendered browser assertions
         working-directory: chitfund-frontend
         run: npm run test:browser

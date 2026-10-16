@@ -5,11 +5,13 @@ on:
     branches: [main, test]
     paths:
       - 'chitwise-mobile/**'
+      - 'shared/offline/**'
       - '.github/workflows/mobile-ci.yml'
   pull_request:
     branches: [main, test]
     paths:
       - 'chitwise-mobile/**'
+      - 'shared/offline/**'
       - '.github/workflows/mobile-ci.yml'
 
 defaults:
@@ -31,6 +33,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Offline policy and recovery checks
+        run: npm run offline:policy:test && node --test ../shared/offline/*.test.mjs
 
       - name: TypeScript type-check
         run: npm run type-check

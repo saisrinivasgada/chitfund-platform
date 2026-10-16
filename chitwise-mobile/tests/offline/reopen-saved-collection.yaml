@@ -1,0 +1,13 @@
+# Local QA only: run after save-collection while the fixture server remains unreachable.
+appId: com.chitwise.mobile
+---
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Saved payment activity"
+    timeout: 30000
+- assertVisible: "QA Member A.*|.*QA Member A.*"
+- assertVisible: "Will retry"

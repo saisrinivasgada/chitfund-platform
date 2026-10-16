@@ -28,9 +28,12 @@ export async function refreshAccountSession(scope: string): Promise<void> {
     });
     const auth = response.data?.data ?? response.data;
     const current = requireAccount(scope);
-    if (current.refreshToken !== account.refreshToken
-        || String(auth.user?.id) !== account.userId || auth.tenant?.tenantId !== account.tenantId
+    if (current.refreshToken !== account.refreshToken) {
+      throw Object.assign(new Error('A newer sign-in replaced this refresh'), { requiresLogin: true });
+    }
+    if (String(auth.user?.id) !== account.userId || auth.tenant?.tenantId !== account.tenantId
         || (auth.tenant?.role ?? auth.user?.role) !== account.role) {
+      await useAuthStore.getState().markSessionInvalid(account.accountId, account.refreshToken);
       throw Object.assign(new Error('This account changed while refreshing; sign in again'), { requiresLogin: true });
     }
     await useAuthStore.getState().updateTokenForAccount(account.accountId, auth.accessToken, auth.refreshToken, account.refreshToken);

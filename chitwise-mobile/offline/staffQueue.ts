@@ -14,19 +14,25 @@ import { accountForScope, requestAsAccount } from './accountClient';
 import { refreshOfflineAccess, useOfflineAccessStore } from './access';
 import { canRecordOffline, requireOfflineRecording } from './accessPolicy';
 
+export interface CollectionSnapshot {
+  memberId?: string; chitId?: string; requestedAmount?: number; memberName?: string; chitName?: string;
+}
 interface StaffPayload {
   requestId: string;
   collectedAmount?: number;
   expectedUpdatedAt?: string;
   recordedAt?: string;
   offlineAuthorization?: string;
+  collectionSnapshot?: CollectionSnapshot;
 }
 
 async function send(scope: string, operationId: string, action: string, payload: StaffPayload) {
   const response = payload.offlineAuthorization
     ? await requestAsAccount(scope, {
       method: 'POST', url: '/payments/offline/staff-actions',
-      data: { ...payload, operationId, action },
+      data: { requestId: payload.requestId, collectedAmount: payload.collectedAmount,
+        expectedUpdatedAt: payload.expectedUpdatedAt, recordedAt: payload.recordedAt,
+        offlineAuthorization: payload.offlineAuthorization, operationId, action },
     })
     : await requestAsAccount(scope, {
       // Preserve older saved entries; never manufacture historical authority.
@@ -42,12 +48,18 @@ export async function processStaffOperation(operation: QueuedOperation<any>): Pr
     return { kind: 'auth-required', error: new Error('Sign in to the account that recorded this collection') };
   }
   const attempts = operation.attempts + 1;
+  if (operation.payload?.localRecoveryRequired) {
+    await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
+      errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: 'Saved record needs local recovery. Its original data is preserved.',
+    });
+    return { kind: 'failed', error: new Error('Saved record needs local recovery') };
+  }
   try {
     if (!await claimOperation(operation)) return { kind: 'retryable', error: new Error('Collection is already synchronizing') };
     const result = await send(operation.accountScope, operation.operationId, operation.action, operation.payload);
     if (!result?.id) throw new Error('Server did not confirm a collection receipt; retrying safely');
     await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
-      attempts, serverReceiptId: String(result.id),
+      attempts, serverReceiptId: String(result.id), serverReceipt: result,
     });
     return { kind: 'succeeded', result };
   } catch (error) {
@@ -153,11 +165,11 @@ async function queueStaffAction(action: 'MARK_PICKUP' | 'PARTIAL_COLLECT', paylo
   return finish(operation, reachable);
 }
 
-export function markPickupOfflineCapable(requestId: string, expectedUpdatedAt?: string) {
-  return queueStaffAction('MARK_PICKUP', { requestId, expectedUpdatedAt });
+export function markPickupOfflineCapable(requestId: string, expectedUpdatedAt?: string, collectionSnapshot?: CollectionSnapshot) {
+  return queueStaffAction('MARK_PICKUP', { requestId, expectedUpdatedAt, collectionSnapshot });
 }
 
-export function partialCollectOfflineCapable(requestId: string, collectedAmount: number, expectedUpdatedAt?: string) {
+export function partialCollectOfflineCapable(requestId: string, collectedAmount: number, expectedUpdatedAt?: string, collectionSnapshot?: CollectionSnapshot) {
   if (!Number.isFinite(collectedAmount) || collectedAmount <= 0) throw new Error('Enter a valid collected amount');
-  return queueStaffAction('PARTIAL_COLLECT', { requestId, collectedAmount, expectedUpdatedAt });
+  return queueStaffAction('PARTIAL_COLLECT', { requestId, collectedAmount, expectedUpdatedAt, collectionSnapshot });
 }

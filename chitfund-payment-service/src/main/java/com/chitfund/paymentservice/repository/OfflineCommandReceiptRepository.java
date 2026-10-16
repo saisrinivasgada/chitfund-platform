@@ -7,4 +7,5 @@ import java.util.UUID;
 
 public interface OfflineCommandReceiptRepository extends JpaRepository<OfflineCommandReceipt, UUID> {
     Optional<OfflineCommandReceipt> findByTenantIdAndActorIdAndOperationId(String tenantId, UUID actorId, String operationId);
+    Optional<OfflineCommandReceipt> findFirstByTenantIdAndRequestIdOrderBySynchronizedAtDesc(String tenantId, UUID requestId);
 }

@@ -10,6 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 
 import java.time.Clock;
 import java.time.ZoneOffset;
@@ -24,8 +27,18 @@ public class OfflineAccessService {
                          String role, long serverTime, OfflineAccessTokens.Grant grant) { }
 
     @Autowired
-    public OfflineAccessService(TenantService tenantService, @Value("${jwt.secret}") String secret) {
-        this(tenantService, new OfflineAccessTokens(secret, Clock.systemUTC()));
+    public OfflineAccessService(TenantService tenantService,
+            @Value("${offline.signing-secret:}") String secret,
+            @Value("${offline.signing-key-id:v1}") String keyId,
+            @Value("${offline.previous-signing-keys:}") String retainedKeys,
+            @Value("${offline.legacy-signing-secret:}") String legacySecret) {
+        this(tenantService, new OfflineAccessTokens(keyId, secret, parseRetainedKeys(retainedKeys), legacySecret, Clock.systemUTC()));
+    }
+
+    private static Map<String, String> parseRetainedKeys(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try { return new ObjectMapper().readValue(json, new TypeReference<Map<String, String>>() {}); }
+        catch (Exception invalid) { throw new IllegalArgumentException("Offline verification-key configuration is invalid"); }
     }
 
     OfflineAccessService(TenantService tenantService, OfflineAccessTokens tokens) {
@@ -47,11 +60,13 @@ public class OfflineAccessService {
             return denied("ORGANISATION_INACTIVE", tenantId, actorId, role);
         }
         if (!tenant.isOfflineEnabled()) return denied("ADD_ON_REQUIRED", tenantId, actorId, role);
+        if (!tokens.canIssue()) return denied("OFFLINE_NOT_CONFIGURED", tenantId, actorId, role);
         try {
             var expiry = tenant.getPlanExpiresAt() == null ? null
                     : tenant.getPlanExpiresAt().toInstant(ZoneOffset.UTC);
             var grant = tokens.issue(actorId, tenantId, role, expiry);
-            return new Access(true, null, tenantId, actorId, role, grant.issuedAt(), grant);
+            String reason = grant.recordUntil() <= grant.issuedAt() ? "SUBSCRIPTION_EXPIRED" : null;
+            return new Access(true, reason, tenantId, actorId, role, grant.issuedAt(), grant);
         } catch (IllegalArgumentException unavailable) {
             return denied("OFFLINE_ACCESS_EXPIRED", tenantId, actorId, role);
         }

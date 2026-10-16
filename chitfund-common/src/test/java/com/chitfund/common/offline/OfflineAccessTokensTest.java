@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -16,6 +17,47 @@ class OfflineAccessTokensTest {
     private static final String SECRET = "test-offline-secret-at-least-thirty-two-characters";
     private static final Instant NOW = Instant.parse("2026-10-15T12:00:00Z");
     private final OfflineAccessTokens tokens = at(NOW);
+
+    @Test
+    void rotationRetainsHistoricalEvidenceAndNewGrantsUseTheCurrentKey() {
+        var first = new OfflineAccessTokens("offline-2026", SECRET, Map.of(), null, Clock.fixed(NOW, ZoneOffset.UTC));
+        var saved = first.issue("a", "t", "ADMIN", null);
+        String replacement = "replacement-offline-secret-at-least-thirty-two-characters";
+        var rotated = new OfflineAccessTokens("offline-2027", replacement, Map.of("offline-2026", SECRET), null,
+                Clock.fixed(NOW.plus(Duration.ofDays(365)), ZoneOffset.UTC));
+        assertThat(rotated.verifyRecordedAction(saved.token(), "a", "t", "ADMIN", "RECORD_PAYMENT", NOW).id()).isEqualTo(saved.id());
+        var fresh = rotated.issue("a", "t", "ADMIN", null);
+        assertThat(rotated.verifyRecordedAction(fresh.token(), "a", "t", "ADMIN", "READ", NOW.plus(Duration.ofDays(365))).id()).isEqualTo(fresh.id());
+        assertThatThrownBy(() -> first.verifyRecordedAction(fresh.token(), "a", "t", "ADMIN", "READ", NOW.plus(Duration.ofDays(365))))
+                .isInstanceOf(io.jsonwebtoken.UnsupportedJwtException.class);
+    }
+
+    @Test
+    void verificationOnlyConfigurationNeverIssuesNewAuthorityButKeepsSavedWorkVerifiable() {
+        var original = new OfflineAccessTokens("old", SECRET, Map.of(), null, Clock.fixed(NOW, ZoneOffset.UTC));
+        var grant = original.issue("a", "t", "ADMIN", null);
+        var verifyOnly = new OfflineAccessTokens("unused", "", Map.of("old", SECRET), null,
+                Clock.fixed(NOW.plus(Duration.ofDays(365)), ZoneOffset.UTC));
+        assertThat(verifyOnly.canIssue()).isFalse();
+        assertThatThrownBy(() -> verifyOnly.issue("a", "t", "ADMIN", null)).isInstanceOf(IllegalStateException.class);
+        assertThat(verifyOnly.verifyRecordedAction(grant.token(), "a", "t", "ADMIN", "RECORD_PAYMENT", NOW).id()).isEqualTo(grant.id());
+    }
+
+    @Test
+    void legacyEvidenceRequiresAnExplicitRetainedLegacyKey() {
+        var grant = tokens.issue("a", "t", "ADMIN", null);
+        var retained = new OfflineAccessTokens("new", SECRET, Map.of(), SECRET, Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThat(retained.verifyRecordedAction(grant.token(), "a", "t", "ADMIN", "READ", NOW).id()).isEqualTo(grant.id());
+        var withoutLegacy = new OfflineAccessTokens("new", SECRET, Map.of(), null, Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThatThrownBy(() -> withoutLegacy.verifyRecordedAction(grant.token(), "a", "t", "ADMIN", "READ", NOW))
+                .isInstanceOf(io.jsonwebtoken.UnsupportedJwtException.class);
+    }
+
+    @Test
+    void changedKeysCannotReuseAnExistingKeyId() {
+        assertThatThrownBy(() -> new OfflineAccessTokens("old", "different-secret-at-least-thirty-two-characters",
+                Map.of("old", SECRET), null, Clock.systemUTC())).isInstanceOf(IllegalArgumentException.class);
+    }
 
     private OfflineAccessTokens at(Instant now) {
         return new OfflineAccessTokens(SECRET, Clock.fixed(now, ZoneOffset.UTC));
@@ -48,7 +90,13 @@ class OfflineAccessTokensTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> reconnect.verifyRecordedAction(grant.token(), "a", "t", "ADMIN", "RECORD_PAYMENT", expiry.plusMillis(1)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> tokens.issue("a", "t", "ADMIN", NOW)).isInstanceOf(IllegalArgumentException.class);
+        var readOnly = tokens.issue("a", "t", "ADMIN", NOW);
+        assertThat(readOnly.actions()).containsExactly("READ");
+        assertThat(readOnly.recordUntil()).isEqualTo(NOW.toEpochMilli());
+        assertThat(readOnly.readUntil()).isEqualTo(NOW.plus(Duration.ofDays(7)).toEpochMilli());
+        assertThat(tokens.verifyRecordedAction(readOnly.token(), "a", "t", "ADMIN", "READ", NOW).id()).isEqualTo(readOnly.id());
+        assertThatThrownBy(() -> tokens.verifyRecordedAction(readOnly.token(), "a", "t", "ADMIN", "RECORD_PAYMENT", NOW))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

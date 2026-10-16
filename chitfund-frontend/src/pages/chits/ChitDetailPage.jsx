@@ -2708,6 +2708,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const [paymentMode, setPaymentMode]  = useState(isWorker ? 'CASH' : 'UPI');
   const [collectedBy, setCollectedBy]  = useState('SELF');
   const [notes, setNotes]             = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
   const [usingCredit, setUsingCredit]  = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
@@ -2730,9 +2731,6 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const amtNum    = usingCredit ? 0 : Number(amount || 0);
   const isOverpay = !usingCredit && amtNum > balance && balance > 0;
   const canSubmit = usingCredit ? creditCoversAll : (amtNum > 0);
-  const totalOverpayAmt = !usingCredit && !viaTeam && amtNum > 0 && memberTotalBalance > 0
-    ? Math.max(0, amtNum - memberTotalBalance)
-    : 0;
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
@@ -2744,6 +2742,10 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
     staleTime: 30_000,
   });
 
+  const totalOverpayAmt = !usingCredit && !viaTeam && amtNum > 0 && memberTotalBalance > 0
+    ? Math.max(0, amtNum - memberTotalBalance)
+    : 0;
+
   function invalidate() {
     qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
     qc.invalidateQueries({ queryKey: ['draws', chitId] });
@@ -2752,6 +2754,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   }
 
   const mutation = useMutation({
+    networkMode: 'always',
     mutationFn: async () => {
       if (usingCredit) {
         return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || undefined, idempotencyKey });
@@ -2765,19 +2768,19 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           notes: notes || null,
         });
       }
-      return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey });
+      return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, paymentReference: paymentReference || undefined, notes: notes || undefined, idempotencyKey });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setIdempotencyKey(crypto.randomUUID());
       invalidate();
       toast.success(
         usingCredit ? 'Credits applied — draw settled' :
         viaTeam ? 'Cash pickup assigned — visible in Cash Requests' :
-        'Payment recorded and settled'
+        data?.offlineQueued ? 'Payment saved on this browser — waiting to sync' : 'Payment recorded and settled'
       );
       onClose();
     },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
+    onError: (err) => toast.error(err.response?.data?.message ?? err.message ?? 'Failed to record payment'),
   });
 
   return (
@@ -2889,6 +2892,10 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           <Input placeholder="UPI ref, cheque no., remarks…" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </FormField>
 
+        {!usingCredit && ['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(paymentMode) && <FormField label="Payment reference" required>
+          <Input value={paymentReference} maxLength={100} onChange={(event) => setPaymentReference(event.target.value)}
+            placeholder="UPI UTR, bank reference or cheque number" />
+        </FormField>}
         <div className="flex gap-3 pt-1">
           <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
           <Button

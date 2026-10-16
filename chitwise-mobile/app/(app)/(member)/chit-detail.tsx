@@ -7,7 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMyChits, getMyMemberProfile, getMemberBalance,
-  getPaymentHistory, getDraws, getWinners, getPayoutsForMember,
+  getPaymentHistory, getMyDraws, getWinners, getPayoutsForMember,
   listAuctions, getAuction, placeBid, getMyReservations,
 } from '../../../services/api';
 import { C, fmtDate } from '../../../components/ui';
@@ -76,7 +76,7 @@ export default function ChitDetailScreen() {
 
   const { data: draws = [] } = useQuery({
     queryKey: ['member-chit-draws', chitId],
-    queryFn: () => getDraws(chitId!),
+    queryFn: () => getMyDraws(chitId!),
     enabled: !!chitId,
   });
 

@@ -5,7 +5,7 @@ import { File } from 'expo-file-system';
 import type { PersistedClient, Persister } from '@tanstack/query-persist-client-core';
 import type { QueuedOperation, SyncCounts, SyncOperationStatus } from './types';
 
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 3;
 
 // One open connection per account scope. Each scope gets its own encrypted
 // database file and its own key — tenant A's key reveals nothing about tenant B.
@@ -19,9 +19,12 @@ async function scopeHash(accountScope: string): Promise<string> {
   return hex.slice(0, 16);
 }
 
-async function databaseKeyForScope(hash: string): Promise<string> {
+async function databaseKeyForScope(hash: string, fileExists: boolean): Promise<string> {
   const keyId = `chitwise_offline_key_${hash}`;
   const existing = await SecureStore.getItemAsync(keyId);
+  if (fileExists && (!existing || !/^[a-f0-9]{64}$/i.test(existing))) {
+    throw new Error('Saved data is locked on this device. Unlock the device and try again. Existing records are preserved.');
+  }
   const generated = existing && /^[a-f0-9]{64}$/i.test(existing) ? existing
     : `${Crypto.randomUUID()}${Crypto.randomUUID()}`.replace(/-/g, '');
   await SecureStore.setItemAsync(keyId, generated, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY });
@@ -39,8 +42,9 @@ export async function hasOfflineDatabase(accountScope: string): Promise<boolean>
 async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDatabase> {
   const hash = await scopeHash(accountScope);
   const filename = `chitwise-offline-${hash}.db`;
+  const fileExists = !!SQLite.defaultDatabaseDirectory && new File(SQLite.defaultDatabaseDirectory, filename).exists;
+  const key = await databaseKeyForScope(hash, fileExists);
   const db = await SQLite.openDatabaseAsync(filename);
-  const key = await databaseKeyForScope(hash);
 
   // The key contains validated hexadecimal characters only. PRAGMA key does not
   // accept bound parameters and must be the first statement against the file.
@@ -49,9 +53,11 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
   if (!cipher?.cipher_version) {
     throw new Error('Encrypted offline storage is unavailable. Install a ChitWise development or production build.');
   }
+  const priorVersion = (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version ?? 0;
 
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
     PRAGMA foreign_keys = ON;
     PRAGMA cipher_memory_security = ON;
 
@@ -79,7 +85,9 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
       updated_at INTEGER NOT NULL,
       last_error_code TEXT,
       last_error_message TEXT,
-      server_receipt_id TEXT
+      server_receipt_id TEXT,
+      server_review_id TEXT,
+      server_receipt_json TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_sync_operations_ready
@@ -92,8 +100,52 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
       updated_at INTEGER NOT NULL
     );
 
-    PRAGMA user_version = ${DATABASE_VERSION};
+    CREATE TABLE IF NOT EXISTS offline_http_cache (
+      cache_key TEXT PRIMARY KEY NOT NULL,
+      account_scope TEXT NOT NULL,
+      response_json TEXT NOT NULL,
+      saved_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS offline_datasets (
+      dataset_key TEXT PRIMARY KEY NOT NULL,
+      data_json TEXT NOT NULL,
+      saved_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS offline_preparation (
+      account_scope TEXT PRIMARY KEY NOT NULL,
+      manifest_json TEXT,
+      lease_token TEXT,
+      lease_until INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS offline_preparation_jobs (
+      job_key TEXT PRIMARY KEY NOT NULL,
+      cycle_id TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      next_attempt_at INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT
+    );
+    CREATE INDEX IF NOT EXISTS offline_preparation_jobs_cycle_status
+      ON offline_preparation_jobs(cycle_id, status, job_key);
+
   `);
+  const operationColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_operations)');
+  for (const name of ['server_review_id', 'server_receipt_json']) {
+    if (!operationColumns.some((column) => column.name === name)) await db.execAsync(`ALTER TABLE sync_operations ADD COLUMN ${name} TEXT`);
+  }
+  if (priorVersion < 3) {
+    // Older failures may only reflect expired subscriptions or date cutoffs.
+    // Requeue them for quarantine/review, never for automatic financial posting.
+    await db.runAsync(`UPDATE sync_operations SET status='QUEUED', next_attempt_at=?, updated_at=?,
+      last_error_message='Older saved payment will be uploaded for admin review.'
+      WHERE action='RECORD_PAYMENT' AND status IN ('PERMANENT_FAILURE','CONFLICT')
+        AND server_review_id IS NULL AND CASE WHEN json_valid(payload)
+          THEN json_extract(payload, '$.offlineAuthorization') ELSE 'UNREADABLE' END IS NULL`, Date.now(), Date.now());
+  }
+  await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
   return db;
 }
 
@@ -152,6 +204,12 @@ export function createEncryptedQueryPersister(accountScope: string): Persister {
 }
 
 function mapOperation(row: any): QueuedOperation {
+  let payload: any;
+  try { payload = JSON.parse(row.payload); }
+  catch { payload = { localRecoveryRequired: true }; }
+  let serverReceipt = null;
+  try { serverReceipt = row.server_receipt_json ? JSON.parse(row.server_receipt_json) : null; }
+  catch { /* Keep the authoritative receipt ID and original row for recovery. */ }
   return {
     operationId: row.operation_id,
     accountScope: row.account_scope,
@@ -160,7 +218,7 @@ function mapOperation(row: any): QueuedOperation {
     action: row.action,
     entityType: row.entity_type,
     entityId: row.entity_id,
-    payload: JSON.parse(row.payload),
+    payload,
     payloadHash: row.payload_hash,
     expectedVersion: row.expected_version,
     status: row.status,
@@ -169,8 +227,10 @@ function mapOperation(row: any): QueuedOperation {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastErrorCode: row.last_error_code,
-    lastErrorMessage: row.last_error_message,
+    lastErrorMessage: payload?.localRecoveryRequired ? 'Saved record needs local recovery. Its original data is preserved.' : row.last_error_message,
     serverReceiptId: row.server_receipt_id,
+    serverReviewId: row.server_review_id,
+    serverReceipt,
   };
 }
 
@@ -192,7 +252,8 @@ export async function insertOperation(operation: QueuedOperation): Promise<void>
        operation_id, account_scope, tenant_id, actor_id, action, entity_type, entity_id,
        payload, payload_hash, expected_version, status, attempts, next_attempt_at,
        created_at, updated_at, last_error_code, last_error_message, server_receipt_id
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(operation_id) DO NOTHING`,
     operation.operationId,
     operation.accountScope,
     operation.tenantId,
@@ -212,6 +273,14 @@ export async function insertOperation(operation: QueuedOperation): Promise<void>
     operation.lastErrorMessage ?? null,
     operation.serverReceiptId ?? null,
   );
+  // A second caller can insert after the initial lookup. Verify the row that
+  // actually won rather than letting a uniqueness race fall through to HTTP.
+  const stored = await db.getFirstAsync<{ payload_hash: string; account_scope: string }>(
+    'SELECT payload_hash, account_scope FROM sync_operations WHERE operation_id = ?', operation.operationId);
+  if (!stored) throw new Error('The payment could not be saved securely on this device');
+  if (stored.payload_hash !== operation.payloadHash || stored.account_scope !== operation.accountScope) {
+    throw new Error('This operation ID is already associated with different payment details');
+  }
 }
 
 export async function getOperation(operationId: string, accountScope: string): Promise<QueuedOperation | null> {
@@ -281,13 +350,26 @@ export async function getVisibleOperations(accountScope: string, limit = 10): Pr
   const rows = await db.getAllAsync<any>(
     `SELECT * FROM sync_operations
      WHERE account_scope = ?
-       AND status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS', 'CONFLICT', 'PERMANENT_FAILURE')
-     ORDER BY created_at DESC
+       AND status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS', 'CONFLICT', 'PERMANENT_FAILURE', 'SUCCEEDED')
+     ORDER BY CASE WHEN status='SUCCEEDED' THEN 1 ELSE 0 END, created_at DESC
      LIMIT ?`,
     accountScope,
     limit,
   );
   return rows.map(mapOperation);
+}
+
+export async function getOperationsAwaitingReview(accountScope: string, force = false): Promise<QueuedOperation[]> {
+  const db = await getOfflineDatabase(accountScope);
+  const rows = await db.getAllAsync<any>(`SELECT * FROM sync_operations WHERE account_scope=?
+    AND status='CONFLICT' AND server_review_id IS NOT NULL AND (?=1 OR next_attempt_at<=?) ORDER BY next_attempt_at LIMIT 50`, accountScope, force ? 1 : 0, Date.now());
+  return rows.map(mapOperation);
+}
+
+export async function deferReviewPoll(operation: QueuedOperation) {
+  const db = await getOfflineDatabase(operation.accountScope);
+  await db.runAsync("UPDATE sync_operations SET next_attempt_at=? WHERE operation_id=? AND status='CONFLICT'",
+    Date.now() + 60_000, operation.operationId);
 }
 
 export async function updateOperation(
@@ -300,6 +382,8 @@ export async function updateOperation(
     errorCode?: string | null;
     errorMessage?: string | null;
     serverReceiptId?: string | null;
+    serverReviewId?: string | null;
+    serverReceipt?: unknown;
   } = {},
 ): Promise<void> {
   const db = await getOfflineDatabase(accountScope);
@@ -311,6 +395,8 @@ export async function updateOperation(
        last_error_code = ?,
        last_error_message = ?,
        server_receipt_id = COALESCE(?, server_receipt_id),
+       server_review_id = COALESCE(?, server_review_id),
+       server_receipt_json = COALESCE(?, server_receipt_json),
        updated_at = ?
      WHERE operation_id = ?`,
     status,
@@ -319,6 +405,8 @@ export async function updateOperation(
     values.errorCode ?? null,
     values.errorMessage ?? null,
     values.serverReceiptId ?? null,
+    values.serverReviewId ?? null,
+    values.serverReceipt ? JSON.stringify(values.serverReceipt) : null,
     Date.now(),
     operationId,
   );

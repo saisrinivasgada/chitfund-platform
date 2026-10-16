@@ -28,6 +28,7 @@ import { getAccountScope } from '../../../offline/accountScope';
 import { useAuthStore } from '../../../store/authStore';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
+import { OfflineCollectionReviews } from '../../../components/OfflineCollectionReviews';
 
 const ALL_TABS = ['Cash Requests', 'Intimations', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
 type Tab = typeof ALL_TABS[number];
@@ -1024,6 +1025,7 @@ function RecordPaymentTab() {
 
       <SyncStatusCard compact />
       <PendingPaymentQueueCard memberNames={paymentMemberNames} />
+      <OfflineCollectionReviews memberNames={paymentMemberNames} />
 
       {/* ── Member picker ──────────────────────────────────────────────────── */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>

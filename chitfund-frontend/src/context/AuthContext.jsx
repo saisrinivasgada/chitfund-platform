@@ -1,5 +1,8 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { setAuthToken, clearAuthToken, refreshSession, getMyEffectiveLimits } from '../services/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { ACTIVE_ACCOUNT_KEY, activeAccountScope, accountScope, lockAccount, rememberAccount, refreshAccount } from '../offline/accountClient';
+import { readRow } from '../offline/storage';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
@@ -8,12 +11,14 @@ const AuthContext = createContext(null);
 
 function normalizeUser(userData) {
   if (!userData) return userData;
-  if (userData.role === 'WORKER') return { ...userData, role: 'STAFF' };
-  return userData;
+  return { ...userData, fullName: userData.fullName ?? userData.name ?? userData.username,
+    role: userData.role === 'WORKER' ? 'STAFF' : userData.role };
 }
 
 
 export function AuthProvider({ children }) {
+  const queryClient = useQueryClient();
+  const [offlineSession, setOfflineSession] = useState(false);
   const [isProxySession, setIsProxySession] = useState(() => !!sessionStorage.getItem('token'));
   // Token lives in memory only — never in localStorage (XSS protection)
   const [token, setToken]       = useState(null);
@@ -38,6 +43,17 @@ export function AuthProvider({ children }) {
   const lastActivity = useRef(Date.now());
 
   const logout = useCallback(() => {
+    const scope = !sessionStorage.getItem('token') ? activeAccountScope() : null;
+    if (scope) {
+      lockAccount(scope).then(() => readRow('accounts', scope)).then((account) => {
+        if (account?.browserAccountId) return fetch(`/api/auth/accounts/${account.browserAccountId}/logout`, {
+          method: 'POST', credentials: 'include', headers: { 'X-Client-Source': 'WEB' },
+        });
+      }).catch(() => {});
+      localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+    }
+    setOfflineSession(false);
+    queryClient.clear();
     clearAuthToken();
     ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','settlementEnabled','adminPhone','adminEmail']
       .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
@@ -57,7 +73,21 @@ export function AuthProvider({ children }) {
     setAdminEmail(null);
     setIsProxySession(false);
     if (idleTimer.current) clearTimeout(idleTimer.current);
-  }, []);
+  }, [queryClient]);
+
+  useEffect(() => {
+    const inspect = async (message) => {
+      const scope = message.scope;
+      if (!message.sessionInvalid || activeAccountScope() !== scope) return;
+      const account = await readRow('accounts', scope).catch(() => null);
+      if (activeAccountScope() === scope && !account?.sessionValid) logout();
+    };
+    const onInvalid = (event) => { inspect({ ...event.detail, sessionInvalid: true }).catch(() => {}); };
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('chitwise-offline') : null;
+    if (channel) channel.onmessage = (event) => { inspect(event.data).catch(() => {}); };
+    window.addEventListener('auth:account-invalid', onInvalid);
+    return () => { channel?.close(); window.removeEventListener('auth:account-invalid', onInvalid); };
+  }, [logout]);
 
   const scheduleIdleCheck = useCallback((logoutFn) => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -116,8 +146,10 @@ export function AuthProvider({ children }) {
       setIsRestoring(false);
       return;
     }
+    const startingScope = activeAccountScope();
     refreshSession()
       .then((auth) => {
+        if (activeAccountScope() !== startingScope) return;
         const accessToken = auth.accessToken ?? auth.token;
         if (auth.tenant) {
           login(accessToken, auth.user, tenantSessionData(auth.tenant));
@@ -126,7 +158,15 @@ export function AuthProvider({ children }) {
           setToken(accessToken);
         }
       })
-      .catch(() => {
+      .catch(async (error) => {
+        if (activeAccountScope() !== startingScope) return;
+        if (!error.status || error.status >= 500) {
+          const account = startingScope ? await readRow('accounts', startingScope).catch(() => null) : null;
+          if (account?.sessionValid && account.offlineAccess?.enabled) {
+            login(null, account.user, account.tenant, { offline: true });
+            return;
+          }
+        }
         logout();
       })
       .finally(() => setIsRestoring(false));
@@ -196,7 +236,12 @@ export function AuthProvider({ children }) {
   // Pass { proxy: true } for proxy sessions — writes to sessionStorage only so the
   // real session in other tabs (localStorage) is never touched.
   // For real sessions: token lives in memory only (setAuthToken), never in localStorage.
-  function login(tokenValue, userData, tenantData = {}, { proxy = false } = {}) {
+  function login(tokenValue, userData, tenantData = {}, { proxy = false, offline = false } = {}) {
+    const normalized = normalizeUser({ ...userData, role: tenantData.role ?? userData.role });
+    const scope = !proxy ? accountScope(normalized, tenantData.tenantId) : null;
+    if (!proxy && scope !== activeAccountScope()) queryClient.clear();
+    if (scope && !offline) rememberAccount(normalized, tenantData, tokenValue).catch(() => {});
+    setOfflineSession(offline);
     const store = proxy ? sessionStorage : localStorage;
     if (!proxy) {
       // Real login: clear any leftover proxy state
@@ -208,7 +253,6 @@ export function AuthProvider({ children }) {
       // Proxy sessions: keep token in sessionStorage for tab isolation
       store.setItem('token', tokenValue);
     }
-    const normalized = normalizeUser(userData);
     store.setItem('user', JSON.stringify(normalized));
     if (tenantData.tenantId)     { store.setItem('tenantId',     tenantData.tenantId);     setTenantId(tenantData.tenantId); }
     if (tenantData.tenantSlug)   { store.setItem('tenantSlug',   tenantData.tenantSlug);   setTenantSlug(tenantData.tenantSlug); }
@@ -261,8 +305,19 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{
       token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, settlementEnabled, adminPhone, adminEmail,
       login, logout, updateUser,
+      switchToSavedAccount: async (scope) => {
+        const auth = await refreshAccount(scope);
+        login(auth.accessToken, auth.user, tenantSessionData(auth.tenant));
+      },
+      startAccountLogin: () => {
+        // Keep other saved sessions valid so their pending payments can sync.
+        clearAuthToken(); queryClient.clear();
+        setToken(null); setUser(null); setOfflineSession(false);
+        localStorage.removeItem('user'); localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+      },
       refreshEntitlements: async () => applyEffectiveLimits(await getMyEffectiveLimits()),
-      isAuthenticated: !!token,
+      isAuthenticated: (!!token || offlineSession) && !!user,
+      offlineSession,
       isSuperAdmin: user?.role === 'SUPER_ADMIN',
       isProxySession,
       isRestoring,
@@ -278,6 +333,7 @@ export const useAuth = () => useContext(AuthContext);
 function tenantSessionData(tenant) {
   return {
     tenantId: tenant.tenantId,
+    role: tenant.role,
     tenantSlug: tenant.slug,
     tenantName: tenant.name,
     tenantPlan: tenant.plan ?? 'BASIC',

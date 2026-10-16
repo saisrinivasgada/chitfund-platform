@@ -1,3 +1,4 @@
+import { runAccountTasks } from '../../shared/offline/scheduling';
 import type { QueryClient } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { getAccountScope, getStoredAccountScope } from './accountScope';
@@ -15,6 +16,7 @@ import { processPaymentOperation } from './paymentQueue';
 import { processStaffOperation } from './staffQueue';
 import { useAuthStore } from '../store/authStore';
 import { useSyncStore } from '../store/syncStore';
+import { refreshReviewedPayments } from './paymentReviews';
 
 const activeSyncs = new Map<string, Promise<void>>();
 
@@ -54,7 +56,7 @@ export async function refreshSyncState(accountScope: string, online?: boolean): 
   });
 }
 
-async function doSynchronize(accountScope: string, queryClient?: QueryClient): Promise<void> {
+async function doSynchronize(accountScope: string, queryClient?: QueryClient, deadline = Date.now() + 60_000): Promise<void> {
   const network = await NetInfo.fetch();
   const isOnline = network.isConnected === true && network.isInternetReachable !== false;
   if (!isOnline) {
@@ -64,6 +66,10 @@ async function doSynchronize(accountScope: string, queryClient?: QueryClient): P
 
   useSyncStore.getState().setStateForScope(accountScope, { status: 'syncing', isOnline: true, message: null });
   await recoverInterruptedOperations(accountScope);
+  const confirmedReviews = await refreshReviewedPayments(accountScope, false, deadline);
+  if (confirmedReviews && queryClient && getAccountScope(useAuthStore.getState().user) === accountScope) {
+    await queryClient.invalidateQueries({ refetchType: 'active' });
+  }
   const operations = await getReadyOperations(accountScope);
   if (!operations.length) {
     await refreshSyncState(accountScope, true);
@@ -71,6 +77,7 @@ async function doSynchronize(accountScope: string, queryClient?: QueryClient): P
   }
   let authRequired = false;
   for (const operation of operations) {
+    if (Date.now() >= deadline) break;
     const result = operation.action === 'RECORD_PAYMENT'
       ? await processPaymentOperation(operation)
       : await processStaffOperation(operation);
@@ -78,6 +85,7 @@ async function doSynchronize(accountScope: string, queryClient?: QueryClient): P
       authRequired = true;
       break;
     }
+    if (result.kind === 'retryable' || result.kind === 'access-required') break;
   }
 
   if (!authRequired) {
@@ -101,30 +109,29 @@ async function doSynchronize(accountScope: string, queryClient?: QueryClient): P
   }
 }
 
-export function synchronizeAccount(accountScope: string, queryClient?: QueryClient): Promise<void> {
+export function synchronizeAccount(accountScope: string, queryClient?: QueryClient, deadline = Date.now() + 60_000): Promise<void> {
   const running = activeSyncs.get(accountScope);
   if (running) return running;
-  const promise = doSynchronize(accountScope, queryClient).finally(() => activeSyncs.delete(accountScope));
+  const promise = doSynchronize(accountScope, queryClient, deadline).finally(() => activeSyncs.delete(accountScope));
   activeSyncs.set(accountScope, promise);
   return promise;
 }
 
 /** Delivery of saved work is independent of current add-on access and visible account. */
-export async function synchronizeSavedAccounts(queryClient?: QueryClient): Promise<void> {
-  for (const account of useAuthStore.getState().accounts) {
-    if (!account.sessionValid || account.authSource === 'HUB') continue;
+export async function synchronizeSavedAccounts(queryClient?: QueryClient, deadline = Date.now() + 60_000): Promise<void> {
+  await runAccountTasks(useAuthStore.getState().accounts.filter((account) => account.sessionValid && account.authSource !== 'HUB'), async (account) => {
     const scope = getStoredAccountScope(account);
-    if (!scope) continue;
+    if (!scope) return;
     try {
-      if (!await hasOfflineDatabase(scope)) continue;
+      if (!await hasOfflineDatabase(scope)) return;
       const counts = await getSyncCounts(scope);
-      if (!counts.pending) continue;
+      if (!counts.pending && !counts.conflicts) return;
       const visible = getAccountScope(useAuthStore.getState().user) === scope;
-      await synchronizeAccount(scope, visible ? queryClient : undefined);
+      await synchronizeAccount(scope, visible ? queryClient : undefined, deadline);
     } catch {
       // A failed account must not prevent another organisation's work syncing.
     }
-  }
+  }, { deadline });
 }
 
 export async function syncCurrentAccount(queryClient: QueryClient): Promise<void> {

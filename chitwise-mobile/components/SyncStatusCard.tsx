@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { C } from './ui';
 import { syncCurrentAccount } from '../offline/syncEngine';
 import { useSyncStore } from '../store/syncStore';
+import { usePreparationStore } from '../offline/preparation';
 
 function relativeTime(value: number | null): string {
   if (!value) return 'Not synced on this device yet';
@@ -29,6 +30,10 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const state = useSyncStore();
+  const preparation = usePreparationStore((store) => state.accountScope ? store.byScope[state.accountScope] : undefined);
+  const preparationDetail = preparation?.status === 'ready'
+    ? `Core data saved ${new Date(preparation.lastCompleteAt!).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`
+    : preparation ? `${preparation.lastCompleteAt ? 'Saved data available · ' : ''}${preparation.status === 'paused' || !state.isOnline ? 'Download paused' : 'Preparing offline data'} · ${preparation.completed} chunks ${preparation.lastCompleteAt ? 'refreshed' : 'saved'}${preparation.total ? ` · ${preparation.detailsDone ?? 0}/${preparation.total} details` : ''}. Resumes automatically.` : null;
   const pulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -52,7 +57,7 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
     if (state.status === 'auth-required') return { mark: '!', title: 'Login required to sync', color: '#B91C1C', background: '#FEF2F2' };
     if (state.status === 'access-required') return { mark: 'Ⅱ', title: 'Saved payments need access', color: '#B45309', background: '#FFFBEB' };
     if (state.pendingCount > 0 || state.status === 'pending') return { mark: '↑', title: `${state.pendingCount} payment${state.pendingCount === 1 ? '' : 's'} waiting`, color: '#B45309', background: '#FFFBEB' };
-    return { mark: '✓', title: syncedClock(state.lastSyncedAt), color: C.green, background: '#F0FDF4' };
+    return { mark: '✓', title: state.lastSyncedAt ? syncedClock(state.lastSyncedAt) : 'No payments waiting', color: C.green, background: '#F0FDF4' };
   })();
 
   const detail = state.status === 'offline' && state.pendingCount > 0
@@ -71,7 +76,7 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
           : state.pendingCount > 0 || state.status === 'pending'
             ? 'Saved safely on this device'
             : state.status === 'synced'
-              ? 'Everything is up to date'
+              ? (state.lastSyncedAt ? 'Saved changes confirmed by the server' : 'No saved changes awaiting sync')
               : detail;
     return (
       <TouchableOpacity
@@ -79,7 +84,7 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
         accessibilityLabel={`${visual.title}. ${subtitle}. Tap to sync now.`}
         activeOpacity={0.72}
         onPress={handlePress}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, alignSelf: 'flex-start' }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, width: '100%' }}
       >
         <Animated.View style={{
           opacity: pulse, width: 24, height: 20, borderRadius: 10,
@@ -91,9 +96,10 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
             <Text style={{ color: '#fff', fontSize: 6, fontWeight: '900' }}>{visual.mark}</Text>
           </View>
         </Animated.View>
-        <View>
-          <Text style={{ color: visual.color, fontSize: 10, fontWeight: '700' }}>{visual.title}</Text>
-          <Text style={{ color: C.gray500, fontSize: 9, marginTop: 0 }}>{subtitle}</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: visual.color, fontSize: 10, fontWeight: '700' }} numberOfLines={1}>{visual.title}</Text>
+          <Text style={{ color: C.gray500, fontSize: 9, marginTop: 0 }} numberOfLines={1}>{subtitle}</Text>
+          {preparation && <Text style={{ color: C.gray500, fontSize: 9, marginTop: 2 }} numberOfLines={1}>{preparation.status === 'ready' ? 'Core data saved' : preparation.lastCompleteAt ? 'Saved data · refresh paused' : 'Offline download in progress'}</Text>}
         </View>
       </TouchableOpacity>
     );
@@ -136,6 +142,7 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={{ color: visual.color, fontSize: 13, fontWeight: '800' }} numberOfLines={1}>{visual.title}</Text>
         <Text style={{ color: C.gray500, fontSize: 11, marginTop: 1 }} numberOfLines={2}>{detail}</Text>
+        {preparationDetail && <Text style={{ color: C.gray500, fontSize: 11, marginTop: 3 }} numberOfLines={2}>{preparationDetail}</Text>}
       </View>
       {state.isOnline && state.status !== 'syncing' && <Text style={{ color: visual.color, fontSize: 11, fontWeight: '700' }}>Sync now</Text>}
     </TouchableOpacity>

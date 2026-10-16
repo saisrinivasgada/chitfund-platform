@@ -43,7 +43,7 @@ function ScopedQueryProvider({ children }: { children: React.ReactNode }) {
   }, [scope, user?.authSource]);
 
   if (HUB_BUILD || !scope || !persistence) {
-    return <QueryClientProvider client={HUB_BUILD ? hubQueryClient : queryClient}>
+    return <QueryClientProvider key={scope ?? 'signed-out'} client={HUB_BUILD ? hubQueryClient : queryClient}>
       {!HUB_BUILD && scope && user?.authSource !== 'HUB' && <SyncRuntime />}
       {children}
     </QueryClientProvider>;

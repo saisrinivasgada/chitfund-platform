@@ -48,6 +48,14 @@ class OfflineAccessServiceTest {
     }
 
     @Test
+    void missingSigningConfigurationNeverCreatesNewGrants() {
+        var unconfigured = new OfflineAccessService(tenants, new OfflineAccessTokens("v1", "", java.util.Map.of(), null,
+                Clock.fixed(now, ZoneOffset.UTC)));
+        assertThat(unconfigured.issue(user, "org-a").reason()).isEqualTo("OFFLINE_NOT_CONFIGURED");
+        assertThat(unconfigured.issue(user, "org-a").grant()).isNull();
+    }
+
+    @Test
     void missingAddOnAndInactiveOrganisationNeverGetAGrant() {
         tenant.setOfflineEnabled(false);
         assertThat(service.issue(user, "org-a").reason()).isEqualTo("ADD_ON_REQUIRED");
@@ -57,9 +65,11 @@ class OfflineAccessServiceTest {
     }
 
     @Test
-    void expiredSubscriptionAndLockedAccountNeverGetAGrant() {
+    void expiredSubscriptionKeepsReadOnlyAccessButLockedAccountsGetNoGrant() {
         tenant.setPlanExpiresAt(LocalDateTime.ofInstant(now.minusSeconds(1), ZoneOffset.UTC));
-        assertThat(service.issue(user, "org-a").enabled()).isFalse();
+        assertThat(service.issue(user, "org-a").enabled()).isTrue();
+        assertThat(service.issue(user, "org-a").reason()).isEqualTo("SUBSCRIPTION_EXPIRED");
+        assertThat(service.issue(user, "org-a").grant().actions()).containsExactly("READ");
         tenant.setPlanExpiresAt(null);
         user.setLocked(true);
         assertThat(service.issue(user, "org-a").reason()).isEqualTo("ACCOUNT_ACCESS_REQUIRED");

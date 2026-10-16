@@ -74,7 +74,14 @@ public class PaymentController {
             @RequestHeader("X-Idempotency-Key") String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        PaymentBatchResponse response = paymentService.recordPayment(request, adminId, idempotencyKey);
+        PaymentBatchResponse response;
+        try { response = paymentService.recordPayment(request, adminId, idempotencyKey); }
+        catch (org.springframework.dao.DataIntegrityViolationException concurrent) {
+            if (request.getOfflineAuthorization() == null) throw concurrent;
+            // Re-read after the failed transaction: a simultaneous receipt may
+            // now exist. Return its idempotent acknowledgement or preserve review.
+            response = paymentService.recordPayment(request, adminId, idempotencyKey);
+        }
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -227,10 +234,14 @@ public class PaymentController {
      * Used in the member detail page to show a complete payment timeline.
      */
     @GetMapping("/history")
-    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PaymentRecordResponse>>> getPaymentHistory(
             @RequestParam UUID memberId,
-            @RequestParam UUID chitId) {
+            @RequestParam UUID chitId, Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.toString().equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(paymentService.getPaymentHistory(memberId, chitId)));
     }
 

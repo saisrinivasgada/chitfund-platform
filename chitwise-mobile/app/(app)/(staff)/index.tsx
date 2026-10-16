@@ -17,6 +17,7 @@ import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import RoleLogo from '../../../components/RoleLogo';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
+import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 import { markPickupOfflineCapable, partialCollectOfflineCapable } from '../../../offline/staffQueue';
 
 // ── Task Detail Modal ──────────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ function TaskModal({
     if (collectingFull || collectingPartial) return;
     setCollectingFull(true);
     try {
-      const res = await markPickupOfflineCapable(task.id, task.updatedAt);
+      const res = await markPickupOfflineCapable(task.id, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined });
       // Optimistic update — task moves to PICKED_UP in local cache
       qc.setQueryData(['staff-tasks'], (old: any[]) =>
         (old ?? []).map((t: any) =>
@@ -72,7 +73,7 @@ function TaskModal({
     if (collectingPartial || collectingFull) return;
     setCollectingPartial(true);
     try {
-      const res = await partialCollectOfflineCapable(task.id, amt, task.updatedAt);
+      const res = await partialCollectOfflineCapable(task.id, amt, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined });
       qc.setQueryData(['staff-tasks'], (old: any[]) =>
         (old ?? []).map((t: any) =>
           t.id === task.id
@@ -554,6 +555,8 @@ export default function StaffTasksScreen() {
               </Text>
               <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Collections and cash currently assigned to you.</Text>
             </View>
+
+            <PendingPaymentQueueCard memberNames={memberMap} />
 
             {/* Summary strip */}
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
