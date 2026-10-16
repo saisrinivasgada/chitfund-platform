@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react';
 import {
-  View, Text, Modal, Pressable, TouchableOpacity, PanResponder,
+  View, Text, Image, Modal, Pressable, TouchableOpacity, PanResponder,
   Animated, useWindowDimensions, ScrollView, Vibration,
   Platform, StyleSheet,
 } from 'react-native';
@@ -271,8 +271,9 @@ export function FloatingToolkit() {
         <Animated.View style={{ width: buttonSize, height: buttonSize, transform: [{ scale: Animated.multiply(scale, pulseS) }] }}>
         <TouchableOpacity
           hitSlop={8}
+          testID="chitwise-tools-button"
           accessibilityRole="button"
-          accessibilityLabel="Open assistive menu"
+          accessibilityLabel="Open ChitWise tools"
           accessibilityHint="Calculator and refresh. Drag to move the control."
           onPress={handleTap}
           onLongPress={handleRefresh}
@@ -280,14 +281,8 @@ export function FloatingToolkit() {
           activeOpacity={0.85}
           style={[styles.floatBtn, { width: buttonSize, height: buttonSize, borderRadius: btnRadius }]}
         >
-          <View pointerEvents="none" style={{ width: buttonSize * 0.72, height: buttonSize * 0.72,
-            borderRadius: buttonSize, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center' }}>
-            <View style={{ width: buttonSize * 0.58, height: buttonSize * 0.58, borderRadius: buttonSize,
-              backgroundColor: 'rgba(255,255,255,0.28)', alignItems: 'center', justifyContent: 'center' }}>
-              <View style={{ width: buttonSize * 0.43, height: buttonSize * 0.43, borderRadius: buttonSize,
-                backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)' }} />
-            </View>
-          </View>
+          <Image source={require('../assets/icon.png')} accessible={false} resizeMode="contain"
+            style={{ width: buttonSize * 0.88, height: buttonSize * 0.88, borderRadius: buttonSize * 0.22 }} />
         </TouchableOpacity>
 
         {/* Refresh spinner ring */}
@@ -310,12 +305,12 @@ export function FloatingToolkit() {
 
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Pressable accessibilityLabel="Dismiss assistive menu" onPress={() => setMenuOpen(false)}
+          <Pressable accessibilityRole="button" accessibilityLabel="Close ChitWise tools" onPress={() => setMenuOpen(false)}
             style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(15,23,42,0.18)' }]} />
           <View style={{ width: 248, borderRadius: 27, padding: 22, backgroundColor: 'rgba(36,41,49,0.96)',
             borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', shadowColor: '#000', shadowOpacity: 0.22,
             shadowOffset: { width: 0, height: 10 }, shadowRadius: 24, elevation: 14 }}>
-            <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', textAlign: 'center', marginBottom: 20 }}>QUICK TOOLS</Text>
+            <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', textAlign: 'center', marginBottom: 20 }}>CHITWISE TOOLS</Text>
             <View style={{ flexDirection: 'row', gap: 18 }}>
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open calculator"
                 onPress={() => { setMenuOpen(false); openCalc(); }} style={{ flex: 1, alignItems: 'center', gap: 10 }}>
@@ -371,15 +366,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   floatBtn: {
-    backgroundColor: 'rgba(32,37,45,0.9)',
+    backgroundColor: '#1E3A5F',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  floatIcon: {
-    color: '#fff',
-    fontWeight: '700',
-    includeFontPadding: false,
   },
   refreshRingWrap: {
     position: 'absolute',
