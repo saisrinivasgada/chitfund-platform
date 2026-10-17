@@ -77,7 +77,6 @@ jobs:
       MAESTRO_VERSION: 2.11.0
       MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
       CHITWISE_QA_SIGN_IN: '1'
-      CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
       CI: '1'
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +115,8 @@ jobs:
           node tests/offline/server.mjs > "$RUNNER_TEMP/chitwise-native-fixture.log" 2>&1 &
           node -e 'const wait=async()=>{for(let i=0;i<50;i++){try{if((await fetch("http://127.0.0.1:3112/__qa/state")).ok)return}catch{}await new Promise(r=>setTimeout(r,200))}process.exit(1)};wait()'
       - name: Verify complete native offline regression journeys
+        env:
+          CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
         run: node tests/offline/run-regression.mjs
       - name: Upload native verification evidence
         if: always()
@@ -138,7 +139,6 @@ jobs:
       MAESTRO_VERSION: 2.11.0
       MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
       CHITWISE_QA_SIGN_IN: '1'
-      CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
       CI: '1'
     steps:
       - uses: actions/checkout@v4
@@ -187,6 +187,8 @@ jobs:
           node tests/offline/server.mjs > "$RUNNER_TEMP/chitwise-native-fixture.log" 2>&1 &
           node -e 'const wait=async()=>{for(let i=0;i<50;i++){try{if((await fetch("http://127.0.0.1:3112/__qa/state")).ok)return}catch{}await new Promise(r=>setTimeout(r,200))}process.exit(1)};wait()'
       - name: Verify encrypted native Android journeys
+        env:
+          CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
