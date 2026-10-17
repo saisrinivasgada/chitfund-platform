@@ -2,6 +2,7 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - openLink: 'chitwise:///(auth)/login?addAccount=1&username=offline-a'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true
@@ -14,13 +15,16 @@ appId: com.chitwise.mobile
 - extendedWaitUntil:
     visible: "Dashboard|Welcome to ChitWise"
     timeout: 60000
+- waitForAnimationToEnd
 - tapOn:
     text: "No thanks"
     optional: true
+- waitForAnimationToEnd
 - tapOn:
     text: "Skip for now"
     optional: true
 - openLink: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true

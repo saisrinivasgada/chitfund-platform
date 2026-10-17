@@ -1,0 +1,42 @@
+appId: com.chitwise.mobile
+---
+- stopApp
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/chits'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*QA Monthly Chit A.*"
+    timeout: 60000
+- tapOn: ".*QA Monthly Chit A.*"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Info"
+    timeout: 10000
+- tapOn: "Draws"
+- waitForAnimationToEnd
+- assertVisible: "+ Open New Draw"
+- tapOn: "+ Open New Draw"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Draw Number.*"
+    timeout: 10000
+- tapOn: "Cancel"
+- waitForAnimationToEnd
+- assertVisible: "+ Open New Draw"
+- assertNotVisible: "Draw Number.*"
+- tapOn: "+ Open New Draw"
+- waitForAnimationToEnd
+- assertVisible: "Draw Number.*"
+- tapOn: "Cancel"
+- waitForAnimationToEnd
+- tapOn: "Skip Draw"
+- waitForAnimationToEnd
+- assertVisible: "Draw Number to Skip"
+- assertVisible: "Reason.*"
+- tapOn: "Cancel"
+- waitForAnimationToEnd
+- assertVisible: "+ Open New Draw"
+- assertNotVisible: "Draw Number to Skip"

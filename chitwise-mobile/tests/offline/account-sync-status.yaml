@@ -2,6 +2,7 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - openLink: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true

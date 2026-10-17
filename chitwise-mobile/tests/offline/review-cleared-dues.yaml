@@ -3,11 +3,16 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true
 - tapOn:
     id: "sync-status-button"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Sync now"
+    timeout: 10000
 - tapOn: "Sync now"
 - tapOn: "Close sync details"
 - extendedWaitUntil:

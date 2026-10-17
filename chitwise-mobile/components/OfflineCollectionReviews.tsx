@@ -3,7 +3,7 @@ import { formatRefundTime, parseRefundTime } from '../../shared/offline/refundDa
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
 import { C, Button } from './ui';
 import { useAuthStore } from '../store/authStore';
 import { getAccountScope } from '../offline/accountScope';
@@ -57,6 +57,7 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
 
   useEffect(() => {
     if (navigation.scope !== scope || !navigation.sequence || user?.role !== 'ADMIN') return;
+    navigation.consumeReview(navigation.sequence);
     if (!isOnline) { Alert.alert('Connect to review', 'Connect to verify current figures. Your saved collection remains preserved.'); return; }
     setOpen(true); setDetail(null);
     if (navigation.reviewId) inspect(navigation.reviewId);
@@ -116,6 +117,7 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
       <Text style={{ color: C.gray600, fontSize: 11, marginTop: 3 }}>Review changed dues and possible duplicates.</Text>
     </TouchableOpacity>}
     <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ padding: 18, flexDirection: 'row', justifyContent: 'space-between' }}>
           <Text style={{ color: C.navy, fontWeight: '800', fontSize: 19 }}>Collection reviews</Text>
@@ -200,6 +202,7 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
         </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   </>;
 }

@@ -7,3 +7,5 @@ env:
 - runFlow: multi-chit-cancellation-suite.yaml
 - runFlow: signout-suite.yaml
 - runFlow: cross-account-suite.yaml
+- runFlow: settings-suite.yaml
+- runFlow: draw-dialog-suite.yaml

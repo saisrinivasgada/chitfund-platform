@@ -3,6 +3,7 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true

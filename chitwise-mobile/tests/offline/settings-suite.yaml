@@ -1,0 +1,60 @@
+appId: com.chitwise.mobile
+---
+- stopApp
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/more'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "toolkit-settings-row"
+    direction: DOWN
+- tapOn:
+    id: "toolkit-settings-row"
+- waitForAnimationToEnd
+- assertVisible: "Enable floating button"
+- tapOn:
+    id: "toolkit-opacity-row"
+- waitForAnimationToEnd
+- assertVisible: "Button opacity"
+- tapOn:
+    id: "toolkit-opacity-slider"
+- assertVisible: "5[78]%"
+- tapOn: "Back to floating button settings"
+- tapOn:
+    id: "toolkit-size-row"
+- waitForAnimationToEnd
+- tapOn:
+    id: "toolkit-size-slider"
+- assertVisible: "50 pt"
+- tapOn: "Back to floating button settings"
+- tapOn: "Enable floating button"
+- tapOn: "Close floating button settings"
+- waitForAnimationToEnd
+- assertNotVisible:
+    id: "chitwise-tools-button"
+- stopApp
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/more'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- assertNotVisible:
+    id: "chitwise-tools-button"
+- scrollUntilVisible:
+    element:
+      id: "toolkit-settings-row"
+    direction: DOWN
+- tapOn:
+    id: "toolkit-settings-row"
+- waitForAnimationToEnd
+- assertVisible: "Opacity, 5[78]%"
+- assertVisible: "Size, 50 pt"
+- tapOn: "Enable floating button"
+- tapOn: "Close floating button settings"
+- waitForAnimationToEnd
+- assertVisible:
+    id: "chitwise-tools-button"

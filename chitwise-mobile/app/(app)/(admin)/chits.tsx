@@ -1125,8 +1125,10 @@ export default function AdminChitsScreen() {
         )}
       />
 
+
+
       {/* ════════════════════════════════════════════════════════════════════════
-          CHIT DETAIL MODAL
+          CHIT DETAIL MODAL — action dialogs are nested for iOS presentation
       ════════════════════════════════════════════════════════════════════════ */}
       <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
@@ -2475,7 +2477,7 @@ export default function AdminChitsScreen() {
             })()}
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+
 
       {/* ── Open Auction Modal ──────────────────────────────────────────────────── */}
       <Modal visible={showOpenAuction} animationType="slide" presentationStyle="formSheet"
@@ -2894,413 +2896,7 @@ export default function AdminChitsScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* ════════════════════════════════════════════════════════════════════════
-          CREATE CHIT MODAL
-      ════════════════════════════════════════════════════════════════════════ */}
-      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet"
-        onRequestClose={() => { setShowCreate(false); resetCreateForm(); }}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
-          {/* Header */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
-            <View>
-              <Text style={T.h2}>Create Chit Fund</Text>
-              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                Step {createStep} of 4 — {['', 'Chit Type', 'Fund Details', 'Contribution Rule', cChitType === 'LOTTERY' ? 'Payout Amounts' : 'Schedule'][createStep]}
-              </Text>
-            </View>
-            <TouchableOpacity onPress={() => { setShowCreate(false); resetCreateForm(); }}>
-              <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
-            </TouchableOpacity>
-          </View>
 
-          {/* Step progress dots */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, gap: 6 }}>
-            {[1, 2, 3, 4].map((s) => (
-              <View key={s} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: s <= createStep ? C.navy : C.gray200 }} />
-            ))}
-          </View>
-
-          <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={0}>
-          <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: 32 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}>
-
-            {/* ── STEP 1: Chit Type ──────────────────────────────────────── */}
-            {createStep === 1 && (
-              <>
-                <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 16 }}>
-                  Choose how the monthly winner is determined.
-                </Text>
-                {[
-                  { type: 'RESERVATION', label: 'Reservation', desc: 'Each member reserves a specific draw in advance. Most common for family chits.' },
-                  { type: 'LOTTERY',     label: 'Lottery',     desc: 'Winner is randomly drawn each month.' },
-                  { type: 'AUCTION',     label: 'Auction',     desc: 'Members bid for the payout each month.' },
-                ].map(({ type, label, desc }) => {
-                  const onPlan = allowedChitTypes.includes(type);
-                  const selected = cChitType === type;
-                  return (
-                    <TouchableOpacity key={type} disabled={!onPlan}
-                      onPress={() => onPlan && setCChitType(type)}
-                      activeOpacity={onPlan ? 0.7 : 1}
-                      style={{
-                        flexDirection: 'row', alignItems: 'center', gap: 12,
-                        borderRadius: 12, borderWidth: 2, padding: 14, marginBottom: 10,
-                        borderColor: selected ? C.navy : C.gray200,
-                        backgroundColor: !onPlan ? C.gray50 : selected ? C.navy50 : C.white,
-                        opacity: onPlan ? 1 : 0.5,
-                      }}>
-                      <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: selected ? C.amber : 'transparent' }} />
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                          <Text style={{ fontSize: 15, fontWeight: '700', color: selected ? C.navy : C.gray900 }}>{label}</Text>
-                          {!onPlan && (
-                            <View style={{ backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: '700', color: C.navy }}>Not on your plan</Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={{ fontSize: 12, color: C.gray500 }}>
-                          {desc}{!onPlan ? ' — Upgrade your plan to unlock.' : ''}
-                        </Text>
-                      </View>
-                      <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2,
-                        borderColor: selected ? C.navy : C.gray300,
-                        backgroundColor: selected ? C.navy : 'transparent',
-                        alignItems: 'center', justifyContent: 'center' }}>
-                        {selected && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.surface }} />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </>
-            )}
-
-            {/* ── STEP 2: Fund Details ───────────────────────────────────── */}
-            {createStep === 2 && (
-              <>
-                {/* Fund Identity */}
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>FUND IDENTITY</Text>
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Chit Name *</Text>
-                  <TextInput value={cName} onChangeText={setCName} placeholder="e.g. Family Gold Chit 2027"
-                    placeholderTextColor={C.gray400}
-                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                </View>
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Description</Text>
-                  <TextInput value={cDesc} onChangeText={setCDesc} placeholder="Optional notes about this chit…"
-                    placeholderTextColor={C.gray400} multiline
-                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top' }} />
-                </View>
-
-                {/* Fund Structure */}
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>FUND STRUCTURE</Text>
-                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Chit Value (₹) *</Text>
-                    <TextInput value={cChitValue} onChangeText={setCChitValue} placeholder="200000" keyboardType="numeric"
-                      placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>No. of Members *</Text>
-                    <TextInput value={cMembers} onChangeText={handleCMembersChange} placeholder="20" keyboardType="numeric"
-                      placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                  </View>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Monthly Installment (₹) *</Text>
-                    <TextInput value={cInstall} onChangeText={setCInstall}
-                      placeholder={cChitValue && cMembers ? String(Math.round(Number(cChitValue) / Number(cMembers))) : '10000'}
-                      keyboardType="numeric" placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Org Held Slots</Text>
-                    <TextInput value={cAdminSpots} onChangeText={setCAdminSpots} placeholder="0" keyboardType="numeric"
-                      placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                  </View>
-                </View>
-
-                {/* Schedule */}
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>SCHEDULE</Text>
-                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Due Day (1–28)</Text>
-                    <TextInput value={cDueDate} onChangeText={setCDueDate} placeholder="5"
-                      keyboardType="numeric" placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Anticipated Start Date</Text>
-                    <TextInput value={cStart} onChangeText={handleCStartChange} placeholder="YYYY-MM-DD"
-                      placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                  </View>
-                </View>
-                <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 20 }}>
-                  Actual activation date is set when the chit is started. This is used for schedule labels only.
-                </Text>
-
-                {/* Live summary */}
-                {(cChitValue || cMembers || cInstall) && (
-                  <View style={{ backgroundColor: C.navy50, borderRadius: 12, padding: 14, marginBottom: 4, flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
-                    {cChitValue && <Text style={{ fontSize: 13, color: C.navy }}>Total <Text style={{ fontWeight: '700' }}>₹{Number(cChitValue).toLocaleString('en-IN')}</Text></Text>}
-                    {cMembers && <Text style={{ fontSize: 13, color: C.navy }}>Duration <Text style={{ fontWeight: '700' }}>{cMembers} months</Text></Text>}
-                    {cInstall && cMembers && (
-                      <Text style={{ fontSize: 13, color: C.navy }}>Monthly pool <Text style={{ fontWeight: '700' }}>₹{(Number(cInstall) * Number(cMembers)).toLocaleString('en-IN')}</Text></Text>
-                    )}
-                  </View>
-                )}
-              </>
-            )}
-
-            {/* ── STEP 3: Post-Payout Contribution Rule ─────────────────── */}
-            {createStep === 3 && (
-              <>
-                <Text style={{ fontSize: 14, color: C.gray600 ?? C.gray500, marginBottom: 16 }}>
-                  After a member receives their payout{cChitValue ? ` (₹${Number(cChitValue).toLocaleString('en-IN')})` : ''}, do they pay a <Text style={{ fontWeight: '700' }}>different</Text> monthly installment for the rest of the chit?
-                </Text>
-                {[
-                  {
-                    val: false,
-                    label: 'Same amount throughout',
-                    sub: `₹${cInstall ? Number(cInstall).toLocaleString('en-IN') : '—'} / month for all members`,
-                  },
-                  {
-                    val: true,
-                    label: 'Different post-payout amount',
-                    sub: "Members who've received their payout pay a different monthly installment",
-                  },
-                ].map(({ val, label, sub }) => (
-                  <TouchableOpacity key={String(val)} onPress={() => setCPostPayoutEnabled(val)} activeOpacity={0.7}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 12,
-                      borderRadius: 12, borderWidth: 2, padding: 14, marginBottom: 10,
-                      borderColor: cPostPayoutEnabled === val ? C.navy : C.gray200,
-                      backgroundColor: cPostPayoutEnabled === val ? C.navy50 : C.white,
-                    }}>
-                    <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: cPostPayoutEnabled === val ? C.amber : 'transparent' }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '700', color: cPostPayoutEnabled === val ? C.navy : C.gray900, marginBottom: 3 }}>{label}</Text>
-                      <Text style={{ fontSize: 12, color: C.gray500 }}>{sub}</Text>
-                    </View>
-                    <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2,
-                      borderColor: cPostPayoutEnabled === val ? C.navy : C.gray300,
-                      backgroundColor: cPostPayoutEnabled === val ? C.navy : 'transparent',
-                      alignItems: 'center', justifyContent: 'center' }}>
-                      {cPostPayoutEnabled === val && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.surface }} />}
-                    </View>
-                  </TouchableOpacity>
-                ))}
-
-                {cPostPayoutEnabled && (
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>
-                      Post-payout monthly contribution (₹) *
-                    </Text>
-                    <TextInput value={cPostPayoutAmount} onChangeText={setCPostPayoutAmount}
-                      placeholder="e.g. 12000" keyboardType="numeric" placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 6 }}>
-                      Normal installment: ₹{cInstall ? Number(cInstall).toLocaleString('en-IN') : '—'} / month · Can be overridden per slot in the Schedule tab
-                    </Text>
-                  </View>
-                )}
-
-                {/* Summary before submitting */}
-                <View style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 14, marginTop: 20, gap: 6 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, marginBottom: 4 }}>REVIEW</Text>
-                  {[
-                    { label: 'Type', value: cChitType },
-                    { label: 'Name', value: cName },
-                    { label: 'Chit Value', value: `₹${Number(cChitValue).toLocaleString('en-IN')}` },
-                    { label: 'Members', value: cMembers },
-                    { label: 'Installment', value: `₹${Number(cInstall).toLocaleString('en-IN')}` },
-                    cStart && { label: 'Start Date', value: cStart },
-                    cDueDate && { label: 'Due Day', value: cDueDate },
-                    Number(cAdminSpots) > 0 && { label: 'Org Spots', value: cAdminSpots },
-                  ].filter(Boolean).map((row: any) => (
-                    <View key={row.label} style={{ flexDirection: 'row', gap: 8 }}>
-                      <Text style={{ fontSize: 13, color: C.gray500, width: 90 }}>{row.label}</Text>
-                      <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '600', flex: 1 }}>{row.value}</Text>
-                    </View>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {/* ── STEP 4: Payout Schedule ───────────────────────────────── */}
-            {createStep === 4 && cChitType === 'LOTTERY' && (
-              <>
-                <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
-                  Set payout amounts for each draw. Winners are decided by lottery when draws are opened — not assigned in advance.
-                </Text>
-                <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', marginBottom: 16 }}>
-                  🎲 Lottery: payout amounts only — no member assignment here
-                </Text>
-                {cSchedule.length > 0 && (
-                  <>
-                    <View style={{ flexDirection: 'row', paddingHorizontal: 4, marginBottom: 6 }}>
-                      <Text style={{ flex: 0.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>#</Text>
-                      <Text style={{ flex: 1.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>MONTH</Text>
-                      <Text style={{ flex: 2, fontSize: 11, fontWeight: '700', color: C.gray400 }}>PAYOUT (₹)</Text>
-                    </View>
-                    {cSchedule.map((row, i) => (
-                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 6 }}>
-                        <Text style={{ flex: 0.5, fontSize: 12, fontWeight: '700', color: C.gray400 }}>{i + 1}</Text>
-                        <View style={{ flex: 1.5 }}>
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy, backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{row.label}</Text>
-                        </View>
-                        <TextInput
-                          value={row.payoutAmount}
-                          onChangeText={(v) => setCSchedule((rows) => rows.map((r, idx) => idx === i ? { ...r, payoutAmount: v } : r))}
-                          placeholder={cChitValue || '0'}
-                          keyboardType="numeric"
-                          placeholderTextColor={C.gray400}
-                          style={{ flex: 2, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8, padding: 8, fontSize: 13, color: C.gray900 }}
-                        />
-                      </View>
-                    ))}
-                  </>
-                )}
-              </>
-            )}
-
-            {createStep === 4 && cChitType !== 'LOTTERY' && (
-              <>
-                <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
-                  Assign who receives the payout each draw. Member assignment is optional — slots can be filled later from the Schedule tab.
-                </Text>
-                {cSchedule.length === 0 ? (
-                  <View style={{ backgroundColor: C.gray50, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, borderStyle: 'dashed', padding: 24, alignItems: 'center', marginTop: 12 }}>
-                    <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginBottom: 12 }}>
-                      Set Number of Members in Step 2 to auto-generate slots.
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        const now = new Date();
-                        const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-                        setCSchedule([{ reservationMonth: iso, label: now.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), payoutAmount: cChitValue }]);
-                      }}
-                      style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>+ Add Slot Manually</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <>
-                    {/* Column headers */}
-                    <View style={{ flexDirection: 'row', paddingHorizontal: 4, marginTop: 12, marginBottom: 6 }}>
-                      <Text style={{ flex: 0.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>#</Text>
-                      <Text style={{ flex: 1.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>MONTH</Text>
-                      <Text style={{ flex: 2, fontSize: 11, fontWeight: '700', color: C.gray400 }}>PAYOUT (₹)</Text>
-                      <Text style={{ width: 32 }} />
-                    </View>
-                    {cSchedule.map((row, i) => (
-                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 6 }}>
-                        <Text style={{ flex: 0.5, fontSize: 12, fontWeight: '700', color: C.gray400 }}>{i + 1}</Text>
-                        <View style={{ flex: 1.5 }}>
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy, backgroundColor: '#EEF2F8', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{row.label}</Text>
-                        </View>
-                        <TextInput
-                          value={row.payoutAmount}
-                          onChangeText={(v) => setCSchedule((rows) => rows.map((r, idx) => idx === i ? { ...r, payoutAmount: v } : r))}
-                          placeholder={cChitValue || 'e.g. 45000'}
-                          keyboardType="numeric"
-                          placeholderTextColor={C.gray400}
-                          style={{ flex: 2, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8, padding: 8, fontSize: 13, color: C.gray900 }}
-                        />
-                        <TouchableOpacity
-                          onPress={() => setCSchedule((rows) => rows.filter((_, idx) => idx !== i))}
-                          style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontSize: 14, color: C.red ?? '#DC2626' }}>×</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                    {(!cMembers || cSchedule.length < Number(cMembers)) && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setCSchedule((rows) => {
-                            const last = rows[rows.length - 1]?.reservationMonth ?? (cStart || new Date().toISOString().slice(0, 7) + '-01');
-                            const [y, m] = last.split('-').map(Number);
-                            const nextM = m === 12 ? 1 : m + 1;
-                            const nextY = m === 12 ? y + 1 : y;
-                            const iso = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
-                            const label = new Date(nextY, nextM - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-                            return [...rows, { reservationMonth: iso, label, payoutAmount: cChitValue }];
-                          });
-                        }}
-                        style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.navy, borderRadius: 8, padding: 10, alignItems: 'center', marginTop: 4 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>+ Add Slot</Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-
-          </ScrollView>
-
-          {/* Footer navigation */}
-          <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200, flexDirection: 'row', gap: 10 }}>
-            {createStep > 1 && (
-              <View style={{ flex: 1 }}>
-                <Button label="← Back" variant="ghost" onPress={() => setCreateStep(createStep - 1)} />
-              </View>
-            )}
-            <View style={{ flex: createStep > 1 ? 1 : undefined, width: createStep === 1 ? '100%' : undefined }}>
-              {createStep < 4 ? (
-                <Button
-                  label="Continue →"
-                  variant="primary"
-                  fullWidth={createStep === 1}
-                  disabled={
-                    (createStep === 1 && !cChitType) ||
-                    (createStep === 2 && (!cName.trim() || !cChitValue || !cMembers || !cInstall)) ||
-                    (createStep === 3 && cPostPayoutEnabled && !cPostPayoutAmount)
-                  }
-                  onPress={() => {
-                    if (createStep === 2) {
-                      const cv = Number(cChitValue); const cm = Number(cMembers); const ci = Number(cInstall);
-                      if (!cv || cv < 1000) return Alert.alert('Invalid', 'Chit value must be at least ₹1,000');
-                      if (!cm || cm < 2)    return Alert.alert('Invalid', 'Must have at least 2 members');
-                      if (!ci || ci < 1)   return Alert.alert('Invalid', 'Installment must be at least ₹1');
-                    }
-                    if (createStep === 3 && cStart && cMembers) {
-                      setCSchedule((rows) => rows.map((r) => ({ ...r, payoutAmount: r.payoutAmount || cChitValue })));
-                    }
-                    setCreateStep(createStep + 1);
-                  }}
-                />
-              ) : (
-                <Button
-                  label="Create →"
-                  variant="primary"
-                  loading={createMut.isPending}
-                  onPress={() => createMut.mutate(cSchedule.length > 0)}
-                />
-              )}
-            </View>
-          </View>
-          {/* Skip schedule option on step 4 */}
-          {createStep === 4 && cSchedule.length > 0 && (
-            <TouchableOpacity
-              onPress={() => createMut.mutate(false)}
-              disabled={createMut.isPending}
-              style={{ paddingBottom: 16, alignItems: 'center' }}>
-              <Text style={{ fontSize: 13, color: C.gray400 }}>Save and fill schedule later</Text>
-            </TouchableOpacity>
-          )}
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
 
       {/* ── Enroll Member bottom-sheet ─────────────────────────────────────── */}
       <Modal visible={showEnroll} animationType="slide" transparent onRequestClose={() => setShowEnroll(false)}>
@@ -4197,6 +3793,414 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
+      </Modal>
+      </Modal>
+      {/* ════════════════════════════════════════════════════════════════════════
+          CREATE CHIT MODAL
+      ════════════════════════════════════════════════════════════════════════ */}
+      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet"
+        onRequestClose={() => { setShowCreate(false); resetCreateForm(); }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <View>
+              <Text style={T.h2}>Create Chit Fund</Text>
+              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+                Step {createStep} of 4 — {['', 'Chit Type', 'Fund Details', 'Contribution Rule', cChitType === 'LOTTERY' ? 'Payout Amounts' : 'Schedule'][createStep]}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => { setShowCreate(false); resetCreateForm(); }}>
+              <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Step progress dots */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, gap: 6 }}>
+            {[1, 2, 3, 4].map((s) => (
+              <View key={s} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: s <= createStep ? C.navy : C.gray200 }} />
+            ))}
+          </View>
+
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={0}>
+          <ScrollView
+            contentContainerStyle={{ padding: 20, paddingBottom: 32 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+
+            {/* ── STEP 1: Chit Type ──────────────────────────────────────── */}
+            {createStep === 1 && (
+              <>
+                <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 16 }}>
+                  Choose how the monthly winner is determined.
+                </Text>
+                {[
+                  { type: 'RESERVATION', label: 'Reservation', desc: 'Each member reserves a specific draw in advance. Most common for family chits.' },
+                  { type: 'LOTTERY',     label: 'Lottery',     desc: 'Winner is randomly drawn each month.' },
+                  { type: 'AUCTION',     label: 'Auction',     desc: 'Members bid for the payout each month.' },
+                ].map(({ type, label, desc }) => {
+                  const onPlan = allowedChitTypes.includes(type);
+                  const selected = cChitType === type;
+                  return (
+                    <TouchableOpacity key={type} disabled={!onPlan}
+                      onPress={() => onPlan && setCChitType(type)}
+                      activeOpacity={onPlan ? 0.7 : 1}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 12,
+                        borderRadius: 12, borderWidth: 2, padding: 14, marginBottom: 10,
+                        borderColor: selected ? C.navy : C.gray200,
+                        backgroundColor: !onPlan ? C.gray50 : selected ? C.navy50 : C.white,
+                        opacity: onPlan ? 1 : 0.5,
+                      }}>
+                      <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: selected ? C.amber : 'transparent' }} />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '700', color: selected ? C.navy : C.gray900 }}>{label}</Text>
+                          {!onPlan && (
+                            <View style={{ backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: C.navy }}>Not on your plan</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>
+                          {desc}{!onPlan ? ' — Upgrade your plan to unlock.' : ''}
+                        </Text>
+                      </View>
+                      <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2,
+                        borderColor: selected ? C.navy : C.gray300,
+                        backgroundColor: selected ? C.navy : 'transparent',
+                        alignItems: 'center', justifyContent: 'center' }}>
+                        {selected && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.surface }} />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </>
+            )}
+
+            {/* ── STEP 2: Fund Details ───────────────────────────────────── */}
+            {createStep === 2 && (
+              <>
+                {/* Fund Identity */}
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>FUND IDENTITY</Text>
+                <View style={{ marginBottom: 14 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Chit Name *</Text>
+                  <TextInput value={cName} onChangeText={setCName} placeholder="e.g. Family Gold Chit 2027"
+                    placeholderTextColor={C.gray400}
+                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                </View>
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Description</Text>
+                  <TextInput value={cDesc} onChangeText={setCDesc} placeholder="Optional notes about this chit…"
+                    placeholderTextColor={C.gray400} multiline
+                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top' }} />
+                </View>
+
+                {/* Fund Structure */}
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>FUND STRUCTURE</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Chit Value (₹) *</Text>
+                    <TextInput value={cChitValue} onChangeText={setCChitValue} placeholder="200000" keyboardType="numeric"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>No. of Members *</Text>
+                    <TextInput value={cMembers} onChangeText={handleCMembersChange} placeholder="20" keyboardType="numeric"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Monthly Installment (₹) *</Text>
+                    <TextInput value={cInstall} onChangeText={setCInstall}
+                      placeholder={cChitValue && cMembers ? String(Math.round(Number(cChitValue) / Number(cMembers))) : '10000'}
+                      keyboardType="numeric" placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Org Held Slots</Text>
+                    <TextInput value={cAdminSpots} onChangeText={setCAdminSpots} placeholder="0" keyboardType="numeric"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                  </View>
+                </View>
+
+                {/* Schedule */}
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>SCHEDULE</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Due Day (1–28)</Text>
+                    <TextInput value={cDueDate} onChangeText={setCDueDate} placeholder="5"
+                      keyboardType="numeric" placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Anticipated Start Date</Text>
+                    <TextInput value={cStart} onChangeText={handleCStartChange} placeholder="YYYY-MM-DD"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                  </View>
+                </View>
+                <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 20 }}>
+                  Actual activation date is set when the chit is started. This is used for schedule labels only.
+                </Text>
+
+                {/* Live summary */}
+                {(cChitValue || cMembers || cInstall) && (
+                  <View style={{ backgroundColor: C.navy50, borderRadius: 12, padding: 14, marginBottom: 4, flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
+                    {cChitValue && <Text style={{ fontSize: 13, color: C.navy }}>Total <Text style={{ fontWeight: '700' }}>₹{Number(cChitValue).toLocaleString('en-IN')}</Text></Text>}
+                    {cMembers && <Text style={{ fontSize: 13, color: C.navy }}>Duration <Text style={{ fontWeight: '700' }}>{cMembers} months</Text></Text>}
+                    {cInstall && cMembers && (
+                      <Text style={{ fontSize: 13, color: C.navy }}>Monthly pool <Text style={{ fontWeight: '700' }}>₹{(Number(cInstall) * Number(cMembers)).toLocaleString('en-IN')}</Text></Text>
+                    )}
+                  </View>
+                )}
+              </>
+            )}
+
+            {/* ── STEP 3: Post-Payout Contribution Rule ─────────────────── */}
+            {createStep === 3 && (
+              <>
+                <Text style={{ fontSize: 14, color: C.gray600 ?? C.gray500, marginBottom: 16 }}>
+                  After a member receives their payout{cChitValue ? ` (₹${Number(cChitValue).toLocaleString('en-IN')})` : ''}, do they pay a <Text style={{ fontWeight: '700' }}>different</Text> monthly installment for the rest of the chit?
+                </Text>
+                {[
+                  {
+                    val: false,
+                    label: 'Same amount throughout',
+                    sub: `₹${cInstall ? Number(cInstall).toLocaleString('en-IN') : '—'} / month for all members`,
+                  },
+                  {
+                    val: true,
+                    label: 'Different post-payout amount',
+                    sub: "Members who've received their payout pay a different monthly installment",
+                  },
+                ].map(({ val, label, sub }) => (
+                  <TouchableOpacity key={String(val)} onPress={() => setCPostPayoutEnabled(val)} activeOpacity={0.7}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 12,
+                      borderRadius: 12, borderWidth: 2, padding: 14, marginBottom: 10,
+                      borderColor: cPostPayoutEnabled === val ? C.navy : C.gray200,
+                      backgroundColor: cPostPayoutEnabled === val ? C.navy50 : C.white,
+                    }}>
+                    <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: cPostPayoutEnabled === val ? C.amber : 'transparent' }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: cPostPayoutEnabled === val ? C.navy : C.gray900, marginBottom: 3 }}>{label}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500 }}>{sub}</Text>
+                    </View>
+                    <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2,
+                      borderColor: cPostPayoutEnabled === val ? C.navy : C.gray300,
+                      backgroundColor: cPostPayoutEnabled === val ? C.navy : 'transparent',
+                      alignItems: 'center', justifyContent: 'center' }}>
+                      {cPostPayoutEnabled === val && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.surface }} />}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+
+                {cPostPayoutEnabled && (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>
+                      Post-payout monthly contribution (₹) *
+                    </Text>
+                    <TextInput value={cPostPayoutAmount} onChangeText={setCPostPayoutAmount}
+                      placeholder="e.g. 12000" keyboardType="numeric" placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 6 }}>
+                      Normal installment: ₹{cInstall ? Number(cInstall).toLocaleString('en-IN') : '—'} / month · Can be overridden per slot in the Schedule tab
+                    </Text>
+                  </View>
+                )}
+
+                {/* Summary before submitting */}
+                <View style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 14, marginTop: 20, gap: 6 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, marginBottom: 4 }}>REVIEW</Text>
+                  {[
+                    { label: 'Type', value: cChitType },
+                    { label: 'Name', value: cName },
+                    { label: 'Chit Value', value: `₹${Number(cChitValue).toLocaleString('en-IN')}` },
+                    { label: 'Members', value: cMembers },
+                    { label: 'Installment', value: `₹${Number(cInstall).toLocaleString('en-IN')}` },
+                    cStart && { label: 'Start Date', value: cStart },
+                    cDueDate && { label: 'Due Day', value: cDueDate },
+                    Number(cAdminSpots) > 0 && { label: 'Org Spots', value: cAdminSpots },
+                  ].filter(Boolean).map((row: any) => (
+                    <View key={row.label} style={{ flexDirection: 'row', gap: 8 }}>
+                      <Text style={{ fontSize: 13, color: C.gray500, width: 90 }}>{row.label}</Text>
+                      <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '600', flex: 1 }}>{row.value}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* ── STEP 4: Payout Schedule ───────────────────────────────── */}
+            {createStep === 4 && cChitType === 'LOTTERY' && (
+              <>
+                <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
+                  Set payout amounts for each draw. Winners are decided by lottery when draws are opened — not assigned in advance.
+                </Text>
+                <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', marginBottom: 16 }}>
+                  🎲 Lottery: payout amounts only — no member assignment here
+                </Text>
+                {cSchedule.length > 0 && (
+                  <>
+                    <View style={{ flexDirection: 'row', paddingHorizontal: 4, marginBottom: 6 }}>
+                      <Text style={{ flex: 0.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>#</Text>
+                      <Text style={{ flex: 1.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>MONTH</Text>
+                      <Text style={{ flex: 2, fontSize: 11, fontWeight: '700', color: C.gray400 }}>PAYOUT (₹)</Text>
+                    </View>
+                    {cSchedule.map((row, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 6 }}>
+                        <Text style={{ flex: 0.5, fontSize: 12, fontWeight: '700', color: C.gray400 }}>{i + 1}</Text>
+                        <View style={{ flex: 1.5 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy, backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{row.label}</Text>
+                        </View>
+                        <TextInput
+                          value={row.payoutAmount}
+                          onChangeText={(v) => setCSchedule((rows) => rows.map((r, idx) => idx === i ? { ...r, payoutAmount: v } : r))}
+                          placeholder={cChitValue || '0'}
+                          keyboardType="numeric"
+                          placeholderTextColor={C.gray400}
+                          style={{ flex: 2, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8, padding: 8, fontSize: 13, color: C.gray900 }}
+                        />
+                      </View>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+
+            {createStep === 4 && cChitType !== 'LOTTERY' && (
+              <>
+                <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
+                  Assign who receives the payout each draw. Member assignment is optional — slots can be filled later from the Schedule tab.
+                </Text>
+                {cSchedule.length === 0 ? (
+                  <View style={{ backgroundColor: C.gray50, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, borderStyle: 'dashed', padding: 24, alignItems: 'center', marginTop: 12 }}>
+                    <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginBottom: 12 }}>
+                      Set Number of Members in Step 2 to auto-generate slots.
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const now = new Date();
+                        const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                        setCSchedule([{ reservationMonth: iso, label: now.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), payoutAmount: cChitValue }]);
+                      }}
+                      style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>+ Add Slot Manually</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    {/* Column headers */}
+                    <View style={{ flexDirection: 'row', paddingHorizontal: 4, marginTop: 12, marginBottom: 6 }}>
+                      <Text style={{ flex: 0.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>#</Text>
+                      <Text style={{ flex: 1.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>MONTH</Text>
+                      <Text style={{ flex: 2, fontSize: 11, fontWeight: '700', color: C.gray400 }}>PAYOUT (₹)</Text>
+                      <Text style={{ width: 32 }} />
+                    </View>
+                    {cSchedule.map((row, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 6 }}>
+                        <Text style={{ flex: 0.5, fontSize: 12, fontWeight: '700', color: C.gray400 }}>{i + 1}</Text>
+                        <View style={{ flex: 1.5 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy, backgroundColor: '#EEF2F8', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{row.label}</Text>
+                        </View>
+                        <TextInput
+                          value={row.payoutAmount}
+                          onChangeText={(v) => setCSchedule((rows) => rows.map((r, idx) => idx === i ? { ...r, payoutAmount: v } : r))}
+                          placeholder={cChitValue || 'e.g. 45000'}
+                          keyboardType="numeric"
+                          placeholderTextColor={C.gray400}
+                          style={{ flex: 2, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8, padding: 8, fontSize: 13, color: C.gray900 }}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setCSchedule((rows) => rows.filter((_, idx) => idx !== i))}
+                          style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 14, color: C.red ?? '#DC2626' }}>×</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    {(!cMembers || cSchedule.length < Number(cMembers)) && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCSchedule((rows) => {
+                            const last = rows[rows.length - 1]?.reservationMonth ?? (cStart || new Date().toISOString().slice(0, 7) + '-01');
+                            const [y, m] = last.split('-').map(Number);
+                            const nextM = m === 12 ? 1 : m + 1;
+                            const nextY = m === 12 ? y + 1 : y;
+                            const iso = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
+                            const label = new Date(nextY, nextM - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+                            return [...rows, { reservationMonth: iso, label, payoutAmount: cChitValue }];
+                          });
+                        }}
+                        style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.navy, borderRadius: 8, padding: 10, alignItems: 'center', marginTop: 4 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>+ Add Slot</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+          </ScrollView>
+
+          {/* Footer navigation */}
+          <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200, flexDirection: 'row', gap: 10 }}>
+            {createStep > 1 && (
+              <View style={{ flex: 1 }}>
+                <Button label="← Back" variant="ghost" onPress={() => setCreateStep(createStep - 1)} />
+              </View>
+            )}
+            <View style={{ flex: createStep > 1 ? 1 : undefined, width: createStep === 1 ? '100%' : undefined }}>
+              {createStep < 4 ? (
+                <Button
+                  label="Continue →"
+                  variant="primary"
+                  fullWidth={createStep === 1}
+                  disabled={
+                    (createStep === 1 && !cChitType) ||
+                    (createStep === 2 && (!cName.trim() || !cChitValue || !cMembers || !cInstall)) ||
+                    (createStep === 3 && cPostPayoutEnabled && !cPostPayoutAmount)
+                  }
+                  onPress={() => {
+                    if (createStep === 2) {
+                      const cv = Number(cChitValue); const cm = Number(cMembers); const ci = Number(cInstall);
+                      if (!cv || cv < 1000) return Alert.alert('Invalid', 'Chit value must be at least ₹1,000');
+                      if (!cm || cm < 2)    return Alert.alert('Invalid', 'Must have at least 2 members');
+                      if (!ci || ci < 1)   return Alert.alert('Invalid', 'Installment must be at least ₹1');
+                    }
+                    if (createStep === 3 && cStart && cMembers) {
+                      setCSchedule((rows) => rows.map((r) => ({ ...r, payoutAmount: r.payoutAmount || cChitValue })));
+                    }
+                    setCreateStep(createStep + 1);
+                  }}
+                />
+              ) : (
+                <Button
+                  label="Create →"
+                  variant="primary"
+                  loading={createMut.isPending}
+                  onPress={() => createMut.mutate(cSchedule.length > 0)}
+                />
+              )}
+            </View>
+          </View>
+          {/* Skip schedule option on step 4 */}
+          {createStep === 4 && cSchedule.length > 0 && (
+            <TouchableOpacity
+              onPress={() => createMut.mutate(false)}
+              disabled={createMut.isPending}
+              style={{ paddingBottom: 16, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, color: C.gray400 }}>Save and fill schedule later</Text>
+            </TouchableOpacity>
+          )}
+          </KeyboardAvoidingView>
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );

@@ -2,6 +2,7 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true
@@ -11,11 +12,16 @@ appId: com.chitwise.mobile
 - assertNotVisible: "Offline collection reviews.*"
 - tapOn:
     id: "sync-status-button"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Sync now"
+    timeout: 10000
 - tapOn: "Sync now"
 - extendedWaitUntil:
     visible: "Available offline"
     timeout: 60000
 - tapOn: "Close sync details"
+- waitForAnimationToEnd
 - tapOn:
     id: "chitwise-tools-button"
 - assertVisible: "CHITWISE TOOLS"

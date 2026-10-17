@@ -13,9 +13,11 @@ appId: com.chitwise.mobile
 - extendedWaitUntil:
     visible: "Dashboard|Welcome to ChitWise"
     timeout: 60000
+- waitForAnimationToEnd
 - tapOn:
     text: "No thanks"
     optional: true
+- waitForAnimationToEnd
 - tapOn:
     text: "Skip for now"
     optional: true

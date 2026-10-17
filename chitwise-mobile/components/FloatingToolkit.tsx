@@ -154,11 +154,25 @@ export function FloatingToolkit() {
   const refreshAnim    = useRef(new Animated.Value(0)).current;
   const isRefreshing   = useRef(false);
 
-  // Entrance animation on mount
+  useEffect(() => { loadSettings(); }, []);
+
+  // A disabled button has no native animation node. Start its entrance when
+  // it becomes visible, including after restoring a disabled preference.
   useEffect(() => {
-    loadSettings();
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, tension: 160, friction: 9, delay: 400 }).start();
-  }, []);
+    scale.setValue(0);
+    if (!enabled) { setMenuOpen(false); closeCalc(); return; }
+    const entrance = Animated.spring(scale, { toValue: 1, useNativeDriver: true, tension: 160, friction: 9 });
+    entrance.start();
+    return () => entrance.stop();
+  }, [enabled]);
+
+  useEffect(() => {
+    pan.stopAnimation((position) => {
+      pan.setOffset({ x: 0, y: 0 });
+      pan.setValue({ x: Math.max(8, Math.min(position.x, W - buttonSize - 8)),
+        y: Math.max(80, Math.min(position.y, H - buttonSize - 100)) });
+    });
+  }, [W, H, buttonSize]);
 
   // Pulse when calculator is open
   useEffect(() => {

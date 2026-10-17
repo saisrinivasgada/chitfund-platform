@@ -10,6 +10,7 @@ env:
 - launchApp
 # Finance opens Record Payment first without a tab parameter.
 - openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true
@@ -23,6 +24,7 @@ env:
 - assertNotVisible:
     id: "saved-payments-summary"
 - openLink: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true
@@ -35,6 +37,7 @@ env:
 - stopApp
 - launchApp
 - openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true
@@ -58,6 +61,7 @@ env:
 - stopApp
 - launchApp
 - openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
 - tapOn:
     text: "Open"
     optional: true

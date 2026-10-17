@@ -164,7 +164,9 @@ jobs:
           PYQA
       - name: Build embedded JavaScript release for the emulator
         working-directory: chitwise-mobile/android
-        run: ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon > "$RUNNER_TEMP/chitwise-android-build.log" 2>&1
+        # Expo's release lint exceeded the default 512 MiB class-metadata limit.
+        # Keep lint enabled and bound parallel workers while raising that limit.
+        run: ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=1536m" --max-workers=2 --no-daemon > "$RUNNER_TEMP/chitwise-android-build.log" 2>&1
       - name: Install pinned Maestro
         run: |
           curl -fsSL https://get.maestro.mobile.dev -o "$RUNNER_TEMP/install-maestro.sh"

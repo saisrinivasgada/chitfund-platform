@@ -12,7 +12,7 @@ const owners = ['a', 'b'].map((name, index) => {
   const token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),
     Buffer.from(JSON.stringify({ sub: user.id, tenantId: tenant.tenantId, role: user.role, exp: 4102444800 })).toString('base64url'), 'local-qa-only'].join('.');
   return { name, user, tenant, token, refreshToken: `local-qa-refresh-${name}`, memberId: id('3'), chitId: id('4'), secondaryChitId: id('5'),
-    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, receipts: new Map(), reviews: new Map() };
+    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, pausePaymentDelivery: false, receipts: new Map(), reviews: new Map() };
 });
 let online = true;
 const stateFile = process.env.CHITWISE_QA_STATE_FILE;
@@ -21,17 +21,17 @@ if (stateFile && existsSync(stateFile)) {
   online = state.online ?? true;
   for (const prior of state.organisations ?? []) {
     const owner = owners.find((item) => item.name === prior.name); if (!owner) continue;
-    for (const key of ['due','credit','version','enabled','secondDue']) if (prior[key] != null) owner[key] = prior[key];
+    for (const key of ['due','credit','version','enabled','secondDue','pausePaymentDelivery']) if (prior[key] != null) owner[key] = prior[key];
     owner.receipts = new Map((prior.receipts ?? []).map((r) => [r.id,r]));
     owner.reviews = new Map((prior.reviews ?? []).map((r) => [r.id,r]));
   }
 }
 const snapshot = () => ({ online, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
-  credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled,
+  credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled, pausePaymentDelivery: owner.pausePaymentDelivery,
   receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()] })) });
 const member = (owner) => ({ id: owner.memberId, fullName: `QA Member ${owner.name.toUpperCase()}`, name: `QA Member ${owner.name.toUpperCase()}`,
   phone: '9000000001', status: 'ACTIVE', hasAppAccess: true, createdAt: '2026-10-15T12:00:00' });
-const chit = (owner) => ({ id: owner.chitId, name: `QA Monthly Chit ${owner.name.toUpperCase()}`, status: 'ACTIVE', chitType: 'MONTHLY',
+const chit = (owner) => ({ id: owner.chitId, name: `QA Monthly Chit ${owner.name.toUpperCase()}`, status: 'ACTIVE', chitType: 'RESERVATION',
   chitValue: 20000, installmentAmount: 1000, durationMonths: 20, capacity: 20, memberCount: 1, currentMonth: 1,
   startDate: '2026-10-01', createdAt: '2026-10-01T12:00:00', winnerSelectionMode: 'LOTTERY' });
 const chitsFor = (owner) => [chit(owner), { ...chit(owner), id: owner.secondaryChitId, name: `QA Second Chit ${owner.name.toUpperCase()}`, installmentAmount: 500, chitValue: 10000 }];
@@ -52,6 +52,7 @@ http.createServer(async (request, response) => {
     if (request.method === 'POST') {
       if (body.online != null) online = body.online;
       const owner = owners.find((item) => item.name === (body.org ?? 'a'));
+      if (typeof body.pausePaymentDelivery === 'boolean') owner.pausePaymentDelivery = body.pausePaymentDelivery;
       for (const key of ['due', 'secondDue', 'enabled']) if (body[key] != null) { owner[key] = body[key]; owner.version++; }
     }
     return send(snapshot());
@@ -104,6 +105,7 @@ http.createServer(async (request, response) => {
   if (path === '/payments/batches/all') return send(page([...owner.receipts.values()], Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 50)));
   if (path.startsWith('/payments/batches/') && owner.receipts.has(path.split('/').at(-1))) return send(owner.receipts.get(path.split('/').at(-1)));
   if (['/payments', '/payments/offline/record'].includes(path) && request.method === 'POST') {
+    if (owner.pausePaymentDelivery) return send({ message: 'Local QA delivery is held until account B is selected' }, 503);
     if (body.memberId !== owner.memberId || body.offlineAuthorization !== `local-proof-${owner.name}`) return send({ message: 'Wrong account collection' }, 403);
     const operation = request.headers['x-idempotency-key'];
     const closed = [...owner.reviews.values()].find((r) => r.operationId === operation && ['REFUNDED', 'CANCELLED'].includes(r.status));
