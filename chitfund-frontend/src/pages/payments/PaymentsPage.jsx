@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { activeAccountScope } from '../../offline/accountClient';
 import { savedPaymentActivity } from '../../offline/outbox';
 import { useNavigate, NavLink, Outlet, useSearchParams, Navigate } from 'react-router-dom';
-import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import {
-  getChits, getMembers, getChitsForMember, getMemberBalance, getMemberCredit, getMemberTotalBalance,
+  getChits, getMembers, getMembersPage, getChitsForMember, getMemberBalance, getMemberCredit, getMemberTotalBalance,
   collectPayment, recordPayment, getAllPaymentBatches,
   getActiveCashRequests, assignStaffToRequest, cancelCashRequest, listStaff,
   getPendingRemittance, remitPayment, voidPaymentBatch,
@@ -1086,6 +1086,10 @@ export function RecordPaymentTab() {
   const { hidden } = useHiddenAmounts();
 
   const [memberId, setMemberId]     = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberSearchTerm, setMemberSearchTerm] = useState('');
+  const [selectedMember, setSelectedMember] = useState(null);
+  useEffect(() => { const timer = setTimeout(() => setMemberSearchTerm(memberSearch.trim()), 250); return () => clearTimeout(timer); }, [memberSearch]);
   const [chitId, setChitId]         = useState('');
   const [selectedAllocations, setSelectedAllocations] = useState({});
   const [amount, setAmount]         = useState('');
@@ -1097,12 +1101,19 @@ export function RecordPaymentTab() {
   const [pendingWarning, setPendingWarning] = useState(0);
   const [checkingSaved, setCheckingSaved] = useState(false);
 
-  const { data: allMembers = [] } = useQuery({
-    queryKey: ['members'],
-    queryFn: getMembers,
-    staleTime: 60_000,
+  const memberPages = useInfiniteQuery({
+    queryKey: ['record-payment-members', memberSearchTerm],
+    queryFn: async ({ pageParam }) => {
+      const page = await getMembersPage({ search: memberSearchTerm, page: pageParam, size: 25 });
+      return Array.isArray(page) ? { content: page, number: pageParam, last: true } : page;
+    },
+    initialPageParam: 0,
+    getNextPageParam: (page) => page.last ? undefined : page.number + 1,
+    staleTime: 30_000,
   });
+  const allMembers = memberPages.data?.pages.flatMap((page) => page.content) ?? [];
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
+  const memberOptions = selectedMember && !activeMembers.some((m) => m.id === selectedMember.id) ? [selectedMember, ...activeMembers] : activeMembers;
 
   const { data: memberChits = [] } = useQuery({
     queryKey: ['member-chits', memberId],
@@ -1320,12 +1331,15 @@ export function RecordPaymentTab() {
 
         {/* Member */}
         <FormField label="Member" required>
-          <Select value={memberId} onChange={(e) => { setMemberId(e.target.value); setChitId(''); }} required>
+          <Input aria-label="Search members by name or phone" placeholder="Search member name or phone…" value={memberSearch} onChange={(event) => setMemberSearch(event.target.value)} />
+          <Select value={memberId} onChange={(e) => { setSelectedMember(memberOptions.find((m) => m.id === e.target.value) ?? null); setMemberId(e.target.value); setChitId(''); setSelectedAllocations({}); }} required>
             <option value="">— Select member —</option>
-            {activeMembers.map((m) => (
+            {memberOptions.map((m) => (
               <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
             ))}
           </Select>
+          {memberPages.hasNextPage && <Button type="button" size="xs" variant="ghost" loading={memberPages.isFetchingNextPage} onClick={() => memberPages.fetchNextPage()}>Show more members</Button>}
+          {memberPages.isError && <p role="alert" className="text-xs text-amber-800">Member search is unavailable. Connect or finish downloading this organisation’s data.</p>}
           {memberId && creditBalance > 0 && (
             <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2">

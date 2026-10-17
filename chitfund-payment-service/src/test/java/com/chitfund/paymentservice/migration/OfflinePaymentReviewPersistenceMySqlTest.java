@@ -9,6 +9,7 @@ import com.chitfund.paymentservice.repository.OfflineCommandReceiptRepository;
 import com.chitfund.paymentservice.repository.*;
 import com.chitfund.paymentservice.service.*;
 import com.chitfund.paymentservice.domain.PaymentRecord;
+import com.chitfund.paymentservice.domain.PaymentBatch;
 import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.client.*;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
@@ -43,7 +44,7 @@ import static org.mockito.Mockito.*;
 @SpringJUnitConfig(OfflinePaymentReviewPersistenceMySqlTest.Config.class)
 class OfflinePaymentReviewPersistenceMySqlTest {
     @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("chitfund_payments").withUsername("chitfund").withPassword("testpassword");
+            .withCommand("--log-bin-trust-function-creators=1").withDatabaseName("chitfund_payments").withUsername("chitfund").withPassword("testpassword");
     @Autowired OfflinePaymentReviewCapture capture;
     @Autowired OfflinePaymentReviewRepository reviews;
     @Autowired PlatformTransactionManager transactions;
@@ -52,6 +53,8 @@ class OfflinePaymentReviewPersistenceMySqlTest {
     @Autowired PaymentBatchRepository batches;
     @Autowired MemberCreditService credit;
     @Autowired AdminWalletService wallet;
+    @Autowired FinancialCommandLock locks;
+    @Autowired OfflinePaymentReviewService reviewService;
     @BeforeEach void tenant() { TenantContext.set("review-test-org"); }
     @AfterEach void clear() { TenantContext.clear(); }
 
@@ -119,6 +122,128 @@ class OfflinePaymentReviewPersistenceMySqlTest {
         } finally { pool.shutdownNow(); }
     }
 
+    @Test void aReturnedHeldCollectionCannotBePostedByAnOlderUnsignedRetry() {
+        var original = request(); original.setOfflineAuthorization(null); original.setRecordedAt(Instant.now().minusSeconds(60));
+        UUID actor = UUID.randomUUID(); String operation = UUID.randomUUID().toString();
+        UUID id = capture.preserveLegacy(original, actor, operation);
+        var refund = new com.chitfund.paymentservice.dto.request.RecordOfflineCollectionRefundRequest(original.getAmount(), "CASH", "RETURN-MYSQL",
+                Instant.now(), "Returned the unposted held cash", true);
+        clearInvocations(wallet, credit);
+        assertThat(reviewService.recordRefund(id, refund, UUID.randomUUID()).get("status")).isEqualTo("REFUNDED");
+        assertThatThrownBy(() -> payments.recordPayment(original, actor, operation)).isInstanceOf(OfflineReviewRequiredException.class);
+        assertThat(batches.findByTenantIdAndMemberIdOrderByCreatedAtDesc("review-test-org", original.getMemberId())).isEmpty();
+        verifyNoInteractions(wallet); verify(credit, never()).addCredit(any(), any(), any(), any(), any(), any());
+        assertThat(reviews.findByIdAndTenantId(id, "review-test-org").orElseThrow().getRefundJson()).contains("RETURN-MYSQL");
+    }
+
+    @Test void legacyIntakeWaitsForInFlightPostingAndCannotRecordAnUnpostedRefundAfterward() throws Exception {
+        var original = request(); original.setOfflineAuthorization(null); original.setRecordedAt(Instant.now().minusSeconds(60));
+        UUID actor = UUID.randomUUID(); String operation = UUID.randomUUID().toString();
+        records.saveAndFlush(PaymentRecord.builder().tenantId("review-test-org").memberId(original.getMemberId()).chitId(original.getChitId())
+            .monthNumber(1).dueDate(java.time.LocalDate.now()).amountDue(original.getAmount()).amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build());
+        var locked = new CountDownLatch(1); var intakeStarted = new CountDownLatch(1); var pool = Executors.newFixedThreadPool(2);
+        try {
+            var posted = pool.submit(() -> {
+                TenantContext.set("review-test-org");
+                try { return new TransactionTemplate(transactions).execute(tx -> {
+                    locks.lock("review-test-org", operation); locked.countDown();
+                    try { if (!intakeStarted.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Intake did not start"); }
+                    catch (InterruptedException interrupted) { throw new IllegalStateException(interrupted); }
+                    return payments.recordPayment(original, actor, operation).getId();
+                }); } finally { TenantContext.clear(); }
+            });
+            assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+            var intake = pool.submit(() -> {
+                TenantContext.set("review-test-org"); intakeStarted.countDown();
+                try { return capture.preserveLegacy(original, actor, operation); } finally { TenantContext.clear(); }
+            });
+            assertThat(posted.get(20, TimeUnit.SECONDS)).isNotNull(); UUID reviewId = intake.get(20, TimeUnit.SECONDS);
+            var refund = new com.chitfund.paymentservice.dto.request.RecordOfflineCollectionRefundRequest(original.getAmount(), "CASH", "RETURN-RACE",
+                Instant.now(), "Attempted return of already posted cash", true);
+            assertThatThrownBy(() -> reviewService.recordRefund(reviewId, refund, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("existing receipt");
+            assertThat(reviews.findByIdAndTenantId(reviewId, "review-test-org").orElseThrow().getStatus()).isEqualTo("PENDING");
+        } finally { pool.shutdownNow(); }
+    }
+
+    @Test void cancellationAndPaymentDeliverySerializeWithNoUncollectedMoneyPostedAfterCancellation() throws Exception {
+        var original = request(); UUID actor = UUID.randomUUID(); String operation = UUID.randomUUID().toString();
+        records.saveAndFlush(PaymentRecord.builder().tenantId("review-test-org").memberId(original.getMemberId()).chitId(original.getChitId())
+                .monthNumber(1).dueDate(java.time.LocalDate.now()).amountDue(original.getAmount()).amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build());
+        var locked = new CountDownLatch(1); var deliveryStarted = new CountDownLatch(1); var pool = Executors.newFixedThreadPool(2);
+        try {
+            var cancelled = pool.submit(() -> {
+                TenantContext.set("review-test-org");
+                try { return new TransactionTemplate(transactions).execute(tx -> {
+                    locks.lock("review-test-org", operation); locked.countDown();
+                    try { if (!deliveryStarted.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Delivery did not start"); }
+                    catch (InterruptedException interrupted) { throw new IllegalStateException(interrupted); }
+                    return reviewService.cancelUnconfirmed(new com.chitfund.paymentservice.dto.request.CancelSavedOfflinePaymentRequest(actor, original,
+                            new com.chitfund.paymentservice.dto.request.CancelOfflineCollectionRequest("Mistaken entry; no money received", true)), operation, UUID.randomUUID());
+                }); } finally { TenantContext.clear(); }
+            });
+            assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+            var delivery = pool.submit(() -> {
+                TenantContext.set("review-test-org"); deliveryStarted.countDown();
+                try { payments.recordPayment(original, actor, operation); return "POSTED"; }
+                catch (OfflineReviewRequiredException closed) { return "CLOSED"; }
+                finally { TenantContext.clear(); }
+            });
+            assertThat(cancelled.get(20, TimeUnit.SECONDS).get("status")).isEqualTo("CANCELLED");
+            assertThat(delivery.get(20, TimeUnit.SECONDS)).isEqualTo("CLOSED");
+            assertThat(batches.findByTenantIdAndIdempotencyOperationAndIdempotencyKey("review-test-org", "RECORD_PAYMENT", operation)).isEmpty();
+            assertThat(records.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc("review-test-org", original.getMemberId(), original.getChitId()).get(0).getAmountPaid()).isZero();
+        } finally { pool.shutdownNow(); }
+    }
+
+    @Test void aMultiChitOfflineCollectionAppliesExactlyTheRequestedAmountsAndNeverTouchesAnUnselectedChit() {
+        var original = request(); var second = UUID.randomUUID(); var untouched = UUID.randomUUID();
+        for (var chit : List.of(original.getChitId(), second, untouched)) records.saveAndFlush(PaymentRecord.builder().tenantId("review-test-org")
+                .memberId(original.getMemberId()).chitId(chit).monthNumber(1).dueDate(java.time.LocalDate.now())
+                .amountDue(new BigDecimal("2000")).amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build());
+        var one = new com.chitfund.paymentservice.dto.request.RequestedChitAllocation(); one.setChitId(original.getChitId()); one.setAmount(new BigDecimal("300"));
+        var two = new com.chitfund.paymentservice.dto.request.RequestedChitAllocation(); two.setChitId(second); two.setAmount(new BigDecimal("700"));
+        original.setAllocations(List.of(two, one));
+        payments.recordPayment(original, UUID.randomUUID(), UUID.randomUUID().toString());
+        assertThat(records.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc("review-test-org", original.getMemberId(), original.getChitId()).get(0).getAmountPaid()).isEqualByComparingTo("300");
+        assertThat(records.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc("review-test-org", original.getMemberId(), second).get(0).getAmountPaid()).isEqualByComparingTo("700");
+        assertThat(records.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc("review-test-org", original.getMemberId(), untouched).get(0).getAmountPaid()).isZero();
+    }
+
+    @Test void snapshotRevisionRejectsSameCountReplacementsAndKeepsTenantDataSeparate() {
+        String tenant = UUID.randomUUID().toString(); TenantContext.set(tenant);
+        var first = batches.saveAndFlush(PaymentBatch.builder().tenantId(tenant).memberId(UUID.randomUUID()).chitId(UUID.randomUUID())
+                .collectedBy(UUID.randomUUID()).totalAmount(new BigDecimal("1000")).paymentMode(PaymentMode.CASH).status(com.chitfund.paymentservice.domain.enums.BatchStatus.COMPLETED).build());
+        var reader = new com.chitfund.common.offline.OfflineSnapshotReader(new org.springframework.jdbc.core.JdbcTemplate(configuredSource()), transactions);
+        var snapshot = reader.read(null, () -> com.chitfund.common.offline.OfflineSnapshotReader.page(
+                batches.findByTenantIdOrderByCreatedAtDesc(tenant), 0, 200, batches.findByTenantIdOrderByCreatedAtDesc(tenant).size()));
+        String version = (String) snapshot.get("snapshotVersion");
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            batches.delete(first); batches.flush();
+            batches.saveAndFlush(PaymentBatch.builder().tenantId(tenant).memberId(UUID.randomUUID()).chitId(UUID.randomUUID())
+                .collectedBy(UUID.randomUUID()).totalAmount(new BigDecimal("2000")).paymentMode(PaymentMode.CASH).status(com.chitfund.paymentservice.domain.enums.BatchStatus.COMPLETED).build());
+        });
+        assertThatThrownBy(() -> reader.read(version, java.util.Map::of)).isInstanceOf(BusinessException.class).hasMessageContaining("list changed");
+        var fresh = reader.read(null, java.util.Map::of);
+        assertThat(fresh.get("snapshotVersion")).isNotEqualTo(version);
+        TenantContext.set("another-empty-tenant");
+        assertThat(reader.read(null, java.util.Map::of).get("snapshotVersion")).isEqualTo(java.time.LocalDate.now() + ":0");
+    }
+    @Autowired DataSource snapshotDataSource;
+    private DataSource configuredSource() { return snapshotDataSource; }
+
+    @Test void cancellationPreventsAnOlderUnsignedClientFromPostingTheClosedOperation() {
+        var original = request(); original.setOfflineAuthorization(null);
+        UUID actor = UUID.randomUUID(); String operation = UUID.randomUUID().toString();
+        UUID reviewId = capture.preserveLegacy(original, actor, operation);
+        var result = reviewService.cancelMistakenEntry(reviewId,
+                new com.chitfund.paymentservice.dto.request.CancelOfflineCollectionRequest("Mistaken entry; no money received", true), UUID.randomUUID());
+        assertThat(result.get("status")).isEqualTo("CANCELLED");
+        assertThatThrownBy(() -> payments.recordPayment(original, actor, operation)).isInstanceOf(OfflineReviewRequiredException.class);
+        assertThat(batches.findByTenantIdAndIdempotencyOperationAndIdempotencyKey("review-test-org", "RECORD_PAYMENT", operation)).isEmpty();
+        assertThat(reviews.findByIdAndTenantId(reviewId, "review-test-org").orElseThrow().getRequestJson()).contains("1000.00");
+    }
+
     @Configuration @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = OfflinePaymentReviewRepository.class,
         excludeFilters = @ComponentScan.Filter(type = FilterType.REGEX, pattern = ".*\\.repository\\.(?!OfflinePaymentReviewRepository$|OfflineCommandReceiptRepository$|PaymentRecordRepository$|PaymentBatchRepository$|PaymentAllocationRepository$).*"))
@@ -135,18 +260,25 @@ class OfflinePaymentReviewPersistenceMySqlTest {
         }
         @Bean PlatformTransactionManager transactionManager(EntityManagerFactory factory) { return new JpaTransactionManager(factory); }
         @Bean ObjectMapper objectMapper() { return new ObjectMapper().findAndRegisterModules(); }
-        @Bean OfflinePaymentReviewCapture capture(OfflinePaymentReviewRepository reviews, ObjectMapper mapper, OfflineCommandReceiptRepository receipts) { return new OfflinePaymentReviewCapture(reviews, mapper, receipts); }
+        @Bean OfflinePaymentReviewCapture capture(OfflinePaymentReviewRepository reviews, ObjectMapper mapper, OfflineCommandReceiptRepository receipts, FinancialCommandLock locks) { return new OfflinePaymentReviewCapture(reviews, mapper, receipts, locks); }
+        @Bean FinancialCommandLock commandLocks(DataSource source) { return new FinancialCommandLock(new org.springframework.jdbc.core.JdbcTemplate(source)); }
+        @Bean OfflinePaymentReviewService reviewService(OfflinePaymentReviewRepository reviews, PaymentBatchRepository batches, PaymentService payments,
+                ObjectMapper mapper, OfflinePaymentReviewCapture capture, FinancialCommandLock locks) {
+            return new OfflinePaymentReviewService(reviews, batches, payments, mock(AuditClient.class), mapper, mock(CashRequestService.class),
+                    mock(CashPaymentRequestRepository.class), capture, locks);
+        }
         @Bean MemberCreditService credit() {
             var credit = mock(MemberCreditService.class); when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
             when(credit.getBalance(any())).thenReturn(BigDecimal.ZERO); return credit;
         }
         @Bean AdminWalletService wallet() { return mock(AdminWalletService.class); }
         @Bean PaymentService payments(PaymentBatchRepository batches, PaymentRecordRepository records, PaymentAllocationRepository allocations,
-                OfflinePaymentReviewCapture capture, MemberCreditService credit, AdminWalletService wallet) {
+                OfflinePaymentReviewCapture capture, MemberCreditService credit, AdminWalletService wallet, FinancialCommandLock locks) {
             var access = mock(PlanExpiryChecker.class); when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("verified-grant");
+            when(access.verifyHistoricalPaymentEvidence(any(), any(), any())).thenReturn("verified-grant");
             var members = mock(MemberServiceClient.class); when(members.isMemberActive(any())).thenReturn(true);
             return new PaymentService(batches, records, allocations, access, mock(PaymentEventPublisher.class), members,
-                    mock(ChitServiceClient.class), wallet, mock(NotificationService.class), credit, mock(ChitMonthDrawService.class), mock(AuditClient.class), capture);
+                    mock(ChitServiceClient.class), wallet, mock(NotificationService.class), credit, mock(ChitMonthDrawService.class), mock(AuditClient.class), capture, locks);
         }
     }
 }

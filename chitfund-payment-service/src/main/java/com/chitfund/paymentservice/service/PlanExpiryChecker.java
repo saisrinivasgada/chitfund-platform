@@ -32,6 +32,20 @@ public class PlanExpiryChecker {
                 actorId.toString(), tenantId, "ADMIN", "RECORD_PAYMENT", token, recordedAt));
     }
 
+    public String verifyHistoricalPaymentEvidence(UUID actorId, String token, Instant recordedAt) {
+        String tenant = TenantContext.get();
+        if (tenant == null || tenant.isBlank() || actorId == null || token == null || recordedAt == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Original collection evidence and organisation are required");
+        }
+        return userServiceClient.verifyOfflineHistoricalEvidence(new OfflineReconciliationRequest(
+                actorId.toString(), tenant, "ADMIN", "RECORD_PAYMENT", token, recordedAt));
+    }
+
+    public void assertOfflineReviewer(UUID actor) {
+        if (actor == null || TenantContext.get() == null) throw new BusinessException(ErrorCode.FORBIDDEN);
+        userServiceClient.verifyOfflineReviewer(new OfflineReconciliationRequest(actor.toString(), TenantContext.get(), "ADMIN", "REVIEW", null, null));
+    }
+
     public void assertNotExpired() {
         String tenantId = TenantContext.get();
         if (tenantId == null || tenantId.isBlank()) {

@@ -22,6 +22,27 @@ public class InternalOfflineAccessController {
     @Value("${app.internal-key}")
     private String internalKey;
 
+    @PostMapping("/verify-reviewer")
+    public ResponseEntity<Map<String, String>> verifyReviewer(@RequestHeader("X-Internal-Key") String key,
+            @RequestBody OfflineReconciliationRequest request) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        UUID id;
+        try { id = UUID.fromString(request.actorId()); }
+        catch (IllegalArgumentException | NullPointerException invalid) { return ResponseEntity.badRequest().body(Map.of()); }
+        var actor = users.findById(id).orElse(null);
+        if (actor == null) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of());
+        offlineAccess.authorizeReviewer(actor, request.tenantId());
+        return ResponseEntity.ok(Map.of("grantId", "CURRENT_ADMIN:" + id));
+    }
+
+    @PostMapping("/verify-historical-evidence")
+    public ResponseEntity<Map<String, String>> verifyHistoricalEvidence(
+            @RequestHeader("X-Internal-Key") String key, @RequestBody OfflineReconciliationRequest request) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        var grant = offlineAccess.verifyHistoricalEvidence(request);
+        return ResponseEntity.ok(Map.of("grantId", grant.id()));
+    }
+
     @PostMapping("/verify-recorded-action")
     public ResponseEntity<Map<String, String>> verifyRecordedAction(
             @RequestHeader("X-Internal-Key") String key,
@@ -37,5 +58,15 @@ public class InternalOfflineAccessController {
         if (actor == null) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of());
         var grant = offlineAccess.authorizeRecordedAction(actor, request);
         return ResponseEntity.ok(Map.of("grantId", grant.id()));
+    }
+
+    @PostMapping("/verify-read-access")
+    public ResponseEntity<Map<String,String>> verifyRead(@RequestHeader("X-Internal-Key") String key,@RequestBody OfflineReconciliationRequest request) {
+        if(!internalKey.equals(key))return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        UUID actorId;
+        try {actorId=UUID.fromString(request.actorId());}catch(IllegalArgumentException|NullPointerException invalid){return ResponseEntity.badRequest().body(Map.of());}
+        var actor=users.findById(actorId).orElse(null);
+        if(actor==null)return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of());
+        return ResponseEntity.ok(Map.of("grantId",offlineAccess.authorizeRead(actor,request).id()));
     }
 }

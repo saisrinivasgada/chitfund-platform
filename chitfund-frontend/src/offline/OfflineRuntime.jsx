@@ -9,11 +9,12 @@ import { prepareOfflineData } from './preparation';
 async function registerOfflineWorker() {
   if (!('serviceWorker' in navigator)) return;
   const accounts = await readRows('accounts');
-  const pending = (await readRows('outbox')).filter((entry) => entry.status !== 'SUCCEEDED');
-  if (!accounts.some((account) => account.sessionValid && (account.offlineAccess?.enabled
-      || pending.some((entry) => entry.scope === account.scope)))) return;
+  const pending = (await readRows('outbox')).filter((entry) => !['SUCCEEDED', 'CANCELLED'].includes(entry.status));
+  // The app shell can explain missing connectivity even without the add-on.
+  // Business snapshots remain entitlement-gated and encrypted separately.
+  if (!accounts.some((account) => account.sessionValid)) return;
   const registration = await navigator.serviceWorker.register('/offline-worker.js', { type: 'module' });
-  if (registration.sync) await registration.sync.register('chitwise-payments');
+  if (registration.sync && pending.some((entry) => accounts.some((account) => account.sessionValid && account.scope === entry.scope))) await registration.sync.register('chitwise-payments');
 }
 
 export default function OfflineRuntime() {

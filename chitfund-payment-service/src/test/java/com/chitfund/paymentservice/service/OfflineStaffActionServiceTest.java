@@ -107,4 +107,9 @@ class OfflineStaffActionServiceTest {
         assertThatThrownBy(() -> service.apply(command, actor, "STAFF")).isInstanceOf(BusinessException.class);
         verifyNoInteractions(requests, receipts, cash, audit);
     }
+
+    @Test void missingVerificationCannotReachFinancialState() {
+        assertThatThrownBy(() -> service.apply(command, actor, "STAFF")).isInstanceOf(BusinessException.class);
+        verifyNoInteractions(requests, receipts, cash, audit);
+    }
 }

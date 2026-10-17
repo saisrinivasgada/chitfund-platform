@@ -63,6 +63,18 @@ public class PaymentController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
+    /** Dedicated historical delivery route: the gateway permits expired-plan reconciliation only here. */
+    @PostMapping("/offline/record")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<PaymentBatchResponse>> syncRecordedPayment(@Valid @RequestBody RecordPaymentRequest request,
+            @RequestHeader("X-Idempotency-Key") String operationId, Authentication auth) {
+        if (request.getOfflineAuthorization() == null || request.getOfflineAuthorization().isBlank() || request.getRecordedAt() == null) {
+            throw new com.chitfund.common.exception.BusinessException(com.chitfund.common.exception.ErrorCode.FORBIDDEN,
+                    "The original signed collection and recording time are required");
+        }
+        return recordPayment(request, operationId, auth);
+    }
+
     /**
      * Admin records a non-cash payment (UPI, bank transfer, cheque).
      * FIFO is applied immediately — payment_records updated in the same transaction.

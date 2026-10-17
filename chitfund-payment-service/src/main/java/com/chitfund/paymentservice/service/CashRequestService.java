@@ -545,6 +545,21 @@ public class CashRequestService {
     }
 
     @Transactional
+    public void closeRefundedPickup(UUID requestId, BigDecimal expectedAmount, UUID adminId, String reference, String reason) {
+        var request = findOrThrowForWrite(requestId);
+        BigDecimal amount = request.getCollectedAmount() != null ? request.getCollectedAmount() : request.getRequestedAmount();
+        if ((request.getStatus() != CashRequestStatus.PICKED_UP && request.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED)
+                || amount == null || amount.compareTo(expectedAmount) != 0) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "Pickup changed. Check its recorded receipt before recording a refund", org.springframework.http.HttpStatus.CONFLICT);
+        }
+        var previous = request.getStatus();
+        request.setStatus(CashRequestStatus.CANCELLED);
+        request.setAdminNotes("Held collection returned, reference " + reference + ": " + reason);
+        requestRepository.save(request);
+        logAudit(requestId, "HELD_COLLECTION_REFUNDED", previous, CashRequestStatus.CANCELLED, adminId, "ADMIN", request.getAdminNotes());
+    }
+
+    @Transactional
     public CashRequestResponse partiallyCollect(UUID requestId, BigDecimal collectedAmount, UUID collectorId, String role) {
         CashPaymentRequest req = findOrThrowForWrite(requestId);
 

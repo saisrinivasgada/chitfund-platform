@@ -56,7 +56,9 @@ class AddOnStorageMigrationMySqlTest {
             flyway("latest").migrate();
             flyway("latest").validate();
 
-            assertThat(snapshot(connection, "SELECT `key`, CONCAT(label,':',sort_order) FROM plan_add_on_defs")).isEqualTo(catalogue);
+            assertThat(snapshot(connection, "SELECT `key`, CONCAT(label,':',sort_order) FROM plan_add_on_defs"))
+                    .containsAllEntriesOf(catalogue).containsEntry("offline_support", "Offline access & sync:5")
+                    .hasSize(catalogue.size() + 1);
             assertThat(snapshot(connection, "SELECT plan, add_ons FROM plan_limits")).isEqualTo(plans);
             assertThat(snapshot(connection, "SELECT tenant_id, add_ons FROM tenant_custom_limits")).isEqualTo(custom);
             assertOldStorageAbsent(connection);

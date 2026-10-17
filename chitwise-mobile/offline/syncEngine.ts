@@ -1,3 +1,4 @@
+import { restoreOfflineAccess } from './access';
 import { runAccountTasks } from '../../shared/offline/scheduling';
 import type { QueryClient } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
@@ -16,7 +17,7 @@ import { processPaymentOperation } from './paymentQueue';
 import { processStaffOperation } from './staffQueue';
 import { useAuthStore } from '../store/authStore';
 import { useSyncStore } from '../store/syncStore';
-import { refreshReviewedPayments } from './paymentReviews';
+import { refreshReviewedPayments, refreshRecoveredReviews } from './paymentReviews';
 
 const activeSyncs = new Map<string, Promise<void>>();
 
@@ -123,6 +124,8 @@ export async function synchronizeSavedAccounts(queryClient?: QueryClient, deadli
     const scope = getStoredAccountScope(account);
     if (!scope) return;
     try {
+      await restoreOfflineAccess(scope);
+      if (account.role === 'ADMIN') await refreshRecoveredReviews(scope, deadline);
       if (!await hasOfflineDatabase(scope)) return;
       const counts = await getSyncCounts(scope);
       if (!counts.pending && !counts.conflicts) return;

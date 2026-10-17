@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { accountStorageId, useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
+import { useSyncStore } from '../store/syncStore';
 import { getAccountScope } from '../offline/accountScope';
 import { accountForScope, refreshAccountSession } from '../offline/accountClient';
 import { onlineManager } from '@tanstack/react-query';
@@ -26,12 +27,13 @@ api.interceptors.request.use(async (config) => {
   const scope = pinned._accountScope ?? getAccountScope(useAuthStore.getState().user);
   if (scope) {
     pinned._accountScope = scope;
-    if (!onlineManager.isOnline()) {
+    const disconnected = !onlineManager.isOnline();
+    if (disconnected || ((config.method ?? 'get').toLowerCase() === 'get' && useSyncStore.getState().accountScope === scope && useSyncStore.getState().serverReachable === false)) {
       try {
         const cached = await diskResponse(scope, config);
         if (cached) { config.adapter = async () => cached; return config; }
       } catch { /* Keep local records intact if a snapshot cannot be read. */ }
-      throw Object.assign(new Error((config.method ?? 'get').toLowerCase() === 'get'
+      if (disconnected) throw Object.assign(new Error((config.method ?? 'get').toLowerCase() === 'get'
         ? 'This data has not been downloaded on this device. Connect to refresh it.'
         : 'This action needs an internet connection. Saved payments remain on this device.'), { config, offlineMissing: true });
     }
@@ -94,6 +96,7 @@ api.interceptors.response.use(
   async (res) => {
     const scope = (res.config as any)?._accountScope;
     if (scope && !res.headers?.['x-chitwise-cached-at']) {
+      useSyncStore.getState().setStateForScope(scope, { serverReachable: true });
       try { await saveHttpResponse(scope, res.config, res.data); } catch { /* Online flow remains available. */ }
     }
     return res;
@@ -101,6 +104,9 @@ api.interceptors.response.use(
   async (err) => {
     const original = err.config;
     const scope = original?._accountScope as string | undefined;
+    if (scope && !err.offlineMissing && !err.requiresLogin) useSyncStore.getState().setStateForScope(scope, {
+      serverReachable: !!err.response && err.response.status < 500 && err.response.status !== 408,
+    });
     if (scope && [403, 404, 410].includes(err.response?.status)) {
       try { await forgetHttpResponse(scope, original); } catch {}
     }
@@ -163,6 +169,7 @@ export interface LoginResponse {
   analyticsEnabled?: boolean;
   chatEnabled?: boolean;
   settlementEnabled?: boolean;
+  offlineEnabled?: boolean;
   // set when requiresTenantSelection = true
   requiresTenantSelection?: boolean;
   loginToken?: string;
@@ -297,6 +304,7 @@ function parseAuthResponse(auth: any): LoginResponse {
     analyticsEnabled: auth.tenant?.analyticsEnabled === true,
     chatEnabled: auth.tenant?.chatEnabled === true,
     settlementEnabled: auth.tenant?.settlementEnabled === true,
+    offlineEnabled: typeof auth.tenant?.offlineEnabled === 'boolean' ? auth.tenant.offlineEnabled : undefined,
   };
 }
 

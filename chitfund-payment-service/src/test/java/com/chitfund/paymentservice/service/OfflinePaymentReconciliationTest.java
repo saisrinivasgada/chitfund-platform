@@ -31,6 +31,7 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class OfflinePaymentReconciliationTest {
+    @org.mockito.Mock FinancialCommandLock commandLocks;
     @Mock PaymentBatchRepository batches;
     @Mock PaymentRecordRepository records;
     @Mock PaymentAllocationRepository allocations;
@@ -209,7 +210,7 @@ class OfflinePaymentReconciliationTest {
     @Test
     void aChangedReviewSnapshotCannotApplyExcess() {
         var request = savedPayment();
-        when(access.assertRecordedPaymentMaySync(any(), any(), any())).thenReturn("grant-a");
+        when(access.verifyHistoricalPaymentEvidence(any(), any(), any())).thenReturn("grant-a");
         when(members.isMemberActive(request.getMemberId())).thenReturn(true);
         when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
         assertThatThrownBy(() -> service.recordReviewedOfflinePayment(request, actor, "operation-a", "old-balance-version"))

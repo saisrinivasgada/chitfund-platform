@@ -1,3 +1,8 @@
+import { useNetInfo } from '@react-native-community/netinfo';
+import { useSyncStore } from '../store/syncStore';
+import { useOfflinePresentation } from '../offline/useOfflinePresentation';
+import { OfflineConnectionGate } from '../components/OfflineConnectionGate';
+import { ROLE_ROUTE_GROUP as ROLE_GROUP } from '../utils/roleRoutes';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stack, useRouter, useSegments, useGlobalSearchParams } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -28,9 +33,8 @@ const HUB_BUILD = process.env.EXPO_PUBLIC_APP_VARIANT === 'hub';
 function ScopedQueryProvider({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((state) => state.user);
   const scope = getAccountScope(user);
-  const offlineEnabled = useOfflineAccessStore((state) => !!scope && state.accounts[scope]?.enabled === true);
   const queryClient = useMemo(() => createOfflineQueryClient(), [scope]);
-  const persistence = useMemo(() => scope && offlineEnabled ? offlinePersistenceOptions(scope) : null, [scope, offlineEnabled]);
+  const persistence = useMemo(() => scope ? offlinePersistenceOptions(scope) : null, [scope]);
 
   useEffect(() => {
     if (!scope || HUB_BUILD || user?.authSource === 'HUB') return;
@@ -58,14 +62,7 @@ function ScopedQueryProvider({ children }: { children: React.ReactNode }) {
 }
 
 // Maps each role to the ONLY route group that role is allowed to access.
-const ROLE_GROUP: Record<string, string> = {
-  ADMIN:       '(admin)',
-  MANAGER:     '(manager)',
-  STAFF:       '(staff)',
-  MEMBER:      '(member)',
-  SUPER_ADMIN: '(superadmin)',
-  SUPPORT_AGENT: '(hub)',
-};
+
 
 function redirectByRole(role: string, router: any) {
   const target = ROLE_GROUP[role];
@@ -176,8 +173,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 function FloatingToolkitRoot() {
+  const { showSync } = useOfflinePresentation();
+  const network = useNetInfo();
+  const sync = useSyncStore();
   const user = useAuthStore((s) => s.user);
-  if (!user || HUB_BUILD || user.authSource === 'HUB') return null;
+  const segments = useSegments();
+  if (!user || segments[0] !== '(app)' || HUB_BUILD || user.authSource === 'HUB') return null;
+  if (!showSync && (network.isConnected === false || network.isInternetReachable === false || (sync.accountScope === getAccountScope(user) && sync.serverReachable === false))) return null;
   return <FloatingToolkit />;
 }
 
@@ -199,7 +201,7 @@ export default function RootLayout() {
         <RealtimeUpdater />
         <AuthGuard>
           <TutorialProvider>
-            <Stack screenOptions={{ headerShown: false }} />
+            <OfflineConnectionGate><Stack screenOptions={{ headerShown: false }} /></OfflineConnectionGate>
           </TutorialProvider>
         </AuthGuard>
         <ToastRoot />

@@ -28,6 +28,7 @@ public class OfflinePaymentReviewService {
     private final CashPaymentRequestRepository cashRequests;
 
     private final OfflinePaymentReviewCapture capture;
+    private final FinancialCommandLock commandLocks;
 
     public UUID preserveLegacy(RecordPaymentRequest request, UUID actor, String operationId) {
         if (request.getOfflineAuthorization() != null || operationId == null || operationId.isBlank() || operationId.length() > 128
@@ -35,7 +36,64 @@ public class OfflinePaymentReviewService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Include a valid original collection for legacy review");
         }
         if (request.getPaymentReference() != null) request.setPaymentReference(request.getPaymentReference().trim().toUpperCase(java.util.Locale.ROOT));
-        return capture.preserve(request, actor, operationId, "LEGACY_UNVERIFIED");
+        return capture.preserveLegacy(request, actor, operationId);
+    }
+
+    public UUID preserveRecovered(RecordPaymentRequest request, UUID originalActor, String operationId, UUID reviewer) {
+        payments.verifyOfflineReviewer(reviewer);
+        if (operationId == null || operationId.isBlank() || operationId.length() > 128
+                || request.getAmount() == null || request.getAmount().signum() <= 0
+                || request.getPaymentMode() == com.chitfund.paymentservice.domain.enums.PaymentMode.CREDIT) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Include the original saved cash or bank collection");
+        }
+        if (request.getPaymentReference() != null) request.setPaymentReference(request.getPaymentReference().trim().toUpperCase(java.util.Locale.ROOT));
+        payments.verifyRecoveredCollection(request, originalActor);
+        UUID id = capture.preserveRecovered(request, originalActor, operationId);
+        audit.log(AuditClient.AuditDetails.builder().entityType("PAYMENT_REVIEW").entityId(id.toString())
+                .tenantId(TenantContext.get()).actorId(reviewer.toString()).actorRole("ADMIN")
+                .action("OFFLINE_COLLECTION_RECOVERED").idempotencyKey("RECOVER:" + operationId)
+                .originalOfflineAt(request.getRecordedAt()).synchronizedAt(Instant.now())
+                .metadata(Map.of("originalActor", originalActor.toString())).build());
+        return id;
+    }
+
+    /** Serialises cancellation against payment posting, including a lost acknowledgement. */
+    @Transactional
+    public Map<String, Object> cancelUnconfirmed(CancelSavedOfflinePaymentRequest request, String operationId, UUID reviewer) {
+        payments.verifyOfflineReviewer(reviewer);
+        var cancellation = request.cancellation();
+        if (!cancellation.noMoneyCollected() || cancellation.reason() == null || cancellation.reason().trim().length() < 5) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Confirm no money was collected and explain the mistaken entry");
+        }
+        var original = request.original();
+        if (original.getOfflineAuthorization() == null || original.getRecordedAt() == null
+                || original.getAmount() == null || original.getAmount().signum() <= 0
+                || original.getPaymentMode() == com.chitfund.paymentservice.domain.enums.PaymentMode.CREDIT) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Include the original signed collection");
+        }
+        if (original.getPaymentReference() != null) original.setPaymentReference(original.getPaymentReference().trim().toUpperCase(java.util.Locale.ROOT));
+        payments.verifyRecoveredCollection(original, request.originalActorId());
+        commandLocks.lock(TenantContext.get(), operationId);
+        var receipt = batches.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(TenantContext.get(), "RECORD_PAYMENT", operationId);
+        if (receipt.isPresent()) {
+            var batch = receipt.get();
+            if (!request.originalActorId().equals(batch.getRecordedBy())
+                    || !PaymentService.recordPaymentFingerprint(original).equals(batch.getIdempotencyRequestHash())) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Saved operation belongs to different payment details. Its original record remains preserved.", HttpStatus.CONFLICT);
+            }
+            return Map.of("status", "RECEIPT_EXISTS", "receiptId", receipt.get().getId(),
+                    "receipt", payments.getBatchById(receipt.get().getId()),
+                    "message", "The server already received this payment. Open History to use Void.");
+        }
+        UUID id = capture.preserveForCancellation(original, request.originalActorId(), operationId);
+        var existing = find(id, true);
+        if (List.of("CANCELLED", "REFUNDED").contains(existing.getStatus())) return summary(existing);
+        if (List.of("APPLIED", "DUPLICATE").contains(existing.getStatus()) && existing.getReceiptId() != null) {
+            return Map.of("status", "RECEIPT_EXISTS", "receiptId", existing.getReceiptId(), "receipt", payments.getBatchById(existing.getReceiptId()),
+                    "message", "The server already received this payment. Open History to use Void.");
+        }
+        return cancelMistakenEntry(id, cancellation, reviewer);
     }
 
     private OfflinePaymentReview find(UUID id, boolean lock) {
@@ -58,6 +116,10 @@ public class OfflinePaymentReviewService {
         result.put("receiptId", review.getReceiptId()); result.put("resolutionReason", review.getResolutionReason());
         result.put("resolvedBy", review.getResolvedBy()); result.put("resolvedAt", review.getResolvedAt());
         result.put("cashRequestId", review.getCashRequestId());
+        if (review.getRefundJson() != null) {
+            try { result.put("refund", json.readTree(review.getRefundJson())); }
+            catch (Exception invalid) { throw new IllegalStateException("Refund evidence needs recovery; its record is preserved"); }
+        }
         return result; // Historical signing evidence never leaves the server API.
     }
     @Transactional(readOnly = true)
@@ -93,7 +155,67 @@ public class OfflinePaymentReviewService {
     @Transactional(readOnly = true)
     public Page<Candidate> matches(UUID id, int page, int size) { return matchesFor(original(find(id, false)), page, size); }
     @Transactional
+    public Map<String, Object> cancelMistakenEntry(UUID id, CancelOfflineCollectionRequest cancellation, UUID reviewer) {
+        payments.verifyOfflineReviewer(reviewer);
+        var review = find(id, true);
+        if (!cancellation.noMoneyCollected() || cancellation.reason() == null || cancellation.reason().trim().length() < 5) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Confirm no money was collected and explain the mistaken entry. Collected money needs a receipt or recorded refund");
+        }
+        if ("CANCELLED".equals(review.getStatus()) && cancellation.reason().trim().equals(review.getResolutionReason())) return summary(review);
+        if (!"PENDING".equals(review.getStatus())) throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "This collection was already reviewed", HttpStatus.CONFLICT);
+        commandLocks.lock(TenantContext.get(), review.getOperationId());
+        if (review.getCashRequestId() != null || batches.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
+                TenantContext.get(), "RECORD_PAYMENT", review.getOperationId()).isPresent()) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "An existing receipt or cash custody record needs reconciliation; it cannot be cancelled as an uncollected entry", HttpStatus.CONFLICT);
+        }
+        review.setStatus("CANCELLED"); review.setResolvedBy(reviewer); review.setResolvedAt(Instant.now());
+        review.setResolutionReason(cancellation.reason().trim()); reviews.saveAndFlush(review);
+        audit.log(AuditClient.AuditDetails.builder().entityType("PAYMENT_REVIEW").entityId(id.toString())
+                .tenantId(TenantContext.get()).actorId(reviewer.toString()).actorRole("ADMIN")
+                .action("OFFLINE_MISTAKEN_ENTRY_CANCELLED").idempotencyKey(review.getOperationId())
+                .originalOfflineAt(original(review).getRecordedAt()).synchronizedAt(review.getResolvedAt())
+                .metadata(Map.of("reason", review.getResolutionReason(), "noMoneyCollected", true,
+                        "originalActor", review.getActorId().toString())).build());
+        return summary(review);
+    }
+
+    @Transactional
+    public Map<String, Object> recordRefund(UUID id, RecordOfflineCollectionRefundRequest refund, UUID reviewer) {
+        payments.verifyOfflineReviewer(reviewer);
+        var review = find(id, true); var request = original(review);
+        if (!refund.moneyReturned() || refund.amount() == null || refund.amount().compareTo(request.getAmount()) != 0
+                || refund.refundedAt() == null || refund.refundedAt().isAfter(Instant.now().plusSeconds(300))
+                || (request.getRecordedAt() != null && refund.refundedAt().isBefore(request.getRecordedAt()))
+                || refund.reason() == null || refund.reason().trim().length() < 5
+                || refund.reference() == null || refund.reference().trim().length() < 3
+                || !List.of("CASH", "UPI", "BANK_TRANSFER", "CHEQUE").contains(refund.paymentMode())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Confirm the full collection was returned and include its actual date, method, reference and reason");
+        }
+        String evidence;
+        try { evidence = json.writeValueAsString(refund); }
+        catch (Exception invalid) { throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Refund details could not be recorded"); }
+        if ("REFUNDED".equals(review.getStatus()) && evidence.equals(review.getRefundJson())) return summary(review);
+        if (!"PENDING".equals(review.getStatus())) throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "This collection was already reviewed. Check its recorded decision", HttpStatus.CONFLICT);
+        commandLocks.lock(TenantContext.get(), review.getOperationId());
+        if (batches.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(TenantContext.get(), "RECORD_PAYMENT", review.getOperationId()).isPresent()) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "An existing receipt records this collection. Link it and use the receipt reversal workflow", HttpStatus.CONFLICT);
+        }
+        if (review.getCashRequestId() != null) cash.closeRefundedPickup(review.getCashRequestId(), request.getAmount(), reviewer, refund.reference().trim(), refund.reason().trim());
+        review.setStatus("REFUNDED"); review.setResolvedBy(reviewer); review.setResolvedAt(Instant.now());
+        review.setResolutionReason(refund.reason().trim()); review.setRefundJson(evidence);
+        reviews.saveAndFlush(review);
+        audit.log(AuditClient.AuditDetails.builder().entityType("PAYMENT_REVIEW").entityId(id.toString())
+            .tenantId(TenantContext.get()).actorId(reviewer.toString()).actorRole("ADMIN")
+            .action("OFFLINE_COLLECTION_REFUND_RECORDED").idempotencyKey(review.getOperationId())
+            .originalOfflineAt(request.getRecordedAt()).synchronizedAt(review.getResolvedAt())
+            .metadata(Map.of("amount", request.getAmount().toPlainString(), "method", refund.paymentMode(), "reference", refund.reference(),
+                "returnedAt", refund.refundedAt().toString(), "reason", refund.reason(), "originalActor", review.getActorId().toString())).build());
+        return summary(review);
+    }
+
+    @Transactional
     public Map<String, Object> resolve(UUID id, ResolveOfflinePaymentReviewRequest decision, UUID reviewer) {
+        payments.verifyOfflineReviewer(reviewer);
         if (decision.reason() == null || decision.reason().trim().length() < 5
                 || ("LINK_DUPLICATE".equals(decision.decision()) && decision.existingReceiptId() == null)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Include a review reason and the original receipt when linking a duplicate");

@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { useAuthStore, type StoredAccount } from '../store/authStore';
+import { useSyncStore } from '../store/syncStore';
 import { getStoredAccountScope } from './accountScope';
 
 const baseURL = process.env.EXPO_PUBLIC_API_URL ?? '';
@@ -36,7 +37,7 @@ export async function refreshAccountSession(scope: string): Promise<void> {
       await useAuthStore.getState().markSessionInvalid(account.accountId, account.refreshToken);
       throw Object.assign(new Error('This account changed while refreshing; sign in again'), { requiresLogin: true });
     }
-    await useAuthStore.getState().updateTokenForAccount(account.accountId, auth.accessToken, auth.refreshToken, account.refreshToken);
+    await useAuthStore.getState().updateTokenForAccount(account.accountId, auth.accessToken, auth.refreshToken, account.refreshToken, auth.tenant?.offlineEnabled);
   })().catch(async (error) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
       await useAuthStore.getState().markSessionInvalid(account.accountId, account.refreshToken);
@@ -56,8 +57,11 @@ export async function requestAsAccount(scope: string, config: AxiosRequestConfig
     } });
   };
   try {
-    return await send();
+    const response = await send();
+    useSyncStore.getState().setStateForScope(scope, { serverReachable: true });
+    return response;
   } catch (error) {
+    if (axios.isAxiosError(error)) useSyncStore.getState().setStateForScope(scope, { serverReachable: !!error.response && error.response.status < 500 && error.response.status !== 408 });
     if (!axios.isAxiosError(error) || error.response?.status !== 401) throw error;
     await refreshAccountSession(scope);
     return send();

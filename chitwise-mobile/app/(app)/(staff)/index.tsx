@@ -1,3 +1,4 @@
+import { useOfflinePresentation } from '../../../offline/useOfflinePresentation';
 import { useState } from 'react';
 import {
   View, Text, FlatList, RefreshControl, Alert, TextInput,
@@ -34,6 +35,7 @@ function TaskModal({
   onClose: () => void;
   onRefresh: () => void;
 }) {
+  const { showSync } = useOfflinePresentation();
   const qc = useQueryClient();
 
   // 'idle' | 'partial-input' | 'reschedule' | 'done' | 'partial-done'
@@ -153,7 +155,7 @@ function TaskModal({
                 ? `of ₹${Number(task.requestedAmount).toLocaleString('en-IN')} requested from ${memberName}`
                 : `collected from ${memberName}`}
             </Text>
-            {doneOffline && (
+            {showSync && doneOffline && (
               <View style={{
                 flexDirection: 'row', alignItems: 'center', gap: 6,
                 backgroundColor: '#FFF7ED', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
@@ -165,7 +167,7 @@ function TaskModal({
                 </Text>
               </View>
             )}
-            {!doneOffline && (
+            {showSync && !doneOffline && (
               <View style={{
                 flexDirection: 'row', alignItems: 'center', gap: 6,
                 backgroundColor: '#F0FDF4', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,

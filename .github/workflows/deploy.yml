@@ -42,6 +42,8 @@ jobs:
       e2e:          ${{ steps.out.outputs.e2e }}
     steps:
       - uses: actions/checkout@v4
+      - name: Offline deployment configuration checks
+        run: python3 scripts/test-offline-config.py
       - uses: dorny/paths-filter@v3
         id: f
         with:
@@ -82,6 +84,8 @@ jobs:
             backend:
               - 'docker-compose.prod.yml'
               - 'scripts/fetch-secrets.sh'
+              - 'scripts/prepare-offline-config.py'
+              - 'scripts/test-offline-config.py'
               - 'scripts/deploy-mumbai.sh'
               - '.github/workflows/deploy.yml'
               - 'chitfund-common/**'
@@ -644,6 +648,7 @@ jobs:
           install -d release
           install -m 0644 docker-compose.prod.yml release/docker-compose.prod.yml
           install -m 0755 scripts/fetch-secrets.sh release/fetch-secrets.sh
+          install -m 0755 scripts/prepare-offline-config.py release/prepare-offline-config.py
           install -m 0755 scripts/deploy-mumbai.sh release/deploy-mumbai.sh
           install -m 0644 nginx.conf release/nginx.conf
           if [ "${{ needs.changes.outputs.frontend }}" = "true" ]; then

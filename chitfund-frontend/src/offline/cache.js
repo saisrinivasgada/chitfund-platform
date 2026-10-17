@@ -1,4 +1,5 @@
-import { deleteRow, readRow, seal, unseal, writeRow } from './storage';
+import { chunkSnapshot } from '../../../shared/offline/chunkSnapshots';
+import { countRowsWithPrefix, deleteRow, readPrefixPage, readRow, seal, unseal, writeRow } from './storage';
 import { cacheableRead, requestKey, listSnapshot, batchSnapshot } from '../../../shared/offline/readSnapshots';
 const freshness = new Map();
 export const cachedDataState = (scope, path) => freshness.get(`${scope}:${path}`);
@@ -17,7 +18,7 @@ export function cacheableRequest(config) {
 export async function forgetCachedResponse(scope, config) {
   if (!scope || !cacheableRequest(config)) return;
   await deleteRow('cache', await cacheKey(scope, config));
-  if (['/members', '/chits', '/payments/batches/all'].includes(config.url)) await deleteRow('datasets', `${scope}:published:${config.url === '/payments/batches/all' ? 'batches' : config.url.slice(1)}`);
+  if (['/members', '/chits', '/chits/mine', '/payments/batches/all', '/payments/batches/member', '/payments/batches/mine'].includes(config.url)) await deleteRow('datasets', `${scope}:published:${config.url.startsWith('/payments/batches/') ? 'batches' : config.url === '/chits/mine' ? 'chits' : config.url.slice(1)}`);
   freshness.delete(`${scope}:${config.url}`);
 }
 
@@ -43,12 +44,22 @@ export async function cachedResponse(scope, config) {
   if (!scope || !cacheableRequest(config)) return null;
   const account = await readRow('accounts', scope);
   if (!account?.sessionValid || !account.offlineAccess?.enabled) return null;
-  if (['/members', '/chits', '/payments/batches/all'].includes(config.url)) {
-    const kind = config.url === '/payments/batches/all' ? 'batches' : config.url.slice(1);
+  if (['/members', '/chits', '/chits/mine', '/payments/batches/all', '/payments/batches/member', '/payments/batches/mine'].includes(config.url)) {
+    const kind = config.url.startsWith('/payments/batches/') ? 'batches' : config.url === '/chits/mine' ? 'chits' : config.url.slice(1);
     const dataset = await readRow('datasets', `${scope}:published:${kind}`);
     if (dataset) {
       const records = await unseal(scope, dataset.encrypted);
-      const data = kind === 'batches' ? batchSnapshot(records, config.params) : listSnapshot(kind, records, config.params);
+      const prefix = `${scope}:receipt-overlay:`;
+      const overlays = kind === 'batches' ? await countRowsWithPrefix('datasets',prefix) : 0;
+      const overlay = overlays ? { chunks: Math.ceil(overlays/200), loadChunk: async (index) =>
+        Promise.all((await readPrefixPage('datasets',prefix,index*200)).map((row) => unseal(scope,row.encrypted))) } : undefined;
+      let data = records?.format === 'chunks-v1' ? await chunkSnapshot(kind, records, config.params, async (index) => {
+        const row = await readRow('datasets', `${scope}:work:${records.cycle}:${kind}:page:${index}`);
+        if (!row) throw new Error('Saved download chunk is unavailable');
+        return unseal(scope, row.encrypted);
+      },overlay) : kind === 'batches' && overlay ? await chunkSnapshot(kind,{ chunks:1 },config.params,async()=>records,overlay)
+        : kind === 'batches' ? batchSnapshot(records, config.params) : listSnapshot(kind, records, config.params);
+      if (config.url === '/chits/mine' && data) data = { success: true, data: data.data.content };
       if (data) {
         publishFreshness(scope, config.url, dataset.savedAt, true);
         return { config, data, status: 200, statusText: 'Saved on device', headers: { 'x-chitwise-cached-at': String(dataset.savedAt) } };

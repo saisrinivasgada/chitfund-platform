@@ -2,7 +2,7 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { accountForScope, requestAsAccount } from './accountClient';
-import { belongsToAccount, type OfflineAccess } from './accessPolicy';
+import { effectiveOfflineAccess, belongsToAccount, type OfflineAccess } from './accessPolicy';
 
 export const useOfflineAccessStore = create<{
   accounts: Record<string, OfflineAccess>;
@@ -50,6 +50,11 @@ export function refreshOfflineAccess(scope: string): Promise<OfflineAccess> {
   return task;
 }
 
+export function offlineAccessForScope(scope: string): OfflineAccess | undefined {
+  const account = accountForScope(scope);
+  return effectiveOfflineAccess(useOfflineAccessStore.getState().accounts[scope], account?.offlineEnabled, account?.offlineSubscriptionCheckedAt ?? account?.savedAt);
+}
+
 export function hasOfflineAccess(scope: string): boolean {
-  return useOfflineAccessStore.getState().accounts[scope]?.enabled === true;
+  return offlineAccessForScope(scope)?.enabled === true;
 }

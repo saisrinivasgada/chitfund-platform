@@ -7,10 +7,10 @@ const job = (path, params = {}, extra = {}) => ({ path, params, ...extra, key: r
 
 function roots(role) {
   return role === 'MEMBER'
-    ? [{ kind: 'members', path: '/members/me', paged: false }, { kind: 'chits', path: '/chits/mine', paged: false },
-      { kind: 'batches', path: '/payments/batches/member', paged: false }]
+    ? [{ kind: 'members', path: '/members/me', paged: false }, { kind: 'chits', path: '/chits/mine', paged: true },
+      { kind: 'batches', path: '/payments/batches/member', paged: true }]
     : [{ kind: 'members', path: '/members', paged: true }, { kind: 'chits', path: '/chits', paged: true },
-      { kind: 'batches', path: role === 'STAFF' ? '/payments/batches/mine' : '/payments/batches/all', paged: role !== 'STAFF' }];
+      { kind: 'batches', path: role === 'STAFF' ? '/payments/batches/mine' : '/payments/batches/all', paged: true }];
 }
 
 function pairJobs(memberId, chitId, role) {
@@ -79,33 +79,59 @@ export async function prepareCoreData(adapter, { force = false, maxRequests = 40
     for (const root of roots(adapter.role)) {
       if (manifest.rootsDone.includes(root.kind)) continue;
       let state = await adapter.loadRoot(manifest.cycle, root.kind) ?? { items: [], page: 0, complete: false };
+      if (adapter.requiresRootSnapshots && state.page > 0 && !state.complete && !state.snapshotVersion) {
+        state = { items: [], page: 0, complete: false };
+        await adapter.saveRoot(manifest.cycle, root.kind, state);
+      }
+      // Upgrade older journals without another network download.
+      if (adapter.commitRootChunk && Array.isArray(state.items)) {
+        const records = state.items;
+        state = { ...state, items: undefined, count: records.length, chunks: records.length ? 1 : 0 };
+        if (records.length) await adapter.commitRootChunk(manifest.cycle, root.kind, 0, records, state);
+        else await adapter.saveRoot(manifest.cycle, root.kind, state);
+      }
+      const resetRoot = async () => adapter.saveRoot(manifest.cycle, root.kind,
+        adapter.commitRootChunk ? { page: 0, count: 0, chunks: 0, complete: false } : { items: [], page: 0, complete: false });
       while (!state.complete && await mayContinue()) {
         const params = root.paged ? { page: state.page, size: PAGE_SIZE } : {};
-        const response = await adapter.request(root.path, params);
+        let response;
+        try { response = await adapter.request(root.path, params, state.snapshotVersion); }
+        catch (error) {
+          if ((error?.status ?? error?.response?.status) === 409) await resetRoot();
+          throw error;
+        }
         requests++;
         if (!await adapter.canContinue()) throw new Error('Account access or connection changed; data preparation is paused');
         if (response?.success === false) throw new Error(response.message ?? 'Server did not confirm the download');
         const data = envelopeData(response);
         const items = collection(data);
         if (!items || items.some((item) => !item?.id)) throw new Error('Downloaded list did not include stable record identities');
+        const snapshotVersion = response?.snapshotVersion ?? data?.snapshotVersion;
+        if (state.snapshotVersion != null && snapshotVersion !== state.snapshotVersion) {
+          await resetRoot();
+          throw new Error('This list changed while downloading. Preparation will restart that list safely.');
+        }
+        if (root.paged && adapter.requiresRootSnapshots && (typeof snapshotVersion !== 'string' || !snapshotVersion)) throw new Error('Server did not confirm a stable download version');
         const responsePage = data?.number ?? data?.pageNumber ?? data?.page;
         if (root.paged && responsePage != null && responsePage !== state.page) throw new Error('Server returned a different download page');
         if (state.totalElements != null && data?.totalElements != null && state.totalElements !== data.totalElements) {
-          await adapter.saveRoot(manifest.cycle, root.kind, { items: [], page: 0, complete: false });
+          await resetRoot();
           throw new Error('This list changed while downloading. Preparation will restart that list safely.');
         }
-        const priorIds = new Set(state.items.map((item) => item.id));
+        const priorIds = new Set((state.items ?? []).map((item) => item.id));
         if (new Set(items.map((item) => item.id)).size !== items.length || items.some((item) => priorIds.has(item.id))) {
-          await adapter.saveRoot(manifest.cycle, root.kind, { items: [], page: 0, complete: false });
+          await resetRoot();
           throw new Error('This list changed between download pages. Preparation will retry.');
         }
         const complete = !root.paged || data.last === true || data.hasMore === false
           || (Number.isInteger(data.totalPages) && state.page + 1 >= data.totalPages);
         if (root.paged && !Number.isInteger(data.totalPages) && typeof data.hasMore !== 'boolean') throw new Error('Server did not confirm pagination coverage');
-        state = { items: [...state.items, ...items], page: state.page + 1, complete,
-          totalElements: data?.totalElements ?? state.totalElements };
-        if (complete && state.totalElements != null && state.items.length !== state.totalElements) {
-          await adapter.saveRoot(manifest.cycle, root.kind, { items: [], page: 0, complete: false });
+        const nextState = { page: state.page + 1, complete, snapshotVersion,
+          totalElements: data?.totalElements ?? state.totalElements,
+          ...(adapter.commitRootChunk ? { count: (state.count ?? 0) + items.length, chunks: (state.chunks ?? 0) + 1 }
+            : { items: [...state.items, ...items] }) };
+        if (complete && nextState.totalElements != null && (nextState.count ?? nextState.items.length) !== nextState.totalElements) {
+          await resetRoot();
           throw new Error('Downloaded record count did not match the server. Preparation will retry.');
         }
         await adapter.saveResponse(root.path, params, response);
@@ -114,7 +140,9 @@ export async function prepareCoreData(adapter, { force = false, maxRequests = 40
           // allocations. Reuse it for offline detail screens without N extra GETs.
           for (const receipt of items) await adapter.saveResponse('/payments/batches/' + receipt.id, {}, { success: true, data: receipt });
         }
-        await adapter.saveRoot(manifest.cycle, root.kind, state);
+        if (adapter.commitRootChunk) await adapter.commitRootChunk(manifest.cycle, root.kind, state.chunks ?? 0, items, nextState);
+        else await adapter.saveRoot(manifest.cycle, root.kind, nextState);
+        state = nextState;
         manifest.completed++;
         manifest.message = `Saving ${root.kind}`;
         await adapter.saveManifest(manifest, lease);
@@ -122,15 +150,35 @@ export async function prepareCoreData(adapter, { force = false, maxRequests = 40
       if (!state.complete) return await adapter.saveManifest({ ...manifest, status: 'paused' }, lease);
       // Publishing and checkpointing are separate durable writes. A process can
       // stop between them: reuse the completed root without downloading it again.
-      await adapter.publish(root.kind, state.items);
+      await adapter.publish(root.kind, adapter.commitRootChunk
+        ? { format: 'chunks-v1', cycle: manifest.cycle, kind: root.kind, chunks: state.chunks, count: state.count, snapshotStartedAt: manifest.startedAt } : state.items);
       manifest.rootsDone.push(root.kind);
-      manifest[root.kind + 'Count'] = state.items.length;
+      manifest[root.kind + 'Count'] = state.count ?? state.items.length;
       await adapter.saveManifest(manifest, lease);
     }
     if (manifest.phase === 'roots') {
-      const members = (await adapter.loadRoot(manifest.cycle, 'members')).items;
-      const chits = (await adapter.loadRoot(manifest.cycle, 'chits')).items;
-      await adapter.addJobs(manifest.cycle, initialJobs(adapter.role, members, chits));
+      if (adapter.loadRootChunk) {
+        const memberRoot = await adapter.loadRoot(manifest.cycle, 'members');
+        const memberProfile = adapter.role === 'MEMBER' ? await adapter.loadRootChunk(manifest.cycle, 'members', 0) : [];
+        // Seed work page by page. A restart can repeat inserts, never requests;
+        // job identities are unique and completed jobs are never reset.
+        if (adapter.role !== 'MEMBER') await adapter.addJobs(manifest.cycle, initialJobs(adapter.role, [], []));
+        for (const kind of ['members', 'chits']) {
+          const rootState = kind === 'members' ? memberRoot : await adapter.loadRoot(manifest.cycle, kind);
+          for (let index = manifest.seeded?.[kind] ?? 0; index < rootState.chunks; index++) {
+            if (Date.now() >= deadline || !await adapter.canContinue()) return await adapter.saveManifest({ ...manifest, status: 'paused' }, lease);
+            const records = await adapter.loadRootChunk(manifest.cycle, kind, index);
+            const jobs = initialJobs(adapter.role, kind === 'members' ? records : memberProfile, kind === 'chits' ? records : []);
+            await adapter.addJobs(manifest.cycle, jobs);
+            manifest.seeded = { ...manifest.seeded, [kind]: index + 1 };
+            await adapter.saveManifest(manifest, lease);
+          }
+        }
+      } else {
+        const members = (await adapter.loadRoot(manifest.cycle, 'members')).items;
+        const chits = (await adapter.loadRoot(manifest.cycle, 'chits')).items;
+        await adapter.addJobs(manifest.cycle, initialJobs(adapter.role, members, chits));
+      }
       manifest.phase = 'details';
       await adapter.saveManifest(manifest, lease);
     }

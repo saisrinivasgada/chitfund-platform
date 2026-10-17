@@ -25,3 +25,12 @@ export function requireOfflineRecording(access, action, now = Date.now()) {
   if (!canRecordOffline(access, action, now)) throw new Error(recordingPauseMessage(access, now));
   return access.grant;
 }
+
+/** A fresh sign-in denial supersedes an older cached grant; later verification can restore access. */
+export function effectiveOfflineAccess(access, subscribed, checkedAt) {
+  if (access && subscribed === false && Number.isFinite(checkedAt)
+      && (!Number.isFinite(access.checkedAt) || access.checkedAt <= checkedAt)) {
+    return { ...access, enabled: false, reason: 'ADD_ON_REQUIRED', grant: null };
+  }
+  return access;
+}

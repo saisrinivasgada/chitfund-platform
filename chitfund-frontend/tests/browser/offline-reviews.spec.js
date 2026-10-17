@@ -26,7 +26,7 @@ async function reviewApp(page, { stale = false } = {}) {
     return null;
   } });
   await page.goto('/dashboard'); await expectAuthenticatedShell(page);
-  await page.getByRole('button', { name: 'Collection reviews', exact: true }).click();
+  await page.getByRole('button', { name: /Collection reviews \(1\)/ }).click();
   await page.getByRole('button', { name: /₹1,000 · CASH/ }).click();
   await expect(page.getByText(/₹1,000 collected · ₹0 currently due/)).toBeVisible();
   return decisions;
@@ -93,4 +93,48 @@ test('another collection for a member with unresolved saved money requires an ex
   expect(posted).toBe(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(posted).toBe(0);
+});
+
+test('recording a returned collection requires refund evidence and an explicit confirmation', async ({ page }) => {
+  await reviewApp(page);
+  let recorded;
+  await page.route('**/api/payments/offline/reviews/review-a/refund', (route) => {
+    recorded = route.request().postDataJSON();
+    return route.fulfill({ json: { success: true, data: { id: 'review-a', status: 'REFUNDED', refund: recorded } } });
+  });
+  await page.getByRole('radio', { name: /full held collection has been returned/ }).check();
+  const confirm = page.getByRole('button', { name: 'Record completed refund' });
+  await expect(confirm).toBeDisabled();
+  await page.getByLabel('Refund reference', { exact: true }).fill('CASH-RETURN-123');
+  await page.getByLabel('Review reason', { exact: true }).fill('Returned the separate cash to the member');
+  await expect(confirm).toBeDisabled();
+  await page.getByRole('checkbox', { name: /full amount has actually been returned/ }).check();
+  await confirm.click();
+  await expect.poll(() => recorded?.moneyReturned).toBe(true);
+  expect(recorded).toMatchObject({ amount: 1000, paymentMode: 'CASH', reference: 'CASH-RETURN-123', reason: 'Returned the separate cash to the member' });
+  expect(Number.isNaN(Date.parse(recorded.refundedAt))).toBe(false);
+});
+
+test('an empty review queue hides the reviews shortcut', async ({ page }) => {
+  await installAuthenticatedApp(page, { resolveApi: ({ url, json }) => url.pathname === '/api/payments/offline/reviews'
+    ? json({ success: true, data: { content: [], totalElements: 0, last: true } }) : null });
+  await page.goto('/dashboard'); await expectAuthenticatedShell(page);
+  await expect(page.getByRole('button', { name: /^Collection reviews/ })).toHaveCount(0);
+});
+
+test('cancelling a mistaken entry requires no-money confirmation and preserves a reason', async ({ page }) => {
+  await reviewApp(page);
+  let cancellation;
+  await page.route('**/api/payments/offline/reviews/review-a/cancel', (route) => {
+    cancellation = route.request().postDataJSON();
+    return route.fulfill({ json: { success: true, data: { status: 'CANCELLED' } } });
+  });
+  await page.getByRole('radio', { name: /Cancel mistaken entry/ }).check();
+  const confirm = page.getByRole('button', { name: 'Cancel mistaken entry', exact: true });
+  await expect(confirm).toBeDisabled();
+  await page.getByLabel('Review reason', { exact: true }).fill('Wrong member selected; no money was collected');
+  await expect(confirm).toBeDisabled();
+  await page.getByRole('checkbox', { name: /I confirm no money was collected/ }).check();
+  await confirm.click();
+  await expect.poll(() => cancellation).toEqual({ reason: 'Wrong member selected; no money was collected', noMoneyCollected: true });
 });

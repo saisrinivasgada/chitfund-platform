@@ -82,6 +82,8 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
     Page<PaymentBatch> findByTenantIdAndChitIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID chitId, UUID memberId, Pageable pageable);
     Page<PaymentBatch> findByTenantIdOrderByCreatedAtDesc(String tenantId, Pageable pageable);
 
+    Page<PaymentBatch> findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(String tenantId, UUID collectedBy, BatchStatus status, Pageable pageable);
+
     List<PaymentBatch> findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(String tenantId, UUID collectedBy, BatchStatus status);
     List<PaymentBatch> findByTenantIdAndCollectedByOrderByCreatedAtDesc(String tenantId, UUID collectedBy);
 

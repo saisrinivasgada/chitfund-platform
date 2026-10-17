@@ -1,0 +1,1 @@
+export function accountSyncSummary(options?: { counts?: { pending?: number; paused?: number; conflicts?: number; failed?: number; syncing?: number }; sessionValid?: boolean; online?: boolean; syncing?: boolean; locked?: boolean; preparation?: { status: string } | null }): { state: string; label: string; detail: string };

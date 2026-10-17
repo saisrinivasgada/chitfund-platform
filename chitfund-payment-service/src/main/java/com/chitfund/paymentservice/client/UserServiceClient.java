@@ -37,11 +37,21 @@ public class UserServiceClient {
     /** Current permission and original recording authority, without requiring renewal. */
     @SuppressWarnings("unchecked")
     public String verifyOfflineRecordedAction(OfflineReconciliationRequest request) {
+        return verifyOfflineEvidence(request, "/verify-recorded-action");
+    }
+    public void verifyOfflineReviewer(OfflineReconciliationRequest request) {
+        verifyOfflineEvidence(request, "/verify-reviewer");
+    }
+    public String verifyOfflineHistoricalEvidence(OfflineReconciliationRequest request) {
+        return verifyOfflineEvidence(request, "/verify-historical-evidence");
+    }
+    @SuppressWarnings("unchecked")
+    private String verifyOfflineEvidence(OfflineReconciliationRequest request, String endpoint) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Internal-Key", internalKey);
         try {
             ResponseEntity<Map> response = restTemplate.exchange(
-                    userServiceUrl + "/internal/offline-access/verify-recorded-action",
+                    userServiceUrl + "/internal/offline-access" + endpoint,
                     HttpMethod.POST, new HttpEntity<>(request, headers), Map.class);
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null
                     && response.getBody().get("grantId") instanceof String id && !id.isBlank()) {

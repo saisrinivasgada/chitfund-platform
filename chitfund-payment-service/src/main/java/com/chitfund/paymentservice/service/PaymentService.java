@@ -83,6 +83,7 @@ public class PaymentService {
     private final ChitMonthDrawService chitMonthDrawService;
     private final AuditClient auditClient;
     private final OfflinePaymentReviewCapture offlineReviews;
+    private final FinancialCommandLock commandLocks;
 
     /**
      * Step 1 of the cash flow: worker/manager records collection from a member.
@@ -199,6 +200,13 @@ public class PaymentService {
         return recordPaymentInternal(request, adminId, idempotencyKey, null, false);
     }
 
+    public void verifyOfflineReviewer(UUID reviewer) { planExpiryChecker.assertOfflineReviewer(reviewer); }
+
+    /** Uploading old account evidence never posts money; a current admin must review it. */
+    public void verifyRecoveredCollection(RecordPaymentRequest request, UUID actor) {
+        planExpiryChecker.verifyHistoricalPaymentEvidence(actor, request.getOfflineAuthorization(), request.getRecordedAt());
+    }
+
     /** Called only by the authenticated, audited server-side review workflow. */
     @Transactional
     public PaymentBatchResponse recordReviewedOfflinePayment(RecordPaymentRequest request, UUID originalActor,
@@ -233,8 +241,11 @@ public class PaymentService {
                 recordedAt = request.getRecordedAt() == null ? Instant.now() : request.getRecordedAt();
                 if (recordedAt.isAfter(Instant.now().plusSeconds(300))) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Collection time cannot be in the future");
             } else {
-                offlineGrantId = planExpiryChecker.assertRecordedPaymentMaySync(
-                        adminId, request.getOfflineAuthorization(), request.getRecordedAt());
+                offlineGrantId = reviewedBalanceVersion == null
+                        ? planExpiryChecker.assertRecordedPaymentMaySync(adminId, request.getOfflineAuthorization(), request.getRecordedAt())
+                        : planExpiryChecker.verifyHistoricalPaymentEvidence(adminId, request.getOfflineAuthorization(), request.getRecordedAt());
+                if (offlineGrantId == null || offlineGrantId.isBlank()) throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                        "Original offline authorisation could not be confirmed. Sync will retry.", HttpStatus.SERVICE_UNAVAILABLE);
                 // Historical authority replaces the generic 30-day cutoff.
                 recordedAt = request.getRecordedAt();
             }
@@ -243,27 +254,10 @@ public class PaymentService {
             recordedAt = validatedRecordedAt(request.getRecordedAt());
         }
         String tenantId = tenantId();
+        if (idempotencyKey != null) commandLocks.lock(tenantId, idempotencyKey);
         String paymentReference = normalizePaymentReference(request.getPaymentReference());
         request.setPaymentReference(paymentReference);
-        // Keep the legacy fingerprint for older clients that do not send a
-        // recorded time; otherwise an in-flight retry across this deployment
-        // would be rejected even though its money fields are identical.
-        String requestHash;
-        // Preserve the exact legacy fingerprint for older idempotency records.
-        // The allocation shape is appended only for the new explicit-allocation
-        // contract, so a retry from an older client remains idempotent.
-        if (request.getAllocations() == null || request.getAllocations().isEmpty()) {
-            requestHash = request.getRecordedAt() == null
-                    ? IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                            request.getPaymentMode(), request.getNotes(), paymentReference)
-                    : IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                            request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt());
-        } else {
-            String allocationFingerprint = allocationFingerprint(request.getAllocations());
-            requestHash = IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                    request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt(),
-                    allocationFingerprint);
-        }
+        String requestHash = recordPaymentFingerprint(request);
         if (idempotencyKey != null) {
             var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
                     tenantId, RECORD_PAYMENT_OPERATION, idempotencyKey);
@@ -273,7 +267,7 @@ public class PaymentService {
                 return toBatchResponse(b, allocationRepository.findByTenantIdAndBatchId(tenantId, b.getId()));
             }
         }
-        if (offlineGrantId != null && reviewedBalanceVersion == null) {
+        if (idempotencyKey != null && reviewedBalanceVersion == null) {
             var held = offlineReviews.findOperation(idempotencyKey);
             if (held.isPresent()) {
                 var review = held.get();
@@ -452,6 +446,22 @@ public class PaymentService {
                             + "payment, resubmit with confirmDuplicate=true.",
                     HttpStatus.CONFLICT);
         }
+    }
+
+    /** Same immutable request identity for posting and cancellation acknowledgements. */
+    static String recordPaymentFingerprint(RecordPaymentRequest request) {
+        String reference = normalizePaymentReference(request.getPaymentReference());
+        // Keep fingerprints from older clients compatible with their saved receipts.
+        if (request.getAllocations() == null || request.getAllocations().isEmpty()) {
+            return request.getRecordedAt() == null
+                    ? IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                            request.getPaymentMode(), request.getNotes(), reference)
+                    : IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                            request.getPaymentMode(), request.getNotes(), reference, request.getRecordedAt());
+        }
+        return IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                request.getPaymentMode(), request.getNotes(), reference, request.getRecordedAt(),
+                allocationFingerprint(request.getAllocations()));
     }
 
     private void assertMatchingIdempotencyRequest(String storedHash, String requestHash) {
@@ -1166,7 +1176,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public PagedResponse<PaymentBatchResponse> getAllBatchesPaged(UUID chitId, UUID memberId, LocalDate fromDate, LocalDate toDate, int page, int size) {
-        PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending().and(Sort.by("id")));
         String tid = tenantId();
         Page<PaymentBatch> result;
         if (fromDate != null || toDate != null) {
@@ -1190,6 +1200,14 @@ public class PaymentService {
                 .size(size)
                 .hasMore(result.hasNext())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<PaymentBatchResponse> getPendingCollectorBatchesPaged(UUID collector, int page, int size) {
+        var result = batchRepository.findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(tenantId(), collector,
+                BatchStatus.AWAITING_REMITTANCE, PageRequest.of(page, size, Sort.by("collectedAt").descending().and(Sort.by("id"))));
+        return PagedResponse.<PaymentBatchResponse>builder().content(toBatchResponses(result.getContent()))
+                .page(page).size(size).totalElements(result.getTotalElements()).hasMore(result.hasNext()).build();
     }
 
     @Transactional(readOnly = true)

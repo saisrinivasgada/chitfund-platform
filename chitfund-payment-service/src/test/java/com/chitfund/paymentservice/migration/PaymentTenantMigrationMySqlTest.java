@@ -25,7 +25,7 @@ class PaymentTenantMigrationMySqlTest {
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("chitfund_payments").withUsername("chitfund").withPassword("testpassword");
+            .withCommand("--log-bin-trust-function-creators=1").withDatabaseName("chitfund_payments").withUsername("chitfund").withPassword("testpassword");
 
     @Test
     void offlineReceiptsHaveDurableAccountScopedOperationIdentities() throws Exception {

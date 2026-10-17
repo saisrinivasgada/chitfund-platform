@@ -23,6 +23,7 @@ function json(data, status = 200) {
 export async function installAuthenticatedApp(page, {
   analyticsEnabled = false,
   settlementEnabled = false,
+  offlineEnabled = false,
   user = defaultUser,
   tenantRole = user.role,
   resolveApi,
@@ -38,6 +39,7 @@ export async function installAuthenticatedApp(page, {
     analyticsEnabled,
     chatEnabled: false,
     settlementEnabled,
+    offlineEnabled,
     adminPhone: '9000000000',
     adminEmail: 'admin@example.test',
   };

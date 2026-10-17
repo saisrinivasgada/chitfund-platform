@@ -77,6 +77,38 @@ public class OfflineAccessService {
     }
 
     @Transactional(readOnly = true)
+    public OfflineAccessTokens.Grant authorizeRead(User actor, OfflineReconciliationRequest request) {
+        var current=issue(actor,request.tenantId());
+        if(!current.enabled()||!current.role().equals(request.role())||!actor.getId().toString().equals(request.actorId())||!"READ".equals(request.action())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,"Offline access must be enabled for the current organisation account",HttpStatus.FORBIDDEN);
+        }
+        // The caller cannot submit an older clock to extend a read grant.
+        try { return tokens.verifyRecordedAction(request.token(),request.actorId(),request.tenantId(),request.role(),"READ",java.time.Instant.ofEpochMilli(current.serverTime())); }
+        catch(io.jsonwebtoken.JwtException|IllegalArgumentException invalid) { throw new BusinessException(ErrorCode.FORBIDDEN,"Connect to verify offline download access",HttpStatus.FORBIDDEN); }
+    }
+
+    @Transactional(readOnly = true)
+    public void authorizeReviewer(User actor, String tenantId) {
+        TenantInfo tenant = tenantService.buildTenantInfoList(actor.getId()).stream()
+                .filter(item -> item.getTenantId().equals(tenantId)).findFirst().orElse(null);
+        if (tenant == null || !"ADMIN".equals(tenant.getRole()) || !"ACTIVE".equals(tenant.getStatus())
+                || !actor.isEnabled() || actor.isLocked() || actor.getDeletedAt() != null
+                || actor.isMustChangePassword() || !actor.isHasAppAccess()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "A currently authorised organisation admin must review this saved collection", HttpStatus.FORBIDDEN);
+        }
+    }
+
+    /** Historical evidence is accepted only by the admin quarantine/review workflow. */
+    public OfflineAccessTokens.Grant verifyHistoricalEvidence(OfflineReconciliationRequest request) {
+        try {
+            return tokens.verifyRecordedAction(request.token(), request.actorId(), request.tenantId(),
+                    request.role(), request.action(), request.recordedAt());
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Original collection evidence could not be verified", HttpStatus.FORBIDDEN);
+        }
+    }
+
+    @Transactional(readOnly = true)
     public OfflineAccessTokens.Grant authorizeRecordedAction(User actor, OfflineReconciliationRequest request) {
         String actorId = actor.getId().toString();
         TenantInfo tenant = tenantService.buildTenantInfoList(actor.getId()).stream()

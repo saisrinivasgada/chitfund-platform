@@ -1,3 +1,4 @@
+import { requestSignOut } from '../../../offline/signOut';
 import { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,7 +34,7 @@ type ProfileTab = 'profile' | 'security' | 'history' | 'accounts';
 
 export default function MyAccountScreen() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
   const [editTab, setEditTab] = useState<ProfileTab | null>(null);
   const showEdit = editTab !== null;
   const setShowEdit = (v: boolean) => setEditTab(v ? 'profile' : null);
@@ -126,10 +127,7 @@ export default function MyAccountScreen() {
 
         {/* Logout */}
         <TouchableOpacity
-          onPress={() => Alert.alert('Log Out', 'Sign out of this account?', [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Log Out', style: 'destructive', onPress: () => logout() },
-          ])}
+          onPress={() => requestSignOut()}
           activeOpacity={0.75}
           style={{ borderWidth: 1.5, borderColor: '#DC2626', borderRadius: 14, padding: 14, alignItems: 'center' }}
         >

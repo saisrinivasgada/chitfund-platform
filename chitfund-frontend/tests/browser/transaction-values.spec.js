@@ -31,7 +31,7 @@ test('renders exact payment values and reflects a reasoned full void', async ({ 
     } : {}),
   });
 
-  await installAuthenticatedApp(page, {
+  await installAuthenticatedApp(page, { offlineEnabled: true,
     resolveApi: async ({ request, url, json }) => {
       if (url.pathname === `/api/payments/batches/${batchId}`) return json({ success: true, data: batch() });
       if (url.pathname === '/api/chits/chit-100') return json({ success: true, data: {

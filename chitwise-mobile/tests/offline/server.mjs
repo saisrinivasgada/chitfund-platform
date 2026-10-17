@@ -1,6 +1,7 @@
 // Local simulator fixture. It never connects to a production service.
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 
 const owners = ['a', 'b'].map((name, index) => {
   const id = (prefix) => `${prefix}0000000-0000-0000-0000-00000000000${index + 1}`;
@@ -10,15 +11,30 @@ const owners = ['a', 'b'].map((name, index) => {
     tenantId: tenant.tenantId, enabled: true, hasAppAccess: true, phone: '9000000000' };
   const token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),
     Buffer.from(JSON.stringify({ sub: user.id, tenantId: tenant.tenantId, role: user.role, exp: 4102444800 })).toString('base64url'), 'local-qa-only'].join('.');
-  return { name, user, tenant, token, refreshToken: `local-qa-refresh-${name}`, memberId: id('3'), chitId: id('4'),
-    due: 1000, credit: 0, version: 1, enabled: true, receipts: new Map(), reviews: new Map() };
+  return { name, user, tenant, token, refreshToken: `local-qa-refresh-${name}`, memberId: id('3'), chitId: id('4'), secondaryChitId: id('5'),
+    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, receipts: new Map(), reviews: new Map() };
 });
 let online = true;
+const stateFile = process.env.CHITWISE_QA_STATE_FILE;
+if (stateFile && existsSync(stateFile)) {
+  const saved = JSON.parse(readFileSync(stateFile, 'utf8')); const state = saved.data ?? saved;
+  online = state.online ?? true;
+  for (const prior of state.organisations ?? []) {
+    const owner = owners.find((item) => item.name === prior.name); if (!owner) continue;
+    for (const key of ['due','credit','version','enabled','secondDue']) if (prior[key] != null) owner[key] = prior[key];
+    owner.receipts = new Map((prior.receipts ?? []).map((r) => [r.id,r]));
+    owner.reviews = new Map((prior.reviews ?? []).map((r) => [r.id,r]));
+  }
+}
+const snapshot = () => ({ online, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
+  credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled,
+  receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()] })) });
 const member = (owner) => ({ id: owner.memberId, fullName: `QA Member ${owner.name.toUpperCase()}`, name: `QA Member ${owner.name.toUpperCase()}`,
   phone: '9000000001', status: 'ACTIVE', hasAppAccess: true, createdAt: '2026-10-15T12:00:00' });
 const chit = (owner) => ({ id: owner.chitId, name: `QA Monthly Chit ${owner.name.toUpperCase()}`, status: 'ACTIVE', chitType: 'MONTHLY',
   chitValue: 20000, installmentAmount: 1000, durationMonths: 20, capacity: 20, memberCount: 1, currentMonth: 1,
   startDate: '2026-10-01', createdAt: '2026-10-01T12:00:00', winnerSelectionMode: 'LOTTERY' });
+const chitsFor = (owner) => [chit(owner), { ...chit(owner), id: owner.secondaryChitId, name: `QA Second Chit ${owner.name.toUpperCase()}`, installmentAmount: 500, chitValue: 10000 }];
 const page = (records, number, size) => ({ content: records.slice(number * size, (number + 1) * size), number,
   pageNumber: number, page: number, size, pageSize: size, totalElements: records.length, totalPages: Math.ceil(records.length / size),
   last: (number + 1) * size >= records.length, hasMore: (number + 1) * size < records.length });
@@ -28,6 +44,7 @@ http.createServer(async (request, response) => {
   for await (const chunk of request) raw += chunk;
   const body = raw ? JSON.parse(raw) : {};
   const send = (data, status = 200) => {
+    if (stateFile) { writeFileSync(`${stateFile}.tmp`, JSON.stringify(snapshot())); renameSync(`${stateFile}.tmp`,stateFile); }
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify({ success: status < 400, data, message: status < 400 ? undefined : data.message, errorCode: data.errorCode }));
   };
@@ -35,55 +52,82 @@ http.createServer(async (request, response) => {
     if (request.method === 'POST') {
       if (body.online != null) online = body.online;
       const owner = owners.find((item) => item.name === (body.org ?? 'a'));
-      for (const key of ['due', 'enabled']) if (body[key] != null) { owner[key] = body[key]; owner.version++; }
+      for (const key of ['due', 'secondDue', 'enabled']) if (body[key] != null) { owner[key] = body[key]; owner.version++; }
     }
-    return send({ online, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
-      receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()] })) });
+    return send(snapshot());
   }
   if (!online) return request.socket.destroy();
   const owner = owners.find((item) => request.headers.authorization === `Bearer ${item.token}`)
     ?? owners.find((item) => item.refreshToken === body.refreshToken);
   if (url.pathname === '/api/auth/login') {
     const account = owners.find((item) => item.user.username === body.username);
-    return account ? send({ accessToken: account.token, refreshToken: account.refreshToken, user: account.user, tenant: account.tenant })
+    return account ? send({ accessToken: account.token, refreshToken: account.refreshToken, user: account.user, tenant: { ...account.tenant, offlineEnabled: account.enabled } })
       : send({ message: 'Use offline-a or offline-b for local QA' }, 401);
   }
   if (url.pathname === '/api/auth/refresh') return owner
-    ? send({ accessToken: owner.token, refreshToken: owner.refreshToken, user: owner.user, tenant: owner.tenant }) : send({ message: 'Unknown local account' }, 401);
+    ? send({ accessToken: owner.token, refreshToken: owner.refreshToken, user: owner.user, tenant: { ...owner.tenant, offlineEnabled: owner.enabled } }) : send({ message: 'Unknown local account' }, 401);
   if (!owner) return send({ message: 'Unknown local account' }, 401);
   const path = url.pathname.slice(4);
   if (path === '/users/me/offline-access') {
     const now = Date.now();
-    return send({ enabled: owner.enabled, actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: 'ADMIN', serverTime: now,
+    return send({ enabled: owner.enabled, reason: owner.enabled ? null : 'ADD_ON_REQUIRED', actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: 'ADMIN', serverTime: now,
       grant: owner.enabled ? { id: randomUUID(), actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: 'ADMIN', issuedAt: now,
         recordUntil: now + 7 * 86400000, readUntil: now + 7 * 86400000, actions: ['READ', 'RECORD_PAYMENT'], token: `local-proof-${owner.name}` } : null });
   }
   if (path === '/users/me') return send(owner.user);
   if (path === '/users/me/effective-limits' || path === '/users/me/billing-info') return send({ ...owner.tenant, tenantStatus: 'ACTIVE',
     maxMembers: -1, maxChits: -1, maxStaff: -1, maxManagers: -1, enabledAddOns: owner.enabled ? ['offline_support'] : [] });
-  if (path === '/members' || path === '/chits') return send(page([path === '/members' ? member(owner) : chit(owner)], Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 20)));
+  if (path.endsWith('/offline-pages') && (!owner.enabled || request.headers['x-offline-authorization'] !== `local-proof-${owner.name}`)) return send({ message: 'Offline add-on and read grant required' }, 403);
+  if (path === '/members/offline-pages' || path === '/chits/offline-pages') return send({ ...page(path.startsWith('/members') ? [member(owner)] : chitsFor(owner), Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 200)), snapshotVersion: `local-v2-${owner.version}` });
+  if (path === '/payments/batches/offline-pages') return send({ ...page([...owner.receipts.values()], Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 200)), snapshotVersion: `local-v2-${owner.version}` });
+  if (path === '/members' || path === '/chits') return send(page(path === '/members' ? [member(owner)] : chitsFor(owner), Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 20)));
   if (path === `/members/${owner.memberId}` || path === '/members/me') return send(member(owner));
-  if (path === `/chits/${owner.chitId}`) return send(chit(owner));
-  if (path.startsWith('/chits/member/') || path === '/chits/mine') return send([chit(owner)]);
+  if (path === `/chits/${owner.chitId}` || path === `/chits/${owner.secondaryChitId}`) return send(chitsFor(owner).find((c) => path.endsWith(c.id)));
+  if (path.startsWith('/chits/member/') || path === '/chits/mine') return send(chitsFor(owner));
   if (path.endsWith('/enrollments')) return send([{ id: 'qa-enrollment', memberId: owner.memberId, chitId: owner.chitId, slotNumber: 1, active: true }]);
-  if (path === '/payments/balance') return send({ memberId: owner.memberId, chitId: owner.chitId, totalOutstanding: owner.due,
-    months: [{ monthNumber: 1, amountDue: 1000, amountPaid: 1000 - owner.due, balance: owner.due, dueDate: '2026-10-15', status: owner.due ? 'OUTSTANDING' : 'SETTLED' }] });
-  if (path === '/payments/balance/total') return send({ memberId: owner.memberId, totalOutstanding: owner.due, creditBalance: owner.credit, chits: [] });
+  if (path === '/payments/balance') {
+    const secondary = url.searchParams.get('chitId') === owner.secondaryChitId; const due = secondary ? owner.secondDue : owner.due; const original = secondary ? 500 : 1000;
+    return send({ memberId: owner.memberId, chitId: secondary ? owner.secondaryChitId : owner.chitId, totalOutstanding: due,
+      months: due ? [{ monthNumber: 1, amountDue: original, amountPaid: original-due, balance: due, dueDate: '2026-10-15', status: due === original ? 'OUTSTANDING' : 'PARTIALLY_PAID' }] : [] });
+  }
+  if (path === '/payments/balance/total') return send(owner.due + owner.secondDue);
+  if (path.startsWith('/admin/draws/chit/')) {
+    const selected = path.split('/').at(-1);
+    return send([{ id: `qa-draw-${selected}`, chitId: selected, monthNumber: 1, drawDate: '2026-10-15', status: 'COMPLETED' }]);
+  }
+  if (path.startsWith('/admin/draws/qa-draw-') && path.endsWith('/payments')) {
+    const secondary = path.includes(owner.secondaryChitId); const original = secondary ? 500 : 1000; const due = secondary ? owner.secondDue : owner.due;
+    return send([{ id: `qa-instalment-${secondary ? 'second' : 'first'}`, memberId: owner.memberId, chitId: secondary ? owner.secondaryChitId : owner.chitId,
+      monthNumber: 1, amountDue: original, amountPaid: original-due, balance: due, status: due === 0 ? 'SETTLED' : due === original ? 'OUTSTANDING' : 'PARTIALLY_PAID' }]);
+  }
   if (path.startsWith('/payments/credits/')) return send({ memberId: owner.memberId, balance: owner.credit, recentTransactions: [] });
   if (path === '/payments/batches/all') return send(page([...owner.receipts.values()], Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 50)));
   if (path.startsWith('/payments/batches/') && owner.receipts.has(path.split('/').at(-1))) return send(owner.receipts.get(path.split('/').at(-1)));
-  if (path === '/payments' && request.method === 'POST') {
+  if (['/payments', '/payments/offline/record'].includes(path) && request.method === 'POST') {
     if (body.memberId !== owner.memberId || body.offlineAuthorization !== `local-proof-${owner.name}`) return send({ message: 'Wrong account collection' }, 403);
     const operation = request.headers['x-idempotency-key'];
+    const closed = [...owner.reviews.values()].find((r) => r.operationId === operation && ['REFUNDED', 'CANCELLED'].includes(r.status));
+    if (closed) return send({ reviewId: closed.id, message: 'Collection already closed after review', errorCode: 'OFFLINE_PAYMENT_REVIEW_REQUIRED' }, 409);
     const prior = [...owner.receipts.values()].find((receipt) => receipt.operationId === operation);
     if (prior) return send(prior);
-    if (body.amount > owner.due) {
+    const requested = body.allocations?.length ? body.allocations : [{ chitId: body.chitId, amount: body.amount }];
+    if (new Set(requested.map((a) => a.chitId)).size !== requested.length || requested.some((a) => ![owner.chitId,owner.secondaryChitId].includes(a.chitId) || a.amount <= 0) || Math.abs(requested.reduce((sum,a)=>sum+a.amount,0)-body.amount)>0.0001) return send({message:'Invalid original allocation'},400);
+    if (requested.some((a) => a.amount > (a.chitId === owner.chitId ? owner.due : owner.secondDue))) {
       let held = [...owner.reviews.values()].find((review) => review.operationId === operation);
       if (!held) { held = { id: randomUUID(), operationId: operation, ...body, status: 'PENDING', reviewReason: 'DUES_CHANGED', submittedAt: new Date().toISOString() }; owner.reviews.set(held.id, held); }
       return send({ reviewId: held.id, message: 'Saved collection needs admin review. It remains preserved.', errorCode: 'OFFLINE_PAYMENT_REVIEW_REQUIRED' }, 409);
     }
-    const receipt = { id: randomUUID(), ...body, totalAmount: body.amount, status: 'COMPLETED', operationId: operation, createdAt: new Date().toISOString(), syncedAt: new Date().toISOString(), allocations: [] };
-    owner.receipts.set(receipt.id, receipt); owner.due -= body.amount; owner.version++; return send(receipt);
+    const receipt = { id: randomUUID(), ...body, totalAmount: body.amount, status: 'COMPLETED', operationId: operation, createdAt: new Date().toISOString(), syncedAt: new Date().toISOString(), allocations: requested.map((a) => ({ ...a, monthNumber: 1 })) };
+    owner.receipts.set(receipt.id, receipt); for(const a of requested) { if(a.chitId === owner.chitId) owner.due -= a.amount; else owner.secondDue -= a.amount; } owner.version++; return send(receipt);
+  }
+  if (path === '/payments/offline/reviews/cancel-unsynced') {
+    if (!body.cancellation?.noMoneyCollected || body.cancellation?.reason?.trim().length < 5 || body.original?.offlineAuthorization !== `local-proof-${owner.name}` || body.originalActorId !== owner.user.id) return send({ message: 'Original evidence and no-money confirmation required' }, 400);
+    const operation = request.headers['x-idempotency-key'];
+    const receipt = [...owner.receipts.values()].find((entry) => entry.operationId === operation);
+    if (receipt) return send({ status: 'RECEIPT_EXISTS', receiptId: receipt.id, receipt });
+    let review = [...owner.reviews.values()].find((entry) => entry.operationId === operation);
+    if (!review) { review = { id: randomUUID(), operationId: operation, ...body.original, status: 'CANCELLED', resolutionReason: body.cancellation.reason, reviewReason: 'CANCELLATION_REQUESTED', submittedAt: new Date().toISOString() }; owner.reviews.set(review.id, review); }
+    return send(review);
   }
   if (path === '/payments/offline/reviews') return send(page([...owner.reviews.values()].filter((review) => review.status === 'PENDING'), 0, 20));
   const reviewId = path.match(/^\/payments\/offline\/reviews\/([^/]+)/)?.[1];
@@ -91,6 +135,14 @@ http.createServer(async (request, response) => {
     const review = owner.reviews.get(reviewId);
     if (request.method === 'POST') {
       if (review.status !== 'PENDING') return send(review);
+      if (path.endsWith('/cancel')) {
+        if (!body.noMoneyCollected || !body.reason || body.reason.length < 5) return send({ message: 'Confirm no money was collected and include a reason' }, 400);
+        review.status = 'CANCELLED'; review.resolutionReason = body.reason; return send(review);
+      }
+      if (path.endsWith('/refund')) {
+        if (!body.moneyReturned || Number(body.amount) !== Number(review.amount) || !body.reference || !body.reason) return send({ message: 'Include completed return evidence' }, 400);
+        review.status = 'REFUNDED'; review.refund = body; return send(review);
+      }
       if (body.expectedBalanceVersion !== String(owner.version)) return send({ message: 'Balances changed; refresh and review again' }, 409);
       if (body.decision === 'APPLY_WITH_EXCESS') {
         const receipt = { ...review, id: randomUUID(), totalAmount: review.amount, status: 'COMPLETED', createdAt: new Date().toISOString(), allocations: [] };

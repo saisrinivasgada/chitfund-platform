@@ -19,7 +19,7 @@ test('older unsigned records upload for review rather than automatic payment pos
       data: { reviewId: 'older-review' }, message: 'Original collection needs admin verification' } });
   });
   let ordinaryPosts = 0;
-  await page.route('**/api/payments', (route) => { ordinaryPosts++; return route.abort(); });
+  await page.route('**/api/payments/offline/record', (route) => { ordinaryPosts++; return route.abort(); });
   const result = await page.evaluate(async () => {
     const { syncSavedPayments } = await import('/src/offline/outbox.js');
     const { readRows } = await import('/src/offline/storage.js');
@@ -33,7 +33,7 @@ test('a reviewed collection stays preserved and acknowledges a remote decision w
   const [account] = await prepare(page);
   await queue(page, account.scope);
   let submissions = 0; let approved = false;
-  await page.route('**/api/payments', (route) => {
+  await page.route('**/api/payments/offline/record', (route) => {
     submissions++;
     return route.fulfill({ status: 409, json: { success: false, errorCode: 'OFFLINE_PAYMENT_REVIEW_REQUIRED',
       message: 'Saved collection needs admin review', data: { reviewId: 'review-a' } } });
@@ -82,13 +82,13 @@ test('encrypted download checkpoints survive reload and skip completed pages', a
     } }));
   }, account.scope);
   const pages = [];
-  await page.route('**/api/members?*', (route) => {
+  await page.route('**/api/members/offline-pages?*', (route) => {
     expect(route.request().headers().authorization).toMatch(/^Bearer (access|refreshed)-a$/);
     const number = Number(new URL(route.request().url()).searchParams.get('page'));
     pages.push(number);
     return route.fulfill({ json: { success: true, data: {
       content: Array.from({ length: number === 4 ? 50 : 200 }, (_, index) => ({ id: `member-${number * 200 + index}` })),
-      number, totalElements: 850, totalPages: 5, last: number === 4,
+      number, snapshotVersion: 'fixture-members-v1', totalElements: 850, totalPages: 5, last: number === 4,
     } } });
   });
   await page.route(`**/api/auth/accounts/${account.browserAccountId}/refresh`, (route) => route.fulfill({ json: {
@@ -107,7 +107,7 @@ test('encrypted download checkpoints survive reload and skip completed pages', a
     const { readRow, unseal } = await import('/src/offline/storage.js');
     await prepareOfflineData(scope, { force: true, maxRequests: 3 });
     const row = await readRow('datasets', `${scope}:published:members`);
-    return (await unseal(scope, row.encrypted)).length;
+    return (await unseal(scope, row.encrypted)).count;
   }, account.scope);
   expect(saved).toBe(850);
   expect(pages).toEqual([0, 1, 2, 3, 4]);
@@ -145,6 +145,22 @@ async function queue(page, scope, id = 'payment-a') {
   }, { scope, id });
 }
 
+test('a confirmed receipt appears in older complete offline history before the next download',async({page})=>{
+  const [a]=await prepare(page);await queue(page,a.scope,'new-payment');
+  await page.evaluate(async(scope)=>{
+    const {writeRow,seal}=await import('/src/offline/storage.js');
+    const records=[{id:'old-receipt',memberId:'member-new-payment',chitId:'chit-a',createdAt:'2026-01-01',totalAmount:10}];
+    await writeRow('datasets',{key:`${scope}:published:batches`,scope,encrypted:await seal(scope,records),savedAt:1000});
+  },a.scope);
+  await page.route('**/api/payments/offline/record',(route)=>route.fulfill({json:{success:true,data:{id:'new-receipt',memberId:'member-new-payment',chitId:'chit-a',createdAt:'2026-10-16',totalAmount:125}}}));
+  const result=await page.evaluate(async(scope)=>{
+    const {syncSavedPayments}=await import('/src/offline/outbox.js');const {cachedResponse}=await import('/src/offline/cache.js');
+    await syncSavedPayments();const response=await cachedResponse(scope,{url:'/payments/batches/all',params:{page:0,size:50}});
+    return{ids:response.data.data.content.map(r=>r.id),count:response.data.data.totalElements,savedAt:response.headers['x-chitwise-cached-at']};
+  },a.scope);
+  expect(result).toEqual({ids:['new-receipt','old-receipt'],count:2,savedAt:'1000'});
+});
+
 test('saved payment survives reload and syncs under A while B stays visible after expiry/downgrade', async ({ page }) => {
   const [a, b] = await prepare(page, ['a', 'b']);
   await queue(page, a.scope);
@@ -159,7 +175,7 @@ test('saved payment survives reload and syncs under A while B stays visible afte
       user: { id: 'actor-a' }, tenant: { tenantId: 'org-a', role: 'ADMIN' } },
   } }));
   const submissions = [];
-  await page.route('**/api/payments', (route) => {
+  await page.route('**/api/payments/offline/record', (route) => {
     submissions.push({ token: route.request().headers().authorization, payload: route.request().postDataJSON() });
     return route.fulfill({ json: { success: true, data: { id: 'receipt-a' } } });
   });
@@ -182,7 +198,7 @@ test('lost acknowledgement retries the exact saved payment identity and payload'
   const [a] = await prepare(page);
   await queue(page, a.scope, 'stable-payment');
   const attempts = [];
-  await page.route('**/api/payments', (route) => {
+  await page.route('**/api/payments/offline/record', (route) => {
     attempts.push({ key: route.request().headers()['x-idempotency-key'], payload: route.request().postDataJSON() });
     return attempts.length === 1 ? route.abort('failed') : route.fulfill({ json: { success: true, data: { id: 'same-receipt' } } });
   });
@@ -203,7 +219,7 @@ test('lost acknowledgement retries the exact saved payment identity and payload'
 test('access denial preserves a paused entry and a success without a receipt is never acknowledged', async ({ page }) => {
   const [a] = await prepare(page);
   await queue(page, a.scope);
-  await page.route('**/api/payments', (route) => route.fulfill({ status: 403,
+  await page.route('**/api/payments/offline/record', (route) => route.fulfill({ status: 403,
     json: { errorCode: 'FORBIDDEN', message: 'Account needs review' } }));
   const paused = await page.evaluate(async () => {
     const { syncSavedPayments } = await import('/src/offline/outbox.js');
@@ -211,8 +227,8 @@ test('access denial preserves a paused entry and a success without a receipt is 
     await syncSavedPayments(); return (await readRows('outbox'))[0].status;
   });
   expect(paused).toBe('PAUSED_ACCESS');
-  await page.unroute('**/api/payments');
-  await page.route('**/api/payments', (route) => route.fulfill({ json: { success: true, data: {} } }));
+  await page.unroute('**/api/payments/offline/record');
+  await page.route('**/api/payments/offline/record', (route) => route.fulfill({ json: { success: true, data: {} } }));
   const unconfirmed = await page.evaluate(async () => {
     const { syncSavedPayments } = await import('/src/offline/outbox.js');
     const { readRows, mutateRow } = await import('/src/offline/storage.js');
@@ -263,15 +279,15 @@ test('quota failure never reports a payment as saved', async ({ page }) => {
   const result = await page.evaluate(async (scope) => {
     const { queuePayment } = await import('/src/offline/outbox.js');
     const { readRows } = await import('/src/offline/storage.js');
-    const original = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = function (...args) {
+    const original = IDBObjectStore.prototype.add;
+    IDBObjectStore.prototype.add = function (...args) {
       if (this.name === 'outbox') throw new DOMException('Storage is full', 'QuotaExceededError');
       return original.apply(this, args);
     };
     let failed = false;
     try { await queuePayment(scope, { memberId: 'member-a', chitId: 'chit-a', amount: 125, paymentMode: 'CASH' }); }
     catch { failed = true; }
-    finally { IDBObjectStore.prototype.put = original; }
+    finally { IDBObjectStore.prototype.add = original; }
     return { failed, entries: (await readRows('outbox')).length };
   }, a.scope);
   expect(result).toEqual({ failed: true, entries: 0 });
@@ -350,7 +366,7 @@ test('a slow organisation does not block another organisation’s saved payment'
   let releaseA;
   const paused = new Promise((resolve) => { releaseA = resolve; });
   let bSubmitted = false;
-  await page.route('**/api/payments', async (route) => {
+  await page.route('**/api/payments/offline/record', async (route) => {
     if (route.request().headers().authorization === 'Bearer access-a') await paused;
     else bSubmitted = true;
     await route.fulfill({ json: { success: true, data: { id: 'receipt-' + route.request().postDataJSON().memberId } } });
@@ -364,4 +380,110 @@ test('a slow organisation does not block another organisation’s saved payment'
   await page.evaluate(() => window.qaSync);
   const saved = await page.evaluate(async () => (await (await import('/src/offline/storage.js')).readRows('outbox')).map((row) => row.status));
   expect(saved).toEqual(['SUCCEEDED', 'SUCCEEDED']);
+});
+
+test('a recorded refund acknowledges the held collection without creating or fetching a payment receipt', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  let submissions = 0; let receiptReads = 0;
+  await page.route('**/api/payments/offline/record', (route) => { submissions++; return route.fulfill({ status: 409, json: {
+    success: false, data: { reviewId: 'refunded-review' }, errorCode: 'OFFLINE_PAYMENT_REVIEW_REQUIRED',
+  } }); });
+  await page.route('**/api/payments/offline/reviews/refunded-review', (route) => route.fulfill({ json: {
+    success: true, data: { id: 'refunded-review', status: 'REFUNDED', refund: { amount: 125, reference: 'RETURN-125' } },
+  } }));
+  await page.route('**/api/payments/batches/**', (route) => { receiptReads++; return route.abort(); });
+  const result = await page.evaluate(async (scope) => {
+    const { syncSavedPayments, queuePayment } = await import('/src/offline/outbox.js');
+    const { readRows, unseal } = await import('/src/offline/storage.js');
+    await syncSavedPayments(); const held = (await readRows('outbox'))[0];
+    const original = await unseal(scope, held.encrypted);
+    await syncSavedPayments(); const done = (await readRows('outbox'))[0];
+    let retryMessage;
+    try { await queuePayment(scope, { memberId: 'member-payment-a', chitId: 'chit-a', amount: 125, paymentMode: 'CASH', idempotencyKey: 'payment-a' }); }
+    catch (error) { retryMessage = error.message; }
+    return { status: done.status, resolution: done.reviewResolution, unchanged: JSON.stringify(original) === JSON.stringify(await unseal(scope, done.encrypted)), retryMessage };
+  }, account.scope);
+  expect(result).toMatchObject({ status: 'SUCCEEDED', resolution: 'REFUNDED', unchanged: true });
+  expect(result.retryMessage).toContain('refunded'); expect(submissions).toBe(1); expect(receiptReads).toBe(0);
+});
+
+test('same-tenant admin recovery preserves the original ciphertext and never quarantines another organisation’s queue', async ({ page }) => {
+  const [a, b] = await prepare(page, ['a', 'b']);
+  await queue(page, a.scope, 'recover-a'); await queue(page, b.scope, 'leave-b');
+  const uploaded = [];
+  await page.route('**/api/payments/offline/reviews/recover', (route) => {
+    uploaded.push({ actor: route.request().postDataJSON().originalActorId, token: route.request().headers().authorization });
+    return route.fulfill({ json: { success: true, data: { reviewId: 'recovered-a' } } });
+  });
+  const result = await page.evaluate(async ({ scope }) => {
+    const { mutateRow, readRow, unseal, readRows } = await import('/src/offline/storage.js');
+    const { rememberAccount } = await import('/src/offline/accountClient.js');
+    const { recoverSavedCollections } = await import('/src/offline/outbox.js');
+    const before = await readRow('outbox', `${scope}:recover-a`); const original = await unseal(scope, before.encrypted);
+    await mutateRow('accounts', scope, (row) => ({ ...row, sessionValid: false }));
+    const admin = await rememberAccount({ id: 'replacement-admin', role: 'ADMIN', fullName: 'Replacement admin' }, { tenantId: 'org-a' }, 'replacement-access');
+    await recoverSavedCollections(admin.scope);
+    const recovered = await readRow('outbox', before.key);
+    return { scope: admin.scope, original: await unseal(scope, recovered.encrypted), unchanged: JSON.stringify(original) === JSON.stringify(await unseal(scope, recovered.encrypted)),
+      status: recovered.status, review: recovered.reviewId, delivery: recovered.recoveryScope,
+      other: (await readRows('outbox')).find((row) => row.operationId === 'leave-b').reviewId };
+  }, { scope: a.scope });
+  expect(uploaded).toEqual([{ actor: 'actor-a', token: 'Bearer replacement-access' }]);
+  expect(result).toMatchObject({ unchanged: true, status: 'CONFLICT', review: 'recovered-a', delivery: result.scope });
+  expect(result.other).toBeUndefined();
+});
+
+test('cancelling a never-sent multi-chit payment is atomic and preserves its original allocations', async ({ page }) => {
+  const [account] = await prepare(page);
+  const result = await page.evaluate(async (scope) => {
+    const { queuePayment, cancelSavedPayment, savedPaymentActivity } = await import('/src/offline/outbox.js');
+    const { readRows, unseal, claimOutbox } = await import('/src/offline/storage.js');
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+    await queuePayment(scope, { memberId: 'member-a', chitId: 'chit-a', amount: 1000, paymentMode: 'CASH', idempotencyKey: 'multi-cancel', allocations: [{ chitId: 'chit-b', amount: 400 }, { chitId: 'chit-a', amount: 600 }] });
+    const before = (await readRows('outbox'))[0]; const payload = await unseal(scope, before.encrypted);
+    await cancelSavedPayment(scope, before.key, 'Mistaken entry; no money received', true);
+    const after = (await readRows('outbox'))[0];
+    return { status: after.status, payload, original: await unseal(scope, after.encrypted), outstanding: (await savedPaymentActivity(scope)).length, claim: !!await claimOutbox(before.key) };
+  }, account.scope);
+  expect(result.status).toBe('CANCELLED'); expect(result.original).toEqual(result.payload);
+  expect(result.original.allocations).toEqual([{ chitId: 'chit-a', amount: 600 }, { chitId: 'chit-b', amount: 400 }]);
+  expect(result.outstanding).toBe(0); expect(result.claim).toBe(false);
+});
+
+test('an in-flight browser payment cannot be cancelled locally and a lost acknowledgement checks the server before using Void', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  let cancelled = 0; let posted = 0;
+  await page.route('**/api/payments/offline/record', (route) => { posted++; return route.abort(); });
+  await page.route('**/api/payments/offline/reviews/cancel-unsynced', (route) => { cancelled++;
+    expect(route.request().postDataJSON().original.offlineAuthorization).toBe('proof-a');
+    return route.fulfill({ json: { success: true, data: { status: 'RECEIPT_EXISTS', receipt: { id: 'lost-ack-receipt', totalAmount: 125 } } } });
+  });
+  const result = await page.evaluate(async (scope) => {
+    const { readRows, claimOutbox, mutateRow } = await import('/src/offline/storage.js');
+    const { cancelSavedPayment, savedPaymentActivity } = await import('/src/offline/outbox.js');
+    const entry = (await readRows('outbox'))[0]; await claimOutbox(entry.key);
+    let error; try { await cancelSavedPayment(scope, entry.key, 'No money collected', true); } catch (failure) { error = failure.message; }
+    await mutateRow('outbox', entry.key, (row) => ({ ...row, status: 'RETRYABLE_FAILURE', nextAttemptAt: 0 }));
+    const final = await cancelSavedPayment(scope, entry.key, 'No money collected', true);
+    return { error, status: final.status, remaining: (await savedPaymentActivity(scope)).length };
+  }, account.scope);
+  expect(result.error).toContain('started syncing'); expect(result.status).toBe('SUCCEEDED'); expect(result.remaining).toBe(0);
+  expect(cancelled).toBe(1); expect(posted).toBe(0);
+});
+
+test('a fresh sign-in without the add-on disables stale grants but still delivers older saved payments', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  const posted = [];
+  await page.route('**/api/payments/offline/record', (route) => { posted.push(route.request().postDataJSON()); return route.fulfill({ json: { success: true, data: { id: 'old-saved-receipt', totalAmount: 125 } } }); });
+  const result = await page.evaluate(async (scope) => {
+    const { rememberAccount } = await import('/src/offline/accountClient.js');
+    const { readRow, readRows, unseal } = await import('/src/offline/storage.js');
+    const { queuePayment, syncSavedPayments } = await import('/src/offline/outbox.js');
+    const owner = await readRow('accounts', scope); const original = await unseal(scope, (await readRows('outbox'))[0].encrypted);
+    await rememberAccount(owner.user, { ...owner.tenant, offlineEnabled: false }, 'access-a');
+    let denied; try { await queuePayment(scope, { memberId: 'member-a', chitId: 'chit-a', amount: 200, paymentMode: 'CASH', idempotencyKey: 'forbidden-new' }); } catch (failure) { denied = failure.message; }
+    await syncSavedPayments(); return { denied, original, status: (await readRows('outbox'))[0].status, enabled: (await readRow('accounts', scope)).offlineAccess.enabled };
+  }, account.scope);
+  expect(result.enabled).toBe(false); expect(result.denied).toContain('not enabled');
+  expect(result.status).toBe('SUCCEEDED'); expect(posted).toEqual([result.original]);
 });

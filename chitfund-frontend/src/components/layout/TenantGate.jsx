@@ -10,7 +10,7 @@ const SUPPORT_WHATSAPP = 'https://wa.me/919999999999'; // update with real numbe
 
 
 function PendingActivationScreen({ orgName }) {
-  const { logout } = useAuth();
+  const { requestLogout } = useAuth();
   const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-[#F5F7FA] flex items-center justify-center p-6">
@@ -44,7 +44,7 @@ function PendingActivationScreen({ orgName }) {
             WhatsApp Support
           </a>
           <button
-            onClick={() => { logout(); navigate('/login', { replace: true }); }}
+            onClick={async () => { if (await requestLogout()) navigate('/login', { replace: true }); }}
             className="text-xs text-gray-400 hover:text-gray-600 mt-2 cursor-pointer"
           >
             Sign out
@@ -57,7 +57,7 @@ function PendingActivationScreen({ orgName }) {
 
 
 function ContactAdminScreen({ orgName, reason }) {
-  const { logout } = useAuth();
+  const { requestLogout } = useAuth();
   const navigate = useNavigate();
   const msg = reason === 'suspended'
     ? `${orgName} has been suspended. Your access is temporarily unavailable.`
@@ -72,7 +72,7 @@ function ContactAdminScreen({ orgName, reason }) {
         <h2 className="text-lg font-bold text-gray-900 mb-2">Access Unavailable</h2>
         <p className="text-sm text-gray-500 mb-8">{msg} Please contact your organization admin.</p>
         <button
-          onClick={() => { logout(); navigate('/login', { replace: true }); }}
+          onClick={async () => { if (await requestLogout()) navigate('/login', { replace: true }); }}
           className="text-sm font-medium text-gray-500 hover:text-gray-800 cursor-pointer"
         >
           Sign out

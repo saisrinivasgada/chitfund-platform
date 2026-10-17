@@ -3,7 +3,7 @@ import { Tabs, useRouter } from 'expo-router';
 import { Text, Modal, TouchableOpacity, Pressable } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 import { useUIStore } from '../../../store/uiStore';
 import { getAuditLogs, getBillingInfo } from '../../../services/api';
 import { useAdminStartupPrefetch } from '../../../offline/useStartupPrefetch';
@@ -81,7 +81,9 @@ export default function AdminLayout() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
-        tabBarActiveTintColor: C.navy,
+        tabBarActiveTintColor: C.white,
+        tabBarActiveBackgroundColor: selectedTabBackgroundColor,
+        tabBarButton: RoundedTabButton,
         tabBarInactiveTintColor: C.gray400,
         tabBarBackground: NeumorphicTabBackground,
         tabBarStyle: neumorphicTabBarStyle,

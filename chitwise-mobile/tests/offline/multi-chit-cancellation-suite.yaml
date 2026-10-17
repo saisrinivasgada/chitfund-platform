@@ -1,0 +1,111 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","due":1000,"secondDue":500,"enabled":true}'
+- runFlow: empty-reviews.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false,"org":"a","due":1000,"secondDue":500}'
+- stopApp
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- tapOn:
+    text: "Open"
+    optional: true
+- tapOn:
+    id: "member-row-QA Member A"
+- scrollUntilVisible:
+    element:
+      id: "payment-chit-40000000-0000-0000-0000-000000000001"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "payment-chit-40000000-0000-0000-0000-000000000001"
+- scrollUntilVisible:
+    element:
+      id: "payment-chit-50000000-0000-0000-0000-000000000001"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "payment-chit-50000000-0000-0000-0000-000000000001"
+- scrollUntilVisible:
+    element:
+      text: "Record ₹1,500 Payment"
+    direction: DOWN
+    centerElement: false
+- tapOn: "Record ₹1,500 Payment"
+- extendedWaitUntil:
+    visible: "Confirm Payment"
+    timeout: 10000
+- waitForAnimationToEnd
+- tapOn: "Record"
+- extendedWaitUntil:
+    notVisible: "Confirm Payment"
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: "saved-payments-summary"
+    timeout: 30000
+- tapOn:
+    id: "saved-payments-summary"
+- tapOn: ".*₹1,500 · QA Member A.*"
+- assertVisible: "Saved payment details"
+- assertVisible: "QA Monthly Chit A"
+- assertVisible: "QA Second Chit A"
+- assertVisible: "₹1,000"
+- assertVisible: "₹500"
+- scrollUntilVisible:
+    element:
+      text: ".*Cancellation reason.*"
+    direction: DOWN
+    centerElement: true
+- tapOn: ".*Cancellation reason.*"
+- inputText: "Mistaken multi-chit entry: no money was collected"
+- hideKeyboard
+- tapOn: "I confirm no money was collected"
+- scrollUntilVisible:
+    element:
+      text: "Cancel payment"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Cancel payment"
+- extendedWaitUntil:
+    visible: "Cancellation waiting for verification"
+    timeout: 60000
+- tapOn: "Close saved payments"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'
+- stopApp
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Sync status: Up to date.*"
+    timeout: 60000
+- extendedWaitUntil:
+    notVisible:
+      id: "saved-payments-summary"
+    timeout: 60000
+- assertVisible: "Select Member"
+- openLink: 'chitwise:///(app)/(admin)/payments?tab=History'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "saved-payment-history"
+    timeout: 60000
+- tapOn:
+    id: "saved-payment-history"
+- assertVisible: ".*₹1,500 · QA Member A.*"
+- assertVisible: ".*Cancelled · kept in history.*"
+- tapOn: "Close saved payments"

@@ -42,6 +42,8 @@ public class OfflineStaffActionService {
         String grantId = users.verifyOfflineRecordedAction(new OfflineReconciliationRequest(
                 actorId.toString(), tenantId, role, command.getAction(),
                 command.getOfflineAuthorization(), command.getRecordedAt()));
+        if (grantId == null || grantId.isBlank()) throw new BusinessException(ErrorCode.FORBIDDEN,
+                "The original collection authorisation could not be verified", HttpStatus.FORBIDDEN);
         String hash = IdempotencyFingerprint.of(command.getRequestId(), command.getAction(),
                 command.getCollectedAmount(), command.getExpectedUpdatedAt(), command.getRecordedAt(), grantId);
         // Lock the underlying request to serialize different keys acting on the

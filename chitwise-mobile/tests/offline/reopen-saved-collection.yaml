@@ -7,7 +7,14 @@ appId: com.chitwise.mobile
     text: "Open"
     optional: true
 - extendedWaitUntil:
-    visible: "Saved payment activity"
+    visible:
+      id: "saved-payments-summary"
     timeout: 30000
+- tapOn:
+    id: "saved-payments-summary"
 - assertVisible: "QA Member A.*|.*QA Member A.*"
-- assertVisible: "Will retry"
+- extendedWaitUntil:
+    visible: ".*Will retry.*|.*Saved on device.*"
+    timeout: 30000
+
+- tapOn: "Close saved payments"

@@ -47,6 +47,22 @@ class OfflineAccessServiceTest {
         assertThat(service.issue(user, "org-b").enabled()).isFalse();
     }
 
+    @Test void offlineDownloadRequiresLiveAddOnAndCannotUseAnotherActorsGrant(){
+        var grant=service.issue(user,"org-a").grant();
+        var read=new OfflineReconciliationRequest(user.getId().toString(),"org-a","ADMIN","READ",grant.token(),now.minusSeconds(999));
+        assertThat(service.authorizeRead(user,read).id()).isEqualTo(grant.id());
+        tenant.setOfflineEnabled(false);
+        assertThatThrownBy(()->service.authorizeRead(user,read)).isInstanceOf(BusinessException.class);
+        tenant.setOfflineEnabled(true);
+        assertThatThrownBy(()->service.authorizeRead(user,new OfflineReconciliationRequest(UUID.randomUUID().toString(),"org-a","ADMIN","READ",grant.token(),now))).isInstanceOf(BusinessException.class);
+    }
+
+    @Test void historicalReadClockCannotExtendAnExpiredDownloadGrant(){
+        var oldTokens=new OfflineAccessTokens("test-offline-secret-at-least-thirty-two-characters",Clock.fixed(now.minus(Duration.ofDays(8)),ZoneOffset.UTC));
+        var grant=oldTokens.issue(user.getId().toString(),"org-a","ADMIN",null);
+        assertThatThrownBy(()->service.authorizeRead(user,new OfflineReconciliationRequest(user.getId().toString(),"org-a","ADMIN","READ",grant.token(),now.minus(Duration.ofDays(8))))).isInstanceOf(BusinessException.class);
+    }
+
     @Test
     void missingSigningConfigurationNeverCreatesNewGrants() {
         var unconfigured = new OfflineAccessService(tenants, new OfflineAccessTokens("v1", "", java.util.Map.of(), null,
@@ -110,5 +126,24 @@ class OfflineAccessServiceTest {
         var request = new OfflineReconciliationRequest(user.getId().toString(), "org-b", "ADMIN",
                 "RECORD_PAYMENT", grant.token(), now);
         assertThatThrownBy(() -> service.authorizeRecordedAction(user, request)).isInstanceOf(BusinessException.class);
+    }
+    @Test void historicalEvidenceSurvivesActorRemovalButCannotAuthoriseNormalSyncOrAnotherTenant() {
+        var grant = service.issue(user, "org-a").grant();
+        var evidence = new OfflineReconciliationRequest(user.getId().toString(), "org-a", "ADMIN", "RECORD_PAYMENT", grant.token(), now);
+        user.setEnabled(false); tenant.setRole("STAFF");
+        assertThatThrownBy(() -> service.authorizeRecordedAction(user, evidence)).isInstanceOf(com.chitfund.common.exception.BusinessException.class);
+        clearInvocations(tenants);
+        assertThat(service.verifyHistoricalEvidence(evidence).id()).isEqualTo(grant.id());
+        verifyNoInteractions(tenants);
+        var wrongTenant = new OfflineReconciliationRequest(user.getId().toString(), "org-b", "ADMIN", "RECORD_PAYMENT", grant.token(), now);
+        assertThatThrownBy(() -> service.verifyHistoricalEvidence(wrongTenant)).isInstanceOf(com.chitfund.common.exception.BusinessException.class);
+    }
+    @Test void reviewAuthorityIsLiveAndIndependentOfSubscriptionOrOfflineAddOn() {
+        tenant.setOfflineEnabled(false); tenant.setPlanExpiresAt(LocalDateTime.ofInstant(now.minusSeconds(30), ZoneOffset.UTC));
+        assertThatCode(() -> service.authorizeReviewer(user, "org-a")).doesNotThrowAnyException();
+        tenant.setRole("STAFF");
+        assertThatThrownBy(() -> service.authorizeReviewer(user, "org-a")).isInstanceOf(com.chitfund.common.exception.BusinessException.class);
+        tenant.setRole("ADMIN"); user.setLocked(true);
+        assertThatThrownBy(() -> service.authorizeReviewer(user, "org-a")).isInstanceOf(com.chitfund.common.exception.BusinessException.class);
     }
 }

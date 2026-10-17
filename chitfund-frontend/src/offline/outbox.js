@@ -1,6 +1,8 @@
+import { refreshFinancialSnapshots } from '../../../shared/offline/financialRefresh';
+import { saveCachedResponse } from './cache';
 import { runAccountTasks } from '../../../shared/offline/scheduling';
 import { accountScope, requestForAccount } from './accountClient';
-import { claimOutbox, mutateRow, readRow, readRows, seal, unseal } from './storage';
+import { claimOutbox, mutateRow, readRow, readRows, requestOutboxCancellation, saveOutboxForAccount, seal, unseal, writeRow } from './storage';
 
 import { canRecordOffline, recordingPauseMessage } from '../../../shared/offline/accessPolicy';
 export { canRecordOffline } from '../../../shared/offline/accessPolicy';
@@ -39,6 +41,8 @@ export async function queuePayment(scope, input) {
   const businessHash = await hash(payload);
   const prior = await readRow('outbox', key);
   if (prior) {
+    if (prior.status === 'CANCELLED' || prior.cancellation || ['REFUNDED', 'CANCELLED'].includes(prior.reviewResolution)) throw new Error(`This saved collection was ${prior.reviewResolution === 'REFUNDED' ? 'refunded' : 'cancelled'}. Its original record remains in payment activity.`);
+    if (['CONFLICT', 'FAILED'].includes(prior.status)) throw new Error(prior.errorMessage ?? 'This saved collection needs admin review. Its original record is preserved.');
     if (prior.businessHash !== businessHash) throw new Error('This saved payment has different details. Review it before changing the amount.');
     return prior.status === 'SUCCEEDED' && prior.receipt ? unseal(scope, prior.receipt) : pending(prior, payload);
   }
@@ -48,19 +52,22 @@ export async function queuePayment(scope, input) {
   payload.recordedAt = new Date(access.serverTime + now - access.checkedAt).toISOString();
   payload.offlineAuthorization = access.grant.token;
   const encrypted = await seal(scope, payload);
-  // Recheck logout after encryption; never revive a removed/locked account.
-  const current = await readRow('accounts', scope);
-  if (!current?.sessionValid || current.generation !== account.generation) throw new Error('Account session changed before the payment was saved');
-  const entry = await mutateRow('outbox', key, (existing) => {
-    if (existing && existing.businessHash !== businessHash) throw new Error('Payment operation already has different details');
-    return existing ?? { key, scope, operationId, action: 'RECORD_PAYMENT', encrypted, businessHash,
-      status: 'QUEUED', createdAt: now, attempts: 0, nextAttemptAt: now };
-  });
+  const entry = await saveOutboxForAccount(account, { key, scope, operationId, action: 'RECORD_PAYMENT', encrypted, businessHash,
+    status: 'QUEUED', createdAt: now, attempts: 0, nextAttemptAt: now });
   notifyOfflineChange(scope);
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistration().then((registration) => registration?.sync?.register('chitwise-payments')).catch(() => {});
   }
   return pending(entry, payload);
+}
+
+export async function cancelSavedPayment(scope, key, reason, noMoneyCollected) {
+  if (!noMoneyCollected || reason?.trim().length < 5 || reason?.trim().length > 500) throw new Error('Confirm no money was collected and explain the mistaken entry in 5–500 characters');
+  const evidence = await seal(scope, { reason: reason.trim(), noMoneyCollected: true, requestedAt: new Date().toISOString() });
+  await requestOutboxCancellation(scope, key, evidence);
+  notifyOfflineChange(scope);
+  if (navigator.onLine) await syncSavedPayments({ scope });
+  return readRow('outbox', key);
 }
 
 function pending(entry, payload) {
@@ -69,11 +76,11 @@ function pending(entry, payload) {
     totalAmount: payload.amount, paymentMode: payload.paymentMode };
 }
 
-export async function syncSavedPayments({ deadline = Date.now() + 60_000 } = {}) {
+export async function syncSavedPayments({ deadline = Date.now() + 60_000, scope: requestedScope } = {}) {
   const accounts = await readRows('accounts');
   const operations = (await readRows('outbox')).sort((a, b) => a.createdAt - b.createdAt);
-  await runAccountTasks(accounts.filter((account) => account.sessionValid), async (account) => {
-    const ready = operations.filter((entry) => entry.scope === account.scope && !['SUCCEEDED', 'FAILED'].includes(entry.status));
+  await runAccountTasks(accounts.filter((account) => account.sessionValid && (!requestedScope || account.scope === requestedScope)), async (account) => {
+    const ready = operations.filter((entry) => (entry.recoveryScope ?? entry.scope) === account.scope && !['SUCCEEDED', 'CANCELLED', 'FAILED'].includes(entry.status));
     let attempted = 0;
     for (const entry of ready) {
       if (Date.now() >= deadline || attempted >= 25) break;
@@ -81,13 +88,19 @@ export async function syncSavedPayments({ deadline = Date.now() + 60_000 } = {})
         attempted++;
         try {
           const review = await requestForAccount(account.scope, `/payments/offline/reviews/${entry.reviewId}`);
-          if (['APPLIED', 'DUPLICATE'].includes(review.status) && review.receiptId) {
+          if ((review.status === 'REFUNDED' && review.refund) || review.status === 'CANCELLED') {
+            const evidence = await seal(entry.scope, { offlineReviewResolution: review.status, reviewId: review.id, refund: review.refund, reason: review.resolutionReason });
+            await mutateRow('outbox', entry.key, (current) => current?.reviewId === entry.reviewId && current.status === 'CONFLICT'
+              ? { ...current, status: 'SUCCEEDED', receipt: evidence, syncedAt: Date.now(), reviewResolution: review.status, errorMessage: null } : undefined);
+            notifyOfflineChange(entry.scope);
+          } else if (['APPLIED', 'DUPLICATE'].includes(review.status) && review.receiptId) {
             const receipt = await requestForAccount(account.scope, `/payments/batches/${review.receiptId}`);
             if (!receipt?.id) throw new Error('Reviewed payment receipt is not available yet');
-            const encryptedReceipt = await seal(account.scope, receipt);
+            const encryptedReceipt = await seal(entry.scope, receipt);
             await mutateRow('outbox', entry.key, (current) => current?.reviewId === entry.reviewId && current.status === 'CONFLICT'
               ? { ...current, status: 'SUCCEEDED', receipt: encryptedReceipt, syncedAt: Date.now(),
                 reviewResolution: review.status, errorMessage: null } : undefined);
+            try { await refreshPostedCollection(account.scope, await unseal(entry.scope, entry.encrypted), receipt); } catch { /* A confirmed payment survives a failed snapshot refresh. */ }
             notifyOfflineChange(account.scope);
           }
         } catch (error) {
@@ -102,9 +115,17 @@ export async function syncSavedPayments({ deadline = Date.now() + 60_000 } = {})
       let pauseAccount = false;
       try {
         const payload = await unseal(account.scope, claimed.encrypted);
-        const receipt = await requestForAccount(account.scope, payload.offlineAuthorization ? '/payments' : '/payments/offline/reviews/legacy', {
-          method: 'POST', body: payload, headers: { 'X-Idempotency-Key': claimed.operationId },
+        const cancellation = claimed.cancellation ? await unseal(claimed.scope, claimed.cancellation) : null;
+        const result = await requestForAccount(account.scope, cancellation ? '/payments/offline/reviews/cancel-unsynced' : payload.offlineAuthorization ? '/payments/offline/record' : '/payments/offline/reviews/legacy', {
+          method: 'POST', body: cancellation ? { originalActorId: account.user.id, original: payload, cancellation: { reason: cancellation.reason, noMoneyCollected: cancellation.noMoneyCollected } } : payload, headers: { 'X-Idempotency-Key': claimed.operationId },
         });
+        if (cancellation && (result?.status === 'CANCELLED' || (result?.status === 'REFUNDED' && result.refund))) {
+          const evidence = await seal(claimed.scope, { offlineReviewResolution: result.status, reviewId: result.id, reason: result.resolutionReason, refund: result.refund });
+          await mutateRow('outbox', claimed.key, (current) => current?.leaseId === claimed.leaseId
+            ? { ...current, status: 'CANCELLED', reviewId: result.id, receipt: evidence, reviewResolution: result.status, syncedAt: Date.now(), errorMessage: null } : undefined);
+          notifyOfflineChange(account.scope); continue;
+        }
+        const receipt = cancellation && result?.status === 'RECEIPT_EXISTS' ? result.receipt : result;
         if (!receipt?.id) throw new Error('Server did not confirm a payment receipt; retrying safely');
         const encryptedReceipt = await seal(account.scope, receipt);
         await mutateRow('outbox', claimed.key, (current) => current?.leaseId === claimed.leaseId
@@ -121,6 +142,9 @@ export async function syncSavedPayments({ deadline = Date.now() + 60_000 } = {})
             errorMessage: String(error.message ?? 'Sync will retry').slice(0, 300) } : undefined);
         pauseAccount = ['AUTH_REQUIRED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS'].includes(outcome);
       }
+      if ((await readRow('outbox', claimed.key))?.status === 'SUCCEEDED') {
+        try { await refreshPostedCollection(account.scope, await unseal(claimed.scope, claimed.encrypted), await unseal(claimed.scope, (await readRow('outbox', claimed.key)).receipt)); } catch { /* A confirmed payment survives a failed snapshot refresh. */ }
+      }
       notifyOfflineChange(account.scope);
       if (pauseAccount) break;
     }
@@ -128,10 +152,44 @@ export async function syncSavedPayments({ deadline = Date.now() + 60_000 } = {})
 }
 
 export async function savedPaymentActivity(scope, includeSynced = false) {
-  return Promise.all((await readRows('outbox')).filter((entry) => entry.scope === scope && (includeSynced || entry.status !== 'SUCCEEDED'))
+  return Promise.all((await readRows('outbox')).filter((entry) => (entry.scope === scope || entry.recoveryScope === scope) && (includeSynced || !['SUCCEEDED', 'CANCELLED'].includes(entry.status)))
     .sort((a, b) => Number(a.status === 'SUCCEEDED') - Number(b.status === 'SUCCEEDED') || b.createdAt - a.createdAt)
     .map(async (entry) => {
-      try { return { ...entry, payload: await unseal(scope, entry.encrypted) }; }
+      try { return { ...entry, payload: await unseal(entry.scope, entry.encrypted) }; }
       catch { return { ...entry, payload: null, errorMessage: 'Saved payment needs local recovery. Its encrypted record is preserved.' }; }
     }));
+}
+
+export async function recoverSavedCollections(adminScope) {
+  const admin = await readRow('accounts', adminScope);
+  if (!admin?.sessionValid || admin.user.role !== 'ADMIN') throw new Error('Sign in as an organisation admin to recover saved collections');
+  const accounts = await readRows('accounts');
+  const owners = new Map(accounts.filter((a) => a.tenant.tenantId === admin.tenant.tenantId).map((a) => [a.scope, a]));
+  let count = 0;
+  for (const entry of (await readRows('outbox')).filter((e) => owners.has(e.scope) && !e.reviewId
+      && !['SUCCEEDED', 'SYNCING'].includes(e.status)).slice(0, 25)) {
+    const payload = await unseal(entry.scope, entry.encrypted);
+    if (!payload.offlineAuthorization) continue;
+    const owner = owners.get(entry.scope);
+    const result = await requestForAccount(adminScope, '/payments/offline/reviews/recover', {
+      method: 'POST', headers: { 'X-Idempotency-Key': entry.operationId }, body: { originalActorId: owner.user.id, original: payload },
+    });
+    if (!result?.reviewId) throw new Error('Server did not confirm recovery. The original collection remains on this browser');
+    await mutateRow('outbox', entry.key, (current) => current && !['SUCCEEDED', 'SYNCING'].includes(current.status)
+      ? { ...current, status: 'CONFLICT', reviewId: result.reviewId, recoveryScope: adminScope,
+        errorMessage: 'Recovered for admin review. The original collection remains preserved.' } : undefined);
+    notifyOfflineChange(entry.scope); notifyOfflineChange(adminScope); count++;
+  }
+  await syncSavedPayments();
+  return count;
+}
+
+async function refreshPostedCollection(scope, original, receipt) {
+  if (receipt?.id) await writeRow('datasets', { key: `${scope}:receipt-overlay:${await hash(receipt.id)}`, scope,
+    encrypted: await seal(scope, receipt), savedAt: Date.now() });
+  await mutateRow('preparation', scope, (prior) => prior ? { ...prior, financialDirtyAt: Date.now() } : undefined);
+  await refreshFinancialSnapshots({ request: async (path, params) => ({ success: true, data: await requestForAccount(scope,
+    path + (Object.keys(params).length ? '?' + new URLSearchParams(params) : '')) }),
+    saveResponse: (path, params, data) => saveCachedResponse(scope, { method: 'GET', url: path, params }, data),
+  }, original, receipt);
 }

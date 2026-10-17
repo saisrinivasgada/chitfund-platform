@@ -11,3 +11,4 @@ export function belongsToAccount(access: OfflineAccess | undefined,
 export function canRecordOffline(access: OfflineAccess | undefined, action: string, now?: number): boolean;
 export function recordingPauseMessage(access: OfflineAccess | undefined, now?: number): string;
 export function requireOfflineRecording(access: OfflineAccess | undefined, action: string, now?: number): OfflineGrant;
+export function effectiveOfflineAccess(access: OfflineAccess | undefined, subscribed?: boolean, checkedAt?: number): OfflineAccess | undefined;

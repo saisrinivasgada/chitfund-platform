@@ -3,6 +3,9 @@ import { setAuthToken, clearAuthToken, refreshSession, getMyEffectiveLimits } fr
 import { useQueryClient } from '@tanstack/react-query';
 import { ACTIVE_ACCOUNT_KEY, activeAccountScope, accountScope, lockAccount, rememberAccount, refreshAccount } from '../offline/accountClient';
 import { readRow } from '../offline/storage';
+import { inspectSignOut, completeVoluntarySignOut } from '../offline/signOut';
+import SignOutDialog from '../offline/SignOutDialog';
+import OfflineConnectionGate from '../offline/OfflineConnectionGate';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
@@ -18,6 +21,7 @@ function normalizeUser(userData) {
 
 export function AuthProvider({ children }) {
   const queryClient = useQueryClient();
+  const [connectionRequired, setConnectionRequired] = useState(null);
   const [offlineSession, setOfflineSession] = useState(false);
   const [isProxySession, setIsProxySession] = useState(() => !!sessionStorage.getItem('token'));
   // Token lives in memory only — never in localStorage (XSS protection)
@@ -41,6 +45,10 @@ export function AuthProvider({ children }) {
 
   const idleTimer    = useRef(null);
   const lastActivity = useRef(Date.now());
+  const [signOutRequest, setSignOutRequest] = useState(null);
+  const [signOutBusy, setSignOutBusy] = useState(false);
+  const [signOutError, setSignOutError] = useState('');
+  const pendingSignOut = useRef(null);
 
   const logout = useCallback(() => {
     const scope = !sessionStorage.getItem('token') ? activeAccountScope() : null;
@@ -52,6 +60,7 @@ export function AuthProvider({ children }) {
       }).catch(() => {});
       localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
     }
+    setConnectionRequired(null);
     setOfflineSession(false);
     queryClient.clear();
     clearAuthToken();
@@ -74,6 +83,38 @@ export function AuthProvider({ children }) {
     setIsProxySession(false);
     if (idleTimer.current) clearTimeout(idleTimer.current);
   }, [queryClient]);
+
+  const requestLogout = useCallback((options = {}) => {
+    if (pendingSignOut.current) return pendingSignOut.current.promise;
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    pendingSignOut.current = { promise, resolve };
+    const scope = !sessionStorage.getItem('token') ? activeAccountScope() : null;
+    inspectSignOut(scope, options.all).then((selection) => {
+      setSignOutError(''); setSignOutRequest({ selection, scope, all: !!options.all });
+    }).catch(() => {
+      setSignOutError('Local payment storage could not be checked. Please try again.');
+      setSignOutRequest({ selection: { accounts: [], scopes: [], count: 0 }, scope, unavailable: true });
+    });
+    return promise;
+  }, []);
+
+  const cancelSignOut = () => {
+    if (signOutBusy) return;
+    setSignOutRequest(null); pendingSignOut.current?.resolve(false); pendingSignOut.current = null;
+  };
+  const confirmSignOut = async () => {
+    if (signOutBusy || signOutRequest.unavailable) return;
+    setSignOutBusy(true); setSignOutError('');
+    try {
+      await completeVoluntarySignOut(signOutRequest.selection);
+      const active = activeAccountScope();
+      if (!signOutRequest.scope || active === signOutRequest.scope || signOutRequest.selection.scopes.includes(active)) logout();
+      setSignOutRequest(null); pendingSignOut.current?.resolve(true); pendingSignOut.current = null;
+    } catch {
+      setSignOutError('Could not update local payment storage. Please try again.');
+    } finally { setSignOutBusy(false); }
+  };
 
   useEffect(() => {
     const inspect = async (message) => {
@@ -162,8 +203,9 @@ export function AuthProvider({ children }) {
         if (activeAccountScope() !== startingScope) return;
         if (!error.status || error.status >= 500) {
           const account = startingScope ? await readRow('accounts', startingScope).catch(() => null) : null;
-          if (account?.sessionValid && account.offlineAccess?.enabled) {
-            login(null, account.user, account.tenant, { offline: true });
+          if (account?.sessionValid) {
+            if (account.offlineAccess?.enabled) login(null, account.user, account.tenant, { offline: true });
+            else setConnectionRequired(account);
             return;
           }
         }
@@ -237,9 +279,11 @@ export function AuthProvider({ children }) {
   // real session in other tabs (localStorage) is never touched.
   // For real sessions: token lives in memory only (setAuthToken), never in localStorage.
   function login(tokenValue, userData, tenantData = {}, { proxy = false, offline = false } = {}) {
+    setConnectionRequired(null);
     const normalized = normalizeUser({ ...userData, role: tenantData.role ?? userData.role });
     const scope = !proxy ? accountScope(normalized, tenantData.tenantId) : null;
     if (!proxy && scope !== activeAccountScope()) queryClient.clear();
+    if (scope && offline) localStorage.setItem(ACTIVE_ACCOUNT_KEY, scope);
     if (scope && !offline) rememberAccount(normalized, tenantData, tokenValue).catch(() => {});
     setOfflineSession(offline);
     const store = proxy ? sessionStorage : localStorage;
@@ -304,10 +348,18 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, settlementEnabled, adminPhone, adminEmail,
-      login, logout, updateUser,
+      login, logout, requestLogout, updateUser,
       switchToSavedAccount: async (scope) => {
-        const auth = await refreshAccount(scope);
-        login(auth.accessToken, auth.user, tenantSessionData(auth.tenant));
+        try {
+          if (!navigator.onLine) throw new Error('Offline');
+          const auth = await refreshAccount(scope);
+          login(auth.accessToken, auth.user, tenantSessionData(auth.tenant));
+        } catch (error) {
+          if (error.status && error.status < 500) throw error;
+          const saved = await readRow('accounts', scope);
+          if (!saved?.sessionValid || !saved.offlineAccess?.enabled || accountScope(saved.user, saved.tenant.tenantId) !== scope) throw error;
+          login(null, saved.user, saved.tenant, { offline: true });
+        }
       },
       startAccountLogin: () => {
         // Keep other saved sessions valid so their pending payments can sync.
@@ -318,11 +370,14 @@ export function AuthProvider({ children }) {
       refreshEntitlements: async () => applyEffectiveLimits(await getMyEffectiveLimits()),
       isAuthenticated: (!!token || offlineSession) && !!user,
       offlineSession,
+      connectionRequired,
       isSuperAdmin: user?.role === 'SUPER_ADMIN',
       isProxySession,
       isRestoring,
     }}>
-      {children}
+      <OfflineConnectionGate>{children}</OfflineConnectionGate>
+      {signOutRequest && <SignOutDialog selection={signOutRequest.selection} all={signOutRequest.all}
+        busy={signOutBusy} unavailable={signOutRequest.unavailable} error={signOutError} onConfirm={confirmSignOut} onCancel={cancelSignOut} />}
     </AuthContext.Provider>
   );
 }
@@ -342,6 +397,7 @@ function tenantSessionData(tenant) {
     analyticsEnabled: tenant.analyticsEnabled === true,
     chatEnabled: tenant.chatEnabled === true,
     settlementEnabled: tenant.settlementEnabled === true,
+    offlineEnabled: typeof tenant.offlineEnabled === 'boolean' ? tenant.offlineEnabled : undefined,
     adminPhone: tenant.adminPhone ?? null,
     adminEmail: tenant.adminEmail ?? null,
   };

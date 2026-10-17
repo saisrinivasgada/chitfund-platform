@@ -1,6 +1,8 @@
 module.exports = ({ config }) => {
   const hub = process.env.EXPO_PUBLIC_APP_VARIANT === 'hub';
-  if (!hub) return { ...config, plugins: [...config.plugins, 'expo-background-task'] };
+  const nativeQa = process.env.CHITWISE_NATIVE_QA === '1';
+  if (nativeQa && !/^http:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2):\d+\/api$/.test(process.env.EXPO_PUBLIC_API_URL ?? '')) throw new Error('Native QA requires a localhost fixture');
+  if (!hub) return { ...config, updates: nativeQa ? { ...config.updates, enabled: false } : config.updates, plugins: [...config.plugins, 'expo-background-task'] };
 
   return {
     ...config,

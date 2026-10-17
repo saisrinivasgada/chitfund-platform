@@ -1,4 +1,5 @@
 import { QueryClient, type Query } from '@tanstack/react-query';
+import { hasOfflineAccess, restoreOfflineAccess } from './access';
 import { createEncryptedQueryPersister } from './database';
 import { mayKeepReadSnapshot, shouldRetryRead } from '../../shared/offline/readSnapshots';
 
@@ -129,8 +130,15 @@ export function createOfflineQueryClient(): QueryClient {
 }
 
 export function offlinePersistenceOptions(accountScope: string) {
+  const disk = createEncryptedQueryPersister(accountScope);
   return {
-    persister: createEncryptedQueryPersister(accountScope),
+    // Keep a stable provider while add-on metadata loads/changes. Switching
+    // provider types remounts forms and can discard an in-progress selection.
+    persister: {
+      persistClient: (client: Parameters<typeof disk.persistClient>[0]) => hasOfflineAccess(accountScope) ? disk.persistClient(client) : Promise.resolve(),
+      restoreClient: async () => { await restoreOfflineAccess(accountScope); return hasOfflineAccess(accountScope) ? disk.restoreClient() : undefined; },
+      removeClient: () => disk.removeClient(),
+    },
     // Cached reads can be shown with their age even after recording access
     // expires. The outbox is independent and never subject to cache cleanup.
     maxAge: Infinity,

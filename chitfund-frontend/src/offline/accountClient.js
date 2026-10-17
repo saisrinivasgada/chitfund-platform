@@ -29,6 +29,14 @@ export function activeAccountScope() {
   return typeof localStorage === 'undefined' ? null : localStorage.getItem(ACTIVE_ACCOUNT_KEY);
 }
 
+function accessAfterTenantResponse(prior, user, tenant) {
+  if (tenant.offlineEnabled === false) return {
+    enabled: false, reason: 'ADD_ON_REQUIRED', actorId: String(user.id), tenantId: tenant.tenantId,
+    role: user.role, serverTime: Date.now(), checkedAt: Date.now(), grant: null,
+  };
+  return tenant.offlineEnabled === true && prior?.enabled === false ? null : prior ?? null;
+}
+
 export function rememberAccount(user, tenant, token) {
   user = { ...user, role: tenant.role ?? user.role };
   const scope = accountScope(user, tenant.tenantId);
@@ -45,7 +53,7 @@ export function rememberAccount(user, tenant, token) {
       const saved = await mutateRow('accounts', scope, (prior) => ({
       scope, user, tenant, browserAccountId, sessionValid: true,
       generation: (prior?.generation ?? 0) + 1,
-      offlineAccess: prior?.offlineAccess ?? null,
+      offlineAccess: accessAfterTenantResponse(prior?.offlineAccess, user, tenant),
       }));
       volatileAccounts.delete(scope);
       return saved;
@@ -130,6 +138,16 @@ export function refreshAccount(scope) {
         throw Object.assign(new Error('Account access changed; sign in again'), { status: 401 });
       }
       if (!auth.accessToken) throw new Error('Server did not confirm an account session');
+      if (typeof auth.tenant?.offlineEnabled === 'boolean') {
+        const withEntitlement = (saved) => ({ ...saved, tenant: { ...saved.tenant, offlineEnabled: auth.tenant.offlineEnabled },
+          offlineAccess: accessAfterTenantResponse(saved.offlineAccess, saved.user, { ...saved.tenant, offlineEnabled: auth.tenant.offlineEnabled }) });
+        if (volatileAccounts.get(scope) === account) volatileAccounts.set(scope, withEntitlement(account));
+        else await accountWrite(scope, () => mutateRow('accounts', scope, (saved) => saved?.sessionValid && saved.generation === account.generation ? withEntitlement(saved) : undefined));
+      }
+      const latest = await currentAccount(scope);
+      if (latest.generation !== account.generation || (signIns.get(scope) ?? 0) !== signIn) {
+        throw Object.assign(new Error('A newer sign-in replaced this refresh'), { status: 401, superseded: true });
+      }
       tokens.set(scope, auth.accessToken);
       return auth;
     } catch (error) {

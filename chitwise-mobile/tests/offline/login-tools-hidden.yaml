@@ -1,0 +1,20 @@
+appId: com.chitwise.mobile
+---
+- launchApp
+- openLink: 'chitwise:///(auth)/login?addAccount=1'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your username"
+    timeout: 60000
+- assertNotVisible:
+    id: "chitwise-tools-button"
+- openLink: 'chitwise:///(app)/(admin)'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "chitwise-tools-button"
+    timeout: 60000

@@ -6,6 +6,10 @@ appId: com.chitwise.mobile
 - tapOn:
     text: "Open"
     optional: true
+- tapOn:
+    id: "sync-status-button"
+- tapOn: "Sync now"
+- tapOn: "Close sync details"
 - extendedWaitUntil:
     visible: "Review needed|Sync needs attention.*"
     timeout: 60000

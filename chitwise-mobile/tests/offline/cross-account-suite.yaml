@@ -1,0 +1,61 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow: empty-reviews.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false,"org":"a","due":1000}'
+- stopApp
+- runFlow: save-collection.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'
+- openLink: 'chitwise:///(auth)/login?addAccount=1&username=offline-b'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your password"
+    timeout: 60000
+- tapOn: "Enter your password"
+- inputText: "local-qa-only"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: "Dashboard|Welcome to ChitWise"
+    timeout: 60000
+- tapOn:
+    text: "No thanks"
+    optional: true
+- tapOn:
+    text: "Skip for now"
+    optional: true
+- openLink: 'chitwise:///(auth)/accounts'
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "sync-account-offline-a"
+    timeout: 60000
+- tapOn:
+    id: "sync-account-offline-a"
+- extendedWaitUntil:
+    notVisible: ".*1 saved.*waiting to sync.*"
+    timeout: 60000
+- assertVisible:
+    id: "saved-account-offline-b"
+- tapOn:
+    id: "switch-account-offline-a"
+- extendedWaitUntil:
+    visible: "Dashboard|Welcome to ChitWise"
+    timeout: 60000
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- tapOn:
+    text: "Open"
+    optional: true
+- assertVisible: "Select Member"
+- assertNotVisible:
+    id: "saved-payments-summary"

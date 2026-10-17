@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { serializeActions } from './serializeActions';
+import { decodeSavedAccounts } from './savedAccounts';
+import { resumeOfflineSession } from '../offline/database';
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF' | 'MEMBER' | 'SUPER_ADMIN' | 'SUPPORT_AGENT';
 
@@ -26,6 +28,8 @@ export interface AuthUser {
   analyticsEnabled?: boolean;
   chatEnabled?: boolean;
   settlementEnabled?: boolean;
+  offlineEnabled?: boolean;
+  offlineSubscriptionCheckedAt?: number;
   adminPhone?: string;
   adminEmail?: string;
   phone?: string;
@@ -50,12 +54,15 @@ export interface StoredAccount {
   analyticsEnabled?: boolean;
   chatEnabled?: boolean;
   settlementEnabled?: boolean;
+  offlineEnabled?: boolean;
+  offlineSubscriptionCheckedAt?: number;
   phone?: string;
   phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
   customPermissions?: string[];
   sessionValid: boolean;
+  retainedOfflineScopes?: string[];
   cachedInfo?: AccountCachedInfo;
   savedAt: number;
 }
@@ -76,7 +83,7 @@ interface AuthState {
   loadSavedAccountsForBackground: () => Promise<void>;
   switchToAccount: (userId: string) => Promise<boolean | 'needs-login'>;
   removeAccount: (userId: string) => Promise<void>;
-  updateTokenForAccount: (userId: string, token: string, refreshToken?: string, expectedRefreshToken?: string) => Promise<void>;
+  updateTokenForAccount: (userId: string, token: string, refreshToken?: string, expectedRefreshToken?: string, offlineEnabled?: boolean) => Promise<void>;
   markSessionInvalid: (userId: string, expectedRefreshToken?: string) => Promise<void>;
   updateCachedInfo: (userId: string, info: AccountCachedInfo) => Promise<void>;
   updateAccountPhone: (accountId: string, phone?: string, phoneCountryCode?: string) => Promise<void>;
@@ -89,14 +96,11 @@ const ACCOUNTS_KEY      = 'chitwise_accounts';
 const HUB_TOKEN_KEY     = 'chitwise_hub_token';
 
 async function loadAccounts(): Promise<StoredAccount[]> {
-  try {
-    const raw = await SecureStore.getItemAsync(ACCOUNTS_KEY);
-    if (raw) return (JSON.parse(raw) as StoredAccount[]).map((a) => ({
-      ...a,
-      accountId: a.accountId ?? accountStorageId(a.userId, a.tenantId, a.authSource ?? 'ORGANIZATION'),
-    }));
-  } catch {}
-  return [];
+  const raw = await SecureStore.getItemAsync(ACCOUNTS_KEY);
+  return (decodeSavedAccounts(raw) as unknown as StoredAccount[]).map((a) => ({
+    ...a,
+    accountId: a.accountId ?? accountStorageId(a.userId, a.tenantId, a.authSource ?? 'ORGANIZATION'),
+  }));
 }
 
 async function saveAccounts(accounts: StoredAccount[]) {
@@ -117,6 +121,9 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
 
   setUser: async (user) => {
     if (user) {
+      // Read before changing active credentials. An unreadable index may own
+      // unsynced work, so signing in must not replace it with a new empty one.
+      const existing = await loadAccounts();
       // Persist the new credentials before exposing the new identity to the
       // route guard. Screens start their queries as soon as `user` changes;
       // publishing state first lets those requests leave with the previous
@@ -129,7 +136,6 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
       else await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
       await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
 
-      const existing = await loadAccounts();
       const id = accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION');
       const idx = existing.findIndex((a) => a.accountId === id);
       const entry: StoredAccount = {
@@ -147,12 +153,16 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
         analyticsEnabled: user.analyticsEnabled,
         chatEnabled: user.chatEnabled,
         settlementEnabled: user.settlementEnabled,
+        offlineEnabled: user.offlineEnabled,
+        offlineSubscriptionCheckedAt: user.offlineSubscriptionCheckedAt,
         phone: user.phone ?? (idx >= 0 ? existing[idx].phone : undefined),
         phoneCountryCode: user.phoneCountryCode ?? (idx >= 0 ? existing[idx].phoneCountryCode : undefined),
         canManageIdentityCases: user.canManageIdentityCases,
         platformOwner: user.platformOwner,
         customPermissions: user.customPermissions,
         sessionValid: true,
+        retainedOfflineScopes: idx >= 0 ? [...new Set([...(existing[idx].retainedOfflineScopes ?? []),
+          ...(existing[idx].role !== user.role ? [`${id}:${existing[idx].role}`] : [])])] : [],
         cachedInfo: idx >= 0 ? existing[idx].cachedInfo : undefined,
         savedAt: Date.now(),
       };
@@ -162,6 +172,7 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
         existing.unshift(entry);
       }
       await saveAccounts(existing);
+      if (user.authSource !== 'HUB') await resumeOfflineSession(`${id}:${user.role}`);
       set({ user, accounts: existing });
     } else {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
@@ -265,6 +276,8 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
       analyticsEnabled: target.analyticsEnabled,
       chatEnabled: target.chatEnabled,
       settlementEnabled: target.settlementEnabled,
+      offlineEnabled: target.offlineEnabled,
+      offlineSubscriptionCheckedAt: target.offlineSubscriptionCheckedAt,
       phone: target.phone,
       phoneCountryCode: target.phoneCountryCode,
       canManageIdentityCases: target.canManageIdentityCases,
@@ -306,23 +319,24 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
     set((state) => ({ accounts: updated, user: removingCurrent ? null : state.user }));
   },
 
-  updateTokenForAccount: async (accountId: string, token: string, refreshToken?: string, expectedRefreshToken?: string) => {
+  updateTokenForAccount: async (accountId: string, token: string, refreshToken?: string, expectedRefreshToken?: string, offlineEnabled?: boolean) => {
     const accounts = await loadAccounts();
     const account = accounts.find((item) => item.accountId === accountId);
     if (!account?.sessionValid || !token
         || (expectedRefreshToken !== undefined && account.refreshToken !== expectedRefreshToken)) {
       throw Object.assign(new Error('Account session changed while refreshing'), { requiresLogin: true });
     }
+    const offlineFields = typeof offlineEnabled === 'boolean' ? { offlineEnabled, offlineSubscriptionCheckedAt: Date.now() } : {};
     const updated = accounts.map((a) =>
       a.accountId === accountId
-        ? { ...a, token, refreshToken: refreshToken ?? a.refreshToken, sessionValid: true, savedAt: Date.now() }
+        ? { ...a, ...offlineFields, token, refreshToken: refreshToken ?? a.refreshToken, sessionValid: true, savedAt: Date.now() }
         : a
     );
     await saveAccounts(updated);
     const current = get().user;
     const isCurrent = !!current
       && accountStorageId(current.id, current.tenantId, current.authSource ?? 'ORGANIZATION') === accountId;
-    const nextUser = isCurrent ? { ...current, token, refreshToken: refreshToken ?? current.refreshToken } : current;
+    const nextUser = isCurrent ? { ...current, ...offlineFields, token, refreshToken: refreshToken ?? current.refreshToken } : current;
     if (isCurrent) {
       await SecureStore.setItemAsync(TOKEN_KEY, token);
       if (nextUser?.refreshToken) await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, nextUser.refreshToken);

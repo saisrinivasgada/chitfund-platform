@@ -5,7 +5,7 @@ import { File } from 'expo-file-system';
 import type { PersistedClient, Persister } from '@tanstack/query-persist-client-core';
 import type { QueuedOperation, SyncCounts, SyncOperationStatus } from './types';
 
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION = 6;
 
 // One open connection per account scope. Each scope gets its own encrypted
 // database file and its own key — tenant A's key reveals nothing about tenant B.
@@ -17,6 +17,11 @@ async function scopeHash(accountScope: string): Promise<string> {
     accountScope,
   );
   return hex.slice(0, 16);
+}
+
+/** Captured before recording starts, so sign-out/relogin cannot revive an old save. */
+export async function offlineRecordingEpoch(scope: string): Promise<string> {
+  return await SecureStore.getItemAsync(`chitwise_offline_epoch_${await scopeHash(scope)}`) ?? '';
 }
 
 async function databaseKeyForScope(hash: string, fileExists: boolean): Promise<string> {
@@ -100,6 +105,12 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS offline_session_guard (
+      account_scope TEXT PRIMARY KEY NOT NULL,
+      signed_out INTEGER NOT NULL DEFAULT 0,
+      session_epoch TEXT NOT NULL DEFAULT ''
+    );
+
     CREATE TABLE IF NOT EXISTS offline_http_cache (
       cache_key TEXT PRIMARY KEY NOT NULL,
       account_scope TEXT NOT NULL,
@@ -111,6 +122,13 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
       dataset_key TEXT PRIMARY KEY NOT NULL,
       data_json TEXT NOT NULL,
       saved_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS offline_root_ids (
+      cycle_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      record_id TEXT NOT NULL,
+      PRIMARY KEY(cycle_id, kind, record_id)
     );
 
     CREATE TABLE IF NOT EXISTS offline_preparation (
@@ -132,6 +150,12 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
       ON offline_preparation_jobs(cycle_id, status, job_key);
 
   `);
+  const guardColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(offline_session_guard)');
+  if (!guardColumns.some((column) => column.name === 'session_epoch')) await db.execAsync("ALTER TABLE offline_session_guard ADD COLUMN session_epoch TEXT NOT NULL DEFAULT ''");
+  const blocked = await SecureStore.getItemAsync(`chitwise_offline_signedout_${hash}`) === '1';
+  const epoch = await offlineRecordingEpoch(accountScope);
+  await db.runAsync('INSERT OR IGNORE INTO offline_session_guard(account_scope,signed_out,session_epoch) VALUES (?,?,?)',accountScope,blocked?1:0,epoch);
+  if (blocked) await db.runAsync('UPDATE offline_session_guard SET signed_out=1,session_epoch=? WHERE account_scope=?',epoch,accountScope);
   const operationColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_operations)');
   for (const name of ['server_review_id', 'server_receipt_json']) {
     if (!operationColumns.some((column) => column.name === name)) await db.execAsync(`ALTER TABLE sync_operations ADD COLUMN ${name} TEXT`);
@@ -234,8 +258,11 @@ function mapOperation(row: any): QueuedOperation {
   };
 }
 
-export async function insertOperation(operation: QueuedOperation): Promise<void> {
+export async function insertOperation(operation: QueuedOperation, expectedSessionEpoch?: string): Promise<void> {
+  const epoch = expectedSessionEpoch ?? await offlineRecordingEpoch(operation.accountScope);
   const db = await getOfflineDatabase(operation.accountScope);
+  const guard = await db.getFirstAsync<{ signed_out: number; session_epoch: string }>('SELECT signed_out,session_epoch FROM offline_session_guard WHERE account_scope=?', operation.accountScope);
+  if (guard?.signed_out || guard?.session_epoch !== epoch) throw new Error('Sign in again before saving a payment');
   const prior = await db.getFirstAsync<{ payload_hash: string; account_scope: string }>(
     'SELECT payload_hash, account_scope FROM sync_operations WHERE operation_id = ?',
     operation.operationId,
@@ -252,7 +279,8 @@ export async function insertOperation(operation: QueuedOperation): Promise<void>
        operation_id, account_scope, tenant_id, actor_id, action, entity_type, entity_id,
        payload, payload_hash, expected_version, status, attempts, next_attempt_at,
        created_at, updated_at, last_error_code, last_error_message, server_receipt_id
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE NOT EXISTS (SELECT 1 FROM offline_session_guard WHERE account_scope=? AND (signed_out=1 OR session_epoch<>?))
      ON CONFLICT(operation_id) DO NOTHING`,
     operation.operationId,
     operation.accountScope,
@@ -272,6 +300,8 @@ export async function insertOperation(operation: QueuedOperation): Promise<void>
     operation.lastErrorCode ?? null,
     operation.lastErrorMessage ?? null,
     operation.serverReceiptId ?? null,
+    operation.accountScope,
+    epoch,
   );
   // A second caller can insert after the initial lookup. Verify the row that
   // actually won rather than letting a uniqueness race fall through to HTTP.
@@ -287,6 +317,23 @@ export async function getOperation(operationId: string, accountScope: string): P
   const db = await getOfflineDatabase(accountScope);
   const row = await db.getFirstAsync<any>('SELECT * FROM sync_operations WHERE operation_id = ?', operationId);
   return row ? mapOperation(row) : null;
+}
+
+/** A compare-and-set shares the same row lock as delivery. Payload/allocations stay immutable. */
+export async function requestPaymentCancellation(scope: string, operationId: string, reason: string, actor: string): Promise<void> {
+  if (reason.trim().length < 5 || reason.trim().length > 500) throw new Error('Explain the mistaken entry in 5–500 characters');
+  const db = await getOfflineDatabase(scope);
+  const evidence = JSON.stringify({ cancellationRequest: { reason: reason.trim(), noMoneyCollected: true, cancelledBy: actor, requestedAt: new Date().toISOString() } });
+  const result = await db.runAsync(`UPDATE sync_operations SET
+    status=CASE WHEN attempts=0 THEN 'CANCELLED' ELSE 'QUEUED' END,
+    server_receipt_json=?, last_error_code='CANCEL_REQUESTED',
+    last_error_message=CASE WHEN attempts=0 THEN 'Cancelled before sending. No money collected.' ELSE 'Cancellation waiting for server verification.' END,
+    next_attempt_at=0, updated_at=?
+    WHERE account_scope=? AND operation_id=? AND actor_id=? AND action='RECORD_PAYMENT'
+      AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','PERMANENT_FAILURE','CONFLICT')
+      AND server_review_id IS NULL AND server_receipt_id IS NULL AND server_receipt_json IS NULL
+      AND NOT EXISTS(SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)`, evidence, Date.now(), scope, operationId, actor, scope);
+  if (result.changes !== 1) throw new Error('This payment started syncing or is already on the server. Refresh its details; received payments use Void in History.');
 }
 
 export async function getReadyOperations(accountScope: string, limit = 25): Promise<QueuedOperation[]> {
@@ -311,8 +358,9 @@ export async function claimOperation(operation: QueuedOperation): Promise<boolea
   const result = await db.runAsync(
     `UPDATE sync_operations SET status = 'SYNCING', attempts = attempts + 1, updated_at = ?
      WHERE operation_id = ? AND account_scope = ?
-       AND status IN ('QUEUED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS')`,
-    Date.now(), operation.operationId, operation.accountScope,
+       AND status IN ('QUEUED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS')
+       AND NOT EXISTS (SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)`,
+    Date.now(), operation.operationId, operation.accountScope, operation.accountScope,
   );
   return result.changes === 1;
 }
@@ -345,18 +393,26 @@ export async function makeRetryableOperationsReady(accountScope: string): Promis
   );
 }
 
-export async function getVisibleOperations(accountScope: string, limit = 10): Promise<QueuedOperation[]> {
+const COMPLETED_DECISIONS = "(status='CANCELLED' OR (status='SUCCEEDED' AND json_valid(server_receipt_json) AND json_extract(server_receipt_json,'$.offlineReviewResolution') IN ('CANCELLED','REFUNDED')))";
+
+export async function getVisibleOperations(accountScope: string, limit = 25, completed = false): Promise<QueuedOperation[]> {
   const db = await getOfflineDatabase(accountScope);
   const rows = await db.getAllAsync<any>(
     `SELECT * FROM sync_operations
      WHERE account_scope = ?
-       AND status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS', 'CONFLICT', 'PERMANENT_FAILURE', 'SUCCEEDED')
-     ORDER BY CASE WHEN status='SUCCEEDED' THEN 1 ELSE 0 END, created_at DESC
+       AND ${completed ? COMPLETED_DECISIONS : "status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS', 'CONFLICT', 'PERMANENT_FAILURE')"}
+     ORDER BY created_at DESC
      LIMIT ?`,
     accountScope,
     limit,
   );
   return rows.map(mapOperation);
+}
+
+export async function getCompletedOperationCount(accountScope: string): Promise<number> {
+  if (!await hasOfflineDatabase(accountScope)) return 0;
+  const db = await getOfflineDatabase(accountScope);
+  return Number((await db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) AS count FROM sync_operations WHERE account_scope=? AND ${COMPLETED_DECISIONS}`, accountScope))?.count ?? 0);
 }
 
 export async function getOperationsAwaitingReview(accountScope: string, force = false): Promise<QueuedOperation[]> {
@@ -430,9 +486,10 @@ export async function getPendingCountForMember(accountScope: string, memberId: s
 
 export async function getSyncCounts(accountScope: string): Promise<SyncCounts> {
   const db = await getOfflineDatabase(accountScope);
-  const row = await db.getFirstAsync<{ pending: number; paused: number; conflicts: number; failed: number }>(
+  const row = await db.getFirstAsync<{ pending: number; paused: number; conflicts: number; failed: number; syncing: number }>(
     `SELECT
        SUM(CASE WHEN status IN ('QUEUED', 'SYNCING', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS') THEN 1 ELSE 0 END) AS pending,
+       SUM(CASE WHEN status = 'SYNCING' THEN 1 ELSE 0 END) AS syncing,
        SUM(CASE WHEN status = 'PAUSED_ACCESS' THEN 1 ELSE 0 END) AS paused,
        SUM(CASE WHEN status = 'CONFLICT' THEN 1 ELSE 0 END) AS conflicts,
        SUM(CASE WHEN status = 'PERMANENT_FAILURE' THEN 1 ELSE 0 END) AS failed
@@ -440,6 +497,7 @@ export async function getSyncCounts(accountScope: string): Promise<SyncCounts> {
     accountScope,
   );
   return {
+    syncing: Number(row?.syncing ?? 0),
     pending: Number(row?.pending ?? 0),
     paused: Number(row?.paused ?? 0),
     conflicts: Number(row?.conflicts ?? 0),
@@ -454,6 +512,35 @@ export async function getLastSyncedAt(accountScope: string): Promise<number | nu
     accountScope,
   );
   return row?.last_synced_at ?? null;
+}
+
+const UNSENT_OPERATION = "account_scope=? AND status NOT IN ('SUCCEEDED','CANCELLED') AND server_review_id IS NULL AND server_receipt_id IS NULL";
+
+export async function getUnsentOperationCount(scope: string): Promise<number> {
+  if (!await hasOfflineDatabase(scope)) return 0;
+  const db = await getOfflineDatabase(scope);
+  const row = await db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) AS count FROM sync_operations WHERE ${UNSENT_OPERATION}`, scope);
+  return Number(row?.count ?? 0);
+}
+
+/** Explicit user consent only. The guard prevents stale workers reviving discarded work. */
+export async function discardUnsentOperationsForSignOut(scope: string): Promise<void> {
+  const hash = await scopeHash(scope); const epoch = Crypto.randomUUID();
+  await SecureStore.setItemAsync(`chitwise_offline_epoch_${hash}`,epoch,{ keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY });
+  await SecureStore.setItemAsync(`chitwise_offline_signedout_${hash}`,'1',{ keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY });
+  if (!await hasOfflineDatabase(scope)) return;
+  await withOfflineTransaction(scope, async (tx) => {
+    await tx.runAsync('INSERT INTO offline_session_guard(account_scope,signed_out,session_epoch) VALUES (?,1,?) ON CONFLICT(account_scope) DO UPDATE SET signed_out=1,session_epoch=excluded.session_epoch', scope,epoch);
+    await tx.runAsync(`DELETE FROM sync_operations WHERE ${UNSENT_OPERATION}`, scope);
+    await tx.runAsync('DELETE FROM persisted_query_clients WHERE account_scope=?', scope);
+  });
+}
+
+export async function resumeOfflineSession(scope: string): Promise<void> {
+  await SecureStore.deleteItemAsync(`chitwise_offline_signedout_${await scopeHash(scope)}`);
+  if (!await hasOfflineDatabase(scope)) return;
+  const db = await getOfflineDatabase(scope);
+  await db.runAsync('UPDATE offline_session_guard SET signed_out=0 WHERE account_scope=?', scope);
 }
 
 export async function setLastSyncedAt(accountScope: string, at: number, error?: string | null): Promise<void> {
@@ -477,7 +564,7 @@ export async function pruneCompletedOperations(accountScope: string): Promise<vo
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   await db.runAsync(
     `DELETE FROM sync_operations
-     WHERE account_scope = ? AND status IN ('SUCCEEDED', 'CANCELLED') AND updated_at < ?`,
+     WHERE account_scope = ? AND status='SUCCEEDED' AND server_receipt_id IS NOT NULL AND updated_at < ?`,
     accountScope,
     thirtyDaysAgo,
   );
@@ -485,8 +572,8 @@ export async function pruneCompletedOperations(accountScope: string): Promise<vo
 
 /**
  * Removes encrypted offline data only after the user explicitly removes the
- * saved account from this device. Normal logout intentionally preserves it so
- * queued writes can continue after the same account authenticates again.
+ * saved account from this device. Voluntary sign-out separately discards only
+ * unconfirmed operations after an explicit warning; forced session locks preserve them.
  *
  * Deletes the database file entirely and removes the encryption key from
  * SecureStore — even if someone recovers the file the key is gone.
@@ -501,4 +588,26 @@ export async function purgeAccountOfflineData(accountScope: string): Promise<voi
     // File may not exist yet (account created but never recorded offline)
   }
   await SecureStore.deleteItemAsync(`chitwise_offline_key_${hash}`);
+}
+
+/** A dedicated, keyed connection keeps financial writes out of download transactions. */
+export async function withOfflineTransaction(scope: string, work: (tx: SQLite.SQLiteDatabase) => Promise<void>) {
+  await getOfflineDatabase(scope);
+  const hash = await scopeHash(scope);
+  const key = await databaseKeyForScope(hash, true);
+  const tx = await SQLite.openDatabaseAsync(`chitwise-offline-${hash}.db`, { useNewConnection: true });
+  try {
+    await tx.execAsync(`PRAGMA key = "x'${key}'"; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;`);
+    try { await work(tx); await tx.execAsync('COMMIT'); }
+    catch (error) { await tx.execAsync('ROLLBACK'); throw error; }
+  } finally { await tx.closeAsync(); }
+}
+
+export async function getRecoverablePayments(scope: string): Promise<QueuedOperation<any>[]> {
+  if (!await hasOfflineDatabase(scope)) return [];
+  const db = await getOfflineDatabase(scope);
+  const rows = await db.getAllAsync<any>(`SELECT * FROM sync_operations WHERE action='RECORD_PAYMENT'
+    AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','CONFLICT','PERMANENT_FAILURE')
+    AND server_review_id IS NULL ORDER BY created_at LIMIT 25`);
+  return rows.map(mapOperation);
 }

@@ -6,12 +6,13 @@ import { requireOrganizationScope } from './accountScope';
 import {
   claimOperation, getOperation, getSyncCounts, hasOfflineDatabase, insertOperation,
   setLastSyncedAt, updateOperation,
+  offlineRecordingEpoch,
 } from './database';
 import type { QueuedOperation } from './types';
 import type { ProcessOperationResult } from './paymentQueue';
 import { useSyncStore } from '../store/syncStore';
 import { accountForScope, requestAsAccount } from './accountClient';
-import { refreshOfflineAccess, useOfflineAccessStore } from './access';
+import { refreshOfflineAccess, offlineAccessForScope } from './access';
 import { canRecordOffline, requireOfflineRecording } from './accessPolicy';
 
 export interface CollectionSnapshot {
@@ -126,6 +127,7 @@ async function finish(operation: QueuedOperation<StaffPayload>, reachable: boole
 
 async function queueStaffAction(action: 'MARK_PICKUP' | 'PARTIAL_COLLECT', payload: StaffPayload) {
   const account = requireOrganizationScope(useAuthStore.getState().user);
+  const sessionEpoch = await offlineRecordingEpoch(account.scope);
   const network = await NetInfo.fetch();
   const reachable = network.isConnected === true && network.isInternetReachable !== false;
   const operationId = `${action}-${payload.requestId}-${payload.expectedUpdatedAt ?? 'legacy'}`;
@@ -133,10 +135,15 @@ async function queueStaffAction(action: 'MARK_PICKUP' | 'PARTIAL_COLLECT', paylo
     const existing = await getOperation(operationId, account.scope) as QueuedOperation<StaffPayload> | null;
     if (existing) {
       if (existing.payload.collectedAmount !== payload.collectedAmount) throw new Error('This pickup already has a different saved collection amount. Review it before changing the amount.');
+      if (existing.status === 'SUCCEEDED') {
+        if (!existing.serverReceipt?.id || existing.serverReceipt.offlineReviewResolution) throw new Error('Check the original collection outcome before recording another pickup');
+        return { offlineQueued: false, result: existing.serverReceipt };
+      }
+      if (['CONFLICT', 'PERMANENT_FAILURE', 'CANCELLED'].includes(existing.status)) throw new Error(existing.lastErrorMessage ?? 'This saved collection needs admin review before it can be changed');
       return finish(existing, reachable);
     }
   }
-  let access = useOfflineAccessStore.getState().accounts[account.scope];
+  let access = offlineAccessForScope(account.scope);
   if (reachable && !canRecordOffline(access, action)) {
     try { access = await refreshOfflineAccess(account.scope); } catch { /* Existing valid grants survive transport failure. */ }
   }
@@ -146,6 +153,7 @@ async function queueStaffAction(action: 'MARK_PICKUP' | 'PARTIAL_COLLECT', paylo
     throw new Error('Download the latest pickup details before recording this collection offline.');
   }
   const recordedAt = Date.now();
+  if (!access) throw new Error('Reconnect to verify offline collection access.');
   const grant = requireOfflineRecording(access, action, recordedAt);
   if (!accountForScope(account.scope)?.sessionValid) throw new Error('Sign in again before recording this collection');
   const saved = { ...payload, offlineAuthorization: grant.token,
@@ -157,11 +165,7 @@ async function queueStaffAction(action: 'MARK_PICKUP' | 'PARTIAL_COLLECT', paylo
     payloadHash: await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, JSON.stringify(saved)),
     status: 'QUEUED', attempts: 0, nextAttemptAt: now, createdAt: now, updatedAt: now,
   };
-  try { await insertOperation(operation); } catch (error) {
-    const collision = error instanceof Error && error.message.includes('already associated with different');
-    if (reachable && !collision) return { offlineQueued: false, result: await send(account.scope, operationId, action, saved) };
-    throw error;
-  }
+  await insertOperation(operation,sessionEpoch);
   return finish(operation, reachable);
 }
 

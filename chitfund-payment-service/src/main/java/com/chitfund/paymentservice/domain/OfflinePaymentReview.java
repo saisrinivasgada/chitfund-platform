@@ -15,6 +15,7 @@ public class OfflinePaymentReview {
     @Column(name = "payload_hash") private String payloadHash;
     @Column(name = "request_json", columnDefinition = "longtext") private String requestJson;
     @Column(name = "cash_request_id") private UUID cashRequestId;
+    @Column(name = "refund_json", columnDefinition = "longtext") private String refundJson;
     private String reason;
     private String status;
     @Column(name = "submitted_at") private Instant submittedAt;

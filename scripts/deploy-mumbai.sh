@@ -22,12 +22,25 @@ trap cleanup_release EXIT
 
 get_env_value() {
   local key="$1"
-  sed -n "s/^${key}=//p" "$APP_DIR/.env" | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//"
+  python3 - "$APP_DIR/.env" "$key" <<'PY_ENV'
+import re
+import sys
+for line in open(sys.argv[1]):
+    if line.startswith(sys.argv[2] + '='):
+        value = line.rstrip('\n').split('=', 1)[1]
+        if value.startswith("'") and value.endswith("'"):
+            value = re.sub(r"\\([\\'])", r"\1", value[1:-1])
+        elif value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        print(value)
+        break
+PY_ENV
 }
 
 if [[ "$DEPLOY_BACKEND" == true ]]; then
   install -o root -g root -m 0755 "$RELEASE_DIR/fetch-secrets.sh" "$APP_DIR/fetch-secrets.sh"
   install -o ec2-user -g ec2-user -m 0640 "$RELEASE_DIR/docker-compose.prod.yml" "$COMPOSE_FILE"
+  install -o root -g root -m 0755 "$RELEASE_DIR/prepare-offline-config.py" "$APP_DIR/prepare-offline-config.py"
   "$APP_DIR/fetch-secrets.sh"
 
   DB_HOST="$(get_env_value DB_HOST)"

@@ -19,6 +19,7 @@ public class OfflinePaymentReviewCapture {
     private final OfflinePaymentReviewRepository reviews;
     private final ObjectMapper json;
     private final OfflineCommandReceiptRepository staffReceipts;
+    private final FinancialCommandLock commandLocks;
 
     public java.util.Optional<OfflinePaymentReview> findOperation(String operationId) {
         return reviews.findByTenantIdAndOperationId(TenantContext.get(), operationId);
@@ -42,10 +43,27 @@ public class OfflinePaymentReviewCapture {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public UUID preserveLegacy(RecordPaymentRequest request, UUID actor, String operationId) {
+        commandLocks.lock(TenantContext.get(), operationId);
+        return preserveInternal(request, actor, operationId, "LEGACY_UNVERIFIED", null);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public UUID preserveRecovered(RecordPaymentRequest request, UUID actor, String operationId) {
+        commandLocks.lock(TenantContext.get(), operationId);
+        return preserveInternal(request, actor, operationId, "ACCESS_CHANGED", null);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public UUID preserveCashPickup(RecordPaymentRequest request, UUID actor, UUID requestId) {
         staffReceipts.findFirstByTenantIdAndRequestIdOrderBySynchronizedAtDesc(TenantContext.get(), requestId)
                 .ifPresent(receipt -> request.setRecordedAt(receipt.getRecordedAt()));
         return preserveInternal(request, actor, "CASH_REQUEST:" + requestId, "PICKUP_DUES_CHANGED", requestId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public UUID preserveForCancellation(RecordPaymentRequest request, UUID actor, String operationId) {
+        return preserveInternal(request, actor, operationId, "CANCELLATION_REQUESTED", null);
     }
 
     private UUID preserveInternal(RecordPaymentRequest request, UUID actor, String operationId, String reason, UUID cashRequestId) {

@@ -42,6 +42,7 @@ export interface QueuedOperation<TPayload = unknown> {
 }
 
 export interface SyncCounts {
+  syncing?: number;
   pending: number;
   paused: number;
   conflicts: number;

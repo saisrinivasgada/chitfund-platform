@@ -61,3 +61,16 @@ test('service worker delivers a saved payment after its tab closes without a per
   }, operationId);
   expect(state).toEqual({ status: 'SUCCEEDED', persistedBearer: false });
 });
+
+test('production app reopens offline without the add-on with a connection notice and no business or sync controls', async ({ page, context }) => {
+  const account = await preparedBrowser(page, context);
+  await page.evaluate(async (scope) => {
+    await window.harness.mutateRow('accounts', scope, (row) => ({ ...row, tenant: { ...row.tenant, offlineEnabled: false }, offlineAccess: { ...row.offlineAccess, enabled: false, reason: 'ADD_ON_REQUIRED', grant: null } }));
+  }, account.scope);
+  await context.setOffline(true); await page.goto('/payments/record');
+  await expect(page.getByRole('heading', { name: 'No internet connection' })).toBeVisible();
+  await expect(page.getByText(/hasn’t subscribed to Offline access & sync/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Sync now|saved payment|Record Cash Payment/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Welcome back|Record Payment/ })).toHaveCount(0);
+  await page.screenshot({ path: '/tmp/chitwise-pwa-no-addon.png' });
+});

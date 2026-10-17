@@ -1,0 +1,9 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow: offline-suite.yaml
+- runFlow: non-addon-suite.yaml
+- runFlow: multi-chit-cancellation-suite.yaml
+- runFlow: signout-suite.yaml
+- runFlow: cross-account-suite.yaml

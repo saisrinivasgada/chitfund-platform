@@ -38,7 +38,7 @@ http.createServer(async (request, response) => {
         grant: { id: `grant-${org}`, actorId: `actor-${org}`, tenantId: `org-${org}`, role: 'ADMIN', issuedAt: now,
           recordUntil: now + 7 * 86400000, actions: ['READ', 'RECORD_PAYMENT'], token: `proof-${org}` } } });
     }
-    if (url.pathname === '/api/payments' && request.method === 'POST') {
+    if (['/api/payments', '/api/payments/offline/record'].includes(url.pathname) && request.method === 'POST') {
       let raw = '';
       for await (const chunk of request) raw += chunk;
       const payload = JSON.parse(raw);

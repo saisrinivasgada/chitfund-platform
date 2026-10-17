@@ -1,0 +1,21 @@
+# Local dummy account only; no production credentials or OTP shortcuts.
+appId: com.chitwise.mobile
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Enter your username"
+    timeout: 60000
+- tapOn: "Enter your username"
+- inputText: "offline-a"
+- tapOn: "Enter your password"
+- inputText: "local-qa-only"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: "Dashboard|Welcome to ChitWise"
+    timeout: 60000
+- tapOn:
+    text: "No thanks"
+    optional: true
+- tapOn:
+    text: "Skip for now"
+    optional: true

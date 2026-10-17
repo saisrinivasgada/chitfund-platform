@@ -41,7 +41,16 @@ export function updateBackgroundSyncRegistration(): Promise<void> {
       if (!account.sessionValid || account.authSource === 'HUB') continue;
       const scope = getStoredAccountScope(account);
       await restoreOfflineAccess(scope);
-      const counts = await hasOfflineDatabase(scope) ? await getSyncCounts(scope) : null;
+      let counts = await hasOfflineDatabase(scope) ? await getSyncCounts(scope) : null;
+      if (account.role === 'ADMIN') {
+        for (const saved of useAuthStore.getState().accounts.filter((a) => a.tenantId === account.tenantId)) {
+          for (const retained of [getStoredAccountScope(saved), ...(saved.retainedOfflineScopes ?? [])]) {
+            if (!await hasOfflineDatabase(retained)) continue;
+            const historical = await getSyncCounts(retained);
+            if (historical.conflicts) { counts = historical; break; }
+          }
+        }
+      }
       if (hasOfflineAccess(scope) || (counts?.pending ?? 0) > 0 || (counts?.conflicts ?? 0) > 0) { eligible = true; break; }
     }
     const registered = await TaskManager.isTaskRegisteredAsync(TASK);

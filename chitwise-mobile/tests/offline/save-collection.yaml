@@ -12,15 +12,32 @@ appId: com.chitwise.mobile
     timeout: 60000
 - tapOn:
     id: "member-row-QA Member A"
-- tapOn: "QA Monthly Chit A.*"
+- scrollUntilVisible:
+    element:
+      id: "payment-chit-40000000-0000-0000-0000-000000000001"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "payment-chit-40000000-0000-0000-0000-000000000001"
+- assertVisible: "Allocate ₹"
 - scrollUntilVisible:
     element:
       text: "Record ₹1,000 Payment"
     direction: DOWN
+    centerElement: true
 - tapOn: "Record ₹1,000 Payment"
-- tapOn:
-    text: "Record"
-    optional: true
 - extendedWaitUntil:
-    visible: ".*saved.*device.*|.*waiting.*|.*pending sync.*"
+    visible: "Confirm Payment"
+    timeout: 10000
+- tapOn: "Record"
+- extendedWaitUntil:
+    visible:
+      id: "saved-payments-summary"
     timeout: 30000
+- tapOn:
+    id: "saved-payments-summary"
+- extendedWaitUntil:
+    visible: ".*Will retry.*|.*Saved on device.*"
+    timeout: 30000
+
+- tapOn: "Close saved payments"

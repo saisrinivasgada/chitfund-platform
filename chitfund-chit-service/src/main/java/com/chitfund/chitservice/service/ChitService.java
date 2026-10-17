@@ -146,6 +146,11 @@ public class ChitService {
         return pagedResponse(page, enrichPage(page.toList()));
     }
 
+    public PagedResponse<ChitResponse> listChitsForMemberPaged(UUID memberId, Pageable pageable) {
+        var page = chitRepository.findMemberChits(TenantContext.get(), memberId, pageable);
+        return pagedResponse(page, enrichPage(page.toList()));
+    }
+
     public List<ChitResponse> listChitsForMember(UUID memberId, ChitStatus status) {
         List<UUID> chitIds = enrollmentRepository.findDistinctChitIdsByMemberId(memberId);
         if (chitIds.isEmpty()) return List.of();

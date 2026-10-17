@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Text, Modal, Pressable, TouchableOpacity } from 'react-native';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 import { useUIStore } from '../../../store/uiStore';
 import { useManagerStartupPrefetch } from '../../../offline/useStartupPrefetch';
 import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
@@ -38,7 +38,9 @@ export default function ManagerLayout() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
-        tabBarActiveTintColor: C.navy,
+        tabBarActiveTintColor: C.white,
+        tabBarActiveBackgroundColor: selectedTabBackgroundColor,
+        tabBarButton: RoundedTabButton,
         tabBarInactiveTintColor: C.gray400,
         tabBarBackground: NeumorphicTabBackground,
         tabBarStyle: neumorphicTabBarStyle,

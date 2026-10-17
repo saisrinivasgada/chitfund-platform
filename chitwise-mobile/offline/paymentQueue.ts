@@ -1,3 +1,4 @@
+import { refreshPostedCollection } from './financialRefresh';
 import axios from 'axios';
 import * as Crypto from 'expo-crypto';
 import NetInfo from '@react-native-community/netinfo';
@@ -6,15 +7,17 @@ import { useAuthStore } from '../store/authStore';
 import { requireOrganizationScope } from './accountScope';
 import {
   getOperation,
+  hasOfflineDatabase,
   getSyncCounts,
   insertOperation,
+  offlineRecordingEpoch,
   setLastSyncedAt,
   updateOperation,
 } from './database';
 import type { OfflinePaymentResult, QueuedOperation } from './types';
 import { useSyncStore } from '../store/syncStore';
 import { accountForScope, requestAsAccount } from './accountClient';
-import { refreshOfflineAccess, useOfflineAccessStore } from './access';
+import { refreshOfflineAccess, offlineAccessForScope } from './access';
 import { canRecordOffline, requireOfflineRecording } from './accessPolicy';
 import { claimOperation } from './database';
 
@@ -128,17 +131,28 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
 
   try {
     if (!await claimOperation(operation)) return { kind: 'retryable', error: new Error('Payment is already being synchronized') };
+    const claimed = await getOperation(operation.operationId, operation.accountScope);
+    if (!claimed) throw new Error('Saved payment is no longer available for delivery');
+    const cancellation = claimed.serverReceipt?.cancellationRequest;
     const response = await requestAsAccount(operation.accountScope, {
-      method: 'POST', url: operation.payload.offlineAuthorization ? '/payments' : '/payments/offline/reviews/legacy', data: operation.payload,
+      method: 'POST', url: cancellation ? '/payments/offline/reviews/cancel-unsynced' : operation.payload.offlineAuthorization ? '/payments/offline/record' : '/payments/offline/reviews/legacy', data: cancellation ? { originalActorId: operation.actorId, original: operation.payload, cancellation: { reason: cancellation.reason, noMoneyCollected: cancellation.noMoneyCollected } } : operation.payload,
       headers: { 'X-Idempotency-Key': operation.operationId },
     });
     const result = response.data?.data ?? response.data;
-    if (!result?.id) throw new Error('Server did not confirm a payment receipt; retrying safely');
+    if (cancellation && (result?.status === 'CANCELLED' || (result?.status === 'REFUNDED' && result?.refund))) {
+      await updateOperation(operation.operationId, operation.accountScope, 'CANCELLED', {
+        attempts, serverReviewId: result.id, serverReceipt: { offlineReviewResolution: result.status, reviewId: result.id, reason: result.resolutionReason, refund: result.refund },
+      });
+      return { kind: 'succeeded', result };
+    }
+    const confirmed = cancellation && result?.status === 'RECEIPT_EXISTS' ? result.receipt : result;
+    if (!confirmed?.id) throw new Error('Server did not confirm a payment receipt; retrying safely');
     await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
       attempts,
-      serverReceiptId: result?.id ? String(result.id) : null,
-      serverReceipt: result,
+      serverReceiptId: String(confirmed.id),
+      serverReceipt: confirmed,
     });
+    try { await refreshPostedCollection(operation.accountScope, operation.payload, confirmed); } catch { /* Receipt is confirmed; preparation retries stale reads separately. */ }
     return { kind: 'succeeded', result };
   } catch (error) {
     const details = errorDetails(error);
@@ -201,6 +215,48 @@ function pendingResult(operationId: string, payload: RecordPaymentPayload): Offl
   };
 }
 
+async function deliverSavedPayment(operation: QueuedOperation<RecordPaymentPayload>, reachable: boolean) {
+  const operationId = operation.operationId;
+  const payload = operation.payload;
+  const insertCounts = await getSyncCounts(operation.accountScope);
+  useSyncStore.getState().setStateForScope(operation.accountScope, {
+    pendingCount: insertCounts.pending,
+    conflictCount: insertCounts.conflicts,
+    failedCount: insertCounts.failed,
+    status: reachable ? 'syncing' : 'offline',
+  });
+  if (!reachable) return pendingResult(operationId, payload);
+
+  let processed: ProcessOperationResult;
+  try {
+    processed = await processPaymentOperation(operation);
+  } catch {
+    return pendingResult(operationId, payload);
+  }
+  const counts = await getSyncCounts(operation.accountScope);
+  if (processed.kind === 'succeeded' && counts.pending === 0 && counts.conflicts === 0 && counts.failed === 0) {
+    await setLastSyncedAt(operation.accountScope, Date.now());
+  }
+  useSyncStore.getState().setStateForScope(operation.accountScope, {
+    pendingCount: counts.pending,
+    conflictCount: counts.conflicts,
+    failedCount: counts.failed,
+    status: processed.kind === 'succeeded'
+      ? (counts.conflicts || counts.failed ? 'conflict' : counts.pending ? 'pending' : 'synced')
+      : processed.kind === 'conflict' || processed.kind === 'failed'
+        ? 'conflict'
+        : processed.kind === 'auth-required'
+          ? 'auth-required'
+          : processed.kind === 'access-required' ? 'access-required'
+          : 'pending',
+  });
+  if (processed.kind === 'succeeded') return processed.result;
+  if (processed.kind === 'retryable' || processed.kind === 'auth-required' || processed.kind === 'access-required') {
+    return pendingResult(operationId, payload);
+  }
+  throw processed.error;
+}
+
 export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): Promise<any | OfflinePaymentResult> {
   const user = useAuthStore.getState().user;
   if (user?.role !== 'ADMIN' || input.paymentMode === 'CREDIT') {
@@ -213,9 +269,33 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
   }
 
   const account = requireOrganizationScope(user);
+  const epochScope = account.scope;
+  const sessionEpoch = await offlineRecordingEpoch(epochScope);
   const network = await NetInfo.fetch();
   const reachable = network.isConnected === true && network.isInternetReachable !== false;
-  let access = useOfflineAccessStore.getState().accounts[account.scope];
+  if (input.idempotencyKey && await hasOfflineDatabase(account.scope)) {
+    const prior = await getOperation(input.idempotencyKey, account.scope) as QueuedOperation<RecordPaymentPayload & { localRecoveryRequired?: boolean }> | null;
+    if (prior) {
+      if (prior.action !== 'RECORD_PAYMENT' || prior.payload?.localRecoveryRequired) throw new Error('This saved collection needs review before it can be retried');
+      const business = (value: RecordPaymentPayload) => {
+        const { recordedAt: _time, offlineAuthorization: _grant, ...fields } = normalizePayload(value);
+        return fields;
+      };
+      if (await payloadHash(business(input)) !== await payloadHash(business(prior.payload))) {
+        throw new Error('This saved collection has different details. Review it before changing the amount.');
+      }
+      if (prior.status === 'SUCCEEDED') {
+        if (['REFUNDED', 'CANCELLED'].includes(prior.serverReceipt?.offlineReviewResolution)) throw new Error('This collection was closed after review. Its original record remains in saved activity.');
+        if (!prior.serverReceipt?.id && !prior.serverReceiptId) throw new Error('Server confirmation needs verification. The saved collection remains preserved.');
+        return prior.serverReceipt ?? { ...pendingResult(prior.operationId, prior.payload),
+          id: prior.serverReceiptId, offlineQueued: false, status: 'COMPLETED' };
+      }
+      if (prior.status === 'CANCELLED' || prior.serverReceipt?.cancellationRequest) throw new Error('This collection was cancelled or cancellation is awaiting server verification. Check History or saved payments.');
+      if (['CONFLICT', 'PERMANENT_FAILURE'].includes(prior.status)) throw new Error(prior.lastErrorMessage ?? 'This saved collection needs review');
+      return deliverSavedPayment(prior as QueuedOperation<RecordPaymentPayload>, reachable);
+    }
+  }
+  let access = offlineAccessForScope(account.scope);
   if (reachable && !canRecordOffline(access, 'RECORD_PAYMENT')) {
     try { access = await refreshOfflineAccess(account.scope); } catch { /* Existing valid grants survive transport failure. */ }
   }
@@ -258,7 +338,8 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
       updatedAt: now,
     };
     try {
-      await insertOperation(operation);
+      if (operation.accountScope !== epochScope) throw new Error('Account changed before the payment could be saved');
+      await insertOperation(operation,sessionEpoch);
       inserted = true;
       break;
     } catch (error) {
@@ -268,8 +349,8 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
         operationId = Crypto.randomUUID();
         continue;
       }
-      // SQLCipher unavailable (Expo Go) or unrecoverable error
-      if (reachable && !isCollision) return sendForAccount(account.scope, payload, operationId);
+      // A signed offline operation must be durably saved before sending. A
+      // fallback with freshly minted time/grant would break immutable retries.
       throw error;
     }
   }
@@ -280,43 +361,7 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
     throw new Error('The payment could not be saved securely on this device');
   }
 
-  const insertCounts = await getSyncCounts(account.scope);
-  useSyncStore.getState().setStateForScope(account.scope, {
-    pendingCount: insertCounts.pending,
-    conflictCount: insertCounts.conflicts,
-    failedCount: insertCounts.failed,
-    status: reachable ? 'pending' : 'offline',
-  });
-  if (!reachable) return pendingResult(operationId, payload);
-
   const stored = await getOperation(operationId, account.scope);
   if (!stored) throw new Error('The payment could not be saved securely on this device');
-  let processed: ProcessOperationResult;
-  try {
-    processed = await processPaymentOperation(stored);
-  } catch {
-    return pendingResult(operationId, payload);
-  }
-  const counts = await getSyncCounts(account.scope);
-  if (processed.kind === 'succeeded' && counts.pending === 0 && counts.conflicts === 0 && counts.failed === 0) {
-    await setLastSyncedAt(account.scope, Date.now());
-  }
-  useSyncStore.getState().setStateForScope(account.scope, {
-    pendingCount: counts.pending,
-    conflictCount: counts.conflicts,
-    failedCount: counts.failed,
-    status: processed.kind === 'succeeded'
-      ? (counts.conflicts || counts.failed ? 'conflict' : counts.pending ? 'pending' : 'synced')
-      : processed.kind === 'conflict' || processed.kind === 'failed'
-        ? 'conflict'
-        : processed.kind === 'auth-required'
-          ? 'auth-required'
-          : processed.kind === 'access-required' ? 'access-required'
-          : 'pending',
-  });
-  if (processed.kind === 'succeeded') return processed.result;
-  if (processed.kind === 'retryable' || processed.kind === 'auth-required' || processed.kind === 'access-required') {
-    return pendingResult(operationId, payload);
-  }
-  throw processed.error;
+  return deliverSavedPayment(stored as QueuedOperation<RecordPaymentPayload>, reachable);
 }
