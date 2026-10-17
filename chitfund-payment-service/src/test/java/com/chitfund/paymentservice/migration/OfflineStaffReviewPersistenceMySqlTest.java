@@ -133,7 +133,7 @@ class OfflineStaffReviewPersistenceMySqlTest {
         var saved=stored.findByIdAndTenantId(id,TenantContext.get()).orElseThrow();assertThat(saved.getLegacyPayloadJson()).isEqualTo(raw);assertThat(saved.getLegacyPayloadHash()).isEqualTo(hash);
         assertThat(reviews.detail(id,admin,true).get("authorizationVerified")).isEqualTo(false);
         assertThatThrownBy(()->reviews.resolve(id,decision(id,"RECORD_CUSTODY"),admin)).isInstanceOf(BusinessException.class).hasMessageContaining("older");verifyNoInteractions(cash);
-        Instant verified=Instant.now().minusSeconds(120);
+        Instant verified=Instant.now().minusSeconds(120).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         var verifiedDecision=new ResolveOfflineStaffReviewRequest("RECORD_CUSTODY",(String)reviews.detail(id,admin,true).get("version"),"Checked original collector and cash evidence",new BigDecimal("100"),true,null,null,null,true,verified);
         assertThat(reviews.resolve(id,verifiedDecision,admin).get("status")).isEqualTo("RECORDED");
         assertThat(reviews.resolve(id,verifiedDecision,admin).get("status")).isEqualTo("RECORDED");verify(cash,times(1)).partiallyCollect(task.getId(),new BigDecimal("100"),actor,"STAFF");
