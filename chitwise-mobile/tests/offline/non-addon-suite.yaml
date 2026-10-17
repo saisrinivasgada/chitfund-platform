@@ -1,0 +1,74 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","enabled":false}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+# Finance opens Record Payment first without a tab parameter.
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Select Member"
+    timeout: 60000
+- extendedWaitUntil:
+    notVisible:
+      id: "sync-status-button"
+    timeout: 60000
+- assertNotVisible:
+    id: "saved-payments-summary"
+- openLink: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- assertNotVisible:
+    id: "sync-account-offline-a"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "offline-connection-required"
+    timeout: 60000
+- assertVisible: ".*hasn’t subscribed to Offline access & sync.*"
+- assertNotVisible:
+    id: "sync-status-button"
+- assertNotVisible:
+    id: "chitwise-tools-button"
+- tapOn: "Switch account"
+- assertVisible: "Switch Account"
+- assertNotVisible:
+    id: "sync-account-offline-a"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","enabled":true}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "sync-status-button"
+    timeout: 60000

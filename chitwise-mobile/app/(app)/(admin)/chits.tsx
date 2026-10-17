@@ -1,3 +1,4 @@
+import { ChitActionDialog, ChitDialogHost } from '../../../components/ChitActionDialog';
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, FlatList, Modal, Alert, TextInput, TouchableOpacity,
@@ -312,9 +313,8 @@ export default function AdminChitsScreen() {
       const target = (chits as any[]).find((c: any) => c.id === params.openChitId);
       if (target) {
         consumedOpenChitId.current = params.openChitId;
-        setSelected(target);
+        openDetail(target);
         setDetailTab((params.openTab as DetailTab) ?? 'info');
-        setShowDetail(true);
       }
     }
   }, [params.openChitId, params.openTab, chits]);
@@ -468,7 +468,7 @@ export default function AdminChitsScreen() {
       setSelected((prev: any) => prev ? { ...prev, status: vars.status } : prev);
       toast.saved('Status updated');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   // Pause/resume go through dedicated endpoints, not updateChitStatus: the
@@ -531,7 +531,7 @@ export default function AdminChitsScreen() {
       qc.invalidateQueries({ queryKey: ['a-enrollments', selected?.id] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const winnerMut = useOnlineMutation({
@@ -543,11 +543,34 @@ export default function AdminChitsScreen() {
       setShowWinner(false); setWinnerMemberId(''); setWinnerDraw(''); setWinnerWinningAmount('');
       toast.saved('Winner recorded');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   // ── Mutations: draws ───────────────────────────────────────────────────────
+  const dialogClosers = useRef(new Map<symbol, () => void>());
+  const drawDialogSequence = useRef(0);
+  const selectedChitId = useRef(selected?.id);
+  selectedChitId.current = selected?.id;
+  const [openDrawError, setOpenDrawError] = useState('');
+  const actionOpen = showOpenAuction || showCloseAuction || showExtend || showEditModal || showEnroll || showWinner
+    || showOpenDraw || showSkipDraw || showAddSlot || showVoidSlot || !!voidBatchId || showSwap || showShift
+    || showCollectPay || showWinnerPayout || showDisburse || showPayoutDetail;
+  function closeDrawDialog() {
+    drawDialogSequence.current++; setShowOpenDraw(false); setOpenDrawError(''); setOdWinnerIds([]); setOdDrawNum('');
+    setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
+  }
+  function closeDetail() {
+    drawDialogSequence.current++; setShowDetail(false); setEditActiveConfirmed(false); setOpenDrawError('');
+    setShowOpenAuction(false); setShowCloseAuction(false); setShowExtend(false); setShowEditModal(false);
+    setShowEnroll(false); setShowWinner(false); setShowOpenDraw(false); setShowSkipDraw(false); setSdDrawId('');
+    setShowAddSlot(false); setShowVoidSlot(false); setVoidBatchId(''); setShowSwap(false); setSwapA(''); setSwapB('');
+    setShowShift(false); setShowCollectPay(false); setShowWinnerPayout(false); setShowDisburse(false); setShowPayoutDetail(false);
+    setOdWinnerIds([]);
+  }
+
   const openDrawMut = useOnlineMutation({
+    offlineErrorMode: 'handler',
+    onMutate: () => ({ chitId: selected.id, sequence: drawDialogSequence.current }),
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
       const baseInstallment = Number(selected?.installmentAmount ?? (Number(selected?.chitValue ?? 0) / Number(selected?.capacity ?? 1)));
@@ -636,16 +659,22 @@ export default function AdminChitsScreen() {
         }
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
+    onSuccess: (_data, _variables, original) => {
+      const chitId = original?.chitId;
+      qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
-      qc.invalidateQueries({ queryKey: ['a-winners', selected.id] });
-      qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-winners', chitId] });
+      qc.invalidateQueries({ queryKey: ['a-reservations', chitId] });
+      if (!original || selectedChitId.current !== chitId || original.sequence !== drawDialogSequence.current) return;
       setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); setOdDueDate('');
       setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
       toast.noted('Draw opened');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any, _variables, original) => {
+      if (original && selectedChitId.current === original.chitId && original.sequence === drawDialogSequence.current) {
+        setOpenDrawError(e.response?.data?.message ?? e.message ?? 'Could not open this draw. Please try again.');
+      }
+    },
   });
 
   const closeDrawMut = useOnlineMutation({
@@ -655,7 +684,7 @@ export default function AdminChitsScreen() {
       qc.invalidateQueries({ queryKey: ['a-chits'] });
       toast.noted('Draw closed');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const skipDrawMut = useOnlineMutation({
@@ -681,7 +710,7 @@ export default function AdminChitsScreen() {
       setShowSkipDraw(false); setSdDrawId(''); setSdDrawNum(''); setSdReason('');
       toast.skipped('Draw skipped — slots shifted forward');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const deleteDrawMut = useOnlineMutation({
@@ -706,6 +735,7 @@ export default function AdminChitsScreen() {
 
   // ── Mutation: collect payment for a draw ──────────────────────────────────
   const collectPayMut = useMutation({
+    networkMode: 'always',
     mutationFn: () => recordPaymentOfflineCapable({
       chitId: selected.id,
       memberId: cpMemberId,
@@ -801,13 +831,13 @@ export default function AdminChitsScreen() {
       setShowShift(false); setShiftFrom('');
       toast.saved('Schedule shifted forward by 1 draw');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const processSlotMut = useOnlineMutation({
     mutationFn: (resId: string) => markSlotProcessed(selected.id, resId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] }),
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
   const updateSlotMut = useOnlineMutation({
@@ -974,7 +1004,7 @@ export default function AdminChitsScreen() {
     });
 
   function openDetail(c: any) {
-    setSelected(c); setDetailTab('info'); setShowDetail(true);
+    closeDetail(); setSelected(c); setDetailTab('info'); setShowDetail(true);
   }
 
   const TABS: { key: DetailTab; label: string }[] = [
@@ -1124,11 +1154,18 @@ export default function AdminChitsScreen() {
         )}
       />
 
+
+
       {/* ════════════════════════════════════════════════════════════════════════
-          CHIT DETAIL MODAL
+          CHIT DETAIL SHEET — one native presentation, inline action panels
       ════════════════════════════════════════════════════════════════════════ */}
-      <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
+      <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" allowSwipeDismissal
+        onRequestClose={() => {
+          const closeAction = [...dialogClosers.current.values()].at(-1);
+          if (Platform.OS === 'android' && closeAction) closeAction(); else closeDetail();
+        }}>
+        <ChitDialogHost value={dialogClosers}>
+        <SafeAreaView accessibilityElementsHidden={actionOpen} importantForAccessibility={actionOpen ? 'no-hide-descendants' : 'auto'} style={{ flex: 1, backgroundColor: C.surface }}>
           {/* Header */}
           <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1190,7 +1227,7 @@ export default function AdminChitsScreen() {
                   {selected?.totalAmount && <Amount value={selected.totalAmount} size="sm" color={C.green} />}
                 </View>
               </View>
-              <TouchableOpacity onPress={() => { setShowDetail(false); setEditActiveConfirmed(false); }}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close chit details" onPress={closeDetail}>
                 <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
               </TouchableOpacity>
             </View>
@@ -1595,6 +1632,7 @@ export default function AdminChitsScreen() {
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                   <View style={{ flex: 1 }}>
                     <Button label="+ Open New Draw" variant="primary" size="sm" disabled={isExpired} onPress={() => {
+                      drawDialogSequence.current++; setOpenDrawError('');
                       setOdDrawNum(String(nextDrawNum));
                       setShowOpenDraw(true);
                     }} />
@@ -2474,10 +2512,10 @@ export default function AdminChitsScreen() {
             })()}
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+
 
       {/* ── Open Auction Modal ──────────────────────────────────────────────────── */}
-      <Modal visible={showOpenAuction} animationType="slide" presentationStyle="formSheet"
+      <ChitActionDialog visible={showOpenAuction} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowOpenAuction(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
@@ -2578,10 +2616,10 @@ export default function AdminChitsScreen() {
             />
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Close Auction Modal ─────────────────────────────────────────────────── */}
-      <Modal visible={showCloseAuction} animationType="slide" presentationStyle="formSheet"
+      <ChitActionDialog visible={showCloseAuction} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowCloseAuction(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
@@ -2642,10 +2680,10 @@ export default function AdminChitsScreen() {
             />
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Extend Time Modal ───────────────────────────────────────────────────── */}
-      <Modal visible={showExtend} animationType="slide" presentationStyle="formSheet"
+      <ChitActionDialog visible={showExtend} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowExtend(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
@@ -2704,12 +2742,12 @@ export default function AdminChitsScreen() {
             />
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ════════════════════════════════════════════════════════════════════════
           EDIT CHIT DETAILS MODAL
       ════════════════════════════════════════════════════════════════════════ */}
-      <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet"
+      <ChitActionDialog visible={showEditModal} animationType="slide" presentationStyle="pageSheet"
         onRequestClose={() => setShowEditModal(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -2891,8 +2929,909 @@ export default function AdminChitsScreen() {
             </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
+
+
+      {/* ── Enroll Member bottom-sheet ─────────────────────────────────────── */}
+      <ChitActionDialog visible={showEnroll} animationType="slide" transparent onRequestClose={() => setShowEnroll(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 4 }}>Enroll Member</Text>
+            {isLotteryChit && (
+              <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 12 }}>Each spot = one lottery entry. A member with 2 spots can win up to 2 draws.</Text>
+            )}
+            {!isLotteryChit && <View style={{ marginBottom: 12 }} />}
+
+            {/* Member list — all active for lottery, unenrolled for reservation */}
+            {(isLotteryChit ? (members as any[]).filter((m: any) => m.status === 'ACTIVE') : unenrolled).length === 0 ? (
+              <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 20 }}>
+                {isLotteryChit ? 'No active members' : 'All members already enrolled'}
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 280 }}>
+                {(isLotteryChit ? (members as any[]).filter((m: any) => m.status === 'ACTIVE') : unenrolled).map((m: any) => {
+                  const currentSpots = memberSpotMap[m.id]?.spots ?? 0;
+                  return (
+                    <TouchableOpacity key={m.id} onPress={() => { setEnrollMemberId(m.id); setEnrollSpots(1); }}
+                      style={{ padding: 14, borderRadius: 10, marginBottom: 6, backgroundColor: enrollMemberId === m.id ? C.navy50 : C.gray50, borderWidth: 2, borderColor: enrollMemberId === m.id ? C.navy : 'transparent' }}>
+                      <Text style={{ fontSize: 14, fontWeight: enrollMemberId === m.id ? '700' : '400', color: enrollMemberId === m.id ? C.navy : C.gray900 }}>
+                        {m.fullName ?? m.name} {enrollMemberId === m.id ? '✓' : ''}
+                      </Text>
+                      {m.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{m.phone}</Text>}
+                      {isLotteryChit && currentSpots > 0 && (
+                        <Text style={{ fontSize: 11, color: C.navy, marginTop: 2, fontWeight: '600' }}>
+                          Currently {currentSpots} spot{currentSpots > 1 ? 's' : ''}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {/* Spots counter — lottery only */}
+            {isLotteryChit && enrollMemberId && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray700 }}>Number of Spots</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  <TouchableOpacity
+                    onPress={() => setEnrollSpots((s) => Math.max(1, s - 1))}
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: enrollSpots <= 1 ? C.gray100 : C.navy + '15', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: enrollSpots <= 1 ? C.gray400 : C.navy }}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy, minWidth: 24, textAlign: 'center' }}>{enrollSpots}</Text>
+                  <TouchableOpacity
+                    onPress={() => setEnrollSpots((s) => s + 1)}
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.navy + '15', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowEnroll(false); setEnrollMemberId(''); setEnrollSpots(1); }} /></View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label={isLotteryChit && enrollSpots > 1 ? `Enroll ${enrollSpots} Spots` : 'Enroll'}
+                  variant="primary" disabled={!enrollMemberId} loading={enrollMut.isPending}
+                  onPress={() => enrollMut.mutate({ chitId: selected.id, memberId: enrollMemberId, spots: enrollSpots })} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Record Winner bottom-sheet ─────────────────────────────────────── */}
+      <ChitActionDialog visible={showWinner} animationType="slide" transparent onRequestClose={() => setShowWinner(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '65%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Record Draw Winner</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>Select the member who won this draw</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw #</Text>
+                <TextInput value={winnerDraw} onChangeText={setWinnerDraw} keyboardType="numeric" placeholder="e.g. 3"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Winning Amount (₹)</Text>
+                <TextInput value={winnerWinningAmount} onChangeText={setWinnerWinningAmount} keyboardType="numeric"
+                  placeholder={`${selected?.chitValue ?? ''}`}
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+              </View>
+            </View>
+            <ScrollView style={{ maxHeight: 200 }}>
+              {(enrollments as any[]).map((e: any) => {
+                const name = memberMap[e.memberId ?? e.id] ?? 'Unknown';
+                const mid = e.memberId ?? e.id;
+                return (
+                  <TouchableOpacity key={mid} onPress={() => setWinnerMemberId(mid)}
+                    style={{ padding: 12, borderRadius: 10, marginBottom: 6, backgroundColor: winnerMemberId === mid ? '#FEF3C7' : C.gray50, borderWidth: 2, borderColor: winnerMemberId === mid ? C.amber : 'transparent' }}>
+                    <Text style={{ fontSize: 14, fontWeight: winnerMemberId === mid ? '700' : '400', color: winnerMemberId === mid ? C.amber : C.gray900 }}>
+                      {name} {winnerMemberId === mid ? '★' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowWinner(false); setWinnerMemberId(''); setWinnerDraw(''); setWinnerWinningAmount(''); }} /></View>
+              <View style={{ flex: 1 }}>
+                <Button label="Record Winner" variant="gold" disabled={!winnerMemberId || !winnerDraw} loading={winnerMut.isPending}
+                  onPress={() => winnerMut.mutate({ chitId: selected.id, winnerId: winnerMemberId, monthNumber: winnerDraw, winningAmount: winnerWinningAmount })} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Open Draw bottom-sheet ─────────────────────────────────────────── */}
+      <ChitActionDialog visible={showOpenDraw} animationType="slide" transparent onRequestClose={closeDrawDialog}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+              <View>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>
+                  {isLotteryChit ? '🎲 Lottery Draw' : 'Open Draw'}
+                </Text>
+                {isLotteryChit && lotteryEligibleIds.length > 0 && (
+                  <Text style={{ fontSize: 12, color: C.gray400, marginTop: 2 }}>
+                    {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={closeDrawDialog}>
+                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+              {!!openDrawError && <Text accessibilityRole="alert" style={{ color: C.red, backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 16 }}>{openDrawError}</Text>}
+              {/* Draw number + due date — same for all types */}
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number *</Text>
+                <TextInput value={odDrawNum} onChangeText={setOdDrawNum} keyboardType="numeric" placeholder={String(nextDrawNum)}
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
+                <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Next suggested: #{nextDrawNum}</Text>
+              </View>
+              <View style={{ marginBottom: 20 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payment Due Date</Text>
+                <TextInput
+                  value={odDueDate}
+                  onChangeText={setOdDueDate}
+                  placeholder={computeDueDate(selected?.startDate, Number(odDrawNum) || nextDrawNum, selected?.monthlyDueDate)}
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }}
+                />
+                <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Auto-computed · Override by typing YYYY-MM-DD</Text>
+              </View>
+
+              {isLotteryChit ? (
+                <>
+                  {/* Payout amount from matching slot */}
+                  {(() => {
+                    const drawNum = Number(odDrawNum) || nextDrawNum;
+                    const slot = (reservations as any[]).find((r: any) => r.monthNumber === drawNum && r.status !== 'VOIDED');
+                    return slot?.payoutAmount ? (
+                      <View style={{ backgroundColor: '#FEF3C7', borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600' }}>Draw #{drawNum} Payout</Text>
+                        <Text style={{ fontSize: 17, fontWeight: '800', color: C.amber }}>₹{Number(slot.payoutAmount).toLocaleString('en-IN')}</Text>
+                      </View>
+                    ) : null;
+                  })()}
+
+                  {/* Mode selection */}
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>Winner Selection</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                    {(['RANDOM', 'PICK'] as const).map((mode) => (
+                      <TouchableOpacity key={mode} onPress={() => { setLotteryDrawMode(mode); setLotteryPickedWinnerId(''); }}
+                        style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 2,
+                          borderColor: lotteryDrawMode === mode ? C.navy : C.gray200,
+                          backgroundColor: lotteryDrawMode === mode ? C.navy50 : C.white,
+                          alignItems: 'center' }}>
+                        <Text style={{ fontSize: 20, marginBottom: 4 }}>{mode === 'RANDOM' ? '🎲' : '👆'}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: lotteryDrawMode === mode ? C.navy : C.gray700 }}>
+                          {mode === 'RANDOM' ? 'Random Draw' : 'Pick Winner'}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: C.gray400, textAlign: 'center', marginTop: 2 }}>
+                          {mode === 'RANDOM' ? 'System picks randomly' : 'Admin selects winner'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Pick mode: eligible member list */}
+                  {lotteryDrawMode === 'PICK' && (
+                    <>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Select Winner</Text>
+                      {lotteryEligibleIds.length === 0 ? (
+                        <View style={{ backgroundColor: '#FFF5F5', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                          <Text style={{ fontSize: 13, color: C.red, fontWeight: '600' }}>No eligible members</Text>
+                          <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>All enrolled members have used their spots.</Text>
+                        </View>
+                      ) : (
+                        <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+                          <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                            {lotteryEligibleIds.map((mid) => {
+                              const name = memberMap[mid] ?? 'Unknown';
+                              const isSelected = lotteryPickedWinnerId === mid;
+                              const wins = lotteryWinCounts[mid] ?? 0;
+                              const spots = lotterySpotCounts[mid] ?? 1;
+                              return (
+                                <TouchableOpacity key={mid} onPress={() => setLotteryPickedWinnerId(mid)}
+                                  style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <View>
+                                    <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
+                                      {name} {isSelected ? '✓' : ''}
+                                    </Text>
+                                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
+                                      {spots} spot{spots > 1 ? 's' : ''} · {wins} win{wins !== 1 ? 's' : ''}
+                                    </Text>
+                                  </View>
+                                  {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {lotteryDrawMode === 'RANDOM' && (
+                    <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 12, marginBottom: 20 }}>
+                      <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>
+                        🎲 Winner will be drawn at random from {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}.
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Select Winners (optional)</Text>
+                  <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>Tap to select one or more winners. You can also record winners later via the Winners tab.</Text>
+
+                  {odWinnerIds.length > 0 && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                      {odWinnerIds.map((mid) => (
+                        <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.navy, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>{memberMap[mid] ?? mid}</Text>
+                          <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)' }}>×</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+                    <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+                      {(enrollments as any[]).map((e: any) => {
+                        const mid = String(e.memberId ?? e.id);
+                        const name = memberMap[mid] ?? 'Unknown';
+                        const isSelected = odWinnerIds.includes(mid);
+                        return (
+                          <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
+                            style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
+                              {name}
+                            </Text>
+                            {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </>
+              )}
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Button label="Cancel" variant="ghost" onPress={closeDrawDialog} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    label={isLotteryChit
+                      ? (lotteryDrawMode === 'PICK' && lotteryPickedWinnerId
+                          ? `Draw · ${memberMap[lotteryPickedWinnerId] ?? 'Selected'}`
+                          : `Run Lottery Draw #${odDrawNum || nextDrawNum}`)
+                      : (odWinnerIds.length > 1
+                          ? `Open Draw #${odDrawNum || nextDrawNum} · ${odWinnerIds.length} Winners`
+                          : `Open Draw #${odDrawNum || nextDrawNum}`)}
+                    variant="success"
+                    onPress={() => openDrawMut.mutate()} loading={openDrawMut.isPending}
+                    disabled={openDrawMut.isPending || (isLotteryChit && lotteryDrawMode === 'PICK' && !lotteryPickedWinnerId) || (isLotteryChit && lotteryEligibleIds.length === 0)} />
+                </View>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Skip Draw bottom-sheet ─────────────────────────────────────────── */}
+      <ChitActionDialog visible={showSkipDraw} animationType="slide" transparent onRequestClose={() => setShowSkipDraw(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Skip Draw</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
+              Skipping shifts all future reservation slots forward by 1 draw.
+            </Text>
+            <View style={{ marginBottom: 16 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number to Skip</Text>
+              <TextInput value={sdDrawNum} onChangeText={setSdDrawNum} keyboardType="numeric" placeholder="e.g. 3"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+            </View>
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
+              <TextInput value={sdReason} onChangeText={setSdReason} multiline numberOfLines={3}
+                placeholder="e.g. Festival holiday, member request..."
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 80, textAlignVertical: 'top' }} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowSkipDraw(false); setSdDrawId(''); setSdDrawNum(''); setSdReason(''); }} /></View>
+              <View style={{ flex: 1 }}>
+                <Button label="Skip & Shift" variant="danger" disabled={!sdDrawNum || !sdReason} loading={skipDrawMut.isPending}
+                  onPress={() => Alert.alert('Skip Draw', `Skip Draw #${sdDrawNum} and shift all future slots? This cannot be undone.`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Skip', style: 'destructive', onPress: () => skipDrawMut.mutate() },
+                  ])} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Add Slot bottom-sheet ─────────────────────────────────────────── */}
+      <ChitActionDialog visible={showAddSlot} animationType="slide" transparent onRequestClose={() => setShowAddSlot(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Add Reservation Slot</Text>
+              <TouchableOpacity onPress={() => setShowAddSlot(false)}>
+                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+              <View style={{ marginBottom: 14 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number *</Text>
+                <TextInput value={asMonth} onChangeText={setAsMonth} keyboardType="numeric"
+                  placeholder={`1 – ${selected?.totalDraws ?? selected?.durationMonths ?? '?'}`}
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Assign Member *</Text>
+              <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+                <ScrollView nestedScrollEnabled style={{ maxHeight: 240 }}>
+                  {(enrollments as any[]).map((e: any) => {
+                    const name = memberMap[e.memberId ?? e.id] ?? 'Unknown';
+                    const mid = e.memberId ?? e.id;
+                    return (
+                      <TouchableOpacity key={mid} onPress={() => setAsMemberId(mid)}
+                        style={{ padding: 12, backgroundColor: asMemberId === mid ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                        <Text style={{ fontSize: 14, fontWeight: asMemberId === mid ? '700' : '400', color: asMemberId === mid ? C.navy : C.gray900 }}>
+                          {name} {asMemberId === mid ? '✓' : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Button label="Cancel" variant="ghost" onPress={() => { setShowAddSlot(false); setAsMonth(''); setAsMemberId(''); }} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button label="Reserve Slot" variant="primary"
+                    onPress={() => addSlotMut.mutate()} loading={addSlotMut.isPending}
+                    disabled={!asMonth || !asMemberId} />
+                </View>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Void Slot bottom-sheet ─────────────────────────────────────────── */}
+      <ChitActionDialog visible={showVoidSlot} animationType="slide" transparent onRequestClose={() => setShowVoidSlot(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Slot</Text>
+            {vsSlot && (
+              <Text style={{ fontSize: 13, color: C.gray600, marginBottom: 16 }}>
+                Draw {vsSlot.slotNumber ?? vsSlot.monthNumber} — {memberMap[vsSlot.memberId] ?? vsSlot.memberName ?? 'Unknown'}
+              </Text>
+            )}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason (optional)</Text>
+            <TextInput value={vsReason} onChangeText={setVsReason} multiline
+              placeholder="e.g. Member withdrew, swap arranged..."
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top', marginBottom: 12 }} />
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Replace blank slot at</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+              {(['same', 'end'] as const).map((opt) => (
+                <TouchableOpacity key={opt} onPress={() => setVsReplaceAt(opt)}
+                  style={{ flex: 1, padding: 10, borderRadius: 10, borderWidth: 1.5,
+                    borderColor: vsReplaceAt === opt ? C.navy : C.gray300,
+                    backgroundColor: vsReplaceAt === opt ? C.navy50 : C.white }}>
+                  <Text style={{ textAlign: 'center', fontSize: 13, fontWeight: '600', color: vsReplaceAt === opt ? C.navy : C.gray500 }}>
+                    {opt === 'same' ? 'Same position' : 'End of schedule'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowVoidSlot(false); setVsSlot(null); setVsReason(''); }} /></View>
+              <View style={{ flex: 1 }}>
+                <Button label="Void Slot" variant="danger" loading={voidSlotMut.isPending}
+                  onPress={() => Alert.alert('Void Slot', 'This removes the member from this slot. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Void', style: 'destructive', onPress: () => voidSlotMut.mutate() },
+                  ])} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Void Payment Batch Modal ──────────────────────────────────────── */}
+      <ChitActionDialog visible={!!voidBatchId} animationType="slide" transparent onRequestClose={() => setVoidBatchId('')}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Payment</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
+              This reverses the payment record. The member's balance will be updated accordingly.
+            </Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
+            <TextInput value={voidBatchReason} onChangeText={setVoidBatchReason} multiline
+              placeholder="e.g. Entered wrong amount, duplicate entry"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 72, textAlignVertical: 'top', marginBottom: 16 }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setVoidBatchId(''); setVoidBatchReason(''); }} /></View>
+              <View style={{ flex: 1 }}><Button label="Void Payment" variant="danger" disabled={!voidBatchReason.trim()} loading={voidBatchMut.isPending}
+                onPress={() => voidBatchMut.mutate()} /></View>
+            </View>
+          </View>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Swap Slots bottom-sheet ────────────────────────────────────────── */}
+      <ChitActionDialog visible={showSwap} animationType="slide" transparent onRequestClose={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Swap Slots</Text>
+              <TouchableOpacity onPress={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
+                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+              <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
+                Swap two reserved slots — members exchange their scheduled draws.
+              </Text>
+              {['A', 'B'].map((label, idx) => {
+                const currentVal = idx === 0 ? swapA : swapB;
+                const setValue = idx === 0 ? setSwapA : setSwapB;
+                const otherVal = idx === 0 ? swapB : swapA;
+                const displaySlot = reservedSlots.find((r: any) => r.id === currentVal);
+                const displayName = displaySlot
+                  ? `Draw ${displaySlot.slotNumber ?? displaySlot.monthNumber} — ${memberMap[displaySlot.memberId] ?? 'Unknown'}`
+                  : 'Tap to select…';
+                return (
+                  <View key={label} style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: currentVal ? C.navy : C.gray500, marginBottom: 8 }}>
+                      Slot {label}: {displayName}
+                    </Text>
+                    <View style={{ borderWidth: 1.5, borderColor: currentVal ? C.navy : C.gray200, borderRadius: 12, overflow: 'hidden' }}>
+                      {reservedSlots.filter((r: any) => r.id !== otherVal).map((slot: any) => {
+                        const name = memberMap[slot.memberId] ?? 'Unknown';
+                        const slotNum = slot.slotNumber ?? slot.monthNumber;
+                        const isSelected = currentVal === slot.id;
+                        return (
+                          <TouchableOpacity key={slot.id}
+                            onPress={() => setValue(slot.id)}
+                            activeOpacity={0.6}
+                            style={{ padding: 13, backgroundColor: isSelected ? C.navy + '15' : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                            <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
+                              Draw {slotNum} — {name}{isSelected ? '  ✓' : ''}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+              {(!swapA || !swapB) && (
+                <Text style={{ fontSize: 12, color: C.amber, textAlign: 'center', marginBottom: 12 }}>
+                  {!swapA && !swapB ? 'Select two slots to swap' : !swapA ? 'Select Slot A' : 'Select Slot B'}
+                </Text>
+              )}
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                <View style={{ flex: 1 }}>
+                  <Button label="Cancel" variant="ghost" onPress={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button label="Confirm Swap" variant="primary"
+                    disabled={!swapA || !swapB || swapA === swapB} loading={swapMut.isPending}
+                    onPress={() => {
+                      const sA = reservedSlots.find((r: any) => r.id === swapA);
+                      const sB = reservedSlots.find((r: any) => r.id === swapB);
+                      const nameA = sA ? `Draw ${sA.slotNumber ?? sA.monthNumber} (${memberMap[sA.memberId] ?? 'Unknown'})` : swapA;
+                      const nameB = sB ? `Draw ${sB.slotNumber ?? sB.monthNumber} (${memberMap[sB.memberId] ?? 'Unknown'})` : swapB;
+                      Alert.alert('Confirm Swap', `Swap:\n${nameA}\n↕\n${nameB}\n\nTheir draws will be exchanged.`, [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Swap', style: 'destructive', onPress: () => swapMut.mutate() },
+                      ]);
+                    }} />
+                </View>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Shift Schedule bottom-sheet ────────────────────────────────────── */}
+      <ChitActionDialog visible={showShift} animationType="slide" transparent onRequestClose={() => setShowShift(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Shift Schedule</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
+              Push all reserved slots from this draw onwards forward by 1 draw. Use after skipping a draw.
+            </Text>
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Shift From Draw *</Text>
+              <TextInput value={shiftFrom} onChangeText={setShiftFrom} keyboardType="numeric" placeholder="e.g. 4"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+              <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>
+                Slots from draw {shiftFrom || '?'} onwards will shift to draw {shiftFrom ? Number(shiftFrom) + 1 : '?'} onwards.
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowShift(false); setShiftFrom(''); }} /></View>
+              <View style={{ flex: 1 }}>
+                <Button label="Shift Forward" variant="danger" disabled={!shiftFrom} loading={shiftMut.isPending}
+                  onPress={() => Alert.alert('Shift Schedule', `Push all slots from draw ${shiftFrom} onwards forward by 1 draw?`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Shift', style: 'destructive', onPress: () => shiftMut.mutate() },
+                  ])} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Collect Payment bottom-sheet ───────────────────────────────────── */}
+      <ChitActionDialog visible={showCollectPay} animationType="slide" transparent onRequestClose={() => setShowCollectPay(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+              <View>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Collect Payment</Text>
+                {cpDraw && <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Draw #{cpDraw.drawNumber} — {selected?.name}</Text>}
+              </View>
+              <TouchableOpacity onPress={() => setShowCollectPay(false)}>
+                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6 }}>SELECT MEMBER</Text>
+              <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden' }}>
+                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                  {(enrollments as any[]).map((e: any) => {
+                    const mId = e.memberId ?? e.id;
+                    const mName = e.memberName ?? memberMap[mId] ?? mId;
+                    return (
+                      <TouchableOpacity key={mId} onPress={() => setCpMemberId(mId)}
+                        style={{ padding: 12, backgroundColor: cpMemberId === mId ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                        <Text style={{ fontSize: 14, fontWeight: cpMemberId === mId ? '700' : '400', color: cpMemberId === mId ? C.navy : C.gray900 }}>
+                          {mName} {cpMemberId === mId ? '✓' : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <View>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>AMOUNT (₹)</Text>
+                <TextInput value={cpAmount} onChangeText={setCpAmount} keyboardType="numeric" placeholder="Enter amount"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
+                {selected?.installmentAmount && (
+                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
+                    Standard: ₹{Number(selected.installmentAmount).toLocaleString('en-IN')}
+                  </Text>
+                )}
+              </View>
+
+              <View>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 8 }}>PAYMENT MODE</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((mode) => (
+                    <TouchableOpacity key={mode} onPress={() => { setCpMode(mode); setCpReference(''); }}
+                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
+                        borderColor: cpMode === mode ? C.navy : C.gray300,
+                        backgroundColor: cpMode === mode ? C.navy50 : C.white }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: cpMode === mode ? C.navy : C.gray500 }}>
+                        {mode.replace('_', ' ')}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(cpMode) && (
+                <View>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>TRANSACTION REFERENCE *</Text>
+                  <TextInput
+                    value={cpReference}
+                    onChangeText={setCpReference}
+                    autoCapitalize="characters"
+                    placeholder={cpMode === 'UPI' ? 'UPI UTR / transaction ID' : cpMode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
+                    placeholderTextColor={C.gray400}
+                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                  />
+                  <Text style={{ fontSize: 11, color: C.gray500, marginTop: 5 }}>Prevents duplicate recording across devices.</Text>
+                </View>
+              )}
+
+              <View>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>NOTES (OPTIONAL)</Text>
+                <TextInput value={cpNotes} onChangeText={setCpNotes} multiline placeholder="Any notes…"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 56, textAlignVertical: 'top' }} />
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Button label="Cancel" variant="ghost" onPress={() => setShowCollectPay(false)} />
+                </View>
+                <View style={{ flex: 2 }}>
+                  <Button label={`Record ₹${Number(cpAmount || 0).toLocaleString('en-IN')}`}
+                    variant="success" size="lg"
+                    disabled={!cpMemberId || !cpAmount || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(cpMode) && !cpReference.trim())}
+                    loading={collectPayMut.isPending}
+                    onPress={() => collectPayMut.mutate()} />
+                </View>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Create Payout from Winner (bottom-sheet, stacks over pageSheet detail) ── */}
+      <ChitActionDialog visible={showWinnerPayout} animationType="slide" transparent onRequestClose={() => setShowWinnerPayout(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900 }}>Create Payout</Text>
+              <TouchableOpacity onPress={() => setShowWinnerPayout(false)}>
+                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+              {/* Winner info banner */}
+              {wpWinner && (
+                <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: C.amber }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>Winner — Draw #{wpWinner.monthNumber ?? wpWinner.drawNumber}</Text>
+                  <Text style={{ fontSize: 14, color: C.gray900, marginTop: 2 }}>
+                    {memberMap[wpWinner.memberId ?? wpWinner.winnerId] ?? wpWinner.memberName ?? 'Unknown Member'}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
+                    {selected?.name ?? '—'} • {selected?.durationMonths ?? '—'} months
+                  </Text>
+                </View>
+              )}
+
+              {/* Chit value reference */}
+              {selected?.totalAmount && (
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                  <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 8, padding: 10 }}>
+                    <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2 }}>CHIT VALUE</Text>
+                    <Amount value={selected.totalAmount} size="md" />
+                  </View>
+                  {selected.installmentAmount && (
+                    <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 8, padding: 10 }}>
+                      <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2 }}>INSTALLMENT</Text>
+                      <Amount value={selected.installmentAmount} size="md" />
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Recorded Winner Amount</Text>
+              <TextInput
+                style={{ borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.gray50, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }}
+                placeholder="Recorded amount"
+                placeholderTextColor={C.gray400}
+                keyboardType="decimal-pad"
+                value={wpAmount}
+                editable={false}
+              />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (optional)</Text>
+              <TextInput
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, height: 72, textAlignVertical: 'top', marginBottom: 20 }}
+                placeholder="Add notes about this payout..."
+                placeholderTextColor={C.gray400}
+                multiline
+                value={wpNotes}
+                onChangeText={setWpNotes}
+              />
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Button label="Cancel" variant="ghost" onPress={() => setShowWinnerPayout(false)} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    label="Create Payout"
+                    variant="gold"
+                    disabled={!wpAmount || Number(wpAmount) <= 0}
+                    loading={winnerPayoutMut.isPending}
+                    onPress={() => winnerPayoutMut.mutate()}
+                  />
+                </View>
+              </View>
+              <Text style={{ fontSize: 11, color: C.gray400, textAlign: 'center', marginTop: 10 }}>
+                After creating, tap "Disburse" to release the funds to the winner.
+              </Text>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Disburse Payout bottom-sheet ─────────────────────────────────────── */}
+      <ChitActionDialog visible={showDisburse} animationType="slide" transparent onRequestClose={() => setShowDisburse(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' }}>
+            <ScrollView contentContainerStyle={{ padding: 24 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: C.green }}>Disburse Payout</Text>
+                <TouchableOpacity onPress={() => setShowDisburse(false)}>
+                  <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+                </TouchableOpacity>
+              </View>
+
+              {dsPayout && (
+                <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: C.green }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.green }}>Payout #{dsPayout.id?.slice(-6)?.toUpperCase()}</Text>
+                  <View style={{ flexDirection: 'row', gap: 16, marginTop: 6 }}>
+                    {dsPayout.payoutAmount && (
+                      <View>
+                        <Text style={{ fontSize: 10, color: C.gray400 }}>TOTAL</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>₹{Number(dsPayout.netPayoutAmount ?? dsPayout.payoutAmount).toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+                    {dsPayout.disbursedAmount > 0 && (
+                      <View>
+                        <Text style={{ fontSize: 10, color: C.gray400 }}>PAID SO FAR</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>₹{Number(dsPayout.disbursedAmount).toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Amount to Disburse (₹) *</Text>
+              <TextInput
+                value={dsAmount}
+                onChangeText={setDsAmount}
+                keyboardType="decimal-pad"
+                placeholder="Enter amount"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+              />
+
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Payment Mode</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((mode) => (
+                  <TouchableOpacity key={mode} onPress={() => setDsMode(mode)}
+                    style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
+                      borderColor: dsMode === mode ? C.navy : C.gray300,
+                      backgroundColor: dsMode === mode ? C.navy50 : C.white }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: dsMode === mode ? C.navy : C.gray500 }}>
+                      {mode.replace('_', ' ')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (optional)</Text>
+              <TextInput
+                value={dsNotes}
+                onChangeText={setDsNotes}
+                multiline
+                placeholder="Any notes about this disbursement..."
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top', marginBottom: 20 }}
+              />
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Button label="Cancel" variant="ghost" onPress={() => setShowDisburse(false)} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    label={`Disburse ₹${Number(dsAmount || 0).toLocaleString('en-IN')}`}
+                    variant="success"
+                    disabled={!dsAmount || Number(dsAmount) <= 0}
+                    loading={disburseMut.isPending}
+                    onPress={() => Alert.alert('Confirm Disbursement', `Disburse ₹${Number(dsAmount).toLocaleString('en-IN')} via ${dsMode.replace('_', ' ')}?`, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Disburse', onPress: () => disburseMut.mutate() },
+                    ])}
+                  />
+                </View>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </ChitActionDialog>
+
+      {/* ── Payout Detail bottom-sheet ────────────────────────────────────────── */}
+      <ChitActionDialog visible={showPayoutDetail} animationType="slide" transparent onRequestClose={() => setShowPayoutDetail(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
+            <ScrollView contentContainerStyle={{ padding: 24 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>Payout Details</Text>
+                <TouchableOpacity onPress={() => setShowPayoutDetail(false)}>
+                  <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+                </TouchableOpacity>
+              </View>
+
+              {pdPayout && (() => {
+                const ps = pdPayout.status;
+                const statusColor = ps === 'DISBURSED' ? C.green : ps === 'PARTIALLY_DISBURSED' ? C.navyLight : ps === 'PENDING' ? C.amber : C.gray400;
+                const statusLabel = ps === 'PARTIALLY_DISBURSED' ? 'Partial' : ps;
+                return (
+                  <>
+                    {/* Status badge */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                      <View style={{ backgroundColor: statusColor + '20', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: statusColor }}>{statusLabel}</Text>
+                      </View>
+                      <Text style={{ fontSize: 12, color: C.gray400 }}>Payout #{pdPayout.id?.slice(-8)?.toUpperCase()}</Text>
+                    </View>
+
+                    {/* Key amounts */}
+                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                      <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 10, padding: 12 }}>
+                        <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 4 }}>PAYOUT AMOUNT</Text>
+                        <Text style={{ fontSize: 18, fontWeight: '800', color: C.navy }}>
+                          ₹{Number(pdPayout.netPayoutAmount ?? pdPayout.payoutAmount ?? 0).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                      {Number(pdPayout.disbursedAmount ?? 0) > 0 && (
+                        <View style={{ flex: 1, backgroundColor: '#F0FDF4', borderRadius: 10, padding: 12 }}>
+                          <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 4 }}>DISBURSED</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '800', color: C.green }}>
+                            ₹{Number(pdPayout.disbursedAmount).toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Details rows */}
+                    {[
+                      pdPayout.paymentMode     && { label: 'Payment Mode',   value: pdPayout.paymentMode.replace('_', ' ') },
+                      pdPayout.disbursedAt      && { label: 'Disbursed At',   value: fmtDateTime(pdPayout.disbursedAt) },
+                      pdPayout.createdAt        && { label: 'Created At',     value: fmtDate(pdPayout.createdAt) },
+                      pdPayout.notes            && { label: 'Notes',          value: pdPayout.notes },
+                    ].filter(Boolean).map((row: any) => (
+                      <View key={row.label} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                        <Text style={{ fontSize: 13, color: C.gray500 }}>{row.label}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, flex: 1, textAlign: 'right' }}>{row.value}</Text>
+                      </View>
+                    ))}
+
+                    {/* Cross-chit dues note */}
+                    {Number(pdPayout.crossChitDuesDeducted ?? 0) > 0 && (
+                      <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, padding: 10, marginTop: 12 }}>
+                        <Text style={{ fontSize: 12, color: C.amber, fontWeight: '600' }}>
+                          ₹{Number(pdPayout.crossChitDuesDeducted).toLocaleString('en-IN')} deducted for outstanding dues
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={{ marginTop: 20 }}>
+                      <Button label="Close" variant="outline" onPress={() => setShowPayoutDetail(false)} />
+                    </View>
+                  </>
+                );
+              })()}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </ChitActionDialog>
+      </ChitDialogHost>
+      </Modal>
       {/* ════════════════════════════════════════════════════════════════════════
           CREATE CHIT MODAL
       ════════════════════════════════════════════════════════════════════════ */}
@@ -3299,903 +4238,6 @@ export default function AdminChitsScreen() {
           )}
           </KeyboardAvoidingView>
         </SafeAreaView>
-      </Modal>
-
-      {/* ── Enroll Member bottom-sheet ─────────────────────────────────────── */}
-      <Modal visible={showEnroll} animationType="slide" transparent onRequestClose={() => setShowEnroll(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 4 }}>Enroll Member</Text>
-            {isLotteryChit && (
-              <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 12 }}>Each spot = one lottery entry. A member with 2 spots can win up to 2 draws.</Text>
-            )}
-            {!isLotteryChit && <View style={{ marginBottom: 12 }} />}
-
-            {/* Member list — all active for lottery, unenrolled for reservation */}
-            {(isLotteryChit ? (members as any[]).filter((m: any) => m.status === 'ACTIVE') : unenrolled).length === 0 ? (
-              <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 20 }}>
-                {isLotteryChit ? 'No active members' : 'All members already enrolled'}
-              </Text>
-            ) : (
-              <ScrollView style={{ maxHeight: 280 }}>
-                {(isLotteryChit ? (members as any[]).filter((m: any) => m.status === 'ACTIVE') : unenrolled).map((m: any) => {
-                  const currentSpots = memberSpotMap[m.id]?.spots ?? 0;
-                  return (
-                    <TouchableOpacity key={m.id} onPress={() => { setEnrollMemberId(m.id); setEnrollSpots(1); }}
-                      style={{ padding: 14, borderRadius: 10, marginBottom: 6, backgroundColor: enrollMemberId === m.id ? C.navy50 : C.gray50, borderWidth: 2, borderColor: enrollMemberId === m.id ? C.navy : 'transparent' }}>
-                      <Text style={{ fontSize: 14, fontWeight: enrollMemberId === m.id ? '700' : '400', color: enrollMemberId === m.id ? C.navy : C.gray900 }}>
-                        {m.fullName ?? m.name} {enrollMemberId === m.id ? '✓' : ''}
-                      </Text>
-                      {m.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{m.phone}</Text>}
-                      {isLotteryChit && currentSpots > 0 && (
-                        <Text style={{ fontSize: 11, color: C.navy, marginTop: 2, fontWeight: '600' }}>
-                          Currently {currentSpots} spot{currentSpots > 1 ? 's' : ''}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            )}
-
-            {/* Spots counter — lottery only */}
-            {isLotteryChit && enrollMemberId && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: C.gray100 }}>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray700 }}>Number of Spots</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                  <TouchableOpacity
-                    onPress={() => setEnrollSpots((s) => Math.max(1, s - 1))}
-                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: enrollSpots <= 1 ? C.gray100 : C.navy + '15', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 18, fontWeight: '700', color: enrollSpots <= 1 ? C.gray400 : C.navy }}>−</Text>
-                  </TouchableOpacity>
-                  <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy, minWidth: 24, textAlign: 'center' }}>{enrollSpots}</Text>
-                  <TouchableOpacity
-                    onPress={() => setEnrollSpots((s) => s + 1)}
-                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.navy + '15', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowEnroll(false); setEnrollMemberId(''); setEnrollSpots(1); }} /></View>
-              <View style={{ flex: 1 }}>
-                <Button
-                  label={isLotteryChit && enrollSpots > 1 ? `Enroll ${enrollSpots} Spots` : 'Enroll'}
-                  variant="primary" disabled={!enrollMemberId} loading={enrollMut.isPending}
-                  onPress={() => enrollMut.mutate({ chitId: selected.id, memberId: enrollMemberId, spots: enrollSpots })} />
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Record Winner bottom-sheet ─────────────────────────────────────── */}
-      <Modal visible={showWinner} animationType="slide" transparent onRequestClose={() => setShowWinner(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '65%' }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Record Draw Winner</Text>
-            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>Select the member who won this draw</Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw #</Text>
-                <TextInput value={winnerDraw} onChangeText={setWinnerDraw} keyboardType="numeric" placeholder="e.g. 3"
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Winning Amount (₹)</Text>
-                <TextInput value={winnerWinningAmount} onChangeText={setWinnerWinningAmount} keyboardType="numeric"
-                  placeholder={`${selected?.chitValue ?? ''}`}
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-              </View>
-            </View>
-            <ScrollView style={{ maxHeight: 200 }}>
-              {(enrollments as any[]).map((e: any) => {
-                const name = memberMap[e.memberId ?? e.id] ?? 'Unknown';
-                const mid = e.memberId ?? e.id;
-                return (
-                  <TouchableOpacity key={mid} onPress={() => setWinnerMemberId(mid)}
-                    style={{ padding: 12, borderRadius: 10, marginBottom: 6, backgroundColor: winnerMemberId === mid ? '#FEF3C7' : C.gray50, borderWidth: 2, borderColor: winnerMemberId === mid ? C.amber : 'transparent' }}>
-                    <Text style={{ fontSize: 14, fontWeight: winnerMemberId === mid ? '700' : '400', color: winnerMemberId === mid ? C.amber : C.gray900 }}>
-                      {name} {winnerMemberId === mid ? '★' : ''}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowWinner(false); setWinnerMemberId(''); setWinnerDraw(''); setWinnerWinningAmount(''); }} /></View>
-              <View style={{ flex: 1 }}>
-                <Button label="Record Winner" variant="gold" disabled={!winnerMemberId || !winnerDraw} loading={winnerMut.isPending}
-                  onPress={() => winnerMut.mutate({ chitId: selected.id, winnerId: winnerMemberId, monthNumber: winnerDraw, winningAmount: winnerWinningAmount })} />
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Open Draw bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showOpenDraw} animationType="slide" transparent onRequestClose={() => setShowOpenDraw(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-              <View>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>
-                  {isLotteryChit ? '🎲 Lottery Draw' : 'Open Draw'}
-                </Text>
-                {isLotteryChit && lotteryEligibleIds.length > 0 && (
-                  <Text style={{ fontSize: 12, color: C.gray400, marginTop: 2 }}>
-                    {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}
-                  </Text>
-                )}
-              </View>
-              <TouchableOpacity onPress={() => { setShowOpenDraw(false); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }}>
-                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
-              {/* Draw number + due date — same for all types */}
-              <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number *</Text>
-                <TextInput value={odDrawNum} onChangeText={setOdDrawNum} keyboardType="numeric" placeholder={String(nextDrawNum)}
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
-                <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Next suggested: #{nextDrawNum}</Text>
-              </View>
-              <View style={{ marginBottom: 20 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payment Due Date</Text>
-                <TextInput
-                  value={odDueDate}
-                  onChangeText={setOdDueDate}
-                  placeholder={computeDueDate(selected?.startDate, Number(odDrawNum) || nextDrawNum, selected?.monthlyDueDate)}
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }}
-                />
-                <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Auto-computed · Override by typing YYYY-MM-DD</Text>
-              </View>
-
-              {isLotteryChit ? (
-                <>
-                  {/* Payout amount from matching slot */}
-                  {(() => {
-                    const drawNum = Number(odDrawNum) || nextDrawNum;
-                    const slot = (reservations as any[]).find((r: any) => r.monthNumber === drawNum && r.status !== 'VOIDED');
-                    return slot?.payoutAmount ? (
-                      <View style={{ backgroundColor: '#FEF3C7', borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600' }}>Draw #{drawNum} Payout</Text>
-                        <Text style={{ fontSize: 17, fontWeight: '800', color: C.amber }}>₹{Number(slot.payoutAmount).toLocaleString('en-IN')}</Text>
-                      </View>
-                    ) : null;
-                  })()}
-
-                  {/* Mode selection */}
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>Winner Selection</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-                    {(['RANDOM', 'PICK'] as const).map((mode) => (
-                      <TouchableOpacity key={mode} onPress={() => { setLotteryDrawMode(mode); setLotteryPickedWinnerId(''); }}
-                        style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 2,
-                          borderColor: lotteryDrawMode === mode ? C.navy : C.gray200,
-                          backgroundColor: lotteryDrawMode === mode ? C.navy50 : C.white,
-                          alignItems: 'center' }}>
-                        <Text style={{ fontSize: 20, marginBottom: 4 }}>{mode === 'RANDOM' ? '🎲' : '👆'}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: lotteryDrawMode === mode ? C.navy : C.gray700 }}>
-                          {mode === 'RANDOM' ? 'Random Draw' : 'Pick Winner'}
-                        </Text>
-                        <Text style={{ fontSize: 10, color: C.gray400, textAlign: 'center', marginTop: 2 }}>
-                          {mode === 'RANDOM' ? 'System picks randomly' : 'Admin selects winner'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  {/* Pick mode: eligible member list */}
-                  {lotteryDrawMode === 'PICK' && (
-                    <>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Select Winner</Text>
-                      {lotteryEligibleIds.length === 0 ? (
-                        <View style={{ backgroundColor: '#FFF5F5', borderRadius: 10, padding: 12, marginBottom: 16 }}>
-                          <Text style={{ fontSize: 13, color: C.red, fontWeight: '600' }}>No eligible members</Text>
-                          <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>All enrolled members have used their spots.</Text>
-                        </View>
-                      ) : (
-                        <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-                          <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                            {lotteryEligibleIds.map((mid) => {
-                              const name = memberMap[mid] ?? 'Unknown';
-                              const isSelected = lotteryPickedWinnerId === mid;
-                              const wins = lotteryWinCounts[mid] ?? 0;
-                              const spots = lotterySpotCounts[mid] ?? 1;
-                              return (
-                                <TouchableOpacity key={mid} onPress={() => setLotteryPickedWinnerId(mid)}
-                                  style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                  <View>
-                                    <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
-                                      {name} {isSelected ? '✓' : ''}
-                                    </Text>
-                                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
-                                      {spots} spot{spots > 1 ? 's' : ''} · {wins} win{wins !== 1 ? 's' : ''}
-                                    </Text>
-                                  </View>
-                                  {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </ScrollView>
-                        </View>
-                      )}
-                    </>
-                  )}
-
-                  {lotteryDrawMode === 'RANDOM' && (
-                    <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 12, marginBottom: 20 }}>
-                      <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>
-                        🎲 Winner will be drawn at random from {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}.
-                      </Text>
-                    </View>
-                  )}
-                </>
-              ) : (
-                <>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Select Winners (optional)</Text>
-                  <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>Tap to select one or more winners. You can also record winners later via the Winners tab.</Text>
-
-                  {odWinnerIds.length > 0 && (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-                      {odWinnerIds.map((mid) => (
-                        <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
-                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.navy, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>{memberMap[mid] ?? mid}</Text>
-                          <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)' }}>×</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-
-                  <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-                    <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
-                      {(enrollments as any[]).map((e: any) => {
-                        const mid = String(e.memberId ?? e.id);
-                        const name = memberMap[mid] ?? 'Unknown';
-                        const isSelected = odWinnerIds.includes(mid);
-                        return (
-                          <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
-                            style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
-                              {name}
-                            </Text>
-                            {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                </>
-              )}
-
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => { setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    label={isLotteryChit
-                      ? (lotteryDrawMode === 'PICK' && lotteryPickedWinnerId
-                          ? `Draw · ${memberMap[lotteryPickedWinnerId] ?? 'Selected'}`
-                          : `Run Lottery Draw #${odDrawNum || nextDrawNum}`)
-                      : (odWinnerIds.length > 1
-                          ? `Open Draw #${odDrawNum || nextDrawNum} · ${odWinnerIds.length} Winners`
-                          : `Open Draw #${odDrawNum || nextDrawNum}`)}
-                    variant="success"
-                    onPress={() => openDrawMut.mutate()} loading={openDrawMut.isPending}
-                    disabled={openDrawMut.isPending || (isLotteryChit && lotteryDrawMode === 'PICK' && !lotteryPickedWinnerId) || (isLotteryChit && lotteryEligibleIds.length === 0)} />
-                </View>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      {/* ── Skip Draw bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showSkipDraw} animationType="slide" transparent onRequestClose={() => setShowSkipDraw(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Skip Draw</Text>
-            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
-              Skipping shifts all future reservation slots forward by 1 draw.
-            </Text>
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number to Skip</Text>
-              <TextInput value={sdDrawNum} onChangeText={setSdDrawNum} keyboardType="numeric" placeholder="e.g. 3"
-                placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-            </View>
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
-              <TextInput value={sdReason} onChangeText={setSdReason} multiline numberOfLines={3}
-                placeholder="e.g. Festival holiday, member request..."
-                placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 80, textAlignVertical: 'top' }} />
-            </View>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowSkipDraw(false); setSdDrawId(''); setSdDrawNum(''); setSdReason(''); }} /></View>
-              <View style={{ flex: 1 }}>
-                <Button label="Skip & Shift" variant="danger" disabled={!sdDrawNum || !sdReason} loading={skipDrawMut.isPending}
-                  onPress={() => Alert.alert('Skip Draw', `Skip Draw #${sdDrawNum} and shift all future slots? This cannot be undone.`, [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Skip', style: 'destructive', onPress: () => skipDrawMut.mutate() },
-                  ])} />
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Add Slot bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showAddSlot} animationType="slide" transparent onRequestClose={() => setShowAddSlot(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Add Reservation Slot</Text>
-              <TouchableOpacity onPress={() => setShowAddSlot(false)}>
-                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
-              <View style={{ marginBottom: 14 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number *</Text>
-                <TextInput value={asMonth} onChangeText={setAsMonth} keyboardType="numeric"
-                  placeholder={`1 – ${selected?.totalDraws ?? selected?.durationMonths ?? '?'}`}
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-              </View>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Assign Member *</Text>
-              <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-                <ScrollView nestedScrollEnabled style={{ maxHeight: 240 }}>
-                  {(enrollments as any[]).map((e: any) => {
-                    const name = memberMap[e.memberId ?? e.id] ?? 'Unknown';
-                    const mid = e.memberId ?? e.id;
-                    return (
-                      <TouchableOpacity key={mid} onPress={() => setAsMemberId(mid)}
-                        style={{ padding: 12, backgroundColor: asMemberId === mid ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                        <Text style={{ fontSize: 14, fontWeight: asMemberId === mid ? '700' : '400', color: asMemberId === mid ? C.navy : C.gray900 }}>
-                          {name} {asMemberId === mid ? '✓' : ''}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => { setShowAddSlot(false); setAsMonth(''); setAsMemberId(''); }} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button label="Reserve Slot" variant="primary"
-                    onPress={() => addSlotMut.mutate()} loading={addSlotMut.isPending}
-                    disabled={!asMonth || !asMemberId} />
-                </View>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      {/* ── Void Slot bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showVoidSlot} animationType="slide" transparent onRequestClose={() => setShowVoidSlot(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Slot</Text>
-            {vsSlot && (
-              <Text style={{ fontSize: 13, color: C.gray600, marginBottom: 16 }}>
-                Draw {vsSlot.slotNumber ?? vsSlot.monthNumber} — {memberMap[vsSlot.memberId] ?? vsSlot.memberName ?? 'Unknown'}
-              </Text>
-            )}
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason (optional)</Text>
-            <TextInput value={vsReason} onChangeText={setVsReason} multiline
-              placeholder="e.g. Member withdrew, swap arranged..."
-              placeholderTextColor={C.gray400}
-              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top', marginBottom: 12 }} />
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Replace blank slot at</Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-              {(['same', 'end'] as const).map((opt) => (
-                <TouchableOpacity key={opt} onPress={() => setVsReplaceAt(opt)}
-                  style={{ flex: 1, padding: 10, borderRadius: 10, borderWidth: 1.5,
-                    borderColor: vsReplaceAt === opt ? C.navy : C.gray300,
-                    backgroundColor: vsReplaceAt === opt ? C.navy50 : C.white }}>
-                  <Text style={{ textAlign: 'center', fontSize: 13, fontWeight: '600', color: vsReplaceAt === opt ? C.navy : C.gray500 }}>
-                    {opt === 'same' ? 'Same position' : 'End of schedule'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowVoidSlot(false); setVsSlot(null); setVsReason(''); }} /></View>
-              <View style={{ flex: 1 }}>
-                <Button label="Void Slot" variant="danger" loading={voidSlotMut.isPending}
-                  onPress={() => Alert.alert('Void Slot', 'This removes the member from this slot. Continue?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Void', style: 'destructive', onPress: () => voidSlotMut.mutate() },
-                  ])} />
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Void Payment Batch Modal ──────────────────────────────────────── */}
-      <Modal visible={!!voidBatchId} animationType="slide" transparent onRequestClose={() => setVoidBatchId('')}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Payment</Text>
-            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
-              This reverses the payment record. The member's balance will be updated accordingly.
-            </Text>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
-            <TextInput value={voidBatchReason} onChangeText={setVoidBatchReason} multiline
-              placeholder="e.g. Entered wrong amount, duplicate entry"
-              placeholderTextColor={C.gray400}
-              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 72, textAlignVertical: 'top', marginBottom: 16 }} />
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setVoidBatchId(''); setVoidBatchReason(''); }} /></View>
-              <View style={{ flex: 1 }}><Button label="Void Payment" variant="danger" disabled={!voidBatchReason.trim()} loading={voidBatchMut.isPending}
-                onPress={() => voidBatchMut.mutate()} /></View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Swap Slots bottom-sheet ────────────────────────────────────────── */}
-      <Modal visible={showSwap} animationType="slide" transparent onRequestClose={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Swap Slots</Text>
-              <TouchableOpacity onPress={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
-                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
-              <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
-                Swap two reserved slots — members exchange their scheduled draws.
-              </Text>
-              {['A', 'B'].map((label, idx) => {
-                const currentVal = idx === 0 ? swapA : swapB;
-                const setValue = idx === 0 ? setSwapA : setSwapB;
-                const otherVal = idx === 0 ? swapB : swapA;
-                const displaySlot = reservedSlots.find((r: any) => r.id === currentVal);
-                const displayName = displaySlot
-                  ? `Draw ${displaySlot.slotNumber ?? displaySlot.monthNumber} — ${memberMap[displaySlot.memberId] ?? 'Unknown'}`
-                  : 'Tap to select…';
-                return (
-                  <View key={label} style={{ marginBottom: 16 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: currentVal ? C.navy : C.gray500, marginBottom: 8 }}>
-                      Slot {label}: {displayName}
-                    </Text>
-                    <View style={{ borderWidth: 1.5, borderColor: currentVal ? C.navy : C.gray200, borderRadius: 12, overflow: 'hidden' }}>
-                      {reservedSlots.filter((r: any) => r.id !== otherVal).map((slot: any) => {
-                        const name = memberMap[slot.memberId] ?? 'Unknown';
-                        const slotNum = slot.slotNumber ?? slot.monthNumber;
-                        const isSelected = currentVal === slot.id;
-                        return (
-                          <TouchableOpacity key={slot.id}
-                            onPress={() => setValue(slot.id)}
-                            activeOpacity={0.6}
-                            style={{ padding: 13, backgroundColor: isSelected ? C.navy + '15' : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                            <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
-                              Draw {slotNum} — {name}{isSelected ? '  ✓' : ''}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                );
-              })}
-              {(!swapA || !swapB) && (
-                <Text style={{ fontSize: 12, color: C.amber, textAlign: 'center', marginBottom: 12 }}>
-                  {!swapA && !swapB ? 'Select two slots to swap' : !swapA ? 'Select Slot A' : 'Select Slot B'}
-                </Text>
-              )}
-              <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-                <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button label="Confirm Swap" variant="primary"
-                    disabled={!swapA || !swapB || swapA === swapB} loading={swapMut.isPending}
-                    onPress={() => {
-                      const sA = reservedSlots.find((r: any) => r.id === swapA);
-                      const sB = reservedSlots.find((r: any) => r.id === swapB);
-                      const nameA = sA ? `Draw ${sA.slotNumber ?? sA.monthNumber} (${memberMap[sA.memberId] ?? 'Unknown'})` : swapA;
-                      const nameB = sB ? `Draw ${sB.slotNumber ?? sB.monthNumber} (${memberMap[sB.memberId] ?? 'Unknown'})` : swapB;
-                      Alert.alert('Confirm Swap', `Swap:\n${nameA}\n↕\n${nameB}\n\nTheir draws will be exchanged.`, [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Swap', style: 'destructive', onPress: () => swapMut.mutate() },
-                      ]);
-                    }} />
-                </View>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      {/* ── Shift Schedule bottom-sheet ────────────────────────────────────── */}
-      <Modal visible={showShift} animationType="slide" transparent onRequestClose={() => setShowShift(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Shift Schedule</Text>
-            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
-              Push all reserved slots from this draw onwards forward by 1 draw. Use after skipping a draw.
-            </Text>
-            <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Shift From Draw *</Text>
-              <TextInput value={shiftFrom} onChangeText={setShiftFrom} keyboardType="numeric" placeholder="e.g. 4"
-                placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-              <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>
-                Slots from draw {shiftFrom || '?'} onwards will shift to draw {shiftFrom ? Number(shiftFrom) + 1 : '?'} onwards.
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowShift(false); setShiftFrom(''); }} /></View>
-              <View style={{ flex: 1 }}>
-                <Button label="Shift Forward" variant="danger" disabled={!shiftFrom} loading={shiftMut.isPending}
-                  onPress={() => Alert.alert('Shift Schedule', `Push all slots from draw ${shiftFrom} onwards forward by 1 draw?`, [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Shift', style: 'destructive', onPress: () => shiftMut.mutate() },
-                  ])} />
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Collect Payment bottom-sheet ───────────────────────────────────── */}
-      <Modal visible={showCollectPay} animationType="slide" transparent onRequestClose={() => setShowCollectPay(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-              <View>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Collect Payment</Text>
-                {cpDraw && <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Draw #{cpDraw.drawNumber} — {selected?.name}</Text>}
-              </View>
-              <TouchableOpacity onPress={() => setShowCollectPay(false)}>
-                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
-              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6 }}>SELECT MEMBER</Text>
-              <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden' }}>
-                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
-                  {(enrollments as any[]).map((e: any) => {
-                    const mId = e.memberId ?? e.id;
-                    const mName = e.memberName ?? memberMap[mId] ?? mId;
-                    return (
-                      <TouchableOpacity key={mId} onPress={() => setCpMemberId(mId)}
-                        style={{ padding: 12, backgroundColor: cpMemberId === mId ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                        <Text style={{ fontSize: 14, fontWeight: cpMemberId === mId ? '700' : '400', color: cpMemberId === mId ? C.navy : C.gray900 }}>
-                          {mName} {cpMemberId === mId ? '✓' : ''}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>AMOUNT (₹)</Text>
-                <TextInput value={cpAmount} onChangeText={setCpAmount} keyboardType="numeric" placeholder="Enter amount"
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
-                {selected?.installmentAmount && (
-                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
-                    Standard: ₹{Number(selected.installmentAmount).toLocaleString('en-IN')}
-                  </Text>
-                )}
-              </View>
-
-              <View>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 8 }}>PAYMENT MODE</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((mode) => (
-                    <TouchableOpacity key={mode} onPress={() => { setCpMode(mode); setCpReference(''); }}
-                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
-                        borderColor: cpMode === mode ? C.navy : C.gray300,
-                        backgroundColor: cpMode === mode ? C.navy50 : C.white }}>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: cpMode === mode ? C.navy : C.gray500 }}>
-                        {mode.replace('_', ' ')}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(cpMode) && (
-                <View>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>TRANSACTION REFERENCE *</Text>
-                  <TextInput
-                    value={cpReference}
-                    onChangeText={setCpReference}
-                    autoCapitalize="characters"
-                    placeholder={cpMode === 'UPI' ? 'UPI UTR / transaction ID' : cpMode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
-                    placeholderTextColor={C.gray400}
-                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
-                  />
-                  <Text style={{ fontSize: 11, color: C.gray500, marginTop: 5 }}>Prevents duplicate recording across devices.</Text>
-                </View>
-              )}
-
-              <View>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>NOTES (OPTIONAL)</Text>
-                <TextInput value={cpNotes} onChangeText={setCpNotes} multiline placeholder="Any notes…"
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 56, textAlignVertical: 'top' }} />
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => setShowCollectPay(false)} />
-                </View>
-                <View style={{ flex: 2 }}>
-                  <Button label={`Record ₹${Number(cpAmount || 0).toLocaleString('en-IN')}`}
-                    variant="success" size="lg"
-                    disabled={!cpMemberId || !cpAmount || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(cpMode) && !cpReference.trim())}
-                    loading={collectPayMut.isPending}
-                    onPress={() => collectPayMut.mutate()} />
-                </View>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      {/* ── Create Payout from Winner (bottom-sheet, stacks over pageSheet detail) ── */}
-      <Modal visible={showWinnerPayout} animationType="slide" transparent onRequestClose={() => setShowWinnerPayout(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' }}>
-          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900 }}>Create Payout</Text>
-              <TouchableOpacity onPress={() => setShowWinnerPayout(false)}>
-                <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
-              {/* Winner info banner */}
-              {wpWinner && (
-                <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: C.amber }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>Winner — Draw #{wpWinner.monthNumber ?? wpWinner.drawNumber}</Text>
-                  <Text style={{ fontSize: 14, color: C.gray900, marginTop: 2 }}>
-                    {memberMap[wpWinner.memberId ?? wpWinner.winnerId] ?? wpWinner.memberName ?? 'Unknown Member'}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
-                    {selected?.name ?? '—'} • {selected?.durationMonths ?? '—'} months
-                  </Text>
-                </View>
-              )}
-
-              {/* Chit value reference */}
-              {selected?.totalAmount && (
-                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-                  <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 8, padding: 10 }}>
-                    <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2 }}>CHIT VALUE</Text>
-                    <Amount value={selected.totalAmount} size="md" />
-                  </View>
-                  {selected.installmentAmount && (
-                    <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 8, padding: 10 }}>
-                      <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2 }}>INSTALLMENT</Text>
-                      <Amount value={selected.installmentAmount} size="md" />
-                    </View>
-                  )}
-                </View>
-              )}
-
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Recorded Winner Amount</Text>
-              <TextInput
-                style={{ borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.gray50, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }}
-                placeholder="Recorded amount"
-                placeholderTextColor={C.gray400}
-                keyboardType="decimal-pad"
-                value={wpAmount}
-                editable={false}
-              />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (optional)</Text>
-              <TextInput
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, height: 72, textAlignVertical: 'top', marginBottom: 20 }}
-                placeholder="Add notes about this payout..."
-                placeholderTextColor={C.gray400}
-                multiline
-                value={wpNotes}
-                onChangeText={setWpNotes}
-              />
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => setShowWinnerPayout(false)} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    label="Create Payout"
-                    variant="gold"
-                    disabled={!wpAmount || Number(wpAmount) <= 0}
-                    loading={winnerPayoutMut.isPending}
-                    onPress={() => winnerPayoutMut.mutate()}
-                  />
-                </View>
-              </View>
-              <Text style={{ fontSize: 11, color: C.gray400, textAlign: 'center', marginTop: 10 }}>
-                After creating, tap "Disburse" to release the funds to the winner.
-              </Text>
-            </ScrollView>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      {/* ── Disburse Payout bottom-sheet ─────────────────────────────────────── */}
-      <Modal visible={showDisburse} animationType="slide" transparent onRequestClose={() => setShowDisburse(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' }}>
-            <ScrollView contentContainerStyle={{ padding: 24 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Text style={{ fontSize: 18, fontWeight: '700', color: C.green }}>Disburse Payout</Text>
-                <TouchableOpacity onPress={() => setShowDisburse(false)}>
-                  <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
-                </TouchableOpacity>
-              </View>
-
-              {dsPayout && (
-                <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: C.green }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.green }}>Payout #{dsPayout.id?.slice(-6)?.toUpperCase()}</Text>
-                  <View style={{ flexDirection: 'row', gap: 16, marginTop: 6 }}>
-                    {dsPayout.payoutAmount && (
-                      <View>
-                        <Text style={{ fontSize: 10, color: C.gray400 }}>TOTAL</Text>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>₹{Number(dsPayout.netPayoutAmount ?? dsPayout.payoutAmount).toLocaleString('en-IN')}</Text>
-                      </View>
-                    )}
-                    {dsPayout.disbursedAmount > 0 && (
-                      <View>
-                        <Text style={{ fontSize: 10, color: C.gray400 }}>PAID SO FAR</Text>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>₹{Number(dsPayout.disbursedAmount).toLocaleString('en-IN')}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              )}
-
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Amount to Disburse (₹) *</Text>
-              <TextInput
-                value={dsAmount}
-                onChangeText={setDsAmount}
-                keyboardType="decimal-pad"
-                placeholder="Enter amount"
-                placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
-              />
-
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Payment Mode</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-                {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((mode) => (
-                  <TouchableOpacity key={mode} onPress={() => setDsMode(mode)}
-                    style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
-                      borderColor: dsMode === mode ? C.navy : C.gray300,
-                      backgroundColor: dsMode === mode ? C.navy50 : C.white }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: dsMode === mode ? C.navy : C.gray500 }}>
-                      {mode.replace('_', ' ')}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (optional)</Text>
-              <TextInput
-                value={dsNotes}
-                onChangeText={setDsNotes}
-                multiline
-                placeholder="Any notes about this disbursement..."
-                placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top', marginBottom: 20 }}
-              />
-
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => setShowDisburse(false)} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    label={`Disburse ₹${Number(dsAmount || 0).toLocaleString('en-IN')}`}
-                    variant="success"
-                    disabled={!dsAmount || Number(dsAmount) <= 0}
-                    loading={disburseMut.isPending}
-                    onPress={() => Alert.alert('Confirm Disbursement', `Disburse ₹${Number(dsAmount).toLocaleString('en-IN')} via ${dsMode.replace('_', ' ')}?`, [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Disburse', onPress: () => disburseMut.mutate() },
-                    ])}
-                  />
-                </View>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      {/* ── Payout Detail bottom-sheet ────────────────────────────────────────── */}
-      <Modal visible={showPayoutDetail} animationType="slide" transparent onRequestClose={() => setShowPayoutDetail(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
-            <ScrollView contentContainerStyle={{ padding: 24 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>Payout Details</Text>
-                <TouchableOpacity onPress={() => setShowPayoutDetail(false)}>
-                  <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
-                </TouchableOpacity>
-              </View>
-
-              {pdPayout && (() => {
-                const ps = pdPayout.status;
-                const statusColor = ps === 'DISBURSED' ? C.green : ps === 'PARTIALLY_DISBURSED' ? C.navyLight : ps === 'PENDING' ? C.amber : C.gray400;
-                const statusLabel = ps === 'PARTIALLY_DISBURSED' ? 'Partial' : ps;
-                return (
-                  <>
-                    {/* Status badge */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                      <View style={{ backgroundColor: statusColor + '20', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: statusColor }}>{statusLabel}</Text>
-                      </View>
-                      <Text style={{ fontSize: 12, color: C.gray400 }}>Payout #{pdPayout.id?.slice(-8)?.toUpperCase()}</Text>
-                    </View>
-
-                    {/* Key amounts */}
-                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-                      <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 10, padding: 12 }}>
-                        <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 4 }}>PAYOUT AMOUNT</Text>
-                        <Text style={{ fontSize: 18, fontWeight: '800', color: C.navy }}>
-                          ₹{Number(pdPayout.netPayoutAmount ?? pdPayout.payoutAmount ?? 0).toLocaleString('en-IN')}
-                        </Text>
-                      </View>
-                      {Number(pdPayout.disbursedAmount ?? 0) > 0 && (
-                        <View style={{ flex: 1, backgroundColor: '#F0FDF4', borderRadius: 10, padding: 12 }}>
-                          <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 4 }}>DISBURSED</Text>
-                          <Text style={{ fontSize: 18, fontWeight: '800', color: C.green }}>
-                            ₹{Number(pdPayout.disbursedAmount).toLocaleString('en-IN')}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Details rows */}
-                    {[
-                      pdPayout.paymentMode     && { label: 'Payment Mode',   value: pdPayout.paymentMode.replace('_', ' ') },
-                      pdPayout.disbursedAt      && { label: 'Disbursed At',   value: fmtDateTime(pdPayout.disbursedAt) },
-                      pdPayout.createdAt        && { label: 'Created At',     value: fmtDate(pdPayout.createdAt) },
-                      pdPayout.notes            && { label: 'Notes',          value: pdPayout.notes },
-                    ].filter(Boolean).map((row: any) => (
-                      <View key={row.label} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                        <Text style={{ fontSize: 13, color: C.gray500 }}>{row.label}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, flex: 1, textAlign: 'right' }}>{row.value}</Text>
-                      </View>
-                    ))}
-
-                    {/* Cross-chit dues note */}
-                    {Number(pdPayout.crossChitDuesDeducted ?? 0) > 0 && (
-                      <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, padding: 10, marginTop: 12 }}>
-                        <Text style={{ fontSize: 12, color: C.amber, fontWeight: '600' }}>
-                          ₹{Number(pdPayout.crossChitDuesDeducted).toLocaleString('en-IN')} deducted for outstanding dues
-                        </Text>
-                      </View>
-                    )}
-
-                    <View style={{ marginTop: 20 }}>
-                      <Button label="Close" variant="outline" onPress={() => setShowPayoutDetail(false)} />
-                    </View>
-                  </>
-                );
-              })()}
-            </ScrollView>
-          </SafeAreaView>
-        </View>
       </Modal>
     </SafeAreaView>
   );

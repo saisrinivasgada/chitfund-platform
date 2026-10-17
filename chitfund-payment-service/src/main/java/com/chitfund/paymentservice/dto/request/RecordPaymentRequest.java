@@ -37,6 +37,10 @@ public class RecordPaymentRequest {
     /** Device-captured business time. Server validates the acceptable offline window. */
     private Instant recordedAt;
 
+    /** Historical authorisation for a durable offline entry; never a login token. */
+    @Size(max = 4096)
+    private String offlineAuthorization;
+
     /**
      * Optional explicit chit-level allocation. When supplied, the amount must
      * equal the sum of these entries and each entry is applied FIFO only within

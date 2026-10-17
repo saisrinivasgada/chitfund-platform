@@ -1,0 +1,93 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","enabled":true,"seedStaffReview":"UNKNOWN"}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: 'Offline collection reviews \(1\).*'
+    timeout: 60000
+- tapOn: 'Offline collection reviews \(1\).*'
+- waitForAnimationToEnd
+- tapOn: 'Staff pickups \(1\)'
+- tapOn: '.*Amount needs verification.*Staff.*pickup.*'
+- extendedWaitUntil:
+    visible: "Original collector: QA Collector A"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: '.*full held cash has already been returned.*'
+    direction: DOWN
+    centerElement: false
+- tapOn: '.*full held cash has already been returned.*'
+- scrollUntilVisible:
+    element:
+      text: "Pickup refund reference"
+    direction: DOWN
+    centerElement: false
+- tapOn: "Pickup refund reference"
+- inputText: "RETURN-QA150"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: ".*Pickup review reason.*"
+    direction: DOWN
+    centerElement: false
+- tapOn: ".*Pickup review reason.*"
+- inputText: "Original held cash returned with witness"
+- pressKey: Enter
+- tapOn: '.*full original collection has already been returned.*'
+- scrollUntilVisible:
+    element:
+      text: "Confirm pickup decision"
+    direction: DOWN
+    centerElement: false
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: false
+- scrollUntilVisible:
+    element:
+      text: "Actual original collected amount"
+    direction: UP
+    centerElement: false
+- tapOn: "Actual original collected amount"
+- inputText: "150"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Done entering pickup amount"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: '.*full original collection has already been returned.*'
+    direction: DOWN
+    centerElement: false
+- assertVisible:
+    text: '☑ .*full original collection has already been returned.*'
+- scrollUntilVisible:
+    element:
+      text: "Confirm pickup decision"
+    direction: DOWN
+    centerElement: false
+- tapOn: "Confirm pickup decision"
+- extendedWaitUntil:
+    visible: "No staff pickups waiting for review."
+    timeout: 15000
+- tapOn: "Close"
+- waitForAnimationToEnd
+- assertNotVisible: 'Offline collection reviews.*'

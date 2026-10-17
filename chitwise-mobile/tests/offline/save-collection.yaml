@@ -1,0 +1,50 @@
+# Local QA only: signed-in offline-a, fixture server unreachable, cached member/chit prepared.
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "member-row-QA Member A"
+    timeout: 60000
+- tapOn:
+    id: "member-row-QA Member A"
+- scrollUntilVisible:
+    element:
+      id: "payment-chit-40000000-0000-0000-0000-000000000001"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "payment-chit-40000000-0000-0000-0000-000000000001"
+- assertVisible: "Allocate ₹"
+- runFlow:
+    when:
+      notVisible: "Record ₹1,000 Payment"
+    commands:
+      - scrollUntilVisible:
+          element:
+            text: "Record ₹1,000 Payment"
+          direction: DOWN
+          centerElement: false
+          visibilityPercentage: 90
+- tapOn: "Record ₹1,000 Payment"
+- extendedWaitUntil:
+    visible: "Confirm Payment"
+    timeout: 10000
+- tapOn: "Record"
+- extendedWaitUntil:
+    visible:
+      id: "saved-payments-summary"
+    timeout: 30000
+- tapOn:
+    id: "saved-payments-summary"
+- extendedWaitUntil:
+    visible: ".*Will retry.*|.*Saved on device.*"
+    timeout: 30000
+
+- tapOn: "Close saved payments"

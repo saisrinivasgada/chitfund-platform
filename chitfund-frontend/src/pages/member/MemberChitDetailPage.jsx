@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  getChit, getPaymentHistory, getMemberBalance, getDraws, getWinners, getMyMemberProfile,
+  getChit, getPaymentHistory, getMemberBalance, getMyDraws, getWinners, getMyMemberProfile,
   getPayoutsForMember, getPayoutById, getMyReservations,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
@@ -248,7 +248,7 @@ export default function MemberChitDetailPage() {
 
   const { data: draws = [] } = useQuery({
     queryKey: ['draws', chitId],
-    queryFn: () => getDraws(chitId),
+    queryFn: () => getMyDraws(chitId),
     enabled: !!chitId,
     refetchOnWindowFocus: true,
     refetchInterval: 60_000,

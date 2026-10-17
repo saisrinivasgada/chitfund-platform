@@ -3,7 +3,7 @@ import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollVi
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { getMyChits, getMyMemberProfile, getMemberBalance, getPaymentHistory, getDraws, getWinners, getPayoutsForMember, listAuctions, getAuction, placeBid } from '../../../services/api';
+import { getMyChits, getMyMemberProfile, getMemberBalance, getPaymentHistory, getMyDraws, getWinners, getPayoutsForMember, listAuctions, getAuction, placeBid } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Divider, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -65,7 +65,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
 
   const { data: draws = [] } = useQuery({
     queryKey: ['member-chit-draws', chit.id],
-    queryFn: () => getDraws(chit.id),
+    queryFn: () => getMyDraws(chit.id),
     enabled: !!chit.id,
   });
 

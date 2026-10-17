@@ -57,6 +57,7 @@ import static org.mockito.Mockito.*;
 @MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("PaymentService — FIFO allocation and credit")
 class FifoAllocationTest {
+    @org.mockito.Mock FinancialCommandLock commandLocks;
 
     private static final String TENANT = "10000000-0000-0000-0000-000000000001";
 

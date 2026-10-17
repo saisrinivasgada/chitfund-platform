@@ -33,6 +33,7 @@ public class AuthController {
     private boolean cookieSecure;
 
     private final AuthService authService;
+    private final com.chitfund.userservice.service.BrowserAccountSessions browserAccountSessions;
     private final RateLimiterService rateLimiter;
     private final com.chitfund.userservice.service.AdminPasswordResetService adminPasswordResetService;
     private final com.chitfund.userservice.service.ChitfundRequestService chitfundRequestService;
@@ -85,7 +86,7 @@ public class AuthController {
         }
         LoginResponse loginResponse = authService.login(request, deviceToken);
         if (loginResponse.getAuthResponse() != null) {
-            setRefreshCookie(response, loginResponse.getAuthResponse().getRefreshToken());
+            setRefreshCookies(response, loginResponse.getAuthResponse());
         }
         return ResponseEntity.ok(ApiResponse.success(loginResponse, "Login successful"));
     }
@@ -129,7 +130,7 @@ public class AuthController {
         LoginResponse result = authService.verifyLoginEmailOtp(
                 body.get("emailVerificationToken"), body.get("code"));
         if (result.getAuthResponse() != null) {
-            setRefreshCookie(response, result.getAuthResponse().getRefreshToken());
+            setRefreshCookies(response, result.getAuthResponse());
         }
         return ResponseEntity.ok(ApiResponse.success(result, "Email verified"));
     }
@@ -146,7 +147,7 @@ public class AuthController {
         }
         LoginResponse loginResponse = authService.verifyLoginOtp(request.getOtpToken(), request.getCode(), request.isRememberDevice());
         if (loginResponse.getAuthResponse() != null) {
-            setRefreshCookie(response, loginResponse.getAuthResponse().getRefreshToken());
+            setRefreshCookies(response, loginResponse.getAuthResponse());
         }
         return ResponseEntity.ok(ApiResponse.success(loginResponse, "OTP verified"));
     }
@@ -158,7 +159,7 @@ public class AuthController {
             @Valid @RequestBody SelectTenantRequest request,
             HttpServletResponse response) {
         AuthResponse auth = authService.selectTenant(request);
-        setRefreshCookie(response, auth.getRefreshToken());
+        setRefreshCookies(response, auth);
         return ResponseEntity.ok(ApiResponse.success(auth, "Tenant selected"));
     }
 
@@ -198,7 +199,7 @@ public class AuthController {
             throw new BusinessException(ErrorCode.TOKEN_INVALID, "No refresh token provided");
         }
         AuthResponse auth = authService.refreshByToken(tokenValue);
-        setRefreshCookie(response, auth.getRefreshToken());
+        setRefreshCookies(response, auth);
         return ResponseEntity.ok(ApiResponse.success(auth));
     }
 
@@ -366,12 +367,17 @@ public class AuthController {
         }
         LoginResponse loginResponse = authService.loginByMobile(request);
         if (loginResponse.getAuthResponse() != null) {
-            setRefreshCookie(response, loginResponse.getAuthResponse().getRefreshToken());
+            setRefreshCookies(response, loginResponse.getAuthResponse());
         }
         return ResponseEntity.ok(ApiResponse.success(loginResponse, "Login successful"));
     }
 
     // ── Cookie helpers ────────────────────────────────────────────────────────
+
+    private void setRefreshCookies(HttpServletResponse response, AuthResponse auth) {
+        setRefreshCookie(response, auth.getRefreshToken());
+        browserAccountSessions.write(response, auth);
+    }
 
     private void setRefreshCookie(HttpServletResponse response, String refreshToken) {
         if (refreshToken == null) return;

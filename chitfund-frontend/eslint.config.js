@@ -6,6 +6,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores(['dist']),
+  { files: ['src/offline/worker.js'], languageOptions: { globals: { ...globals.worker, __CHITWISE_OFFLINE_BUILD__: 'readonly' } } },
   {
     files: ['**/*.{js,jsx}'],
     extends: [

@@ -25,11 +25,12 @@ export function useOnlineMutation<
   TVariables = void,
   TContext = unknown,
 >(
-  options: UseMutationOptions<TData, TError, TVariables, TContext>,
+  options: UseMutationOptions<TData, TError, TVariables, TContext> & { offlineErrorMode?: 'alert' | 'handler' },
 ): UseMutationResult<TData, TError, TVariables, TContext> {
+  const { offlineErrorMode = 'alert', ...mutationOptions } = options;
   const originalOnError = options.onError;
   return useMutation<TData, TError, TVariables, TContext>({
-    ...options,
+    ...mutationOptions,
     mutationFn: options.mutationFn
       ? async (variables: TVariables) => {
           if (!onlineManager.isOnline()) throw makeOfflineError() as unknown as TError;
@@ -38,7 +39,7 @@ export function useOnlineMutation<
       : undefined,
     onError: (...args) => {
       const [error] = args;
-      if (isOfflineError(error)) {
+      if (isOfflineError(error) && offlineErrorMode === 'alert') {
         Alert.alert(
           "You're offline",
           "This action requires an internet connection. Reconnect and try again.",

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import SnapshotLabel from '../offline/SnapshotLabel';
+import { useState, useRef } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -112,7 +113,7 @@ function StatCard({ icon: Icon, label, value, color, sub, hidden, onClick }) {
 }
 
 // Clickable workflow card for cash requests
-function CashFilterCard({ icon: Icon, label, count, todayCount, color, bgColor, onClick, active }) {
+function CashFilterCard({ icon: Icon, label, count, todayCount, color, bgColor, onClick, active, available = true }) {
   const showToday = todayCount !== undefined;
   return (
     <button
@@ -131,20 +132,21 @@ function CashFilterCard({ icon: Icon, label, count, todayCount, color, bgColor, 
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
+        <SnapshotLabel path="/payments/requests/summary" available={available} />
         {showToday ? (
           <>
-            <p className="text-xl font-bold text-gray-900 leading-tight">{todayCount ?? 0}</p>
+            <p className="text-xl font-bold text-gray-900 leading-tight">{available ? todayCount ?? 0 : '—'}</p>
             <p className="text-xs text-gray-400 mt-0.5">{count ?? 0} overall</p>
           </>
         ) : (
-          <p className="text-xl font-bold text-gray-900 leading-tight">{count ?? 0}</p>
+          <p className="text-xl font-bold text-gray-900 leading-tight">{available ? count ?? 0 : '—'}</p>
         )}
       </div>
     </button>
   );
 }
 
-function RemittanceCard({ batches, staffMap, hidden, onClick, cashPickedUp = 0, cashPartial = 0 }) {
+function RemittanceCard({ batches, staffMap, hidden, onClick, cashPickedUp = 0, cashPartial = 0, available = true }) {
   const batchTotal = batches.length;
   const cashTotal  = cashPickedUp + cashPartial;
   const total      = batchTotal + cashTotal;
@@ -174,7 +176,8 @@ function RemittanceCard({ batches, staffMap, hidden, onClick, cashPickedUp = 0, 
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs text-gray-500 font-medium">Remittance Awaiting</p>
-        <p className="text-2xl font-bold text-gray-900 leading-tight mt-0.5">{total}</p>
+        <SnapshotLabel path="/payments/pending-remittance" available={available} />
+        <p className="text-2xl font-bold text-gray-900 leading-tight mt-0.5">{available ? total : '—'}</p>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
           {parts.length > 0 && (
             <span className="text-xs text-gray-400">{parts.join(' · ')}</span>
@@ -214,6 +217,7 @@ function TreasuryCard({ label, amount, icon: Icon, color, hidden }) {
 
 
 export default function DashboardPage() {
+  const hasRenderedData = useRef(false);
   const { user, planExpiresAt } = useAuth();
   const isPlanExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const navigate = useNavigate();
@@ -261,7 +265,7 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: remittanceBatches = [] } = useQuery({
+  const { data: remittanceBatches = [], dataUpdatedAt: remittanceUpdatedAt } = useQuery({
     queryKey: ['remittance', 'pending'],
     queryFn: () => getPendingRemittance(),
     enabled: isAdmin,
@@ -392,7 +396,10 @@ export default function DashboardPage() {
   if (user?.role === 'STAFF')  return <StaffHomePage />;
   if (user?.role === 'MANAGER') return <ManagerHomePage />;
 
-  if (chitsLoading || membersLoading) return <DashboardSkeleton />;
+  // A child also observes members. Replacing the whole dashboard during its
+  // retry unmounted that child and caused an endless retry/loading cycle.
+  if ((chitsLoading || membersLoading) && navigator.onLine && !hasRenderedData.current) return <DashboardSkeleton />;
+  hasRenderedData.current = true;
 
   return (
     <div className="space-y-8">
@@ -552,35 +559,35 @@ export default function DashboardPage() {
             onLink={() => navigate('/payments/cash-requests')}
           />
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <CashFilterCard
+            <CashFilterCard available={cashSummary !== undefined}
               icon={Clock}
               label="Pending"
               count={cashSummary?.pending ?? 0}
               color="#D97706"
               onClick={() => navToCashFilter('PENDING')}
             />
-            <CashFilterCard
+            <CashFilterCard available={cashSummary !== undefined}
               icon={UserPlus}
               label="Assigned"
               count={cashSummary?.assigned ?? 0}
               color="#2D5490"
               onClick={() => navToCashFilter('ASSIGNED')}
             />
-            <CashFilterCard
+            <CashFilterCard available={cashSummary !== undefined}
               icon={PackageCheck}
               label="Picked Up"
               count={cashSummary?.pickedUp ?? 0}
               color="#16A34A"
               onClick={() => navToCashFilter('PICKED_UP')}
             />
-            <CashFilterCard
+            <CashFilterCard available={cashSummary !== undefined}
               icon={AlertTriangle}
               label="Partial"
               count={cashSummary?.partiallyCollected ?? 0}
               color="#D97706"
               onClick={() => navToCashFilter('PARTIALLY_COLLECTED')}
             />
-            <RemittanceCard
+            <RemittanceCard available={!!remittanceUpdatedAt && cashSummary !== undefined}
               batches={remittanceBatches}
               staffMap={staffMap}
               hidden={hidden}
@@ -591,7 +598,7 @@ export default function DashboardPage() {
                 navigate(hasCash ? '/payments/cash-requests' : '/payments/remittance');
               }}
             />
-            <CashFilterCard
+            <CashFilterCard available={cashSummary !== undefined}
               icon={XCircle}
               label="Cancelled"
               count={cashSummary?.cancelled ?? 0}

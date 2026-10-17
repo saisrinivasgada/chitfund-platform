@@ -1,0 +1,31 @@
+appId: com.chitwise.mobile
+---
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(app)/(admin)/chits'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*QA Monthly Chit A.*"
+    timeout: 60000
+- tapOn: ".*QA Monthly Chit A.*"
+- tapOn: "Draws"
+- doubleTapOn: "+ Open New Draw"
+- assertVisible: "Draw Number.*"
+- tapOn: "Cancel"
+- tapOn: "+ Open New Draw"
+- assertVisible: "Draw Number.*"
+- tapOn: "Cancel"
+- tapOn: "Close chit details"
+- tapOn: ".*QA Second Chit A.*"
+- assertVisible: "Info"
+- tapOn: "Draws"
+- doubleTapOn: "+ Open New Draw"
+- assertVisible: "Draw Number.*"
+- tapOn: "Cancel"
+- tapOn: "Close chit details"
+- assertVisible: ".*QA Monthly Chit A.*"
+- assertVisible: ".*QA Second Chit A.*"

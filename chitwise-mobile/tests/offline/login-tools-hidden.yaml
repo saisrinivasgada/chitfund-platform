@@ -1,0 +1,23 @@
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(auth)/login?addAccount=1'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your username"
+    timeout: 60000
+- assertNotVisible:
+    id: "chitwise-tools-button"
+- openLink: 'chitwise:///(app)/(admin)'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "chitwise-tools-button"
+    timeout: 60000

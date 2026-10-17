@@ -1,0 +1,82 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- stopApp
+- runFlow: empty-reviews.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false,"org":"a","due":1000}'
+- stopApp
+- runFlow: save-collection.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","pausePaymentDelivery":true}'
+- openLink: 'chitwise:///(auth)/login?addAccount=1&username=offline-b'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your password"
+    timeout: 60000
+- tapOn: "Enter your password"
+- inputText: "local-qa-only"
+- pressKey: Enter
+- waitForAnimationToEnd
+- tapOn:
+    text: "Not Now|Not now"
+    optional: true
+- extendedWaitUntil:
+    visible: "Dashboard|Welcome to ChitWise"
+    timeout: 60000
+- waitForAnimationToEnd
+- tapOn:
+    text: "No thanks"
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    text: "Skip for now"
+    optional: true
+- openLink: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "sync-account-offline-a"
+    timeout: 60000
+- assertVisible:
+    id: "switch-account-offline-a"
+- assertNotVisible:
+    id: "switch-account-offline-b"
+- assertVisible: ".*1 saved.*(waiting to sync|offline).*"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","pausePaymentDelivery":false}'
+- tapOn:
+    id: "sync-account-offline-a"
+- extendedWaitUntil:
+    notVisible: ".*1 saved.*waiting to sync.*"
+    timeout: 60000
+- assertVisible:
+    id: "saved-account-offline-b"
+- assertNotVisible:
+    id: "switch-account-offline-b"
+- tapOn:
+    id: "switch-account-offline-a"
+- extendedWaitUntil:
+    visible: "Dashboard|Welcome to ChitWise"
+    timeout: 60000
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- assertVisible: "Select Member"
+- assertNotVisible:
+    id: "saved-payments-summary"

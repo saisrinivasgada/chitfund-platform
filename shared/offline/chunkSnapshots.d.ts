@@ -1,0 +1,1 @@
+export function chunkSnapshot(kind: string, pointer: { chunks: number }, params: Record<string, unknown> | undefined, loadChunk: (index: number) => Promise<any[]>, overlay?: { chunks: number; loadChunk: (index: number) => Promise<any[]> }): Promise<any>;

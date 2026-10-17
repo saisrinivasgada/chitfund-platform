@@ -2,6 +2,15 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SETTINGS_KEY = 'cf_toolkit_v1';
+let settingsRevision = 0;
+let pendingSettingsWrite: Promise<void> = Promise.resolve();
+const bound = (value: number, minimum: number, maximum: number, fallback: number) =>
+  Number.isFinite(value) ? Math.max(minimum, Math.min(maximum, value)) : fallback;
+function persistSettings(settings: { enabled: boolean; opacity: number; buttonSize: number }) {
+  const raw = JSON.stringify({ enabled: settings.enabled, opacity: settings.opacity, buttonSize: settings.buttonSize });
+  pendingSettingsWrite = pendingSettingsWrite.catch(() => {}).then(() => AsyncStorage.setItem(SETTINGS_KEY, raw));
+  pendingSettingsWrite.catch(() => {});
+}
 
 function computeCalc(a: number, op: string, b: number): number {
   switch (op) {
@@ -22,8 +31,8 @@ function fmtResult(n: number): string {
 interface ToolkitState {
   // Persisted settings
   enabled: boolean;
-  opacity: number;  // 0.3 – 1.0
-  buttonSize: number; // 36, 44, 52
+  opacity: number;  // 0.15 – 1.0
+  buttonSize: number; // 36 – 64 points
   // Calculator (session)
   calcOpen: boolean;
   display: string;
@@ -54,21 +63,18 @@ export const useToolkitStore = create<ToolkitState>((set, get) => ({
   waitingOperand: false,
 
   setEnabled: (v) => {
-    set({ enabled: v });
-    const s = get();
-    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ enabled: v, opacity: s.opacity, buttonSize: s.buttonSize }));
+    settingsRevision++;
+    set({ enabled: v }); persistSettings(get());
   },
 
   setOpacity: (v) => {
-    set({ opacity: v });
-    const s = get();
-    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ enabled: s.enabled, opacity: v, buttonSize: s.buttonSize }));
+    settingsRevision++;
+    set({ opacity: bound(v, 0.15, 1, 0.85) }); persistSettings(get());
   },
 
   setButtonSize: (v) => {
-    set({ buttonSize: v });
-    const s = get();
-    AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ enabled: s.enabled, opacity: s.opacity, buttonSize: v }));
+    settingsRevision++;
+    set({ buttonSize: Math.round(bound(v, 36, 64, 44)) }); persistSettings(get());
   },
 
   openCalc: () => set({ calcOpen: true }),
@@ -142,14 +148,16 @@ export const useToolkitStore = create<ToolkitState>((set, get) => ({
   }),
 
   loadSettings: async () => {
+    const revision = settingsRevision;
     try {
+      await pendingSettingsWrite.catch(() => {});
       const raw = await AsyncStorage.getItem(SETTINGS_KEY);
-      if (raw) {
+      if (raw && revision === settingsRevision) {
         const { enabled, opacity, buttonSize } = JSON.parse(raw);
         set({
-          enabled: enabled ?? true,
-          opacity: opacity ?? 0.85,
-          buttonSize: buttonSize ?? 44,
+          enabled: typeof enabled === 'boolean' ? enabled : true,
+          opacity: bound(opacity, 0.15, 1, 0.85),
+          buttonSize: Math.round(bound(buttonSize, 36, 64, 44)),
         });
       }
     } catch { /* ignore */ }

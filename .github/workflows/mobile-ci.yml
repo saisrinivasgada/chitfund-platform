@@ -5,11 +5,13 @@ on:
     branches: [main, test]
     paths:
       - 'chitwise-mobile/**'
+      - 'shared/offline/**'
       - '.github/workflows/mobile-ci.yml'
   pull_request:
     branches: [main, test]
     paths:
       - 'chitwise-mobile/**'
+      - 'shared/offline/**'
       - '.github/workflows/mobile-ci.yml'
 
 defaults:
@@ -31,6 +33,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Offline policy and recovery checks
+        run: npm run offline:policy:test && node --test ../shared/offline/*.test.mjs
 
       - name: TypeScript type-check
         run: npm run type-check
@@ -61,3 +66,151 @@ jobs:
         env:
           EXPO_PUBLIC_APP_VARIANT: hub
         run: npx expo export --platform android --output-dir "$RUNNER_TEMP/chitwise-hub-android"
+
+  ios-offline:
+    name: iOS release offline journeys
+    runs-on: macos-15
+    timeout-minutes: 65
+    env:
+      EXPO_PUBLIC_API_URL: http://127.0.0.1:3112/api
+      CHITWISE_NATIVE_QA: '1'
+      MAESTRO_VERSION: 2.11.0
+      # Xcode may still be starting the first XCTest runner after the release
+      # build. This bounds driver setup only; business assertions keep their
+      # existing deadlines and failures are never retried as a passing suite.
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '180000'
+      CHITWISE_QA_SIGN_IN: '1'
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: chitwise-mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install native dependencies
+        run: npm ci && npx expo prebuild --platform ios --no-install && npx pod-install
+      - name: Install pinned Maestro
+        run: |
+          curl -fsSL https://get.maestro.mobile.dev -o "$RUNNER_TEMP/install-maestro.sh"
+          bash "$RUNNER_TEMP/install-maestro.sh"
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Create isolated simulator
+        run: |
+          runtime=$(xcrun simctl list runtimes --json | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const r=JSON.parse(s).runtimes.filter(r=>r.isAvailable&&r.identifier.includes("iOS"));if(!r.length)process.exit(1);process.stdout.write(r.at(-1).identifier)})')
+          device=$(xcrun simctl create ChitWiseOfflineCI com.apple.CoreSimulator.SimDeviceType.iPhone-16 "$runtime")
+          echo "CHITWISE_QA_DEVICE=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+      - name: Build signed simulator release with embedded JavaScript
+        run: |
+          xcodebuild -workspace ios/ChitWise.xcworkspace -scheme ChitWise -configuration Release \
+            -destination "id=$CHITWISE_QA_DEVICE" -derivedDataPath "$RUNNER_TEMP/chitwise-ios" \
+            ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES build \
+            > "$RUNNER_TEMP/chitwise-ios-build.log" 2>&1
+          xcrun simctl install "$CHITWISE_QA_DEVICE" "$RUNNER_TEMP/chitwise-ios/Build/Products/Release-iphonesimulator/ChitWise.app"
+      - name: Start localhost fixture
+        run: |
+          node tests/offline/server.mjs > "$RUNNER_TEMP/chitwise-native-fixture.log" 2>&1 &
+          node -e 'const wait=async()=>{for(let i=0;i<50;i++){try{if((await fetch("http://127.0.0.1:3112/__qa/state")).ok)return}catch{}await new Promise(r=>setTimeout(r,200))}process.exit(1)};wait()'
+      - name: Verify complete native offline regression journeys
+        env:
+          CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
+        run: node tests/offline/run-regression.mjs
+      - name: Upload native verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-offline-evidence
+          path: |
+            ~/.maestro/tests
+            ${{ runner.temp }}/chitwise-ios-build.log
+            ${{ runner.temp }}/chitwise-native-fixture.log
+            ${{ runner.temp }}/chitwise-native-result.json
+
+  android-offline:
+    name: Android release offline journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      EXPO_PUBLIC_API_URL: http://10.0.2.2:3112/api
+      CHITWISE_NATIVE_QA: '1'
+      MAESTRO_VERSION: 2.11.0
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
+      CHITWISE_QA_SIGN_IN: '1'
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: chitwise-mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install and generate the QA Android project
+        run: |
+          npm ci
+          npx expo prebuild --platform android --no-install
+          # Only this generated QA build can reach the emulator's HTTP fixture.
+          # Production native configuration is unchanged.
+          python3 - <<'PYQA'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          path = Path('android/app/src/main/AndroidManifest.xml')
+          ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
+          ET.register_namespace('tools', 'http://schemas.android.com/tools')
+          root = ET.parse(path)
+          root.getroot().find('application').set('{http://schemas.android.com/apk/res/android}usesCleartextTraffic', 'true')
+          root.write(path, encoding='utf-8', xml_declaration=True)
+          PYQA
+      - name: Build embedded JavaScript release for the emulator
+        working-directory: chitwise-mobile/android
+        # Expo's release lint exceeded the default 512 MiB class-metadata limit.
+        # Keep lint enabled and bound parallel workers while raising that limit.
+        run: ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=1536m" --max-workers=2 --no-daemon > "$RUNNER_TEMP/chitwise-android-build.log" 2>&1
+      - name: Install pinned Maestro
+        run: |
+          curl -fsSL https://get.maestro.mobile.dev -o "$RUNNER_TEMP/install-maestro.sh"
+          bash "$RUNNER_TEMP/install-maestro.sh"
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start localhost fixture
+        run: |
+          node tests/offline/server.mjs > "$RUNNER_TEMP/chitwise-native-fixture.log" 2>&1 &
+          node -e 'const wait=async()=>{for(let i=0;i<50;i++){try{if((await fetch("http://127.0.0.1:3112/__qa/state")).ok)return}catch{}await new Promise(r=>setTimeout(r,200))}process.exit(1)};wait()'
+      - name: Verify encrypted native Android journeys
+        env:
+          CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          working-directory: chitwise-mobile
+          disable-animations: true
+          script: |
+            timeout 90s adb -s "emulator-$EMULATOR_PORT" wait-for-device
+            adb -s "emulator-$EMULATOR_PORT" install android/app/build/outputs/apk/release/app-release.apk
+            CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT" node tests/offline/run-regression.mjs
+      - name: Upload native verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-offline-evidence
+          path: |
+            ~/.maestro/tests
+            ${{ runner.temp }}/chitwise-android-build.log
+            ${{ runner.temp }}/chitwise-native-fixture.log
+            ${{ runner.temp }}/chitwise-native-result.json

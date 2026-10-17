@@ -6,6 +6,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../store/authStore';
+import { useSyncStore } from '../../../store/syncStore';
 import {
   getActiveCashRequests, getChits, getMembers,
   getWalletBalance, getUnreadCount,
@@ -20,6 +21,7 @@ import {
 import { C, T, Card, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import { OfflineSnapshotLabel } from '../../../components/OfflineSnapshotLabel';
 import RoleLogo from '../../../components/RoleLogo';
 import { SortableDashboardGrid, type DashboardGridItem } from '../../../components/SortableDashboardGrid';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
@@ -35,7 +37,7 @@ function NeoSurface({ children, style }: { children: React.ReactNode; style?: an
   return <View style={[dashboardStyles.neoSurface, style]}>{children}</View>;
 }
 
-function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing = false }: {
+function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing = false, snapshotKey }: {
   label: string;
   value: string;
   sub?: string;
@@ -43,7 +45,11 @@ function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing 
   onPress: () => void;
   onLongPress?: () => void;
   editing?: boolean;
+  snapshotKey?: readonly unknown[];
 }) {
+  const online = useSyncStore((state) => state.isOnline);
+  const client = useQueryClient();
+  const displayValue = snapshotKey && !online && !client.getQueryState(snapshotKey)?.dataUpdatedAt ? '—' : value;
   const numericValue = Number(value.replace(/[^\d.-]/g, ''));
   const displayAccent = Number.isFinite(numericValue) && numericValue === 0 ? C.gray400 : accent;
   return (
@@ -53,15 +59,16 @@ function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing 
       delayLongPress={360}
       activeOpacity={0.72}
       accessibilityRole="button"
-      accessibilityLabel={`${label}: ${value}${sub ? `. ${sub}` : ''}${editing ? '. Drag to reorder' : ''}`}
+      accessibilityLabel={`${label}: ${displayValue}${!online && snapshotKey ? '. Offline snapshot' : ''}${sub ? `. ${sub}` : ''}${editing ? '. Drag to reorder' : ''}`}
       accessibilityHint={editing ? 'Hold and drag to change its position' : 'Tap to open. Long press to customize the dashboard'}
       style={{ flex: 1 }}
     >
       <NeoSurface style={{ flex: 1, minHeight: 100, opacity: editing ? 0.96 : 1 }}>
         <View style={[dashboardStyles.statAccent, { backgroundColor: displayAccent }]} />
         <Text style={dashboardStyles.statLabel} numberOfLines={2}>{label}</Text>
-        <Text style={[dashboardStyles.statValue, { color: displayAccent }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{value}</Text>
+        <Text style={[dashboardStyles.statValue, { color: displayAccent }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{displayValue}</Text>
         {sub ? <Text style={dashboardStyles.statSub} numberOfLines={2}>{sub}</Text> : null}
+        {snapshotKey && <OfflineSnapshotLabel queryKey={snapshotKey} />}
       </NeoSurface>
     </TouchableOpacity>
   );
@@ -69,6 +76,7 @@ function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing 
 
 export default function AdminDashboard() {
   const { user, logout } = useAuthStore();
+  const online = useSyncStore((state) => state.isOnline);
   const router = useRouter();
   const qc = useQueryClient();
   const [showNewRequest, setShowNewRequest] = useState(false);
@@ -248,11 +256,11 @@ export default function AdminDashboard() {
     },
     {
       id: 'pending-pickups',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-requests']} label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />,
     },
     {
       id: 'new-requests',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="New Requests" value={String(pendingRequests.length)} accent={pendingRequests.length > 0 ? C.red : C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-requests']} label="New Requests" value={String(pendingRequests.length)} accent={pendingRequests.length > 0 ? C.red : C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />,
     },
     {
       id: 'pending-payout',
@@ -264,25 +272,25 @@ export default function AdminDashboard() {
     },
     {
       id: 'picked-up',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Picked Up" value={String((cashSummary as any)?.pickedUp ?? 0)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Picked Up" value={String((cashSummary as any)?.pickedUp ?? 0)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })} />,
     },
     {
       id: 'partial-collections',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Partial Collections" value={String((cashSummary as any)?.partiallyCollected ?? 0)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PARTIALLY_COLLECTED' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Partial Collections" value={String((cashSummary as any)?.partiallyCollected ?? 0)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PARTIALLY_COLLECTED' } })} />,
     },
     ...((cashSummary as any)?.todayCancelled > 0 ? [
       {
         id: 'cancelled-today',
-        content: ({ editing, beginEditing }: { editing: boolean; beginEditing: () => void }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Cancelled Today" value={String((cashSummary as any).todayCancelled)} sub={`${(cashSummary as any).cancelled} overall`} accent={C.gray400} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'CANCELLED' } })} />,
+        content: ({ editing, beginEditing }: { editing: boolean; beginEditing: () => void }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Cancelled Today" value={String((cashSummary as any).todayCancelled)} sub={`${(cashSummary as any).cancelled} overall`} accent={C.gray400} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'CANCELLED' } })} />,
       },
       {
         id: 'collected-today',
-        content: ({ editing, beginEditing }: { editing: boolean; beginEditing: () => void }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Collected Today" value={String((cashSummary as any).todayCollected ?? 0)} sub={`${(cashSummary as any).collected ?? 0} overall`} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests' } })} />,
+        content: ({ editing, beginEditing }: { editing: boolean; beginEditing: () => void }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Collected Today" value={String((cashSummary as any).todayCollected ?? 0)} sub={`${(cashSummary as any).collected ?? 0} overall`} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests' } })} />,
       },
     ] : []),
     {
       id: 'today-remitted',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Today's Remitted" value={String(todayRemitted.length)} sub={todayRemittedAmt > 0 ? `₹${todayRemittedAmt.toLocaleString('en-IN')}` : undefined} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-today-batches']} label="Today's Remitted" value={String(todayRemitted.length)} sub={todayRemittedAmt > 0 ? `₹${todayRemittedAmt.toLocaleString('en-IN')}` : undefined} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } })} />,
     },
     {
       id: 'today-bank-payments',
@@ -300,14 +308,14 @@ export default function AdminDashboard() {
       >
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-            <RoleLogo role={user?.role} size={58} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, marginRight: 12 }}>
+            <RoleLogo role={user?.role} size={48} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Dashboard</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>
                 {user?.tenantName ?? 'Your organization'}
               </Text>
-              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
+
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
@@ -326,6 +334,8 @@ export default function AdminDashboard() {
             <ProfileAvatarButton size={36} />
           </View>
         </View>
+
+        <SyncStatusCard compact />
 
         {/* Over-limit warning — usage exceeds the plan */}
         {limitViolations.length > 0 && (
@@ -476,7 +486,8 @@ export default function AdminDashboard() {
               <Text style={{ fontSize: 20 }}>⏳</Text>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.6 }}>REMITTANCE AWAITING</Text>
-                <Text style={{ fontSize: 20, fontWeight: '800', color: C.gray900, marginTop: 2 }}>{total}</Text>
+                <OfflineSnapshotLabel queryKey={['m-dash-remittance']} />
+                <Text style={{ fontSize: 20, fontWeight: '800', color: C.gray900, marginTop: 2 }}>{!online && (!qc.getQueryState(['m-dash-remittance'])?.dataUpdatedAt || !qc.getQueryState(['m-cash-summary'])?.dataUpdatedAt) ? '—' : total}</Text>
                 <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
                   {[
                     cashOut > 0 ? `${cashOut} with staff` : null,

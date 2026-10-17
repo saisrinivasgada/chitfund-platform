@@ -1,0 +1,72 @@
+# Requires a pending local review. Cancellation preserves evidence and posts no money.
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- tapOn:
+    id: "sync-status-button"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Sync now"
+    timeout: 10000
+- tapOn: "Sync now"
+- tapOn: "Close sync details"
+- tapOn:
+    id: "saved-payments-summary"
+- extendedWaitUntil:
+    visible:
+      id: "review-saved-payment"
+    timeout: 60000
+- tapOn:
+    id: "review-saved-payment"
+- tapOn: "Review transaction"
+- extendedWaitUntil:
+    visible: ".*₹1,000 collected.*₹0 due in this chit.*"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: ".*Cancel mistaken entry.*no money was collected.*"
+    direction: DOWN
+- tapOn: ".*Cancel mistaken entry.*no money was collected.*"
+- scrollUntilVisible:
+    element:
+      text: ".*I confirm no money was collected for this entry.*"
+    direction: DOWN
+    centerElement: true
+- tapOn: ".*I confirm no money was collected for this entry.*"
+- scrollUntilVisible:
+    element:
+      text: ".*Explain what you verified and why.*"
+    direction: DOWN
+- tapOn: ".*Explain what you verified and why.*"
+- inputText: "Mistaken QA entry: no cash was actually received from this member"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: "Cancel mistaken entry"
+    direction: DOWN
+- tapOn: "Cancel mistaken entry"
+- extendedWaitUntil:
+    visible: "No collections waiting for review."
+    timeout: 60000
+- tapOn: "Close"
+- assertNotVisible:
+    id: "saved-payments-summary"
+- openLink: 'chitwise:///(app)/(admin)/payments?tab=History'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- tapOn:
+    id: "saved-payment-history"
+- extendedWaitUntil:
+    visible: ".*Cancelled · kept in history.*"
+    timeout: 60000
+- assertNotVisible: "Offline collection reviews.*"
+
+- tapOn: "Close saved payments"

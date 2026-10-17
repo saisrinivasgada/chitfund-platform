@@ -82,6 +82,8 @@ public class PaymentService {
     private final MemberCreditService memberCreditService;
     private final ChitMonthDrawService chitMonthDrawService;
     private final AuditClient auditClient;
+    private final OfflinePaymentReviewCapture offlineReviews;
+    private final FinancialCommandLock commandLocks;
 
     /**
      * Step 1 of the cash flow: worker/manager records collection from a member.
@@ -103,7 +105,9 @@ public class PaymentService {
 
     @Transactional
     public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin, String idempotencyKey, boolean skipMemberCheck) {
-        planExpiryChecker.assertNotExpired();
+        // Only the server's already-recorded CashPaymentRequest flow passes true.
+        // Receiving existing collected money must remain possible after expiry.
+        if (!skipMemberCheck) planExpiryChecker.assertNotExpired();
         String tenantId = tenantId();
         UUID effectiveCollector = request.getOverrideCollectedBy() != null
                 ? request.getOverrideCollectedBy() : workerId;
@@ -193,30 +197,67 @@ public class PaymentService {
 
     @Transactional
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId, String idempotencyKey) {
-        planExpiryChecker.assertNotExpired();
+        return recordPaymentInternal(request, adminId, idempotencyKey, null, false);
+    }
+
+    public void verifyOfflineReviewer(UUID reviewer) { planExpiryChecker.assertOfflineReviewer(reviewer); }
+
+    /** Uploading old account evidence never posts money; a current admin must review it. */
+    public void verifyRecoveredCollection(RecordPaymentRequest request, UUID actor) {
+        planExpiryChecker.verifyHistoricalPaymentEvidence(actor, request.getOfflineAuthorization(), request.getRecordedAt());
+    }
+
+    /** Called only by the authenticated, audited server-side review workflow. */
+    @Transactional
+    public PaymentBatchResponse recordReviewedOfflinePayment(RecordPaymentRequest request, UUID originalActor,
+            String operationId, String expectedBalanceVersion) {
+        if (request.getOfflineAuthorization() == null || expectedBalanceVersion == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "A saved collection and current review are required");
+        }
+        return recordPaymentInternal(request, originalActor, operationId, expectedBalanceVersion, false);
+    }
+
+    @Transactional
+    public PaymentBatchResponse recordReviewedLegacyPayment(RecordPaymentRequest request, UUID originalActor,
+            String operationId, String expectedBalanceVersion) {
+        if (request.getOfflineAuthorization() != null || expectedBalanceVersion == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "An explicit legacy collection review is required");
+        }
+        return recordPaymentInternal(request, originalActor, operationId, expectedBalanceVersion, true);
+    }
+
+    private PaymentBatchResponse recordPaymentInternal(RecordPaymentRequest request, UUID adminId,
+            String idempotencyKey, String reviewedBalanceVersion, boolean legacyReviewed) {
+        String offlineGrantId = null;
+        Instant recordedAt;
+        if (request.getOfflineAuthorization() != null || legacyReviewed) {
+            if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 128
+                    || request.getAmount().compareTo(BigDecimal.ZERO) <= 0
+                    || request.getPaymentMode() == PaymentMode.CREDIT) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Saved payments require an operation identity and cannot apply credit", HttpStatus.BAD_REQUEST);
+            }
+            if (legacyReviewed) {
+                recordedAt = request.getRecordedAt() == null ? Instant.now() : request.getRecordedAt();
+                if (recordedAt.isAfter(Instant.now().plusSeconds(300))) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Collection time cannot be in the future");
+            } else {
+                offlineGrantId = reviewedBalanceVersion == null
+                        ? planExpiryChecker.assertRecordedPaymentMaySync(adminId, request.getOfflineAuthorization(), request.getRecordedAt())
+                        : planExpiryChecker.verifyHistoricalPaymentEvidence(adminId, request.getOfflineAuthorization(), request.getRecordedAt());
+                if (offlineGrantId == null || offlineGrantId.isBlank()) throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                        "Original offline authorisation could not be confirmed. Sync will retry.", HttpStatus.SERVICE_UNAVAILABLE);
+                // Historical authority replaces the generic 30-day cutoff.
+                recordedAt = request.getRecordedAt();
+            }
+        } else {
+            planExpiryChecker.assertNotExpired();
+            recordedAt = validatedRecordedAt(request.getRecordedAt());
+        }
         String tenantId = tenantId();
-        Instant recordedAt = validatedRecordedAt(request.getRecordedAt());
+        if (idempotencyKey != null) commandLocks.lock(tenantId, idempotencyKey);
         String paymentReference = normalizePaymentReference(request.getPaymentReference());
         request.setPaymentReference(paymentReference);
-        // Keep the legacy fingerprint for older clients that do not send a
-        // recorded time; otherwise an in-flight retry across this deployment
-        // would be rejected even though its money fields are identical.
-        String requestHash;
-        // Preserve the exact legacy fingerprint for older idempotency records.
-        // The allocation shape is appended only for the new explicit-allocation
-        // contract, so a retry from an older client remains idempotent.
-        if (request.getAllocations() == null || request.getAllocations().isEmpty()) {
-            requestHash = request.getRecordedAt() == null
-                    ? IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                            request.getPaymentMode(), request.getNotes(), paymentReference)
-                    : IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                            request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt());
-        } else {
-            String allocationFingerprint = allocationFingerprint(request.getAllocations());
-            requestHash = IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                    request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt(),
-                    allocationFingerprint);
-        }
+        String requestHash = recordPaymentFingerprint(request);
         if (idempotencyKey != null) {
             var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
                     tenantId, RECORD_PAYMENT_OPERATION, idempotencyKey);
@@ -226,16 +267,35 @@ public class PaymentService {
                 return toBatchResponse(b, allocationRepository.findByTenantIdAndBatchId(tenantId, b.getId()));
             }
         }
+        if (idempotencyKey != null && reviewedBalanceVersion == null) {
+            var held = offlineReviews.findOperation(idempotencyKey);
+            if (held.isPresent()) {
+                var review = held.get();
+                offlineReviews.assertMatches(review, request, adminId);
+                if ("DUPLICATE".equals(review.getStatus()) && review.getReceiptId() != null) {
+                    var receipt = batchRepository.findByIdAndTenantIdForUpdate(review.getReceiptId(), tenantId)
+                            .orElseThrow(() -> new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "Linked receipt needs review", HttpStatus.CONFLICT));
+                    return toBatchResponse(receipt, allocationRepository.findByTenantIdAndBatchId(tenantId, receipt.getId()));
+                }
+                throw new com.chitfund.paymentservice.exception.OfflineReviewRequiredException(review.getId());
+            }
+        }
         if (paymentReference != null && batchRepository
                 .findByTenantIdAndPaymentModeAndPaymentReference(
                         tenantId, request.getPaymentMode(), paymentReference)
                 .isPresent()) {
+            if (offlineGrantId != null && reviewedBalanceVersion == null) {
+                requireOfflineReview(request, adminId, idempotencyKey, "REFERENCE_ALREADY_USED");
+            }
             throw new BusinessException(ErrorCode.DUPLICATE_PAYMENT,
                     "This payment reference has already been recorded", HttpStatus.CONFLICT);
         }
         if (!memberServiceClient.isMemberActive(request.getMemberId())
                 && !paymentRecordRepository.existsByTenantIdAndMemberIdAndChitId(
                         tenantId, request.getMemberId(), request.getChitId())) {
+            if (offlineGrantId != null && reviewedBalanceVersion == null) {
+                requireOfflineReview(request, adminId, idempotencyKey, "MEMBER_CHANGED");
+            }
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
                     "Member " + request.getMemberId() + " is not active");
         }
@@ -243,8 +303,28 @@ public class PaymentService {
         // Zero-amount CREDIT-mode entries are a deliberate "no new cash" marker (see
         // creditWallet's own CREDIT skip) and can legitimately repeat — nothing to
         // duplicate-check there.
-        if (request.getAmount().compareTo(BigDecimal.ZERO) > 0 && !request.isConfirmDuplicate()) {
+        if (request.getAmount().compareTo(BigDecimal.ZERO) > 0 && reviewedBalanceVersion == null
+                && offlineGrantId == null && !request.isConfirmDuplicate()) {
             assertNoRecentDuplicate(tenantId, request.getMemberId(), request.getChitId(), request.getAmount());
+        }
+        if (offlineGrantId != null || legacyReviewed) {
+            var current = offlineBalanceSnapshot(request, true);
+            if (reviewedBalanceVersion != null && !reviewedBalanceVersion.equals(current.version())) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Member balances changed during review. Refresh the figures and review again.", HttpStatus.CONFLICT);
+            }
+            if (reviewedBalanceVersion == null && current.exceedsSelectedDues()) {
+                requireOfflineReview(request, adminId, idempotencyKey, "DUES_CHANGED");
+            }
+            // A web/second-device entry may have arrived days before this sync.
+            // Compare from the original collection time, not just the last ten
+            // minutes before reconnecting. Amount matches still require review.
+            Instant duplicateSince = recordedAt.minus(Duration.ofMinutes(DUPLICATE_CHECK_WINDOW_MINUTES));
+            if (reviewedBalanceVersion == null && !batchRepository.findRecentPossibleDuplicatesForReview(
+                    tenantId, request.getMemberId(), request.getChitId(), request.getAmount(),
+                    duplicateSince, LocalDateTime.ofInstant(duplicateSince, java.time.ZoneOffset.UTC)).isEmpty()) {
+                requireOfflineReview(request, adminId, idempotencyKey, "POSSIBLE_DUPLICATE");
+            }
         }
 
         // CASH via this endpoint = admin collected directly (COMPLETED immediately, no remittance step)
@@ -269,7 +349,19 @@ public class PaymentService {
                 .build();
         batchRepository.saveAndFlush(batch);
 
-        List<PaymentAllocation> allocations = request.getAllocations() == null || request.getAllocations().isEmpty()
+        if (offlineGrantId != null || legacyReviewed) {
+            Map<String, Object> evidence = legacyReviewed ? Map.of("authority", "EXPLICIT_ADMIN_LEGACY_REVIEW", "originalTimeVerified", false)
+                    : Map.of("offlineGrantId", offlineGrantId);
+            auditClient.log(AuditClient.AuditDetails.builder()
+                    .entityType("PAYMENT").entityId(batch.getId().toString())
+                    .chitId(request.getChitId().toString()).action(legacyReviewed ? "LEGACY_PAYMENT_RECONCILED" : "OFFLINE_PAYMENT_SYNCHRONIZED")
+                    .actorId(adminId.toString()).actorRole("ADMIN").tenantId(tenantId)
+                    .idempotencyKey(idempotencyKey).originalOfflineAt(recordedAt)
+                    .synchronizedAt(batch.getSyncedAt())
+                    .metadata(evidence).build());
+        }
+
+        List<PaymentAllocation> allocations = reviewedBalanceVersion != null || request.getAllocations() == null || request.getAllocations().isEmpty()
                 ? applyFifo(batch, adminId)
                 : applyExplicitChitAllocations(batch, request.getAllocations(), adminId);
 
@@ -288,6 +380,50 @@ public class PaymentService {
         eventPublisher.publish(recordedEvent);
 
         return toBatchResponse(batch, allocations);
+    }
+
+    private void requireOfflineReview(RecordPaymentRequest request, UUID actor, String operationId, String reason) {
+        throw new com.chitfund.paymentservice.exception.OfflineReviewRequiredException(
+                offlineReviews.preserve(request, actor, operationId, reason));
+    }
+
+    public void requireCashPickupReview(RecordPaymentRequest request, UUID collector, UUID requestId) {
+        throw new com.chitfund.paymentservice.exception.OfflineReviewRequiredException(
+                offlineReviews.preserveCashPickup(request, collector, requestId));
+    }
+
+    public void assertPickupNotAlreadyInReview(UUID requestId) {
+        var pending = offlineReviews.findOperation("CASH_REQUEST:" + requestId);
+        if (pending.isPresent() && "PENDING".equals(pending.get().getStatus())) {
+            throw new com.chitfund.paymentservice.exception.OfflineReviewRequiredException(pending.get().getId());
+        }
+    }
+
+    public record OfflineBalanceSnapshot(String version, BigDecimal selectedOutstanding,
+            BigDecimal totalOutstanding, BigDecimal creditBalance, boolean exceedsSelectedDues) { }
+
+    public OfflineBalanceSnapshot offlineBalanceSnapshot(RecordPaymentRequest request, boolean lock) {
+        String tenant = tenantId();
+        // Match FIFO's lock order; validate and apply within the same transaction.
+        BigDecimal credit = lock ? memberCreditService.getBalanceForUpdate(request.getMemberId())
+                : memberCreditService.getBalance(request.getMemberId());
+        var statuses = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+        var records = lock ? paymentRecordRepository.findMemberOutstandingForUpdate(tenant, request.getMemberId(), statuses)
+                : paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(tenant, request.getMemberId(), statuses);
+        Map<UUID, BigDecimal> dues = new HashMap<>();
+        for (var record : records) dues.merge(record.getChitId(), record.getAmountDue().subtract(record.getAmountPaid()), BigDecimal::add);
+        BigDecimal total = dues.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal selected = dues.getOrDefault(request.getChitId(), BigDecimal.ZERO);
+        boolean exceeds = request.getAmount().compareTo(selected.subtract(credit).max(BigDecimal.ZERO)) > 0;
+        if (request.getAllocations() != null && !request.getAllocations().isEmpty()) {
+            exceeds = request.getAllocations().stream().anyMatch(entry -> entry.getAmount().compareTo(
+                    dues.getOrDefault(entry.getChitId(), BigDecimal.ZERO)) > 0);
+        }
+        String version = IdempotencyFingerprint.of(credit.stripTrailingZeros().toPlainString(), records.stream()
+                .map(r -> r.getId() + ":" + r.getChitId() + ":" + r.getAmountDue().stripTrailingZeros().toPlainString()
+                        + ":" + r.getAmountPaid().stripTrailingZeros().toPlainString() + ":" + r.getStatus()
+                        + ":" + r.getUpdatedAt()).sorted().toList());
+        return new OfflineBalanceSnapshot(version, selected, total, credit, exceeds);
     }
 
     // Catches the same real-world cash being recorded twice through two different
@@ -310,6 +446,22 @@ public class PaymentService {
                             + "payment, resubmit with confirmDuplicate=true.",
                     HttpStatus.CONFLICT);
         }
+    }
+
+    /** Same immutable request identity for posting and cancellation acknowledgements. */
+    static String recordPaymentFingerprint(RecordPaymentRequest request) {
+        String reference = normalizePaymentReference(request.getPaymentReference());
+        // Keep fingerprints from older clients compatible with their saved receipts.
+        if (request.getAllocations() == null || request.getAllocations().isEmpty()) {
+            return request.getRecordedAt() == null
+                    ? IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                            request.getPaymentMode(), request.getNotes(), reference)
+                    : IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                            request.getPaymentMode(), request.getNotes(), reference, request.getRecordedAt());
+        }
+        return IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                request.getPaymentMode(), request.getNotes(), reference, request.getRecordedAt(),
+                allocationFingerprint(request.getAllocations()));
     }
 
     private void assertMatchingIdempotencyRequest(String storedHash, String requestHash) {
@@ -785,10 +937,10 @@ public class PaymentService {
         // decide to use the same credit before either actually consumes it — an
         // unlocked read here let two concurrent payments both be granted the same
         // credit, destroying a real balance or fabricating credit from a stale value.
+        BigDecimal creditAvailable = memberCreditService.getBalanceForUpdate(batch.getMemberId());
         BigDecimal totalOwedAllChits = paymentRecordRepository
                 .findTotalOutstandingByTenantIdAndMemberId(
                         batch.getTenantId(), batch.getMemberId(), pendingStatuses);
-        BigDecimal creditAvailable = memberCreditService.getBalanceForUpdate(batch.getMemberId());
         BigDecimal creditToUse = creditAvailable.min(totalOwedAllChits);
 
         if (creditToUse.compareTo(BigDecimal.ZERO) > 0) {
@@ -1024,7 +1176,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public PagedResponse<PaymentBatchResponse> getAllBatchesPaged(UUID chitId, UUID memberId, LocalDate fromDate, LocalDate toDate, int page, int size) {
-        PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending().and(Sort.by("id")));
         String tid = tenantId();
         Page<PaymentBatch> result;
         if (fromDate != null || toDate != null) {
@@ -1048,6 +1200,14 @@ public class PaymentService {
                 .size(size)
                 .hasMore(result.hasNext())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<PaymentBatchResponse> getPendingCollectorBatchesPaged(UUID collector, int page, int size) {
+        var result = batchRepository.findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(tenantId(), collector,
+                BatchStatus.AWAITING_REMITTANCE, PageRequest.of(page, size, Sort.by("collectedAt").descending().and(Sort.by("id"))));
+        return PagedResponse.<PaymentBatchResponse>builder().content(toBatchResponses(result.getContent()))
+                .page(page).size(size).totalElements(result.getTotalElements()).hasMore(result.hasNext()).build();
     }
 
     @Transactional(readOnly = true)

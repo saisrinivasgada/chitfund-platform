@@ -1,0 +1,17 @@
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Switch Account"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "No collections waiting to sync|.*saved.*waiting to sync|.*collection.*review|Syncing saved collections.*|Data download paused|Downloading offline data.*"
+    timeout: 60000
+- assertVisible:
+    id: "sync-account-offline-a"

@@ -28,6 +28,8 @@ public class AuthResponse {
     // Present for tenant-scoped sessions. Clients use this fresh server state
     // instead of the earlier tenant-picker snapshot when applying entitlements.
     private TenantInfo tenant;
+    // Non-secret selector for a separate HttpOnly browser refresh cookie.
+    private String browserAccountId;
     // Non-null only when admin creates/resets a member account — shown once, never stored
     private String tempPassword;
 }

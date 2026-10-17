@@ -1,0 +1,1 @@
+export function refreshFinancialSnapshots(adapter: { request(path: string, params: Record<string, unknown>): Promise<any>; saveResponse(path: string, params: Record<string, unknown>, response: any): Promise<void> }, original: any, receipt: any): Promise<void>;

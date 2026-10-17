@@ -20,6 +20,12 @@ import java.util.Map;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(OfflineReviewRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleOfflineReview(OfflineReviewRequiredException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(ex.getErrorCode().getCode(),
+                ex.getMessage(), Map.of("reviewId", ex.getReviewId(), "status", "NEEDS_REVIEW")));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex) {
         return ResponseEntity.status(ex.getHttpStatus())

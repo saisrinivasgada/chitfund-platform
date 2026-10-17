@@ -48,6 +48,25 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
             @Param("amount") java.math.BigDecimal amount,
             @Param("since") LocalDateTime since);
 
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT b FROM PaymentBatch b WHERE b.tenantId = :tenantId AND b.memberId = :memberId " +
+           "AND b.chitId = :chitId AND b.totalAmount = :amount AND b.status <> 'VOIDED' " +
+           "AND (b.recordedAt >= :recordedSince OR b.createdAt >= :createdSince) ORDER BY b.createdAt DESC")
+    List<PaymentBatch> findRecentPossibleDuplicatesForReview(
+            @Param("tenantId") String tenantId, @Param("memberId") UUID memberId,
+            @Param("chitId") UUID chitId, @Param("amount") java.math.BigDecimal amount,
+            @Param("recordedSince") java.time.Instant recordedSince,
+            @Param("createdSince") LocalDateTime createdSince);
+
+    @Query("SELECT b FROM PaymentBatch b WHERE b.tenantId = :tenantId AND b.memberId = :memberId " +
+           "AND b.chitId = :chitId AND b.totalAmount = :amount AND b.status <> 'VOIDED' " +
+           "AND (b.recordedAt >= :recordedSince OR b.createdAt >= :createdSince) ORDER BY b.createdAt DESC")
+    Page<PaymentBatch> findPossibleOfflineDuplicates(
+            @Param("tenantId") String tenantId, @Param("memberId") UUID memberId,
+            @Param("chitId") UUID chitId, @Param("amount") java.math.BigDecimal amount,
+            @Param("recordedSince") java.time.Instant recordedSince,
+            @Param("createdSince") LocalDateTime createdSince, Pageable page);
+
     // ── Tenant-scoped list queries (primary paths) ────────────────────────────
 
     List<PaymentBatch> findByTenantIdAndStatusOrderByCreatedAtAsc(String tenantId, BatchStatus status);
@@ -62,6 +81,8 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
     Page<PaymentBatch> findByTenantIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID memberId, Pageable pageable);
     Page<PaymentBatch> findByTenantIdAndChitIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID chitId, UUID memberId, Pageable pageable);
     Page<PaymentBatch> findByTenantIdOrderByCreatedAtDesc(String tenantId, Pageable pageable);
+
+    Page<PaymentBatch> findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(String tenantId, UUID collectedBy, BatchStatus status, Pageable pageable);
 
     List<PaymentBatch> findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(String tenantId, UUID collectedBy, BatchStatus status);
     List<PaymentBatch> findByTenantIdAndCollectedByOrderByCreatedAtDesc(String tenantId, UUID collectedBy);

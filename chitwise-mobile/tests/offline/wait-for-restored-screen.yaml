@@ -1,0 +1,9 @@
+appId: com.chitwise.mobile
+---
+# launchApp restarts the process. Wait for authentication and the navigator to
+# restore before sending a second intent; a running native Activity alone is
+# not proof that Expo Router can receive it yet.
+- extendedWaitUntil:
+    visible: 'Dashboard.*|Select Member|Switch Account|Choose an Account|Enter your username|Enter your password|No internet connection|Unable to connect'
+    timeout: 60000
+- waitForAnimationToEnd

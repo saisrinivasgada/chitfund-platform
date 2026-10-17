@@ -89,6 +89,8 @@ services:
     environment:
       <<: [*test-common, *test-db]
       DB_NAME: chitfund_user
+      OFFLINE_SIGNING_SECRET: test-only-offline-secret-independent-of-login-min-32-chars
+      OFFLINE_SIGNING_KEY_ID: test-offline-v1
       MEMBER_SERVICE_URL: http://member-service:8083
       APP_DEV_OTP_EXPOSURE_ENABLED: "true"
     ports:

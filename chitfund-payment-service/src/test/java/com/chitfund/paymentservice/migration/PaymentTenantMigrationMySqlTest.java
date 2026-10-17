@@ -25,7 +25,47 @@ class PaymentTenantMigrationMySqlTest {
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("chitfund_payments").withUsername("chitfund").withPassword("testpassword");
+            .withCommand("--log-bin-trust-function-creators=1").withDatabaseName("chitfund_payments").withUsername("chitfund").withPassword("testpassword");
+
+    @Test
+    void offlineReceiptsHaveDurableAccountScopedOperationIdentities() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        String operation = "offline-" + UUID.randomUUID();
+        String actor = UUID.randomUUID().toString();
+        try (var connection = DriverManager.getConnection(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            insertOfflineReceipt(connection, "org-a", actor, operation);
+            assertThatThrownBy(() -> insertOfflineReceipt(connection, "org-a", actor, operation))
+                    .isInstanceOf(SQLException.class);
+            insertOfflineReceipt(connection, "org-b", actor, operation);
+            insertOfflineReceipt(connection, "org-a", UUID.randomUUID().toString(), operation);
+            try (var statement = connection.prepareStatement("SELECT COUNT(*) FROM offline_command_receipts WHERE operation_id=?")) {
+                statement.setString(1, operation);
+                try (var result = statement.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getInt(1)).isEqualTo(3);
+                }
+            }
+        }
+    }
+
+    private void insertOfflineReceipt(java.sql.Connection connection, String tenant, String actor, String operation) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                INSERT INTO offline_command_receipts
+                (id, tenant_id, actor_id, operation_id, request_id, action, payload_hash, grant_id,
+                 response_json, recorded_at, synchronized_at)
+                VALUES (?, ?, ?, ?, ?, 'MARK_PICKUP', ?, ?, '{}', DATE_SUB(NOW(), INTERVAL 365 DAY), NOW())
+                """)) {
+            statement.setString(1, UUID.randomUUID().toString());
+            statement.setString(2, tenant);
+            statement.setString(3, actor);
+            statement.setString(4, operation);
+            statement.setString(5, UUID.randomUUID().toString());
+            statement.setString(6, "a".repeat(64));
+            statement.setString(7, UUID.randomUUID().toString());
+            statement.executeUpdate();
+        }
+    }
 
     @Test
     void walletTenantHasNoDatabaseDefault() throws Exception {

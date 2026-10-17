@@ -2,6 +2,7 @@ export type SyncOperationStatus =
   | 'QUEUED'
   | 'SYNCING'
   | 'RETRYABLE_FAILURE'
+  | 'PAUSED_ACCESS'
   | 'SUCCEEDED'
   | 'CONFLICT'
   | 'PERMANENT_FAILURE'
@@ -14,6 +15,7 @@ export type SyncStatus =
   | 'pending'
   | 'conflict'
   | 'auth-required'
+  | 'access-required'
   | 'error';
 
 export interface QueuedOperation<TPayload = unknown> {
@@ -35,10 +37,14 @@ export interface QueuedOperation<TPayload = unknown> {
   lastErrorCode?: string | null;
   lastErrorMessage?: string | null;
   serverReceiptId?: string | null;
+  serverReviewId?: string | null;
+  serverReceipt?: any;
 }
 
 export interface SyncCounts {
+  syncing?: number;
   pending: number;
+  paused: number;
   conflicts: number;
   failed: number;
 }

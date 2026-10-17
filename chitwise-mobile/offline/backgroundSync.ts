@@ -1,0 +1,64 @@
+import { Platform } from 'react-native';
+import * as BackgroundTask from 'expo-background-task';
+import * as TaskManager from 'expo-task-manager';
+import { useAuthStore } from '../store/authStore';
+import { getStoredAccountScope } from './accountScope';
+import { hasOfflineAccess, refreshOfflineAccess, restoreOfflineAccess } from './access';
+import { getSyncCounts, hasOfflineDatabase } from './database';
+import { synchronizeSavedAccounts } from './syncEngine';
+import { prepareSavedAccountData } from './preparation';
+
+const TASK = 'chitwise-saved-account-sync-v1';
+const supported = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_APP_VARIANT !== 'hub';
+
+if (supported && !TaskManager.isTaskDefined(TASK)) {
+  TaskManager.defineTask(TASK, async () => {
+    const deadline = Date.now() + 25_000;
+    try {
+      // Background launch must not restore or change the visible login.
+      await useAuthStore.getState().loadSavedAccountsForBackground();
+      await synchronizeSavedAccounts(undefined, deadline);
+      for (const account of useAuthStore.getState().accounts) {
+        if (Date.now() >= deadline) break;
+        if (!account.sessionValid || account.authSource === 'HUB') continue;
+        try { await refreshOfflineAccess(getStoredAccountScope(account)); } catch { /* Retry later. */ }
+      }
+      if (Date.now() < deadline) await prepareSavedAccountData(deadline);
+      return BackgroundTask.BackgroundTaskResult.Success;
+    } catch {
+      // Outbox rows survive worker expiry, locked-device access and network failure.
+      return BackgroundTask.BackgroundTaskResult.Failed;
+    }
+  });
+}
+
+let scheduling: Promise<void> = Promise.resolve();
+export function updateBackgroundSyncRegistration(): Promise<void> {
+  scheduling = scheduling.catch(() => {}).then(async () => {
+    if (!supported || !await TaskManager.isAvailableAsync()) return;
+    let eligible = false;
+    for (const account of useAuthStore.getState().accounts) {
+      if (!account.sessionValid || account.authSource === 'HUB') continue;
+      const scope = getStoredAccountScope(account);
+      await restoreOfflineAccess(scope);
+      let counts = await hasOfflineDatabase(scope) ? await getSyncCounts(scope) : null;
+      if (account.role === 'ADMIN') {
+        for (const saved of useAuthStore.getState().accounts.filter((a) => a.tenantId === account.tenantId)) {
+          for (const retained of [getStoredAccountScope(saved), ...(saved.retainedOfflineScopes ?? [])]) {
+            if (!await hasOfflineDatabase(retained)) continue;
+            const historical = await getSyncCounts(retained);
+            if (historical.conflicts) { counts = historical; break; }
+          }
+        }
+      }
+      if (hasOfflineAccess(scope) || (counts?.pending ?? 0) > 0 || (counts?.conflicts ?? 0) > 0) { eligible = true; break; }
+    }
+    const registered = await TaskManager.isTaskRegisteredAsync(TASK);
+    if (eligible && !registered && await BackgroundTask.getStatusAsync() === BackgroundTask.BackgroundTaskStatus.Available) {
+      await BackgroundTask.registerTaskAsync(TASK, { minimumInterval: 15 });
+    } else if (!eligible && registered) {
+      await BackgroundTask.unregisterTaskAsync(TASK);
+    }
+  });
+  return scheduling;
+}

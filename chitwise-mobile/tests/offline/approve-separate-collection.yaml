@@ -1,0 +1,37 @@
+# Local QA only: a saved 1000 collection is pending review against zero dues. No production data.
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Offline collection reviews.*"
+    timeout: 60000
+- tapOn: "Offline collection reviews.*"
+- extendedWaitUntil:
+    visible: ".*Collection exceeds current dues.*"
+    timeout: 60000
+- tapOn: ".*QA Member A.*"
+- extendedWaitUntil:
+    visible: ".*₹1,000 collected.*₹0 due in this chit.*"
+    timeout: 60000
+- tapOn: ".*I verified this is a separate collection.*"
+- tapOn: ".*Explain what you verified and why.*"
+- inputText: "Verified separate cash collection with the member for local QA"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: "Confirm reviewed decision"
+    direction: DOWN
+- tapOn: "Confirm reviewed decision"
+- extendedWaitUntil:
+    visible: "No collections waiting for review."
+    timeout: 60000
+- tapOn: "Close"
+- extendedWaitUntil:
+    visible: ".*Synced.*|.*No payments waiting.*"
+    timeout: 60000

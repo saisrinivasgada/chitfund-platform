@@ -1,0 +1,21 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow: login-tools-hidden.yaml
+- stopApp
+- runFlow: empty-reviews.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- stopApp
+- runFlow: save-collection.yaml
+- stopApp
+- runFlow: signout-discard.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'
+- stopApp
+- runFlow: signin-again.yaml
