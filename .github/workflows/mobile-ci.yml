@@ -75,7 +75,10 @@ jobs:
       EXPO_PUBLIC_API_URL: http://127.0.0.1:3112/api
       CHITWISE_NATIVE_QA: '1'
       MAESTRO_VERSION: 2.11.0
-      MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
+      # Xcode may still be starting the first XCTest runner after the release
+      # build. This bounds driver setup only; business assertions keep their
+      # existing deadlines and failures are never retried as a passing suite.
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '180000'
       CHITWISE_QA_SIGN_IN: '1'
       CI: '1'
     steps:

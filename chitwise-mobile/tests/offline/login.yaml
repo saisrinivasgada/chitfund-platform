@@ -5,9 +5,13 @@ appId: com.chitwise.mobile
 - extendedWaitUntil:
     visible: "Enter your username"
     timeout: 60000
+- waitForAnimationToEnd
 - tapOn: "Enter your username"
+- waitForAnimationToEnd
 - inputText: "offline-a"
+- assertVisible: "offline-a"
 - tapOn: "Enter your password"
+- waitForAnimationToEnd
 - inputText: "local-qa-only"
 - pressKey: Enter
 - waitForAnimationToEnd
