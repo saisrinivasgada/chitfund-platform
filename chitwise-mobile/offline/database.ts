@@ -36,18 +36,27 @@ async function databaseKeyForScope(hash: string, fileExists: boolean): Promise<s
   return generated;
 }
 
+function offlineFileExists(filename: string): boolean {
+  const directory = SQLite.defaultDatabaseDirectory;
+  if (!directory) return false;
+  // Android SQLite exposes an absolute filesystem path; Expo File requires a
+  // file URI. iOS already supplies a file URI. Preserve the same database path.
+  const uri = directory.startsWith('/') ? `file://${directory}` : directory;
+  return new File(uri, filename).exists;
+}
+
 /** Detect historical queues without creating a database for online-only accounts. */
 export async function hasOfflineDatabase(accountScope: string): Promise<boolean> {
   if (openDatabases.has(accountScope)) return true;
   if (!SQLite.defaultDatabaseDirectory) return false;
   const hash = await scopeHash(accountScope);
-  return new File(SQLite.defaultDatabaseDirectory, `chitwise-offline-${hash}.db`).exists;
+  return offlineFileExists(`chitwise-offline-${hash}.db`);
 }
 
 async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDatabase> {
   const hash = await scopeHash(accountScope);
   const filename = `chitwise-offline-${hash}.db`;
-  const fileExists = !!SQLite.defaultDatabaseDirectory && new File(SQLite.defaultDatabaseDirectory, filename).exists;
+  const fileExists = offlineFileExists(filename);
   const key = await databaseKeyForScope(hash, fileExists);
   const db = await SQLite.openDatabaseAsync(filename);
 
@@ -609,5 +618,14 @@ export async function getRecoverablePayments(scope: string): Promise<QueuedOpera
   const rows = await db.getAllAsync<any>(`SELECT * FROM sync_operations WHERE action='RECORD_PAYMENT'
     AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','CONFLICT','PERMANENT_FAILURE')
     AND server_review_id IS NULL ORDER BY created_at LIMIT 25`);
+  return rows.map(mapOperation);
+}
+
+export async function getRecoverableStaffCollections(scope: string): Promise<QueuedOperation<any>[]> {
+  if (!await hasOfflineDatabase(scope)) return [];
+  const db = await getOfflineDatabase(scope);
+  const rows = await db.getAllAsync<any>(`SELECT * FROM sync_operations WHERE account_scope=? AND action IN ('MARK_PICKUP','PARTIAL_COLLECT')
+    AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','CONFLICT','PERMANENT_FAILURE')
+    AND server_review_id IS NULL ORDER BY created_at LIMIT 25`, scope);
   return rows.map(mapOperation);
 }

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 // Real SQLite exercises the native SQL and transactions. Encryption itself is verified on-device.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +16,7 @@ test('native confirmed sign-out deletes unconfirmed rows and rejects stale worke
   const dependencies = {
     'expo-crypto': { CryptoDigestAlgorithm: { SHA256: 'sha256' }, randomUUID, digestStringAsync: async (_, value) => createHash('sha256').update(value).digest('hex') },
     'expo-secure-store': { AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 1, getItemAsync: async (key) => keys.get(key), setItemAsync: async (key,value) => keys.set(key,value),deleteItemAsync:async(key)=>keys.delete(key) },
-    'expo-file-system': { File: class { constructor(dir, name) { this.exists = existsSync(join(dir,name)); } } },
+    'expo-file-system': { File: class { constructor(dir, name) { assert.match(dir, /^file:\/\//, 'Expo File needs an absolute file URI, including on Android'); this.exists = existsSync(join(fileURLToPath(dir),name)); } } },
     'expo-sqlite': { defaultDatabaseDirectory: directory, openDatabaseAsync: async (name) => {
       const db = new DatabaseSync(join(directory,name)); connections.push(db);
       return { execAsync: async (sql) => db.exec(sql), getFirstAsync: async (sql,...args) => sql === 'PRAGMA cipher_version' ? { cipher_version: 'SQL-test-only' } : db.prepare(sql).get(...args),
