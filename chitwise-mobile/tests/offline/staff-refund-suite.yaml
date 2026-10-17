@@ -8,6 +8,7 @@ env:
       QA_STATE: '{"online":true,"org":"a","enabled":true,"seedStaffReview":"UNKNOWN"}'
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:

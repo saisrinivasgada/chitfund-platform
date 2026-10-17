@@ -2,6 +2,7 @@
 appId: com.chitwise.mobile
 ---
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
 - waitForAnimationToEnd
 - tapOn:

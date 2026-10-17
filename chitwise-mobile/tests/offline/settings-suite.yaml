@@ -2,6 +2,7 @@ appId: com.chitwise.mobile
 ---
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/more'
 - waitForAnimationToEnd
 - tapOn:
@@ -37,6 +38,7 @@ appId: com.chitwise.mobile
     id: "chitwise-tools-button"
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/more'
 - waitForAnimationToEnd
 - tapOn:

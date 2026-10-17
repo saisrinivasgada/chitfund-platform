@@ -13,6 +13,7 @@ env:
       QA_STATE: '{"online":false,"org":"a","due":1000,"secondDue":500}'
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
@@ -90,6 +91,7 @@ env:
       QA_STATE: '{"online":true}'
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:

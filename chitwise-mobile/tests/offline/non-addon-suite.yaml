@@ -8,6 +8,7 @@ env:
       QA_STATE: '{"online":true,"org":"a","enabled":false}'
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 # Finance opens Record Payment first without a tab parameter.
 - openLink: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
@@ -36,6 +37,7 @@ env:
       QA_STATE: '{"online":false}'
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
@@ -60,6 +62,7 @@ env:
       QA_STATE: '{"online":true,"org":"a","enabled":true}'
 - stopApp
 - launchApp
+- runFlow: wait-for-restored-screen.yaml
 - openLink: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
