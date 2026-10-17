@@ -40,8 +40,8 @@ Parameters:
     Type: String
     Default: saisrinivasgada/chitfund-platform
   LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Type: AWS::EC2::Image::Id
+    Description: Explicitly reviewed AMI ID. Keep the deployed value for ordinary updates.
 
 Resources:
   OfflineSigningSecret:
@@ -311,7 +311,6 @@ Resources:
           cat >/etc/chitwise-environment <<'EOF'
           AWS_REGION=${AWS::Region}
           CHITWISE_SECRET_ID=${ProductionSecretName}
-          CHITWISE_OFFLINE_SECRET_ID=${ProductionSecretName}/offline-signing
           CHITWISE_CERTBOT_SECRET_ID=${CertbotSecretName}
           EOF
           chmod 0644 /etc/chitwise-environment
