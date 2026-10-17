@@ -44,7 +44,9 @@ export default function OfflineStatus({ connectionScreen = false }) {
   const navigate = useNavigate();
   const countQuery = useQuery({ queryKey: ['offline-review-count', scope], enabled: !!scope && auth.user?.role === 'ADMIN' && online,
     queryFn: () => requestForAccount(scope, '/payments/offline/reviews?page=0&size=1'), refetchInterval: online ? 30_000 : false, retry: false });
-  const reviewCount = countQuery.data?.totalElements ?? countQuery.data?.content?.length ?? 0;
+  const staffCountQuery = useQuery({ queryKey: ['offline-staff-review-count', scope], enabled: !!scope && auth.user?.role === 'ADMIN' && online,
+    queryFn: () => requestForAccount(scope, '/payments/offline/staff-actions/reviews?page=0&size=1'), refetchInterval: online ? 30_000 : false, retry: false });
+  const reviewCount = (countQuery.data?.totalElements ?? countQuery.data?.content?.length ?? 0) + (staffCountQuery.data?.totalElements ?? 0);
   useEffect(() => { setOpen(null); setSelectedReview(null); setSelectedPaymentKey(null); setNotice(''); }, [scope]);
   const openReview = (id = null) => { setSelectedReview(id); setOpen('reviews'); };
 
@@ -220,6 +222,10 @@ export default function OfflineStatus({ connectionScreen = false }) {
           </div>;
         })}
       </div>
+      {auth.user.role === 'ADMIN' && accounts.some(saved => {
+        const counts = accountStatuses[saved.scope]?.counts;
+        return saved.tenant?.tenantId === auth.tenantId && counts && counts.pending + counts.conflicts + counts.failed > 0;
+      }) && <Button variant="ghost" disabled={!online || busy} onClick={() => openReview()}>Recover earlier collections</Button>}
       {error && <p className="text-sm text-red-700 mt-3">{error}</p>}
       <div className="flex justify-end gap-2 mt-5"><Button variant="ghost" onClick={() => setOpen(null)}>Close</Button>
         <Button disabled={!online} onClick={() => { auth.startAccountLogin(); navigate('/login'); }}>Sign in to another account</Button></div>

@@ -23,3 +23,11 @@ test('consuming an older request cannot erase a newer account review request', (
   assert.equal(reviews.getState().scope, 'org-b');
   assert.equal(reviews.getState().reviewId, 'new');
 });
+
+test('staff review navigation retains its kind and the next payment request restores the default', () => {
+  reviews.getState().openReview('org-a', 'staff-review', 'staff');
+  assert.equal(reviews.getState().kind, 'staff');
+  reviews.getState().consumeReview(reviews.getState().sequence);
+  reviews.getState().openReview('org-a', 'payment-review');
+  assert.equal(reviews.getState().kind, 'payment');
+});

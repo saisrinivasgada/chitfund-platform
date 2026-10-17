@@ -12,23 +12,25 @@ const owners = ['a', 'b'].map((name, index) => {
   const token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),
     Buffer.from(JSON.stringify({ sub: user.id, tenantId: tenant.tenantId, role: user.role, exp: 4102444800 })).toString('base64url'), 'local-qa-only'].join('.');
   return { name, user, tenant, token, refreshToken: `local-qa-refresh-${name}`, memberId: id('3'), chitId: id('4'), secondaryChitId: id('5'),
-    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, pausePaymentDelivery: false, receipts: new Map(), reviews: new Map() };
+    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, pausePaymentDelivery: false, receipts: new Map(), reviews: new Map(), staffReviews: new Map(), staffReviewStaleOnce: false };
 });
 let online = true;
+let drawFailure = false;
 const stateFile = process.env.CHITWISE_QA_STATE_FILE;
 if (stateFile && existsSync(stateFile)) {
   const saved = JSON.parse(readFileSync(stateFile, 'utf8')); const state = saved.data ?? saved;
-  online = state.online ?? true;
+  online = state.online ?? true; drawFailure = state.drawFailure ?? false;
   for (const prior of state.organisations ?? []) {
     const owner = owners.find((item) => item.name === prior.name); if (!owner) continue;
-    for (const key of ['due','credit','version','enabled','secondDue','pausePaymentDelivery']) if (prior[key] != null) owner[key] = prior[key];
+    for (const key of ['due','credit','version','enabled','secondDue','pausePaymentDelivery','staffReviewStaleOnce']) if (prior[key] != null) owner[key] = prior[key];
     owner.receipts = new Map((prior.receipts ?? []).map((r) => [r.id,r]));
     owner.reviews = new Map((prior.reviews ?? []).map((r) => [r.id,r]));
+    owner.staffReviews = new Map((prior.staffReviews ?? []).map((r) => [r.id,r]));
   }
 }
-const snapshot = () => ({ online, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
+const snapshot = () => ({ online, drawFailure, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
   credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled, pausePaymentDelivery: owner.pausePaymentDelivery,
-  receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()] })) });
+  receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()], staffReviews: [...owner.staffReviews.values()], staffReviewStaleOnce: owner.staffReviewStaleOnce })) });
 const member = (owner) => ({ id: owner.memberId, fullName: `QA Member ${owner.name.toUpperCase()}`, name: `QA Member ${owner.name.toUpperCase()}`,
   phone: '9000000001', status: 'ACTIVE', hasAppAccess: true, createdAt: '2026-10-15T12:00:00' });
 const chit = (owner) => ({ id: owner.chitId, name: `QA Monthly Chit ${owner.name.toUpperCase()}`, status: 'ACTIVE', chitType: 'RESERVATION',
@@ -51,8 +53,19 @@ http.createServer(async (request, response) => {
   if (url.pathname === '/__qa/state') {
     if (request.method === 'POST') {
       if (body.online != null) online = body.online;
+      if (body.drawFailure != null) drawFailure = body.drawFailure;
       const owner = owners.find((item) => item.name === (body.org ?? 'a'));
       if (typeof body.pausePaymentDelivery === 'boolean') owner.pausePaymentDelivery = body.pausePaymentDelivery;
+      if (body.seedStaffReview) {
+        if ([...owner.staffReviews.values()].some((r) => r.status === 'PENDING')) return send({ message: 'Finish the existing staff review first' }, 409);
+        const entry = { id: randomUUID(), kind: 'STAFF_PICKUP', status: 'PENDING', operationId: randomUUID(),
+          requestId: '60000000-0000-0000-0000-000000000001', recordedBy: '70000000-0000-0000-0000-000000000001',
+          collectorName: 'QA Collector A', originalRole: 'STAFF', memberId: owner.memberId, chitId: owner.chitId,
+          action: body.seedStaffReview === 'UNKNOWN' ? 'MARK_PICKUP' : 'PARTIAL_COLLECT', amount: body.seedStaffReview === 'UNKNOWN' ? null : 100,
+          recordedAt: new Date(Date.now() - 60_000).toISOString(), version: 'staff-v1',
+          current: { status: 'ASSIGNED', assignedToOriginalCollector: true, pickedUpByOriginalCollector: false } };
+        owner.staffReviews.set(entry.id, entry); owner.staffReviewStaleOnce = body.staffReviewStaleOnce === true;
+      }
       for (const key of ['due', 'secondDue', 'enabled']) if (body[key] != null) { owner[key] = body[key]; owner.version++; }
     }
     return send(snapshot());
@@ -75,6 +88,24 @@ http.createServer(async (request, response) => {
       grant: owner.enabled ? { id: randomUUID(), actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: 'ADMIN', issuedAt: now,
         recordUntil: now + 7 * 86400000, readUntil: now + 7 * 86400000, actions: ['READ', 'RECORD_PAYMENT'], token: `local-proof-${owner.name}` } : null });
   }
+
+  const staffReviewBase = '/payments/offline/staff-actions/reviews';
+  if (path === staffReviewBase) return send(page([...owner.staffReviews.values()].filter((r) => r.status === 'PENDING'), Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 20)));
+  if (path.startsWith(staffReviewBase + '/')) {
+    const entry = owner.staffReviews.get(path.slice(staffReviewBase.length + 1).split('/')[0]);
+    if (!entry) return send({ message: 'Unknown local staff review' }, 404);
+    if (request.method === 'POST' && path.endsWith('/resolve')) {
+      if (!body.confirmed || body.reason?.trim().length < 5) return send({ message: 'Confirm the verified outcome and include a reason' }, 400);
+      if (owner.staffReviewStaleOnce) { owner.staffReviewStaleOnce = false; entry.version = 'staff-v2'; return send({ message: 'Pickup changed during review. Refresh and review the latest details.' }, 409); }
+      if (body.expectedVersion !== entry.version) return send({ message: 'Pickup changed during review. Refresh and review the latest details.' }, 409);
+      if (body.decision !== 'CANCEL_MISTAKE' && (!(body.actualAmount > 0) || (entry.amount != null && body.actualAmount !== entry.amount))) return send({ message: 'Use the actual original collected amount' }, 400);
+      if (body.decision === 'RECORD_REFUND' && (!body.reference || !body.refundedAt || !body.paymentMode)) return send({ message: 'Include completed refund evidence' }, 400);
+      const status = { RECORD_CUSTODY: 'RECORDED', LINK_CUSTODY: 'LINKED', CANCEL_MISTAKE: 'CANCELLED', RECORD_REFUND: 'REFUNDED' }[body.decision];
+      if (!status) return send({ message: 'Choose a pickup decision' }, 400);
+      entry.status = status; entry.resolutionReason = body.reason; entry.result = { decision: body, outcome: { id: entry.requestId } };
+    }
+    return send(entry);
+  }
   if (path === '/users/me') return send(owner.user);
   if (path === '/users/me/effective-limits' || path === '/users/me/billing-info') return send({ ...owner.tenant, tenantStatus: 'ACTIVE',
     maxMembers: -1, maxChits: -1, maxStaff: -1, maxManagers: -1, enabledAddOns: owner.enabled ? ['offline_support'] : [] });
@@ -92,6 +123,9 @@ http.createServer(async (request, response) => {
       months: due ? [{ monthNumber: 1, amountDue: original, amountPaid: original-due, balance: due, dueDate: '2026-10-15', status: due === original ? 'OUTSTANDING' : 'PARTIALLY_PAID' }] : [] });
   }
   if (path === '/payments/balance/total') return send(owner.due + owner.secondDue);
+  if (path === '/admin/draws/open' && request.method === 'POST') {
+    return send({ message: drawFailure ? 'Draw changed while opening. Refresh and try again.' : 'This local fixture does not create financial draws.' }, drawFailure ? 409 : 501);
+  }
   if (path.startsWith('/admin/draws/chit/')) {
     const selected = path.split('/').at(-1);
     return send([{ id: `qa-draw-${selected}`, chitId: selected, monthNumber: 1, drawDate: '2026-10-15', status: 'COMPLETED' }]);

@@ -21,6 +21,7 @@ import { getSyncCounts, getLastSyncedAt, makeRetryableOperationsReady, hasOfflin
 import { isBiometricEnabled } from '../../utils/biometrics';
 import { C, formatPhone } from '../../components/ui';
 import RoleLogo from '../../components/RoleLogo';
+import { useReviewNavigationStore } from '../../store/reviewNavigationStore';
 
 const ROLE_BADGE_COLOR: Record<string, string> = {
   ADMIN: '#1D4ED8', MANAGER: '#7C3AED', STAFF: '#059669',
@@ -267,6 +268,19 @@ export default function AccountsScreen() {
             </View>
           );
         })}
+
+        {user?.role === 'ADMIN' && user.authSource !== 'HUB' && accounts.some((saved) => {
+          const counts = syncInfo[saved.accountId]?.counts;
+          return saved.tenantId === user.tenantId && counts && counts.pending + counts.conflicts + counts.failed > 0;
+        }) && <TouchableOpacity accessibilityRole="button" disabled={!online || !!busyId} onPress={() => {
+          const scope = getAccountScope(useAuthStore.getState().user);
+          if (!scope) return;
+          router.replace('/(app)/(admin)/payments?tab=Record%20Payment');
+          useReviewNavigationStore.getState().openReview(scope);
+        }} style={{ padding: 16, borderRadius: 14, backgroundColor: C.navy50, marginBottom: 12, opacity: online ? 1 : 0.5 }}>
+          <Text style={{ color: C.navy, fontWeight: '700' }}>Recover earlier collections</Text>
+          <Text style={{ color: C.gray600, fontSize: 12, lineHeight: 18, marginTop: 5 }}>Review saved work for this organisation after account access or the subscription changes.</Text>
+        </TouchableOpacity>}
 
         {/* Add another account / fresh login — always available, Instagram-style */}
         <TouchableOpacity

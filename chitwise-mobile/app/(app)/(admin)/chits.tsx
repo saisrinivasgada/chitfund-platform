@@ -1,3 +1,4 @@
+import { ChitActionDialog, ChitDialogHost } from '../../../components/ChitActionDialog';
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, FlatList, Modal, Alert, TextInput, TouchableOpacity,
@@ -312,9 +313,8 @@ export default function AdminChitsScreen() {
       const target = (chits as any[]).find((c: any) => c.id === params.openChitId);
       if (target) {
         consumedOpenChitId.current = params.openChitId;
-        setSelected(target);
+        openDetail(target);
         setDetailTab((params.openTab as DetailTab) ?? 'info');
-        setShowDetail(true);
       }
     }
   }, [params.openChitId, params.openTab, chits]);
@@ -547,7 +547,30 @@ export default function AdminChitsScreen() {
   });
 
   // ── Mutations: draws ───────────────────────────────────────────────────────
+  const dialogClosers = useRef(new Map<symbol, () => void>());
+  const drawDialogSequence = useRef(0);
+  const selectedChitId = useRef(selected?.id);
+  selectedChitId.current = selected?.id;
+  const [openDrawError, setOpenDrawError] = useState('');
+  const actionOpen = showOpenAuction || showCloseAuction || showExtend || showEditModal || showEnroll || showWinner
+    || showOpenDraw || showSkipDraw || showAddSlot || showVoidSlot || !!voidBatchId || showSwap || showShift
+    || showCollectPay || showWinnerPayout || showDisburse || showPayoutDetail;
+  function closeDrawDialog() {
+    drawDialogSequence.current++; setShowOpenDraw(false); setOpenDrawError(''); setOdWinnerIds([]); setOdDrawNum('');
+    setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
+  }
+  function closeDetail() {
+    drawDialogSequence.current++; setShowDetail(false); setEditActiveConfirmed(false); setOpenDrawError('');
+    setShowOpenAuction(false); setShowCloseAuction(false); setShowExtend(false); setShowEditModal(false);
+    setShowEnroll(false); setShowWinner(false); setShowOpenDraw(false); setShowSkipDraw(false); setSdDrawId('');
+    setShowAddSlot(false); setShowVoidSlot(false); setVoidBatchId(''); setShowSwap(false); setSwapA(''); setSwapB('');
+    setShowShift(false); setShowCollectPay(false); setShowWinnerPayout(false); setShowDisburse(false); setShowPayoutDetail(false);
+    setOdWinnerIds([]);
+  }
+
   const openDrawMut = useOnlineMutation({
+    offlineErrorMode: 'handler',
+    onMutate: () => ({ chitId: selected.id, sequence: drawDialogSequence.current }),
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
       const baseInstallment = Number(selected?.installmentAmount ?? (Number(selected?.chitValue ?? 0) / Number(selected?.capacity ?? 1)));
@@ -636,16 +659,22 @@ export default function AdminChitsScreen() {
         }
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
+    onSuccess: (_data, _variables, original) => {
+      const chitId = original?.chitId;
+      qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
-      qc.invalidateQueries({ queryKey: ['a-winners', selected.id] });
-      qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-winners', chitId] });
+      qc.invalidateQueries({ queryKey: ['a-reservations', chitId] });
+      if (!original || selectedChitId.current !== chitId || original.sequence !== drawDialogSequence.current) return;
       setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); setOdDueDate('');
       setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
       toast.noted('Draw opened');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
+    onError: (e: any, _variables, original) => {
+      if (original && selectedChitId.current === original.chitId && original.sequence === drawDialogSequence.current) {
+        setOpenDrawError(e.response?.data?.message ?? e.message ?? 'Could not open this draw. Please try again.');
+      }
+    },
   });
 
   const closeDrawMut = useOnlineMutation({
@@ -975,7 +1004,7 @@ export default function AdminChitsScreen() {
     });
 
   function openDetail(c: any) {
-    setSelected(c); setDetailTab('info'); setShowDetail(true);
+    closeDetail(); setSelected(c); setDetailTab('info'); setShowDetail(true);
   }
 
   const TABS: { key: DetailTab; label: string }[] = [
@@ -1128,10 +1157,15 @@ export default function AdminChitsScreen() {
 
 
       {/* ════════════════════════════════════════════════════════════════════════
-          CHIT DETAIL MODAL — action dialogs are nested for iOS presentation
+          CHIT DETAIL SHEET — one native presentation, inline action panels
       ════════════════════════════════════════════════════════════════════════ */}
-      <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
+      <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" allowSwipeDismissal
+        onRequestClose={() => {
+          const closeAction = [...dialogClosers.current.values()].at(-1);
+          if (Platform.OS === 'android' && closeAction) closeAction(); else closeDetail();
+        }}>
+        <ChitDialogHost value={dialogClosers}>
+        <SafeAreaView accessibilityElementsHidden={actionOpen} importantForAccessibility={actionOpen ? 'no-hide-descendants' : 'auto'} style={{ flex: 1, backgroundColor: C.surface }}>
           {/* Header */}
           <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1193,7 +1227,7 @@ export default function AdminChitsScreen() {
                   {selected?.totalAmount && <Amount value={selected.totalAmount} size="sm" color={C.green} />}
                 </View>
               </View>
-              <TouchableOpacity onPress={() => { setShowDetail(false); setEditActiveConfirmed(false); }}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close chit details" onPress={closeDetail}>
                 <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
               </TouchableOpacity>
             </View>
@@ -1598,6 +1632,7 @@ export default function AdminChitsScreen() {
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                   <View style={{ flex: 1 }}>
                     <Button label="+ Open New Draw" variant="primary" size="sm" disabled={isExpired} onPress={() => {
+                      drawDialogSequence.current++; setOpenDrawError('');
                       setOdDrawNum(String(nextDrawNum));
                       setShowOpenDraw(true);
                     }} />
@@ -2480,7 +2515,7 @@ export default function AdminChitsScreen() {
 
 
       {/* ── Open Auction Modal ──────────────────────────────────────────────────── */}
-      <Modal visible={showOpenAuction} animationType="slide" presentationStyle="formSheet"
+      <ChitActionDialog visible={showOpenAuction} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowOpenAuction(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
@@ -2581,10 +2616,10 @@ export default function AdminChitsScreen() {
             />
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Close Auction Modal ─────────────────────────────────────────────────── */}
-      <Modal visible={showCloseAuction} animationType="slide" presentationStyle="formSheet"
+      <ChitActionDialog visible={showCloseAuction} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowCloseAuction(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
@@ -2645,10 +2680,10 @@ export default function AdminChitsScreen() {
             />
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Extend Time Modal ───────────────────────────────────────────────────── */}
-      <Modal visible={showExtend} animationType="slide" presentationStyle="formSheet"
+      <ChitActionDialog visible={showExtend} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowExtend(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
@@ -2707,12 +2742,12 @@ export default function AdminChitsScreen() {
             />
           </ScrollView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ════════════════════════════════════════════════════════════════════════
           EDIT CHIT DETAILS MODAL
       ════════════════════════════════════════════════════════════════════════ */}
-      <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet"
+      <ChitActionDialog visible={showEditModal} animationType="slide" presentationStyle="pageSheet"
         onRequestClose={() => setShowEditModal(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -2894,12 +2929,12 @@ export default function AdminChitsScreen() {
             </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
 
 
       {/* ── Enroll Member bottom-sheet ─────────────────────────────────────── */}
-      <Modal visible={showEnroll} animationType="slide" transparent onRequestClose={() => setShowEnroll(false)}>
+      <ChitActionDialog visible={showEnroll} animationType="slide" transparent onRequestClose={() => setShowEnroll(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 4 }}>Enroll Member</Text>
@@ -2966,10 +3001,10 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Record Winner bottom-sheet ─────────────────────────────────────── */}
-      <Modal visible={showWinner} animationType="slide" transparent onRequestClose={() => setShowWinner(false)}>
+      <ChitActionDialog visible={showWinner} animationType="slide" transparent onRequestClose={() => setShowWinner(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '65%' }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Record Draw Winner</Text>
@@ -3012,10 +3047,10 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Open Draw bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showOpenDraw} animationType="slide" transparent onRequestClose={() => setShowOpenDraw(false)}>
+      <ChitActionDialog visible={showOpenDraw} animationType="slide" transparent onRequestClose={closeDrawDialog}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -3029,11 +3064,12 @@ export default function AdminChitsScreen() {
                   </Text>
                 )}
               </View>
-              <TouchableOpacity onPress={() => { setShowOpenDraw(false); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }}>
+              <TouchableOpacity onPress={closeDrawDialog}>
                 <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
               </TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+              {!!openDrawError && <Text accessibilityRole="alert" style={{ color: C.red, backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 16 }}>{openDrawError}</Text>}
               {/* Draw number + due date — same for all types */}
               <View style={{ marginBottom: 16 }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number *</Text>
@@ -3174,7 +3210,7 @@ export default function AdminChitsScreen() {
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => { setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }} />
+                  <Button label="Cancel" variant="ghost" onPress={closeDrawDialog} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Button
@@ -3193,10 +3229,10 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Skip Draw bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showSkipDraw} animationType="slide" transparent onRequestClose={() => setShowSkipDraw(false)}>
+      <ChitActionDialog visible={showSkipDraw} animationType="slide" transparent onRequestClose={() => setShowSkipDraw(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Skip Draw</Text>
@@ -3228,10 +3264,10 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Add Slot bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showAddSlot} animationType="slide" transparent onRequestClose={() => setShowAddSlot(false)}>
+      <ChitActionDialog visible={showAddSlot} animationType="slide" transparent onRequestClose={() => setShowAddSlot(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -3278,10 +3314,10 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Void Slot bottom-sheet ─────────────────────────────────────────── */}
-      <Modal visible={showVoidSlot} animationType="slide" transparent onRequestClose={() => setShowVoidSlot(false)}>
+      <ChitActionDialog visible={showVoidSlot} animationType="slide" transparent onRequestClose={() => setShowVoidSlot(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Slot</Text>
@@ -3320,10 +3356,10 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Void Payment Batch Modal ──────────────────────────────────────── */}
-      <Modal visible={!!voidBatchId} animationType="slide" transparent onRequestClose={() => setVoidBatchId('')}>
+      <ChitActionDialog visible={!!voidBatchId} animationType="slide" transparent onRequestClose={() => setVoidBatchId('')}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Payment</Text>
@@ -3342,10 +3378,10 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Swap Slots bottom-sheet ────────────────────────────────────────── */}
-      <Modal visible={showSwap} animationType="slide" transparent onRequestClose={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
+      <ChitActionDialog visible={showSwap} animationType="slide" transparent onRequestClose={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -3418,10 +3454,10 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Shift Schedule bottom-sheet ────────────────────────────────────── */}
-      <Modal visible={showShift} animationType="slide" transparent onRequestClose={() => setShowShift(false)}>
+      <ChitActionDialog visible={showShift} animationType="slide" transparent onRequestClose={() => setShowShift(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Shift Schedule</Text>
@@ -3449,10 +3485,10 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Collect Payment bottom-sheet ───────────────────────────────────── */}
-      <Modal visible={showCollectPay} animationType="slide" transparent onRequestClose={() => setShowCollectPay(false)}>
+      <ChitActionDialog visible={showCollectPay} animationType="slide" transparent onRequestClose={() => setShowCollectPay(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -3548,10 +3584,10 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Create Payout from Winner (bottom-sheet, stacks over pageSheet detail) ── */}
-      <Modal visible={showWinnerPayout} animationType="slide" transparent onRequestClose={() => setShowWinnerPayout(false)}>
+      <ChitActionDialog visible={showWinnerPayout} animationType="slide" transparent onRequestClose={() => setShowWinnerPayout(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' }}>
           <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -3628,10 +3664,10 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Disburse Payout bottom-sheet ─────────────────────────────────────── */}
-      <Modal visible={showDisburse} animationType="slide" transparent onRequestClose={() => setShowDisburse(false)}>
+      <ChitActionDialog visible={showDisburse} animationType="slide" transparent onRequestClose={() => setShowDisburse(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' }}>
             <ScrollView contentContainerStyle={{ padding: 24 }}>
@@ -3716,10 +3752,10 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Payout Detail bottom-sheet ────────────────────────────────────────── */}
-      <Modal visible={showPayoutDetail} animationType="slide" transparent onRequestClose={() => setShowPayoutDetail(false)}>
+      <ChitActionDialog visible={showPayoutDetail} animationType="slide" transparent onRequestClose={() => setShowPayoutDetail(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
             <ScrollView contentContainerStyle={{ padding: 24 }}>
@@ -3793,7 +3829,8 @@ export default function AdminChitsScreen() {
             </ScrollView>
           </SafeAreaView>
         </View>
-      </Modal>
+      </ChitActionDialog>
+      </ChitDialogHost>
       </Modal>
       {/* ════════════════════════════════════════════════════════════════════════
           CREATE CHIT MODAL

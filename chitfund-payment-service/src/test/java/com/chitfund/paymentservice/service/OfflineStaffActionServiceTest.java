@@ -28,6 +28,8 @@ class OfflineStaffActionServiceTest {
     @Mock CashPaymentRequestRepository requests;
     @Mock OfflineCommandReceiptRepository receipts;
     @Mock AuditClient audit;
+    @Mock FinancialCommandLock locks;
+    @Mock OfflineStaffReviewRepository reviews;
     private OfflineStaffActionService service;
     private OfflineStaffActionRequest command;
     private CashPaymentRequest request;
@@ -36,7 +38,7 @@ class OfflineStaffActionServiceTest {
     @BeforeEach void setup() {
         TenantContext.set("org-a");
         service = new OfflineStaffActionService(users, cash, requests, receipts,
-                new ObjectMapper().findAndRegisterModules(), audit);
+                new ObjectMapper().findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS), audit, locks, reviews);
         command = new OfflineStaffActionRequest();
         command.setOperationId("operation-a");
         command.setRequestId(UUID.randomUUID());
@@ -50,14 +52,13 @@ class OfflineStaffActionServiceTest {
     }
     @AfterEach void clear() { TenantContext.clear(); }
 
-    private void authoriseAndLock() {
+    private void authorise() {
         when(users.verifyOfflineRecordedAction(any())).thenReturn("grant-a");
-        when(requests.findByIdAndTenantIdForUpdate(command.getRequestId(), "org-a"))
-                .thenReturn(Optional.of(request));
     }
 
     @Test void acceptedHistoricalCollectionStoresReceiptAndAuditTogether() {
-        authoriseAndLock();
+        authorise();
+        when(requests.findByIdAndTenantIdForUpdate(command.getRequestId(), "org-a")).thenReturn(Optional.of(request));
         when(cash.partiallyCollect(command.getRequestId(), command.getCollectedAmount(), actor, "STAFF"))
                 .thenReturn(CashRequestResponse.builder().id(command.getRequestId())
                         .status(CashRequestStatus.PARTIALLY_COLLECTED).build());
@@ -67,24 +68,27 @@ class OfflineStaffActionServiceTest {
         assertThat(receipt.getValue().getRecordedAt()).isEqualTo(command.getRecordedAt());
         assertThat(receipt.getValue().getTenantId()).isEqualTo("org-a");
         assertThat(receipt.getValue().getActorId()).isEqualTo(actor);
+        assertThat(request.getPickedUpAt()).isEqualTo(LocalDateTime.ofInstant(command.getRecordedAt(), ZoneOffset.UTC));
+        assertThat(request.getPartiallyCollectedAt()).isEqualTo(request.getPickedUpAt());
+        assertThat(receipt.getValue().getResponseJson()).contains("2026-01-01T11:00:00");
         verify(audit).log(any(AuditClient.AuditDetails.class));
     }
 
-    @Test void acknowledgementRetryReturnsOriginalReceiptEvenWhenRequestHasMovedOn() {
-        authoriseAndLock();
+    @Test void acknowledgementRetryReturnsOriginalReceiptEvenWhenTaskWasRemoved() {
+        authorise();
         String hash = IdempotencyFingerprint.of(command.getRequestId(), command.getAction(),
                 command.getCollectedAmount(), command.getExpectedUpdatedAt(), command.getRecordedAt(), "grant-a");
         when(receipts.findByTenantIdAndActorIdAndOperationId("org-a", actor, "operation-a"))
                 .thenReturn(Optional.of(OfflineCommandReceipt.builder().payloadHash(hash)
                         .responseJson("{\"id\":\"original-receipt\",\"status\":\"PARTIALLY_COLLECTED\"}").build()));
-        request.setUpdatedAt(command.getExpectedUpdatedAt().plusDays(1));
         assertThat(service.apply(command, actor, "STAFF").get("id").asText()).isEqualTo("original-receipt");
-        verifyNoInteractions(cash, audit);
+        verifyNoInteractions(requests, cash, audit);
         verify(receipts, never()).saveAndFlush(any());
     }
 
     @Test void changedPickupIsAConflictAndNeverOverwritten() {
-        authoriseAndLock();
+        authorise();
+        when(requests.findByIdAndTenantIdForUpdate(command.getRequestId(), "org-a")).thenReturn(Optional.of(request));
         request.setUpdatedAt(command.getExpectedUpdatedAt().plusSeconds(1));
         assertThatThrownBy(() -> service.apply(command, actor, "STAFF"))
                 .isInstanceOfSatisfying(BusinessException.class, error -> assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT));
@@ -93,7 +97,7 @@ class OfflineStaffActionServiceTest {
     }
 
     @Test void operationIdentityCannotBeReusedWithDifferentCollectionDetails() {
-        authoriseAndLock();
+        authorise();
         when(receipts.findByTenantIdAndActorIdAndOperationId("org-a", actor, "operation-a"))
                 .thenReturn(Optional.of(OfflineCommandReceipt.builder().payloadHash("different-payload").build()));
         assertThatThrownBy(() -> service.apply(command, actor, "STAFF"))

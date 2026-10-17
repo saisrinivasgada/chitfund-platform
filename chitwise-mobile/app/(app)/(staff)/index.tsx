@@ -48,11 +48,14 @@ function TaskModal({
   const [cancelling, setCancelling] = useState(false);
   const [reschedDate, setReschedDate] = useState('');
 
+  const requestedKnown = task.requestedAmount != null && Number(task.requestedAmount) > 0;
+
   async function handleFullCollect() {
+    if (!requestedKnown) { setScreen('partial-input'); return; }
     if (collectingFull || collectingPartial) return;
     setCollectingFull(true);
     try {
-      const res = await markPickupOfflineCapable(task.id, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined });
+      const res = await markPickupOfflineCapable(task.id, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: task.requestedAmount == null ? undefined : Number(task.requestedAmount), memberName, chitName: chitName ?? undefined });
       // Optimistic update — task moves to PICKED_UP in local cache
       qc.setQueryData(['staff-tasks'], (old: any[]) =>
         (old ?? []).map((t: any) =>
@@ -71,11 +74,11 @@ function TaskModal({
 
   async function handlePartialCollect() {
     const amt = Number(partialAmount);
-    if (!amt || amt <= 0 || amt >= Number(task.requestedAmount)) return;
+    if (!amt || amt <= 0 || (requestedKnown && amt >= Number(task.requestedAmount))) return;
     if (collectingPartial || collectingFull) return;
     setCollectingPartial(true);
     try {
-      const res = await partialCollectOfflineCapable(task.id, amt, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined });
+      const res = await partialCollectOfflineCapable(task.id, amt, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: task.requestedAmount == null ? undefined : Number(task.requestedAmount), memberName, chitName: chitName ?? undefined });
       qc.setQueryData(['staff-tasks'], (old: any[]) =>
         (old ?? []).map((t: any) =>
           t.id === task.id
@@ -229,7 +232,7 @@ function TaskModal({
                 AMOUNT TO COLLECT
               </Text>
               <Text style={{ fontSize: 44, fontWeight: '900', color: C.navy }}>
-                ₹{Number(task.requestedAmount).toLocaleString('en-IN')}
+                {requestedKnown ? `₹${Number(task.requestedAmount).toLocaleString('en-IN')}` : 'Enter amount'}
               </Text>
               {task.scheduledFor && (
                 <Text style={{ fontSize: 13, color: C.navy, marginTop: 8, opacity: 0.7 }}>
@@ -266,10 +269,10 @@ function TaskModal({
                   }}
                 >
                   <Text style={{ fontSize: 17, fontWeight: '900', color: C.white }}>
-                    {collectingFull ? 'Recording…' : `✓  I Collected ₹${Number(task.requestedAmount).toLocaleString('en-IN')}`}
+                    {collectingFull ? 'Recording…' : requestedKnown ? `✓  I Collected ₹${Number(task.requestedAmount).toLocaleString('en-IN')}` : 'Enter Collected Amount'}
                   </Text>
                   <Text style={{ fontSize: 12, color: C.white + 'CC', marginTop: 3 }}>
-                    Full amount — tap to confirm
+                    {requestedKnown ? 'Full amount — tap to confirm' : 'Record the actual cash received'}
                   </Text>
                 </TouchableOpacity>
 
@@ -338,7 +341,7 @@ function TaskModal({
                   How much did you collect?
                 </Text>
                 <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
-                  Must be less than ₹{Number(task.requestedAmount).toLocaleString('en-IN')}. Member will approve or reject this amount.
+                  {requestedKnown ? `Must be less than ₹${Number(task.requestedAmount).toLocaleString('en-IN')}. ` : 'Enter the actual cash received. '}Member will approve or reject this amount.
                 </Text>
 
                 <View style={{
@@ -361,11 +364,11 @@ function TaskModal({
 
                 <TouchableOpacity
                   onPress={handlePartialCollect}
-                  disabled={collectingPartial || collectingFull || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)}
+                  disabled={collectingPartial || collectingFull || !partialAmount || Number(partialAmount) <= 0 || (requestedKnown && Number(partialAmount) >= Number(task.requestedAmount))}
                   style={{
                     paddingVertical: 18, borderRadius: 14, alignItems: 'center',
                     backgroundColor:
-                      collectingPartial || collectingFull || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)
+                      collectingPartial || collectingFull || !partialAmount || Number(partialAmount) <= 0 || (requestedKnown && Number(partialAmount) >= Number(task.requestedAmount))
                         ? C.gray200
                         : '#0D9488',
                   }}

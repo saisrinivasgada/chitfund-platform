@@ -1,0 +1,51 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow: draw-dialog-suite.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"drawFailure":true}'
+- tapOn: "+ Open New Draw"
+- waitForAnimationToEnd
+- tapOn: "Open Draw #2"
+- extendedWaitUntil:
+    visible: "Draw changed while opening. Refresh and try again."
+    timeout: 15000
+- assertVisible: "Draw Number.*"
+- tapOn: "Cancel"
+- waitForAnimationToEnd
+- tapOn: "Close chit details"
+- waitForAnimationToEnd
+- repeat:
+    times: 3
+    commands:
+      - tapOn: ".*QA Second Chit A.*"
+      - waitForAnimationToEnd
+      - assertVisible: "Info"
+      - tapOn: "Draws"
+      - tapOn: "+ Open New Draw"
+      - waitForAnimationToEnd
+      - assertVisible: "Draw Number.*"
+      - tapOn: "Cancel"
+      - waitForAnimationToEnd
+      - tapOn: "Close chit details"
+      - waitForAnimationToEnd
+      - tapOn: ".*QA Monthly Chit A.*"
+      - waitForAnimationToEnd
+      - assertVisible: "Info"
+      - tapOn: "Draws"
+      - tapOn: "+ Open New Draw"
+      - waitForAnimationToEnd
+      - assertVisible: "Draw Number.*"
+      - tapOn: "Cancel"
+      - waitForAnimationToEnd
+      - tapOn: "Close chit details"
+      - waitForAnimationToEnd
+- assertVisible: ".*QA Monthly Chit A.*"
+- assertVisible: ".*QA Second Chit A.*"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"drawFailure":false}'

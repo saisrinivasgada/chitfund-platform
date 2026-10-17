@@ -1,6 +1,7 @@
+import StaffCollectionReviews from './StaffCollectionReviews';
 import { formatRefundTime, parseRefundTime } from '../../../shared/offline/refundDate';
 import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { activeAccountScope, requestForAccount } from './accountClient';
 import { recoverSavedCollections, syncSavedPayments } from './outbox';
 import Modal from '../components/ui/Modal';
@@ -11,6 +12,9 @@ const date = (value) => value ? new Date(value).toLocaleString() : 'Time unavail
 
 export default function OfflineCollectionReviews({ scope, initialReviewId = null, onClose }) {
   const queryClient = useQueryClient();
+  const [staffOpen, setStaffOpen] = useState(false);
+  const staffCount = useQuery({ queryKey: ['offline-staff-review-count', scope],
+    queryFn: () => requestForAccount(scope, '/payments/offline/staff-actions/reviews?page=0&size=1'), retry: false, refetchInterval: 30_000 });
   const [listing, setListing] = useState(null);
   const [detail, setDetail] = useState(null);
   const [names, setNames] = useState({});
@@ -78,8 +82,12 @@ export default function OfflineCollectionReviews({ scope, initialReviewId = null
         method: 'POST', body: { decision, reason: reason.trim(), expectedBalanceVersion: detail.balance.version,
           existingReceiptId: decision === 'LINK_DUPLICATE' ? receiptId : undefined },
       });
-      if (current()) await queryClient.invalidateQueries({ refetchType: 'active' });
-      await syncSavedPayments();
+      if (current()) {
+        setDetail(null);
+        setListing(prior => prior ? { ...prior, content: prior.content.filter(entry => entry.id !== detail.id) } : prior);
+        void queryClient.invalidateQueries({ refetchType: 'active' }).catch(() => {});
+      }
+      void syncSavedPayments().catch(() => {});
       const next = await requestForAccount(scope, `/payments/offline/reviews?page=${page}&size=20`);
       if (current()) {
         if (page > 0 && !next.content.length) { setListing(null); setPage(page - 1); }
@@ -98,14 +106,17 @@ export default function OfflineCollectionReviews({ scope, initialReviewId = null
     && receipt.paymentMode === detail.paymentMode && Number(receipt.totalAmount) === Number(detail.amount)
     && (!detail.paymentReference || detail.paymentReference === receipt.paymentReference)) ?? [];
 
+  if (staffOpen) return <StaffCollectionReviews scope={scope} onClose={onClose} onBack={() => setStaffOpen(false)} />;
   return <Modal title="Offline collection reviews" onClose={onClose} size="2xl" footer={detail && (<div className="flex flex-wrap justify-end gap-2">
+        {error && <p role="alert" className="w-full rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
         <Button variant="ghost" disabled={busy} onClick={() => inspect(detail.id)}>Refresh figures</Button>
         <Button variant="ghost" disabled={busy} onClick={() => setDetail(null)}>Keep waiting</Button>
         <Button loading={busy} disabled={detail.status !== 'PENDING' || !decision || reason.trim().length < 5 || (decision === 'LINK_DUPLICATE' && !receiptId) || (decision === 'CANCEL_MISTAKE' && !noMoneyCollected) || (decision === 'RECORD_REFUND' && (!moneyReturned || refundReference.trim().length < 3))} onClick={resolve}>{decision === 'CANCEL_MISTAKE' ? 'Cancel mistaken entry' : decision === 'RECORD_REFUND' ? 'Record completed refund' : 'Confirm reviewed decision'}</Button>
       </div>)}>
     <p className="text-sm text-gray-500 mb-4">These collections are preserved on the server and waiting for a decision. No additional money is applied while a collection waits here.</p>
-    {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 mb-3">{error}</p>}
+    {error && !detail && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800 mb-3">{error}</p>}
     {!detail ? <>
+      <Button variant="ghost" onClick={() => setStaffOpen(true)}>Staff pickup reviews ({staffCount.data?.totalElements ?? 0})</Button>
       <Button variant="ghost" disabled={busy} onClick={async () => { setBusy(true); setError(''); try {
         const count = await recoverSavedCollections(scope);
         const next = await requestForAccount(scope, `/payments/offline/reviews?page=${page}&size=20`);

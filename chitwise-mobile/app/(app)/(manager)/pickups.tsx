@@ -131,7 +131,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
 
   const pickupMut = useMutation({
     networkMode: 'always',
-    mutationFn: () => markPickupOfflineCapable(task.id, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined }),
+    mutationFn: () => markPickupOfflineCapable(task.id, task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: task.requestedAmount == null ? undefined : Number(task.requestedAmount), memberName, chitName: chitName ?? undefined }),
     onSuccess: (res) => {
       invalidate();
       toast.collected(res?.offlineQueued
@@ -154,7 +154,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
 
   const partialMut = useMutation({
     networkMode: 'always',
-    mutationFn: () => partialCollectOfflineCapable(task.id, Number(partialAmount), task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: Number(task.requestedAmount), memberName, chitName: chitName ?? undefined }),
+    mutationFn: () => partialCollectOfflineCapable(task.id, Number(partialAmount), task.updatedAt, { memberId: task.memberId, chitId: task.chitId, requestedAmount: task.requestedAmount == null ? undefined : Number(task.requestedAmount), memberName, chitName: chitName ?? undefined }),
     onSuccess: (res) => {
       invalidate();
       toast.saved(res?.offlineQueued
@@ -186,7 +186,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
     ]);
   }
 
-  const requested = Number(task.requestedAmount ?? 0);
+  const requested = task.requestedAmount == null ? null : Number(task.requestedAmount);
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -208,7 +208,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
             <Card style={{ marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Amount value={requested} size="lg" />
+                <>{requested == null ? <Text style={{ color: C.navy, fontSize: 18, fontWeight: '700' }}>Amount to verify</Text> : <Amount value={requested} size="lg" />}</>
                 <Badge status={task.status} />
               </View>
               {!!task.notes && (
@@ -228,13 +228,14 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
 
             {/* Mark picked up */}
             <Button
-              label={pickupMut.isPending ? 'Confirming…' : 'Mark Picked Up'}
+              label={pickupMut.isPending ? 'Confirming…' : requested == null ? 'Enter Collected Amount' : 'Mark Picked Up'}
               variant="primary"
               fullWidth
               loading={pickupMut.isPending}
               disabled={pickupMut.isPending || partialMut.isPending}
               onPress={() => {
                 if (pickupMut.isPending || partialMut.isPending) return;
+                if (requested == null) { setPartialOpen(true); return; }
                 Alert.alert(
                   'Confirm Cash Pickup',
                   `Confirm you physically collected ₹${requested.toLocaleString('en-IN')} from ${memberName}? Hand the cash to admin next.`,
@@ -283,7 +284,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
                   value={partialAmount}
                   onChangeText={setPartialAmount}
                   keyboardType="numeric"
-                  placeholder={`Less than ₹${requested.toLocaleString('en-IN')}`}
+                  placeholder={requested == null ? 'Actual cash received' : `Less than ₹${requested.toLocaleString('en-IN')}`}
                   placeholderTextColor={C.gray400}
                   style={{
                     borderWidth: 1.5, borderColor: '#0D9488', borderRadius: 8,
@@ -296,7 +297,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
                   variant="primary"
                   fullWidth
                   loading={partialMut.isPending}
-                  disabled={!partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= requested || partialMut.isPending || pickupMut.isPending}
+                  disabled={!partialAmount || Number(partialAmount) <= 0 || (requested != null && Number(partialAmount) >= requested) || partialMut.isPending || pickupMut.isPending}
                   onPress={() => { if (!partialMut.isPending && !pickupMut.isPending) partialMut.mutate(); }}
                 />
               </View>

@@ -23,6 +23,36 @@ test('non-subscriber has ordinary online UI and no sync details on its account c
   await expect(page.getByRole('heading', { name: 'Your saved accounts' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sync now' })).toHaveCount(0);
   await expect(page.getByText('No collections waiting to sync')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Recover earlier collections' })).toHaveCount(0);
+});
+
+for (const sameOrganisation of [true, false]) test(`recovery after add-on removal ${sameOrganisation ? 'remains reachable for saved money' : 'does not expose another organisation’s saved money'}`, async ({ page }) => {
+  await installAuthenticatedApp(page, { resolveApi: ({ url, json }) => url.pathname.startsWith('/api/payments/offline/') ? json({ success: true, data: { content: [], totalElements: 0, last: true } }) : null }); await page.goto('/payments/record'); await expectAuthenticatedShell(page);
+  await seedAccess(page, false);
+  await page.evaluate(async (sameOrganisation) => {
+    const { activeAccountScope } = await import('/src/offline/accountClient.js');
+    const { readRow, writeRow, seal } = await import('/src/offline/storage.js');
+    const { notifyOfflineChange } = await import('/src/offline/outbox.js');
+    const active = activeAccountScope(); let scope = active;
+    if (!sameOrganisation) {
+      const account = await readRow('accounts', active);
+      scope = 'WEB:other-user:other-organisation:STAFF';
+      await writeRow('accounts', { ...account, scope, sessionValid: false,
+        user: { ...account.user, id: 'other-user', role: 'STAFF' }, tenant: { ...account.tenant, tenantId: 'other-organisation' } });
+    }
+    await writeRow('outbox', { key: `${scope}:access-changed`, scope, operationId: 'access-changed', action: 'RECORD_PAYMENT',
+      status: 'PAUSED_ACCESS', attempts: 0, createdAt: Date.now(), nextAttemptAt: Date.now() + 86400000,
+      encrypted: await seal(scope, { memberId: 'member-a', amount: 100, paymentMode: 'CASH', offlineAuthorization: 'original-proof' }) });
+    notifyOfflineChange(active);
+  }, sameOrganisation);
+  await page.getByRole('button', { name: 'Accounts', exact: true }).click();
+  const recovery = page.getByRole('button', { name: 'Recover earlier collections' });
+  if (sameOrganisation) {
+    await expect(recovery).toBeVisible(); await recovery.click();
+    await expect(page.getByRole('heading', { name: 'Offline collection reviews' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recover saved collections on this browser' })).toBeVisible();
+  } else await expect(recovery).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Sync now' })).toHaveCount(0);
 });
 
 test('connection loss blocks online-only business UI and reconnect restores it', async ({ page }) => {

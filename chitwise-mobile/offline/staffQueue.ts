@@ -33,7 +33,9 @@ async function send(scope: string, operationId: string, action: string, payload:
       method: 'POST', url: '/payments/offline/staff-actions',
       data: { requestId: payload.requestId, collectedAmount: payload.collectedAmount,
         expectedUpdatedAt: payload.expectedUpdatedAt, recordedAt: payload.recordedAt,
-        offlineAuthorization: payload.offlineAuthorization, operationId, action },
+        offlineAuthorization: payload.offlineAuthorization, operationId, action,
+        collectionSnapshot: payload.collectionSnapshot ? { memberId: payload.collectionSnapshot.memberId,
+          chitId: payload.collectionSnapshot.chitId, requestedAmount: payload.collectionSnapshot.requestedAmount } : undefined },
     })
     : await requestAsAccount(scope, {
       // Preserve older saved entries; never manufacture historical authority.
@@ -86,6 +88,7 @@ export async function processStaffOperation(operation: QueuedOperation<any>): Pr
       // A state conflict is never proof that this particular collection succeeded.
       await updateOperation(operation.operationId, operation.accountScope, 'CONFLICT', {
         attempts, errorCode: code, errorMessage: message,
+        serverReviewId: axios.isAxiosError(error) ? error.response?.data?.data?.reviewId : undefined,
       });
       return { kind: 'conflict', error };
     }
@@ -151,6 +154,9 @@ async function queueStaffAction(action: 'MARK_PICKUP' | 'PARTIAL_COLLECT', paylo
     if (reachable) return { offlineQueued: false, result: await send(account.scope, operationId, action, payload) };
     requireOfflineRecording(access, action);
     throw new Error('Download the latest pickup details before recording this collection offline.');
+  }
+  if (action === 'MARK_PICKUP' && (!Number.isFinite(payload.collectionSnapshot?.requestedAmount) || Number(payload.collectionSnapshot?.requestedAmount) <= 0)) {
+    throw new Error('Enter the actual collected amount before saving this pickup offline. The requested amount is not known.');
   }
   const recordedAt = Date.now();
   if (!access) throw new Error('Reconnect to verify offline collection access.');

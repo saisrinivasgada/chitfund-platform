@@ -3,7 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { getStoredAccountScope } from './accountScope';
 import { accountForScope } from './accountClient';
 import { requestAsAccount } from './accountClient';
-import { deferReviewPoll, getOperationsAwaitingReview, getRecoverablePayments, hasOfflineDatabase, updateOperation } from './database';
+import { deferReviewPoll, getOperationsAwaitingReview, getRecoverablePayments, getRecoverableStaffCollections, hasOfflineDatabase, updateOperation } from './database';
 
 export async function loadOfflinePaymentReviews(scope: string, page = 0) {
   return (await requestAsAccount(scope, { method: 'GET', url: '/payments/offline/reviews', params: { page, size: 20 } })).data.data;
@@ -32,6 +32,16 @@ export async function refreshReviewedPayments(scope: string, force = false, dead
     try {
       const owner = accountForScope(deliveryScope);
       if (deliveryScope !== scope && (owner?.role !== 'ADMIN' || owner.tenantId !== operation.tenantId)) throw new Error('Review belongs to another organisation');
+      if (operation.action !== 'RECORD_PAYMENT') {
+        const review = (await requestAsAccount(deliveryScope, { method: 'GET', url: `/payments/offline/staff-actions/reviews/${operation.serverReviewId}` })).data.data;
+        if (['RECORDED', 'LINKED', 'CANCELLED', 'REFUNDED'].includes(review.status)) {
+          await updateOperation(operation.operationId, scope, 'SUCCEEDED', { serverReceiptId: ['RECORDED','LINKED'].includes(review.status) ? operation.entityId : undefined,
+            serverReceipt: { ...(review.result?.outcome ?? review.result ?? {}), offlineReviewResolution: review.status,
+              reviewId: review.id, reason: review.resolutionReason } });
+          confirmed++;
+        }
+        continue;
+      }
       const review = await getOfflinePaymentReview(deliveryScope, operation.serverReviewId!);
       if ((review.status === 'REFUNDED' && review.refund) || review.status === 'CANCELLED') {
         await updateOperation(operation.operationId, scope, 'SUCCEEDED', { serverReceipt: {
@@ -75,6 +85,19 @@ export async function recoverSavedCollections(adminScope: string) {
         if (!result?.reviewId) throw new Error('Server did not confirm recovery; the original collection remains on this device');
         await updateOperation(operation.operationId, scope, 'CONFLICT', { serverReviewId: result.reviewId,
           errorMessage: 'Recovered for admin review. Original collection evidence is preserved.' });
+        count++;
+      }
+      const originalRole = scope.slice(scope.lastIndexOf(':') + 1);
+      if (['STAFF','MANAGER'].includes(originalRole)) for (const operation of await getRecoverableStaffCollections(scope)) {
+        if (operation.tenantId !== admin.tenantId || !operation.payload.offlineAuthorization || operation.payload.localRecoveryRequired) continue;
+        const snapshot = operation.payload.collectionSnapshot;
+        const original = { ...operation.payload, operationId: operation.operationId, action: operation.action,
+          collectionSnapshot: snapshot ? { memberId: snapshot.memberId, chitId: snapshot.chitId, requestedAmount: snapshot.requestedAmount } : undefined };
+        const result = (await requestAsAccount(adminScope, { method: 'POST', url: '/payments/offline/staff-actions/reviews/recover',
+          data: { originalActorId: operation.actorId, originalRole, original } })).data.data;
+        if (!result?.reviewId) throw new Error('Server did not confirm pickup recovery; the original collection remains preserved');
+        await updateOperation(operation.operationId, scope, 'CONFLICT', { serverReviewId: result.reviewId,
+          errorMessage: 'Original pickup preserved for admin review. No member credit has been posted.' });
         count++;
       }
       await refreshReviewedPayments(scope, true, Date.now() + 20_000, adminScope);

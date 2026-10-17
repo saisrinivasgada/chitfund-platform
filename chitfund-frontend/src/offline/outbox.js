@@ -76,10 +76,17 @@ function pending(entry, payload) {
     totalAmount: payload.amount, paymentMode: payload.paymentMode };
 }
 
+// Join a delivery already running in this browser so callers do not report a
+// completed sync while startup is still holding the operation's lease.
+const activeAccountSyncs = new Map();
+
 export async function syncSavedPayments({ deadline = Date.now() + 60_000, scope: requestedScope } = {}) {
   const accounts = await readRows('accounts');
-  const operations = (await readRows('outbox')).sort((a, b) => a.createdAt - b.createdAt);
   await runAccountTasks(accounts.filter((account) => account.sessionValid && (!requestedScope || account.scope === requestedScope)), async (account) => {
+    const running = activeAccountSyncs.get(account.scope);
+    if (running) return running;
+    const task = (async () => {
+    const operations = (await readRows('outbox')).sort((a, b) => a.createdAt - b.createdAt);
     const ready = operations.filter((entry) => (entry.recoveryScope ?? entry.scope) === account.scope && !['SUCCEEDED', 'CANCELLED', 'FAILED'].includes(entry.status));
     let attempted = 0;
     for (const entry of ready) {
@@ -148,6 +155,10 @@ export async function syncSavedPayments({ deadline = Date.now() + 60_000, scope:
       notifyOfflineChange(account.scope);
       if (pauseAccount) break;
     }
+    })();
+    activeAccountSyncs.set(account.scope, task);
+    try { await task; }
+    finally { if (activeAccountSyncs.get(account.scope) === task) activeAccountSyncs.delete(account.scope); }
   }, { deadline });
 }
 

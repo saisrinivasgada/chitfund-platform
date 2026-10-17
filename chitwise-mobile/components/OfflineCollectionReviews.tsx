@@ -1,6 +1,8 @@
+import { StaffCollectionReviewPanel } from './StaffCollectionReviewPanel';
+import { requestAsAccount } from '../offline/accountClient';
 import { useReviewNavigationStore } from '../store/reviewNavigationStore';
 import { formatRefundTime, parseRefundTime } from '../../shared/offline/refundDate';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -16,9 +18,12 @@ const date = (value: string) => value ? new Date(value).toLocaleString('en-IN') 
 
 export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: Record<string, string> }) {
   const queryClient = useQueryClient();
+  const inspectSequence = useRef(0);
   const user = useAuthStore((state) => state.user);
   const scope = getAccountScope(user);
   const isOnline = useSyncStore((state) => state.isOnline);
+  const [section, setSection] = useState<'payment' | 'staff'>('payment');
+  const [staffInitialId, setStaffInitialId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [listing, setListing] = useState<any>(null);
   const [detail, setDetail] = useState<any>(null);
@@ -40,10 +45,15 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
   const countQuery = useQuery({ queryKey: ['offline-review-count', scope],
     queryFn: () => loadOfflinePaymentReviews(scope!), enabled: !!scope && user?.role === 'ADMIN' && isOnline,
     refetchInterval: isOnline ? 30_000 : false, retry: false });
-  const reviewCount = countQuery.data?.totalElements ?? countQuery.data?.content?.length ?? 0;
+  const staffCountQuery = useQuery({ queryKey: ['offline-staff-review-count', scope],
+    queryFn: async () => (await requestAsAccount(scope!, { method: 'GET', url: '/payments/offline/staff-actions/reviews', params: { page: 0, size: 1 } })).data.data,
+    enabled: !!scope && user?.role === 'ADMIN' && isOnline, refetchInterval: isOnline ? 30_000 : false, retry: false });
+  const paymentCount = countQuery.data?.totalElements ?? countQuery.data?.content?.length ?? 0;
+  const staffCount = staffCountQuery.data?.totalElements ?? 0;
+  const reviewCount = paymentCount + staffCount;
   const current = () => !!scope && getAccountScope(useAuthStore.getState().user) === scope;
 
-  useEffect(() => { setOpen(false); setDetail(null); setListing(null); setPage(0); setBusy(false); setError('');
+  useEffect(() => { inspectSequence.current++; setOpen(false); setDetail(null); setListing(null); setPage(0); setBusy(false); setError('');
     setDecision(''); setReason(''); setReceiptId(''); }, [scope]);
   useEffect(() => {
     if (!scope || !open || user?.role !== 'ADMIN') return;
@@ -59,20 +69,21 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
     if (navigation.scope !== scope || !navigation.sequence || user?.role !== 'ADMIN') return;
     navigation.consumeReview(navigation.sequence);
     if (!isOnline) { Alert.alert('Connect to review', 'Connect to verify current figures. Your saved collection remains preserved.'); return; }
-    setOpen(true); setDetail(null);
-    if (navigation.reviewId) inspect(navigation.reviewId);
+    setOpen(true); setDetail(null); setSection(navigation.kind); setStaffInitialId(navigation.kind === 'staff' ? navigation.reviewId : null);
+    if (navigation.reviewId && navigation.kind !== 'staff') inspect(navigation.reviewId);
   }, [navigation.sequence, scope]);
 
   if (!scope || user?.role !== 'ADMIN') return null;
 
   async function inspect(id: string) {
+    const sequence = ++inspectSequence.current;
     setBusy(true); setError(''); setDecision(''); setReason(''); setReceiptId(''); setNoMoneyCollected(false);
-    try { const value = await getOfflinePaymentReview(scope!, id); if (current()) {
+    try { const value = await getOfflinePaymentReview(scope!, id); if (current() && sequence === inspectSequence.current) {
       setDetail(value); setRefundMode(value.paymentMode); setRefundReference(''); setRefundTime(formatRefundTime()); setMoneyReturned(false); setMatches(value.possibleMatches?.content ?? value.recentPayments ?? []);
       setMatchPage(0); setMoreMatches(value.possibleMatches ? !value.possibleMatches.last : false);
     } }
-    catch (err: any) { if (current()) setError(err?.response?.data?.message ?? err.message); }
-    finally { if (current()) setBusy(false); }
+    catch (err: any) { if (current() && sequence === inspectSequence.current) setError(err?.response?.data?.message ?? err.message); }
+    finally { if (current() && sequence === inspectSequence.current) setBusy(false); }
   }
   async function loadMoreMatches() {
     setBusy(true);
@@ -91,8 +102,12 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
         reference: refundReference.trim(), refundedAt: parseRefundTime(refundTime), reason: reason.trim(), moneyReturned });
       else await resolveOfflinePaymentReview(scope!, detail.id, { decision, reason: reason.trim(),
         expectedBalanceVersion: detail.balance.version, existingReceiptId: decision === 'LINK_DUPLICATE' ? receiptId.trim() : undefined });
-      if (current()) await queryClient.invalidateQueries({ refetchType: 'active' });
-      await refreshReviewedPayments(scope!, true); await refreshSyncState(scope!);
+      if (current()) {
+        setDetail(null);
+        setListing((prior: any) => prior ? { ...prior, content: prior.content.filter((entry: any) => entry.id !== detail.id) } : prior);
+        void queryClient.invalidateQueries({ refetchType: 'active' }).catch(() => {});
+      }
+      void (async () => { await refreshReviewedPayments(scope!, true); await refreshSyncState(scope!); })().catch(() => {});
       const values = await loadOfflinePaymentReviews(scope!, page);
       if (current()) {
         if (page > 0 && !values.content.length) { setListing(null); setPage(page - 1); }
@@ -111,10 +126,10 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
   ];
 
   return <>
-    {reviewCount > 0 && <TouchableOpacity accessibilityRole="button" onPress={() => { if (!isOnline) { Alert.alert('Connect to review', 'Saved collections remain preserved. Connect to check current balances and review them.'); return; } setOpen(true); setDetail(null); }}
+    {reviewCount > 0 && <TouchableOpacity accessibilityRole="button" onPress={() => { if (!isOnline) { Alert.alert('Connect to review', 'Saved collections remain preserved. Connect to check current balances and review them.'); return; } setOpen(true); setDetail(null); setStaffInitialId(null); setSection(paymentCount ? 'payment' : 'staff'); }}
       style={{ borderRadius: 12, padding: 14, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', marginBottom: 16 }}>
       <Text style={{ color: '#92400E', fontWeight: '800', fontSize: 13 }}>Offline collection reviews ({reviewCount}) →</Text>
-      <Text style={{ color: C.gray600, fontSize: 11, marginTop: 3 }}>Review changed dues and possible duplicates.</Text>
+      <Text style={{ color: C.gray600, fontSize: 11, marginTop: 3 }}>Review changed dues, pickups and possible duplicates.</Text>
     </TouchableOpacity>}
     <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
@@ -126,13 +141,21 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: 18, paddingTop: 0, gap: 14 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           <Text style={{ color: C.gray600, fontSize: 13 }}>Collections remain preserved on the server while waiting. No additional money is applied while a collection waits here.</Text>
-          {!!error && <Text accessibilityRole="alert" style={{ color: C.red }}>{error}</Text>}
+          {!!error && !detail && <Text accessibilityRole="alert" style={{ color: C.red }}>{error}</Text>}
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            {(['payment','staff'] as const).map((value) => <TouchableOpacity key={value} accessibilityRole="tab" accessibilityState={{ selected: section === value }} disabled={busy}
+              onPress={() => { setSection(value); setDetail(null); setStaffInitialId(null); }} style={{ padding: 12, borderRadius: 12, backgroundColor: section === value ? C.navy : C.gray100 }}>
+              <Text style={{ color: section === value ? C.white : C.navy }}>{value === 'payment' ? `Payments (${paymentCount})` : `Staff pickups (${staffCount})`}</Text>
+            </TouchableOpacity>)}
+          </View>
+          {section === 'staff' ? <StaffCollectionReviewPanel key={scope} scope={scope} initialReviewId={staffInitialId} memberNames={memberNames}
+            onChanged={() => { staffCountQuery.refetch(); countQuery.refetch(); }} /> : <>
           {!detail ? <>
             <Button label="Recover saved collections on this device" variant="ghost" loading={busy} disabled={!isOnline}
               onPress={async () => { setBusy(true); setError(''); try {
                 const count = await recoverSavedCollections(scope!);
                 if (current()) { setListing(await loadOfflinePaymentReviews(scope!, page)); setError(count ? `${count} saved collections recovered for review.` : 'No additional signed collections need recovery on this device.'); }
-                await countQuery.refetch();
+                await countQuery.refetch(); await staffCountQuery.refetch();
               } catch (err: any) { if (current()) setError(err?.response?.data?.message ?? err.message); }
               finally { if (current()) setBusy(false); } }} />
             {!listing ? <Text style={{ color: C.gray600 }}>Connect to load collections waiting for review.</Text>
@@ -192,12 +215,14 @@ export function OfflineCollectionReviews({ memberNames = {} }: { memberNames?: R
               <TextInput accessibilityLabel="Original receipt ID" value={receiptId} onChangeText={setReceiptId} autoCapitalize="none"
                 placeholder="Original receipt ID" style={{ padding: 13, borderWidth: 1, borderColor: C.gray300, borderRadius: 12, color: C.navy }} />
             </>}
+            {!!error && <Text accessibilityRole="alert" style={{ color: C.red }}>{error}</Text>}
             <TextInput accessibilityLabel="Review reason" value={reason} onChangeText={setReason} multiline maxLength={500}
               returnKeyType="done" submitBehavior="blurAndSubmit" onSubmitEditing={() => Keyboard.dismiss()}
               placeholder="Explain what you verified and why" style={{ padding: 13, minHeight: 85, borderWidth: 1, borderColor: C.gray300, borderRadius: 12, color: C.navy }} />
             <Button label={decision === 'CANCEL_MISTAKE' ? 'Cancel mistaken entry' : decision === 'RECORD_REFUND' ? 'Record completed refund' : 'Confirm reviewed decision'} loading={busy} disabled={!isOnline || detail.status !== 'PENDING' || !decision || reason.trim().length < 5 || (decision === 'LINK_DUPLICATE' && !receiptId.trim()) || (decision === 'CANCEL_MISTAKE' && !noMoneyCollected) || (decision === 'RECORD_REFUND' && (!moneyReturned || refundReference.trim().length < 3))} onPress={resolve} />
             <Button label="Refresh figures" variant="ghost" disabled={busy} onPress={() => inspect(detail.id)} />
             <Button label="Keep waiting" variant="ghost" disabled={busy} onPress={() => setDetail(null)} />
+          </>}
           </>}
         </ScrollView>
         </KeyboardAvoidingView>

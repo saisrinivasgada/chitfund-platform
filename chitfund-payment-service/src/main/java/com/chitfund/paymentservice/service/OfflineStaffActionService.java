@@ -27,6 +27,8 @@ public class OfflineStaffActionService {
     private final OfflineCommandReceiptRepository receipts;
     private final ObjectMapper json;
     private final AuditClient audit;
+    private final FinancialCommandLock locks;
+    private final OfflineStaffReviewRepository reviews;
 
     @Transactional
     public JsonNode apply(OfflineStaffActionRequest command, UUID actorId, String role) {
@@ -44,12 +46,8 @@ public class OfflineStaffActionService {
                 command.getOfflineAuthorization(), command.getRecordedAt()));
         if (grantId == null || grantId.isBlank()) throw new BusinessException(ErrorCode.FORBIDDEN,
                 "The original collection authorisation could not be verified", HttpStatus.FORBIDDEN);
-        String hash = IdempotencyFingerprint.of(command.getRequestId(), command.getAction(),
-                command.getCollectedAmount(), command.getExpectedUpdatedAt(), command.getRecordedAt(), grantId);
-        // Lock the underlying request to serialize different keys acting on the
-        // same collection as well as simultaneous retries of one saved command.
-        var request = requests.findByIdAndTenantIdForUpdate(command.getRequestId(), tenantId)
-                .orElseThrow(() -> new ResourceNotFoundException("Cash request", command.getRequestId()));
+        String hash = OfflineStaffReviewService.fingerprint(command, grantId);
+        locks.lock(tenantId, OfflineStaffReviewService.lockKey(actorId, command.getOperationId()));
         var prior = receipts.findByTenantIdAndActorIdAndOperationId(tenantId, actorId, command.getOperationId());
         if (prior.isPresent()) {
             if (!hash.equals(prior.get().getPayloadHash())) throw conflict("Saved operation has different collection details");
@@ -58,12 +56,28 @@ public class OfflineStaffActionService {
                 throw new IllegalStateException("Saved collection receipt could not be read", corrupt);
             }
         }
+        var review = reviews.findByTenantIdAndActorIdAndOperationId(tenantId, actorId, command.getOperationId());
+        if (review.isPresent()) {
+            var saved = review.get();
+            if (!hash.equals(saved.getPayloadHash())) throw conflict("Saved pickup identity has different collection details");
+            if ("PENDING".equals(saved.getStatus())) throw new com.chitfund.paymentservice.exception.OfflineReviewRequiredException(saved.getId());
+            if ("CANCELLED".equals(saved.getStatus()) || "REFUNDED".equals(saved.getStatus())) {
+                return json.valueToTree(Map.of("id", command.getRequestId(), "offlineReviewResolution", saved.getStatus(), "reviewId", saved.getId()));
+            }
+            throw conflict("Check the recorded review outcome before retrying this pickup");
+        }
+        // A receipt or review survives a removed task. Only a new application
+        // needs the task lock, which also serializes different operation keys.
+        var request = requests.findByIdAndTenantIdForUpdate(command.getRequestId(), tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Cash request", command.getRequestId()));
         if (command.getExpectedUpdatedAt() == null || !command.getExpectedUpdatedAt().equals(request.getUpdatedAt())) {
             throw conflict("This pickup changed since it was downloaded. Your saved collection needs review.");
         }
         var response = "MARK_PICKUP".equals(command.getAction())
                 ? cashRequests.markPickedUp(command.getRequestId(), actorId, role)
                 : cashRequests.partiallyCollect(command.getRequestId(), command.getCollectedAmount(), actorId, role);
+        OfflineStaffReviewService.retainOriginalPickupTime(request, command, response);
+        requests.saveAndFlush(request); response.setUpdatedAt(request.getUpdatedAt());
         JsonNode body = json.valueToTree(response);
         Instant syncedAt = Instant.now();
         receipts.saveAndFlush(OfflineCommandReceipt.builder().id(UUID.randomUUID()).tenantId(tenantId)

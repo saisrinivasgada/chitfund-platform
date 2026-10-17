@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.dto.request;
 
 import jakarta.validation.constraints.*;
+import jakarta.validation.Valid;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -16,4 +17,7 @@ public class OfflineStaffActionRequest {
     @NotNull private LocalDateTime expectedUpdatedAt;
     @NotNull private Instant recordedAt;
     @NotBlank @Size(max = 4096) private String offlineAuthorization;
+    @Valid private CollectionSnapshot collectionSnapshot;
+    public record CollectionSnapshot(UUID memberId, UUID chitId,
+            @DecimalMin(value = "0.00") BigDecimal requestedAmount) { }
 }

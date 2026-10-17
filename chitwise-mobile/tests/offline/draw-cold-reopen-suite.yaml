@@ -1,0 +1,25 @@
+appId: com.chitwise.mobile
+---
+# Use the normal launch/tab path as well as the separate deep-link journeys.
+- repeat:
+    times: 3
+    commands:
+      - stopApp
+      - launchApp
+      - extendedWaitUntil:
+          visible: 'Dashboard.*'
+          timeout: 60000
+      - tapOn: 'Chits.*'
+      - extendedWaitUntil:
+          visible: '.*QA Monthly Chit A.*'
+          timeout: 15000
+      - tapOn: '.*QA Monthly Chit A.*'
+      - extendedWaitUntil:
+          visible: 'Info'
+          timeout: 10000
+      - tapOn: 'Draws'
+      - tapOn: '+ Open New Draw'
+      - assertVisible: 'Draw Number.*'
+      - tapOn: 'Cancel'
+      - tapOn: 'Close chit details'
+      - assertVisible: '.*QA Second Chit A.*'

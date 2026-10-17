@@ -24,7 +24,7 @@ const STATUS: Record<string, { label: string; color: string; icon: keyof typeof 
   CONFLICT: { label: 'Review needed', color: '#B45309', icon: 'warning-outline' },
   PERMANENT_FAILURE: { label: 'Needs attention', color: '#B45309', icon: 'warning-outline' },
 };
-const money = (amount: unknown) => `₹${Number(amount ?? 0).toLocaleString('en-IN')}`;
+const money = (amount: unknown) => amount == null ? 'Amount not recorded' : `₹${Number(amount).toLocaleString('en-IN')}`;
 function amountOf(entry: QueuedOperation<any>) {
   return entry.action === 'RECORD_PAYMENT' ? entry.payload.amount : entry.action === 'PARTIAL_COLLECT' ? entry.payload.collectedAmount : entry.payload.collectionSnapshot?.requestedAmount;
 }
@@ -143,7 +143,7 @@ export function PendingPaymentQueueCard({ memberNames = {}, chitNames = {}, hist
             </View>)}
             {!!selected.lastErrorMessage && <Text style={{ color: '#92400E', lineHeight: 20, marginTop: 20 }}>{selected.lastErrorMessage}</Text>}
             {!!selected.serverReceiptId && <Text style={{ color: '#16805D', lineHeight: 21, marginTop: 20 }}>The server received this payment. Open History to view the receipt or use Void.</Text>}
-            {selected.serverReviewId && selected.status === 'CONFLICT' && user?.role === 'ADMIN' && <TouchableOpacity accessibilityRole="button" onPress={() => { setOpen(false); useReviewNavigationStore.getState().openReview(scope!, selected.serverReviewId!); }} style={{ backgroundColor: C.navy, borderRadius: 14, padding: 16, marginTop: 24 }}>
+            {selected.serverReviewId && selected.status === 'CONFLICT' && user?.role === 'ADMIN' && <TouchableOpacity accessibilityRole="button" onPress={() => { setOpen(false); useReviewNavigationStore.getState().openReview(scope!, selected.serverReviewId!, selected.action === 'RECORD_PAYMENT' ? 'payment' : 'staff'); }} style={{ backgroundColor: C.navy, borderRadius: 14, padding: 16, marginTop: 24 }}>
               <Text style={{ color: C.white, textAlign: 'center', fontWeight: '700' }}>Review transaction</Text>
             </TouchableOpacity>}
             {canCancel && <View style={{ marginTop: 26, padding: 16, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.gray200 }}>

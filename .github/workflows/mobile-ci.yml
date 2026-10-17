@@ -75,6 +75,7 @@ jobs:
       EXPO_PUBLIC_API_URL: http://127.0.0.1:3112/api
       CHITWISE_NATIVE_QA: '1'
       MAESTRO_VERSION: 2.11.0
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
       CI: '1'
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +135,7 @@ jobs:
       EXPO_PUBLIC_API_URL: http://10.0.2.2:3112/api
       CHITWISE_NATIVE_QA: '1'
       MAESTRO_VERSION: 2.11.0
+      MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
       CI: '1'
     steps:
       - uses: actions/checkout@v4
@@ -193,6 +195,7 @@ jobs:
           script: |
             export CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT"
             adb -s "$CHITWISE_QA_DEVICE" install android/app/build/outputs/apk/release/app-release.apk
+            timeout 90s adb -s "$CHITWISE_QA_DEVICE" wait-for-device
             maestro --device "$CHITWISE_QA_DEVICE" test tests/offline/login.yaml
             node tests/offline/run-regression.mjs
       - name: Upload native failure evidence

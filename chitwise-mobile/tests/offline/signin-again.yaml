@@ -12,6 +12,10 @@ appId: com.chitwise.mobile
 - tapOn: "Enter your password"
 - inputText: "local-qa-only"
 - pressKey: Enter
+- waitForAnimationToEnd
+- tapOn:
+    text: "Not Now|Not now"
+    optional: true
 - extendedWaitUntil:
     visible: "Dashboard|Welcome to ChitWise"
     timeout: 60000
