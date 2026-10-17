@@ -30,7 +30,7 @@ appId: com.chitwise.mobile
           element:
             text: "Record ₹1,000 Payment"
           direction: DOWN
-          centerElement: true
+          centerElement: false
           visibilityPercentage: 90
 - tapOn: "Record ₹1,000 Payment"
 - extendedWaitUntil:

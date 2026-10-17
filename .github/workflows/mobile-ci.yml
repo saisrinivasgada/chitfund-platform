@@ -76,6 +76,8 @@ jobs:
       CHITWISE_NATIVE_QA: '1'
       MAESTRO_VERSION: 2.11.0
       MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
+      CHITWISE_QA_SIGN_IN: '1'
+      CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
       CI: '1'
     steps:
       - uses: actions/checkout@v4
@@ -113,12 +115,10 @@ jobs:
         run: |
           node tests/offline/server.mjs > "$RUNNER_TEMP/chitwise-native-fixture.log" 2>&1 &
           node -e 'const wait=async()=>{for(let i=0;i<50;i++){try{if((await fetch("http://127.0.0.1:3112/__qa/state")).ok)return}catch{}await new Promise(r=>setTimeout(r,200))}process.exit(1)};wait()'
-      - name: Sign in to test organisation
-        run: maestro --device "$CHITWISE_QA_DEVICE" test tests/offline/login.yaml
       - name: Verify complete native offline regression journeys
         run: node tests/offline/run-regression.mjs
-      - name: Upload native failure evidence
-        if: failure()
+      - name: Upload native verification evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-offline-evidence
@@ -126,6 +126,7 @@ jobs:
             ~/.maestro/tests
             ${{ runner.temp }}/chitwise-ios-build.log
             ${{ runner.temp }}/chitwise-native-fixture.log
+            ${{ runner.temp }}/chitwise-native-result.json
 
   android-offline:
     name: Android release offline journeys
@@ -136,6 +137,8 @@ jobs:
       CHITWISE_NATIVE_QA: '1'
       MAESTRO_VERSION: 2.11.0
       MAESTRO_DRIVER_STARTUP_TIMEOUT: '90000'
+      CHITWISE_QA_SIGN_IN: '1'
+      CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
       CI: '1'
     steps:
       - uses: actions/checkout@v4
@@ -195,10 +198,9 @@ jobs:
           script: |
             timeout 90s adb -s "emulator-$EMULATOR_PORT" wait-for-device
             adb -s "emulator-$EMULATOR_PORT" install android/app/build/outputs/apk/release/app-release.apk
-            maestro --device "emulator-$EMULATOR_PORT" test tests/offline/login.yaml
             CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT" node tests/offline/run-regression.mjs
-      - name: Upload native failure evidence
-        if: failure()
+      - name: Upload native verification evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-offline-evidence
@@ -206,3 +208,4 @@ jobs:
             ~/.maestro/tests
             ${{ runner.temp }}/chitwise-android-build.log
             ${{ runner.temp }}/chitwise-native-fixture.log
+            ${{ runner.temp }}/chitwise-native-result.json
