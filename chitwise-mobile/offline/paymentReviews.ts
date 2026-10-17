@@ -95,8 +95,18 @@ export async function recoverSavedCollections(adminScope: string) {
         const original = { ...operation.payload, operationId: operation.operationId, action: operation.action,
           collectionSnapshot: snapshot ? { memberId: snapshot.memberId, chitId: snapshot.chitId, requestedAmount: snapshot.requestedAmount } : undefined };
         const signed = !!operation.payload.offlineAuthorization;
+        let legacy;
+        if (!signed) {
+          try { legacy = legacyStaffEvidence(operation); }
+          catch (error: any) {
+            await updateOperation(operation.operationId, scope, 'PERMANENT_FAILURE', {
+              errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: error.message,
+            });
+            continue; // One damaged record must not prevent other collections reaching review.
+          }
+        }
         const result = (await requestAsAccount(adminScope, { method: 'POST', url: signed ? '/payments/offline/staff-actions/reviews/recover' : '/payments/offline/staff-actions/reviews/recover-legacy',
-          data: { originalActorId: operation.actorId, originalRole, original: signed ? original : legacyStaffEvidence(operation) } })).data.data;
+          data: { originalActorId: operation.actorId, originalRole, original: signed ? original : legacy } })).data.data;
         if (!result?.reviewId) throw new Error('Server did not confirm pickup recovery; the original collection remains preserved');
         await updateOperation(operation.operationId, scope, 'CONFLICT', { serverReviewId: result.reviewId,
           errorMessage: 'Original pickup preserved for admin review. No member credit has been posted.' });
