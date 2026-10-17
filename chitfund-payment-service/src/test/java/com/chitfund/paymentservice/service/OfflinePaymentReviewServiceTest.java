@@ -240,4 +240,16 @@ class OfflinePaymentReviewServiceTest {
         verify(payments, never()).recordPayment(any(), any(), any());
         verify(audit).log(any(AuditClient.AuditDetails.class));
     }
+    @Test void unsignedRetainedAdminCollectionsRequireFreshReviewerAndNeverAcquireSigningAuthority() {
+        UUID originalActor=UUID.randomUUID(),id=UUID.randomUUID();original.setOfflineAuthorization(null);
+        when(capture.preserveLegacy(original,originalActor,"older-admin-op")).thenReturn(id);
+        assertThat(service.preserveRecoveredLegacy(original,originalActor,"older-admin-op",admin)).isEqualTo(id);
+        var order=inOrder(payments,capture);order.verify(payments).verifyOfflineReviewer(admin);order.verify(capture).preserveLegacy(original,originalActor,"older-admin-op");
+        verify(payments,never()).verifyRecoveredCollection(any(),any());verify(payments,never()).recordPayment(any(),any(),any());assertThat(original.getOfflineAuthorization()).isNull();verify(audit).log(any());
+    }
+    @Test void unsignedRecoveryCannotDowngradeASignedCollectionToLegacy() {
+        assertThatThrownBy(()->service.preserveRecoveredLegacy(original,UUID.randomUUID(),"signed-op",admin)).isInstanceOf(BusinessException.class);
+        verifyNoInteractions(capture,audit);verify(payments,never()).recordPayment(any(),any(),any());
+    }
+
 }

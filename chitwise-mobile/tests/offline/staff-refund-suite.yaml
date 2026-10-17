@@ -77,8 +77,7 @@ env:
     direction: DOWN
     centerElement: false
 - assertVisible:
-    text: '.*full original collection has already been returned.*'
-    checked: true
+    text: '☑ .*full original collection has already been returned.*'
 - scrollUntilVisible:
     element:
       text: "Confirm pickup decision"

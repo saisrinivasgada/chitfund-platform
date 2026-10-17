@@ -368,7 +368,9 @@ class JwtAuthGatewayFilterTest {
                 new TenantEntitlementClient.TenantEntitlement("ACTIVE", LocalDateTime.now().minusDays(1).toString())));
         String id = "10000000-0000-0000-0000-000000000001";
         for (String path : java.util.List.of("/api/users/me/offline-access", "/api/payments/offline/record",
-                "/api/payments/offline/staff-actions", "/api/payments/offline/reviews/legacy", "/api/payments/offline/reviews/recover", "/api/payments/offline/reviews/cancel-unsynced",
+                "/api/payments/offline/staff-actions", "/api/payments/offline/reviews/legacy", "/api/payments/offline/reviews/recover", "/api/payments/offline/reviews/recover-legacy", "/api/payments/offline/reviews/cancel-unsynced",
+                "/api/payments/offline/staff-actions/reviews/legacy", "/api/payments/offline/staff-actions/reviews/recover",
+                "/api/payments/offline/staff-actions/reviews/recover-legacy", "/api/payments/offline/staff-actions/reviews/" + id + "/resolve",
                 "/api/payments/offline/reviews/" + id + "/resolve", "/api/payments/offline/reviews/" + id + "/refund",
                 "/api/payments/offline/reviews/" + id + "/cancel", "/api/payments/requests/" + id + "/collect")) {
             var chain = mock(GatewayFilterChain.class); when(chain.filter(any())).thenReturn(Mono.empty());

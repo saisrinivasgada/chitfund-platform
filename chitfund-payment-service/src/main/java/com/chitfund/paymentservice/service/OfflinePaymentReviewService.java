@@ -32,7 +32,7 @@ public class OfflinePaymentReviewService {
 
     public UUID preserveLegacy(RecordPaymentRequest request, UUID actor, String operationId) {
         if (request.getOfflineAuthorization() != null || operationId == null || operationId.isBlank() || operationId.length() > 128
-                || request.getAmount().signum() <= 0 || request.getPaymentMode() == com.chitfund.paymentservice.domain.enums.PaymentMode.CREDIT) {
+                || request.getAmount() == null || request.getAmount().signum() <= 0 || request.getPaymentMode() == com.chitfund.paymentservice.domain.enums.PaymentMode.CREDIT) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Include a valid original collection for legacy review");
         }
         if (request.getPaymentReference() != null) request.setPaymentReference(request.getPaymentReference().trim().toUpperCase(java.util.Locale.ROOT));
@@ -54,6 +54,17 @@ public class OfflinePaymentReviewService {
                 .action("OFFLINE_COLLECTION_RECOVERED").idempotencyKey("RECOVER:" + operationId)
                 .originalOfflineAt(request.getRecordedAt()).synchronizedAt(Instant.now())
                 .metadata(Map.of("originalActor", originalActor.toString())).build());
+        return id;
+    }
+
+    public UUID preserveRecoveredLegacy(RecordPaymentRequest request, UUID originalActor, String operationId, UUID reviewer) {
+        payments.verifyOfflineReviewer(reviewer);
+        UUID id = preserveLegacy(request, originalActor, operationId);
+        audit.log(AuditClient.AuditDetails.builder().entityType("PAYMENT_REVIEW").entityId(id.toString())
+                .tenantId(TenantContext.get()).actorId(reviewer.toString()).actorRole("ADMIN")
+                .action("LEGACY_OFFLINE_COLLECTION_RECOVERED").idempotencyKey("RECOVER_LEGACY:" + operationId)
+                .originalOfflineAt(request.getRecordedAt()).synchronizedAt(Instant.now())
+                .metadata(Map.of("originalActor", originalActor.toString(), "authorization", "UNSIGNED_DEVICE_RECORD")).build());
         return id;
     }
 

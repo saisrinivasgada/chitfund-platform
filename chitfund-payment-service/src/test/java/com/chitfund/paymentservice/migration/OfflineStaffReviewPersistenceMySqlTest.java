@@ -125,6 +125,22 @@ class OfflineStaffReviewPersistenceMySqlTest {
         assertThatThrownBy(()->reviews.resolve(id,d,UUID.randomUUID())).isInstanceOf(BusinessException.class).hasMessageContaining("changed during review");
         assertThat(stored.findByIdAndTenantId(id,TenantContext.get()).orElseThrow().getStatus()).isEqualTo("PENDING");verifyNoInteractions(cash);
     }
+    @Test void unsignedUpgradePreservesExactBytesAndRequiresExplicitAdminEvidenceBeforeCustody() throws Exception {
+        String raw="{\"requestId\":\""+task.getId()+"\",\"collectedAmount\":100}";
+        String hash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        var old=new LegacyOfflineStaffActionRequest("PARTIAL_COLLECT-"+task.getId(),"PARTIAL_COLLECT",Instant.now().minusSeconds(60),raw,hash);
+        UUID admin=UUID.randomUUID();UUID id=reviews.preserveLegacy(old,actor,"STAFF",admin);
+        var saved=stored.findByIdAndTenantId(id,TenantContext.get()).orElseThrow();assertThat(saved.getLegacyPayloadJson()).isEqualTo(raw);assertThat(saved.getLegacyPayloadHash()).isEqualTo(hash);
+        assertThat(reviews.detail(id,admin,true).get("authorizationVerified")).isEqualTo(false);
+        assertThatThrownBy(()->reviews.resolve(id,decision(id,"RECORD_CUSTODY"),admin)).isInstanceOf(BusinessException.class).hasMessageContaining("older");verifyNoInteractions(cash);
+        Instant verified=Instant.now().minusSeconds(120);
+        var verifiedDecision=new ResolveOfflineStaffReviewRequest("RECORD_CUSTODY",(String)reviews.detail(id,admin,true).get("version"),"Checked original collector and cash evidence",new BigDecimal("100"),true,null,null,null,true,verified);
+        assertThat(reviews.resolve(id,verifiedDecision,admin).get("status")).isEqualTo("RECORDED");
+        assertThat(reviews.resolve(id,verifiedDecision,admin).get("status")).isEqualTo("RECORDED");verify(cash,times(1)).partiallyCollect(task.getId(),new BigDecimal("100"),actor,"STAFF");
+        assertThat(receipts.findByTenantIdAndActorIdAndOperationId(TenantContext.get(),actor,old.operationId()).orElseThrow().getRecordedAt()).isEqualTo(verified);
+        assertThat(stored.findByIdAndTenantId(id,TenantContext.get()).orElseThrow().getLegacyPayloadJson()).isEqualTo(raw);
+        try(var connection=dataSource.getConnection();var result=connection.createStatement().executeQuery("SELECT COUNT(*) FROM payment_batches")){result.next();assertThat(result.getInt(1)).isZero();}
+    }
     @Configuration @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses=OfflineStaffReviewRepository.class,
         excludeFilters=@ComponentScan.Filter(type=FilterType.REGEX,pattern=".*\\.repository\\.(?!OfflineStaffReviewRepository$|OfflineCommandReceiptRepository$|CashPaymentRequestRepository$).*"))

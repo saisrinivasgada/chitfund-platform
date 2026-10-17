@@ -61,6 +61,7 @@ http.createServer(async (request, response) => {
         const entry = { id: randomUUID(), kind: 'STAFF_PICKUP', status: 'PENDING', operationId: randomUUID(),
           requestId: '60000000-0000-0000-0000-000000000001', recordedBy: '70000000-0000-0000-0000-000000000001',
           collectorName: 'QA Collector A', originalRole: 'STAFF', memberId: owner.memberId, chitId: owner.chitId,
+          authorizationVerified: body.seedStaffReview !== 'LEGACY',
           action: body.seedStaffReview === 'UNKNOWN' ? 'MARK_PICKUP' : 'PARTIAL_COLLECT', amount: body.seedStaffReview === 'UNKNOWN' ? null : 100,
           recordedAt: new Date(Date.now() - 60_000).toISOString(), version: 'staff-v1',
           current: { status: 'ASSIGNED', assignedToOriginalCollector: true, pickedUpByOriginalCollector: false } };
@@ -98,6 +99,7 @@ http.createServer(async (request, response) => {
       if (!body.confirmed || body.reason?.trim().length < 5) return send({ message: 'Confirm the verified outcome and include a reason' }, 400);
       if (owner.staffReviewStaleOnce) { owner.staffReviewStaleOnce = false; entry.version = 'staff-v2'; return send({ message: 'Pickup changed during review. Refresh and review the latest details.' }, 409); }
       if (body.expectedVersion !== entry.version) return send({ message: 'Pickup changed during review. Refresh and review the latest details.' }, 409);
+      if (entry.authorizationVerified === false && (!body.legacyDetailsVerified || (body.decision !== 'CANCEL_MISTAKE' && !Number.isFinite(Date.parse(body.verifiedRecordedAt))))) return send({ message: 'Verify older collection evidence and its actual original time' }, 400);
       if (body.decision !== 'CANCEL_MISTAKE' && (!(body.actualAmount > 0) || (entry.amount != null && body.actualAmount !== entry.amount))) return send({ message: 'Use the actual original collected amount' }, 400);
       if (body.decision === 'RECORD_REFUND' && (!body.reference || !body.refundedAt || !body.paymentMode)) return send({ message: 'Include completed refund evidence' }, 400);
       const status = { RECORD_CUSTODY: 'RECORDED', LINK_CUSTODY: 'LINKED', CANCEL_MISTAKE: 'CANCELLED', RECORD_REFUND: 'REFUNDED' }[body.decision];

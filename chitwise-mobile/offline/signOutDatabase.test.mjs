@@ -11,7 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
 
-test('native confirmed sign-out deletes unconfirmed rows and rejects stale workers until sign-in', async () => {
+test('native upgrade preserves unknown outcomes for review and confirmed sign-out rejects stale workers', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'chitwise-signout-')); const connections = []; const keys = new Map();
   const dependencies = {
     'expo-crypto': { CryptoDigestAlgorithm: { SHA256: 'sha256' }, randomUUID, digestStringAsync: async (_, value) => createHash('sha256').update(value).digest('hex') },
@@ -29,6 +29,21 @@ test('native confirmed sign-out deletes unconfirmed rows and rejects stale worke
     await module.link(async (name) => { const values = dependencies[name]; if (!values) throw new Error(name);
       return new vm.SyntheticModule(Object.keys(values),function () { for (const [k,v] of Object.entries(values)) this.setExport(k,v); }, { context }); });
     await module.evaluate(); const db = module.namespace;
+    // Reopening a version-six database must preserve unknown old outcomes for review.
+    const legacyScope='legacy:STAFF';
+    const legacyDb=await db.getOfflineDatabase(legacyScope);
+    const oldPayload={requestId:'old-task'};
+    const oldOperation=(id,status,extra={})=>({operationId:id,accountScope:legacyScope,tenantId:'tenant',actorId:'actor',action:'MARK_PICKUP',entityType:'CASH_REQUEST',payload:oldPayload,payloadHash:createHash('sha256').update(JSON.stringify(oldPayload)).digest('hex'),status,attempts:1,nextAttemptAt:0,createdAt:1,updatedAt:1,...extra});
+    for(const op of [oldOperation('old-unknown','SUCCEEDED'),oldOperation('old-conflict','CONFLICT'),oldOperation('old-failure','PERMANENT_FAILURE'),oldOperation('old-receipt','SUCCEEDED'),oldOperation('old-reviewed','SUCCEEDED'),oldOperation('old-held','CONFLICT'),oldOperation('old-cancel','CANCELLED')])await db.insertOperation(op);
+    await db.updateOperation('old-receipt',legacyScope,'SUCCEEDED',{serverReceiptId:'confirmed-receipt'});
+    await db.updateOperation('old-reviewed',legacyScope,'SUCCEEDED',{serverReceipt:{offlineReviewResolution:'CANCELLED'}});
+    await db.updateOperation('old-held',legacyScope,'CONFLICT',{serverReviewId:'confirmed-review'});
+    await legacyDb.execAsync('PRAGMA user_version=6');
+    const reopen=new vm.SourceTextModule(source,{context});
+    await reopen.link(async name=>{const values=dependencies[name];return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v);},{context});});
+    await reopen.evaluate();const upgraded=reopen.namespace;
+    for(const id of ['old-unknown','old-conflict','old-failure']){const row=await upgraded.getOperation(id,legacyScope);assert.equal(row.status,'QUEUED');assert.equal(row.lastErrorCode,'LEGACY_REVIEW_REQUIRED');assert.equal(JSON.stringify(row.payload),JSON.stringify(oldPayload));assert.equal(row.payloadHash,oldOperation(id).payloadHash);assert.equal(row.operationId,id);}
+    for(const [id,status]of [['old-receipt','SUCCEEDED'],['old-reviewed','SUCCEEDED'],['old-held','CONFLICT'],['old-cancel','CANCELLED']])assert.equal((await upgraded.getOperation(id,legacyScope)).status,status);
     const operation = (id, scope = 'a:ADMIN') => ({ operationId:id, accountScope:scope, tenantId:'tenant',actorId:'actor',action:'RECORD_PAYMENT',entityType:'PAYMENT',payload:{amount:1000},payloadHash:id,status:'QUEUED',attempts:0,nextAttemptAt:0,createdAt:1,updatedAt:1 });
     for (const id of ['unsent','review','receipt','failed']) await db.insertOperation(operation(id));
     await db.insertOperation(operation('other-org','b:ADMIN'));

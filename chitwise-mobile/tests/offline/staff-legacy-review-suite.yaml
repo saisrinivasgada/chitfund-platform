@@ -1,0 +1,67 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","enabled":true,"seedStaffReview":"LEGACY"}'
+- stopApp
+- launchApp
+- openLink: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: 'Offline collection reviews \(1\).*'
+    timeout: 60000
+- tapOn: 'Offline collection reviews \(1\).*'
+- waitForAnimationToEnd
+- tapOn: 'Staff pickups \(1\)'
+- tapOn: '.*₹100.*Staff.*pickup.*'
+- extendedWaitUntil:
+    visible: "Original collector: QA Collector A"
+    timeout: 15000
+- assertVisible: '.*older record has no signed offline authorisation.*'
+- scrollUntilVisible:
+    element:
+      text: '.*Cancel this mistaken entry.*'
+    direction: DOWN
+    centerElement: false
+- tapOn: '.*Cancel this mistaken entry.*'
+- scrollUntilVisible:
+    element:
+      text: ".*Pickup review reason.*"
+    direction: DOWN
+    centerElement: false
+- tapOn: ".*Pickup review reason.*"
+- inputText: "Verified older mistake. No cash was collected."
+- pressKey: Enter
+- tapOn: '.*No money was collected for this entry.*'
+- scrollUntilVisible:
+    element:
+      text: "Confirm pickup decision"
+    direction: DOWN
+    centerElement: false
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: false
+- scrollUntilVisible:
+    element:
+      text: '.*I checked this older record against the original collection evidence.*'
+    direction: UP
+    centerElement: false
+- tapOn: '.*I checked this older record against the original collection evidence.*'
+- scrollUntilVisible:
+    element:
+      text: "Confirm pickup decision"
+    direction: DOWN
+    centerElement: false
+- tapOn: "Confirm pickup decision"
+- extendedWaitUntil:
+    visible: "No staff pickups waiting for review."
+    timeout: 15000
+- tapOn: "Close"
+- waitForAnimationToEnd
+- assertNotVisible: 'Offline collection reviews.*'

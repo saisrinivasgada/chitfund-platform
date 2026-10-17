@@ -19,22 +19,32 @@ export default function StaffCollectionReviews({ scope, onClose, onBack }) {
   const [busy,setBusy]=useState(false), [error,setError]=useState(''), [decision,setDecision]=useState('');
   const [amount,setAmount]=useState(''), [reason,setReason]=useState(''), [confirmed,setConfirmed]=useState(false);
   const [method,setMethod]=useState('CASH'), [reference,setReference]=useState(''), [returnedAt,setReturnedAt]=useState(formatRefundTime);
+  const [legacyVerified,setLegacyVerified]=useState(false), [originalTime,setOriginalTime]=useState('');
   const mounted=useRef(true), sequence=useRef(0);
   const current=()=>mounted.current && activeAccountScope()===scope;
   const call=(url,body)=>requestForAccount(scope,base+url,body?{method:'POST',body}:undefined);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;sequence.current++;};},[scope]);
   useEffect(()=>{let live=true;call(`?page=${page}&size=20`).then(v=>{if(live&&current())setListing(v);}).catch(e=>{if(live&&current())setError(e.message);});return()=>{live=false;};},[scope,page]);
   async function inspect(id){
-    const request=++sequence.current;setBusy(true);setError('');setDetail(null);setDecision('');setReason('');setConfirmed(false);setReference('');
-    try{const v=await call(`/${id}`);if(current()&&request===sequence.current){setDetail(v);setAmount(v.amount==null?'':String(v.amount));setReturnedAt(formatRefundTime());setMethod('CASH');}}
+    const request=++sequence.current;setBusy(true);setError('');setDetail(null);setDecision('');setReason('');setConfirmed(false);setReference('');setLegacyVerified(false);setOriginalTime('');
+    try{const v=await call(`/${id}`);if(current()&&request===sequence.current){setDetail(v);setAmount(v.amount==null?'':String(v.amount));setReturnedAt(formatRefundTime());setMethod('CASH');
+      const memberId=v.memberId??v.current?.memberId,chitId=v.chitId??v.current?.chitId;
+      Promise.allSettled([memberId?requestForAccount(scope,`/members/${memberId}`):Promise.resolve(null),chitId?requestForAccount(scope,`/chits/${chitId}`):Promise.resolve(null)]).then(([member,chit])=>{
+        if(current()&&request===sequence.current)setDetail(prior=>prior?.id===v.id?{...prior,memberName:member.status==='fulfilled'?(member.value?.fullName??member.value?.name):undefined,chitName:chit.status==='fulfilled'?chit.value?.name:undefined}:prior);
+      });}}
     catch(e){if(current()&&request===sequence.current)setError(e.message);}finally{if(current()&&request===sequence.current)setBusy(false);}
   }
   async function resolve(){
     setBusy(true);setError('');
     try{
+      let verifiedRecordedAt;
+      if(detail.authorizationVerified===false&&decision!=='CANCEL_MISTAKE'){
+        try{verifiedRecordedAt=parseRefundTime(originalTime);}catch{throw new Error('Enter the actual original collection date and time as DD/MM/YYYY HH:MM.');}
+      }
       await call(`/${detail.id}/resolve`,{decision,reason:reason.trim(),expectedVersion:detail.version,confirmed,
         actualAmount:decision==='CANCEL_MISTAKE'?undefined:Number(amount),paymentMode:decision==='RECORD_REFUND'?method:undefined,
-        reference:decision==='RECORD_REFUND'?reference.trim():undefined,refundedAt:decision==='RECORD_REFUND'?parseRefundTime(returnedAt):undefined});
+        reference:decision==='RECORD_REFUND'?reference.trim():undefined,refundedAt:decision==='RECORD_REFUND'?parseRefundTime(returnedAt):undefined,
+        legacyDetailsVerified:detail.authorizationVerified===false?legacyVerified:undefined,verifiedRecordedAt});
       if(current()){
         // The recorded decision must not wait for unrelated, slow dashboard reads.
         setDetail(null);
@@ -58,13 +68,18 @@ export default function StaffCollectionReviews({ scope, onClose, onBack }) {
         <Button variant="ghost" disabled={!listing||listing.last||busy} onClick={()=>{setListing(null);setPage(page+1);}}>Next pickups</Button></div>
     </>:<div className="space-y-4">
       <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2">
-        <p className="text-lg font-semibold">{money(detail.amount)}</p><p className="text-sm">Original collector: {detail.collectorName || 'Name unavailable'}</p>
+        <p className="text-lg font-semibold">{money(detail.amount)}</p><p className="text-sm">{detail.memberName??'Member collection'}{detail.chitName?` · ${detail.chitName}`:''}</p><p className="text-sm">Original collector: {detail.collectorName || 'Name unavailable'}</p>
         <p className="text-xs text-gray-500 break-all">Pickup: {detail.requestId}</p><p className="text-sm">Current task: {detail.current?.status?.replaceAll('_',' ')??'Unavailable'}{detail.current?` · ${detail.current.assignedToOriginalCollector?'Assigned to original collector':'Assignment changed'}`:''}</p>
-        <p className="text-xs text-gray-500">Recorded {new Date(detail.recordedAt).toLocaleString()}</p>
+        <p className="text-xs text-gray-500">{detail.authorizationVerified===false?'Device-reported time':'Recorded'} {new Date(detail.recordedAt).toLocaleString()}</p>
       </div>
+      {detail.authorizationVerified===false&&<p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">This older record has no signed offline authorisation. Check the original collector, task and collection evidence before deciding. Its saved details remain preserved.</p>}
       {detail.status!=='PENDING'?<p className="text-emerald-800">Decision recorded: {detail.status} · {detail.resolutionReason}</p>:<>
         {choices.map(([value,label])=><label key={value} className="flex gap-3 rounded-xl border border-gray-200 p-3 text-sm"><input type="radio" name="staff-review-decision" value={value} checked={decision===value} disabled={busy} onChange={()=>{setDecision(value);setConfirmed(false);}}/>{label}</label>)}
         {decision&&<>
+          {detail.authorizationVerified===false&&<>
+            {decision!=='CANCEL_MISTAKE'&&<label className="block text-sm">Original collection time · DD/MM/YYYY HH:MM<input aria-label="Verified original collection time" value={originalTime} onChange={e=>setOriginalTime(e.target.value)} className={input}/></label>}
+            <label className="flex gap-3 text-sm"><input type="checkbox" checked={legacyVerified} onChange={e=>setLegacyVerified(e.target.checked)}/>I checked this older record against the original collection evidence.</label>
+          </>}
           {decision!=='CANCEL_MISTAKE'&&<label className="block text-sm">Actual original collected amount<input aria-label="Actual original collected amount" type="number" min="0.01" step="0.01" className={input} value={amount} disabled={detail.amount!=null||busy} onChange={e=>setAmount(e.target.value)}/></label>}
           {decision==='RECORD_REFUND'&&<>
             <label className="block text-sm">Refund method<select aria-label="Pickup refund method" value={method} onChange={e=>setMethod(e.target.value)} className={input}>{['CASH','UPI','BANK_TRANSFER','CHEQUE'].map(m=><option key={m}>{m}</option>)}</select></label>
@@ -74,7 +89,7 @@ export default function StaffCollectionReviews({ scope, onClose, onBack }) {
           <textarea aria-label="Pickup review reason" placeholder="Explain the verified outcome" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} className={input}/>
           <label className="flex gap-3 text-sm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>{decision==='CANCEL_MISTAKE'?'No money was collected for this entry.':decision==='RECORD_REFUND'?'The full original collection has already been returned.':'I verified the original collector, amount and this physical collection.'}</label>
           {error&&<p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-          <Button loading={busy} disabled={!confirmed||reason.trim().length<5||(decision!=='CANCEL_MISTAKE'&&(!Number.isFinite(Number(amount))||Number(amount)<=0))||(decision==='RECORD_REFUND'&&reference.trim().length<3)} onClick={resolve}>Confirm pickup decision</Button>
+          <Button loading={busy} disabled={!confirmed||reason.trim().length<5||(detail.authorizationVerified===false&&(!legacyVerified||(decision!=='CANCEL_MISTAKE'&&!originalTime.trim())))||(decision!=='CANCEL_MISTAKE'&&(!Number.isFinite(Number(amount))||Number(amount)<=0))||(decision==='RECORD_REFUND'&&reference.trim().length<3)} onClick={resolve}>Confirm pickup decision</Button>
         </>}
       </>}
       <div className="flex gap-2"><Button variant="ghost" disabled={busy} onClick={()=>inspect(detail.id)}>Refresh pickup details</Button><Button variant="ghost" disabled={busy} onClick={()=>{sequence.current++;setDetail(null);setError('');}}>Back to pickup reviews</Button></div>

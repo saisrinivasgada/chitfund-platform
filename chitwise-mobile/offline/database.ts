@@ -5,7 +5,7 @@ import { File } from 'expo-file-system';
 import type { PersistedClient, Persister } from '@tanstack/query-persist-client-core';
 import type { QueuedOperation, SyncCounts, SyncOperationStatus } from './types';
 
-const DATABASE_VERSION = 6;
+const DATABASE_VERSION = 7;
 
 // One open connection per account scope. Each scope gets its own encrypted
 // database file and its own key — tenant A's key reveals nothing about tenant B.
@@ -177,6 +177,17 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
       WHERE action='RECORD_PAYMENT' AND status IN ('PERMANENT_FAILURE','CONFLICT')
         AND server_review_id IS NULL AND CASE WHEN json_valid(payload)
           THEN json_extract(payload, '$.offlineAuthorization') ELSE 'UNREADABLE' END IS NULL`, Date.now(), Date.now());
+  }
+  if (priorVersion < 7) {
+    // Older staff clients treated a generic conflict as success without a
+    // receipt. Reconcile those unknown outcomes; never replay cash automatically.
+    await db.runAsync(`UPDATE sync_operations SET status='QUEUED', next_attempt_at=?, updated_at=?,
+      last_error_code='LEGACY_REVIEW_REQUIRED', last_error_message='Older collection needs verification of its original outcome.'
+      WHERE server_review_id IS NULL AND server_receipt_id IS NULL AND (
+        (status='SUCCEEDED' AND CASE WHEN json_valid(server_receipt_json)
+          THEN json_extract(server_receipt_json, '$.offlineReviewResolution') ELSE NULL END IS NULL)
+        OR (action IN ('MARK_PICKUP','PARTIAL_COLLECT') AND status IN ('CONFLICT','PERMANENT_FAILURE')
+          AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.offlineAuthorization') ELSE 'UNREADABLE' END IS NULL))`, Date.now(), Date.now());
   }
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
   return db;

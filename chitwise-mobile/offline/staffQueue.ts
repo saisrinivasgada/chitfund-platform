@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { legacyStaffEvidence } from '../../shared/offline/legacyStaffEvidence';
 import * as Crypto from 'expo-crypto';
 import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../store/authStore';
@@ -38,7 +39,7 @@ async function send(scope: string, operationId: string, action: string, payload:
           chitId: payload.collectionSnapshot.chitId, requestedAmount: payload.collectionSnapshot.requestedAmount } : undefined },
     })
     : await requestAsAccount(scope, {
-      // Preserve older saved entries; never manufacture historical authority.
+      // Ordinary online collection for accounts without the offline add-on.
       method: 'PATCH', url: `/payments/requests/${payload.requestId}/${action === 'MARK_PICKUP' ? 'pickup' : 'partial-collect'}`,
       data: action === 'PARTIAL_COLLECT' ? { collectedAmount: payload.collectedAmount } : undefined,
     });
@@ -59,13 +60,22 @@ export async function processStaffOperation(operation: QueuedOperation<any>): Pr
   }
   try {
     if (!await claimOperation(operation)) return { kind: 'retryable', error: new Error('Collection is already synchronizing') };
-    const result = await send(operation.accountScope, operation.operationId, operation.action, operation.payload);
+    const result = operation.payload.offlineAuthorization
+      ? await send(operation.accountScope, operation.operationId, operation.action, operation.payload)
+      : (await requestAsAccount(operation.accountScope, { method: 'POST', url: '/payments/offline/staff-actions/reviews/legacy',
+          data: legacyStaffEvidence(operation) })).data.data;
     if (!result?.id) throw new Error('Server did not confirm a collection receipt; retrying safely');
     await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
       attempts, serverReceiptId: String(result.id), serverReceipt: result,
     });
     return { kind: 'succeeded', result };
   } catch (error) {
+    if ((error as any)?.code === 'LOCAL_RECOVERY_REQUIRED') {
+      await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
+        attempts, errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: (error as Error).message,
+      });
+      return { kind: 'failed', error };
+    }
     const status = axios.isAxiosError(error) ? error.response?.status : undefined;
     const code = String(axios.isAxiosError(error) ? error.response?.data?.errorCode ?? error.code : 'LOCAL_ERROR');
     const message = String(axios.isAxiosError(error) ? error.response?.data?.message ?? error.message

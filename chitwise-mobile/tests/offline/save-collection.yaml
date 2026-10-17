@@ -21,11 +21,16 @@ appId: com.chitwise.mobile
 - tapOn:
     id: "payment-chit-40000000-0000-0000-0000-000000000001"
 - assertVisible: "Allocate ₹"
-- scrollUntilVisible:
-    element:
-      text: "Record ₹1,000 Payment"
-    direction: DOWN
-    centerElement: true
+- runFlow:
+    when:
+      notVisible: "Record ₹1,000 Payment"
+    commands:
+      - scrollUntilVisible:
+          element:
+            text: "Record ₹1,000 Payment"
+          direction: DOWN
+          centerElement: true
+          visibilityPercentage: 90
 - tapOn: "Record ₹1,000 Payment"
 - extendedWaitUntil:
     visible: "Confirm Payment"

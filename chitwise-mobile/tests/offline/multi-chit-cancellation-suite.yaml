@@ -34,11 +34,16 @@ env:
     centerElement: true
 - tapOn:
     id: "payment-chit-50000000-0000-0000-0000-000000000001"
-- scrollUntilVisible:
-    element:
-      text: "Record ₹1,500 Payment"
-    direction: DOWN
-    centerElement: false
+- runFlow:
+    when:
+      notVisible: "Record ₹1,500 Payment"
+    commands:
+      - scrollUntilVisible:
+          element:
+            text: "Record ₹1,500 Payment"
+          direction: DOWN
+          centerElement: false
+          visibilityPercentage: 90
 - tapOn: "Record ₹1,500 Payment"
 - extendedWaitUntil:
     visible: "Confirm Payment"

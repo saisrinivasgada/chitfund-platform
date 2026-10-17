@@ -197,8 +197,11 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
         // and current authority. Ordinary payment entry retains its expiry gate.
         return Set.of("/api/users/me/offline-access", "/api/payments/offline/record",
                 "/api/payments/offline/staff-actions", "/api/payments/offline/reviews/legacy",
-                "/api/payments/offline/reviews/recover", "/api/payments/offline/reviews/cancel-unsynced").contains(path)
+                "/api/payments/offline/staff-actions/reviews/legacy", "/api/payments/offline/staff-actions/reviews/recover",
+                "/api/payments/offline/staff-actions/reviews/recover-legacy",
+                "/api/payments/offline/reviews/recover", "/api/payments/offline/reviews/recover-legacy", "/api/payments/offline/reviews/cancel-unsynced").contains(path)
                 || path.matches("^/api/payments/offline/reviews/[0-9a-fA-F-]{36}/(resolve|refund|cancel)$")
+                || path.matches("^/api/payments/offline/staff-actions/reviews/[0-9a-fA-F-]{36}/resolve$")
                 || path.matches("^/api/payments/requests/[0-9a-fA-F-]{36}/collect$");
     }
 

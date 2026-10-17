@@ -39,9 +39,13 @@ public class OfflineStaffReviewService {
     }
     static void retainOriginalPickupTime(CashPaymentRequest request, OfflineStaffActionRequest c,
             com.chitfund.paymentservice.dto.response.CashRequestResponse response) {
-        var originalTime = LocalDateTime.ofInstant(c.getRecordedAt(), ZoneOffset.UTC);
+        retainPickupTime(request, c.getRecordedAt(), "PARTIAL_COLLECT".equals(c.getAction()), response);
+    }
+    private static void retainPickupTime(CashPaymentRequest request, Instant recordedAt, boolean partial,
+            com.chitfund.paymentservice.dto.response.CashRequestResponse response) {
+        var originalTime = LocalDateTime.ofInstant(recordedAt, ZoneOffset.UTC);
         request.setPickedUpAt(originalTime); response.setPickedUpAt(originalTime);
-        if ("PARTIAL_COLLECT".equals(c.getAction())) {
+        if (partial) {
             request.setPartiallyCollectedAt(originalTime); response.setPartiallyCollectedAt(originalTime);
         }
     }
@@ -67,12 +71,42 @@ public class OfflineStaffReviewService {
     @Transactional
     public UUID preserve(OfflineStaffActionRequest c, UUID actor, String role, UUID admin) {
         if (admin != null) reviewer(admin);
-        String grant = verify(c, actor, role), hash = fingerprint(c, grant);
+        return preserveEvidence(c, actor, role, admin, verify(c, actor, role), null);
+    }
+    @Transactional
+    public UUID preserveLegacy(LegacyOfflineStaffActionRequest legacy, UUID actor, String role, UUID admin) {
+        if (admin != null) reviewer(admin);
+        if (!("STAFF".equals(role) || "MANAGER".equals(role)))
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Original organisation collector is required", HttpStatus.FORBIDDEN);
+        OfflineStaffActionRequest c;
+        try {
+            String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(legacy.originalPayloadJson().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            if (!hash.equals(legacy.originalPayloadHash())) throw conflict("The older pickup payload does not match its saved identity. Its device record must be recovered.");
+            c = json.readValue(legacy.originalPayloadJson(), OfflineStaffActionRequest.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "The older pickup payload could not be read; its device record remains preserved");
+        } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+        if (c == null || c.getOfflineAuthorization() != null || c.getRequestId() == null
+                || (c.getOperationId() != null && !c.getOperationId().equals(legacy.operationId()))
+                || (c.getAction() != null && !c.getAction().equals(legacy.action()))
+                || (c.getRecordedAt() != null && !c.getRecordedAt().equals(legacy.recordedAt()))
+                || ("PARTIAL_COLLECT".equals(legacy.action()) && (c.getCollectedAmount() == null || c.getCollectedAmount().signum() <= 0)))
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Include the unchanged older pickup evidence. Signed records use signed recovery.");
+        c.setOperationId(legacy.operationId()); c.setAction(legacy.action()); c.setRecordedAt(legacy.recordedAt());
+        return preserveEvidence(c, actor, role, admin, legacyMarker(legacy.originalPayloadHash()), legacy);
+    }
+    private static String legacyMarker(String hash) { return "legacy:" + hash.substring(0, 29); }
+
+    private UUID preserveEvidence(OfflineStaffActionRequest c, UUID actor, String role, UUID admin,
+            String grant, LegacyOfflineStaffActionRequest legacy) {
+        String hash = fingerprint(c, grant);
         locks.lock(TenantContext.get(), lockKey(actor, c.getOperationId()));
         var existing = reviews.findByTenantIdAndActorIdAndOperationId(TenantContext.get(), actor, c.getOperationId());
         if (existing.isPresent()) {
             var old = existing.get();
             if (!hash.equals(old.getPayloadHash()) || !role.equals(old.getActorRole())
+                    || !Objects.equals(old.getLegacyPayloadJson(), legacy == null ? null : legacy.originalPayloadJson())
                     || !snapshotFingerprint(original(old)).equals(snapshotFingerprint(c))) throw conflict("Saved pickup identity has different details. Its original evidence is preserved.");
             return old.getId();
         }
@@ -80,6 +114,8 @@ public class OfflineStaffReviewService {
         if (prior.isPresent() && !hash.equals(prior.get().getPayloadHash())) throw conflict("Saved pickup identity belongs to different details");
         var review = OfflineStaffReview.builder().id(UUID.randomUUID()).tenantId(TenantContext.get()).actorId(actor).actorRole(role)
                 .operationId(c.getOperationId()).requestId(c.getRequestId()).payloadHash(hash).requestJson(write(c))
+                .legacyPayloadJson(legacy == null ? null : legacy.originalPayloadJson())
+                .legacyPayloadHash(legacy == null ? null : legacy.originalPayloadHash())
                 .status(prior.isPresent() ? "LINKED" : "PENDING").submittedAt(Instant.now()).build();
         // A lost acknowledgement is an existing outcome, never another pickup.
         if (prior.isPresent()) {
@@ -117,6 +153,7 @@ public class OfflineStaffReviewService {
         v.put("id", r.getId()); v.put("kind", "STAFF_PICKUP"); v.put("status", r.getStatus()); v.put("requestId", r.getRequestId());
         v.put("operationId", r.getOperationId()); v.put("recordedBy", r.getActorId()); v.put("originalRole", r.getActorRole());
         v.put("action", c.getAction()); v.put("recordedAt", c.getRecordedAt());
+        v.put("authorizationVerified", r.getLegacyPayloadJson() == null);
         v.put("memberId", s == null ? null : s.memberId()); v.put("chitId", s == null ? null : s.chitId());
         v.put("amount", "PARTIAL_COLLECT".equals(c.getAction()) ? c.getCollectedAmount() : s == null || s.requestedAmount() == null || s.requestedAmount().signum() <= 0 ? null : s.requestedAmount());
         v.put("resolutionReason", r.getResolutionReason()); v.put("resolvedAt", r.getResolvedAt()); v.put("result", result(r));
@@ -162,7 +199,12 @@ public class OfflineStaffReviewService {
             throw conflict("This pickup was already reviewed. Refresh its recorded outcome.");
         }
         var c = original(r);
-        String grant = verify(c, r.getActorId(), r.getActorRole());
+        boolean legacy = r.getLegacyPayloadJson() != null;
+        if (legacy && (!d.legacyDetailsVerified() || (!"CANCEL_MISTAKE".equals(d.decision())
+                && (d.verifiedRecordedAt() == null || d.verifiedRecordedAt().isAfter(Instant.now().plusSeconds(300))))))
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Verify the original collector, task, amount and actual collection time for this older unsigned record");
+        String grant = legacy ? legacyMarker(r.getLegacyPayloadHash()) : verify(c, r.getActorId(), r.getActorRole());
+        Instant collectionTime = legacy && !"CANCEL_MISTAKE".equals(d.decision()) ? d.verifiedRecordedAt() : c.getRecordedAt();
         var request = requests.findByIdAndTenantIdForUpdate(r.getRequestId(), TenantContext.get()).orElse(null);
         if (!Objects.equals(version(request), d.expectedVersion())) throw conflict("Pickup changed during review. Refresh and review the latest details.");
         if (receipts.findByTenantIdAndActorIdAndOperationId(TenantContext.get(), r.getActorId(), r.getOperationId()).isPresent())
@@ -177,7 +219,8 @@ public class OfflineStaffReviewService {
                 if (d.actualAmount() == null || d.actualAmount().signum() <= 0 || (known != null && known.compareTo(d.actualAmount()) != 0))
                     throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Use the actual original collected amount; it cannot be changed during review");
                 var snapshot = c.getCollectionSnapshot();
-                if (request == null || snapshot == null || !Objects.equals(snapshot.memberId(), request.getMemberId()) || !Objects.equals(snapshot.chitId(), request.getChitId()))
+                if (request == null || (!legacy && snapshot == null) || (snapshot != null
+                        && (!Objects.equals(snapshot.memberId(), request.getMemberId()) || !Objects.equals(snapshot.chitId(), request.getChitId()))))
                     throw conflict("Verify the original member and chit before recording custody. The pickup remains held for review.");
                 if ("LINK_CUSTODY".equals(d.decision())) {
                     BigDecimal amount = request.getCollectedAmount() != null ? request.getCollectedAmount() : request.getRequestedAmount();
@@ -195,12 +238,13 @@ public class OfflineStaffReviewService {
                         outcome = cash.markPickedUp(request.getId(), r.getActorId(), r.getActorRole());
                     } else outcome = cash.partiallyCollect(request.getId(), d.actualAmount(), r.getActorId(), r.getActorRole());
                     var response = (com.chitfund.paymentservice.dto.response.CashRequestResponse) outcome;
-                    retainOriginalPickupTime(request, c, response); requests.saveAndFlush(request); response.setUpdatedAt(request.getUpdatedAt());
+                    retainPickupTime(request, collectionTime, "PARTIAL_COLLECT".equals(c.getAction()), response);
+                    requests.saveAndFlush(request); response.setUpdatedAt(request.getUpdatedAt());
                     r.setStatus("RECORDED");
                 }
                 receipts.saveAndFlush(OfflineCommandReceipt.builder().id(UUID.randomUUID()).tenantId(TenantContext.get()).actorId(r.getActorId())
                         .operationId(r.getOperationId()).requestId(r.getRequestId()).action(c.getAction()).payloadHash(r.getPayloadHash()).grantId(grant)
-                        .recordedAt(c.getRecordedAt()).synchronizedAt(Instant.now()).responseJson(write(outcome)).build());
+                        .recordedAt(collectionTime).synchronizedAt(Instant.now()).responseJson(write(outcome)).build());
             }
             case "CANCEL_MISTAKE" -> {
                 if (custody) throw conflict("Cash custody already exists. Reconcile that pickup instead of cancelling it as uncollected.");
@@ -211,7 +255,7 @@ public class OfflineStaffReviewService {
                 if (d.actualAmount() == null || d.actualAmount().signum() <= 0 || (known != null && known.compareTo(d.actualAmount()) != 0)
                         || !List.of("CASH", "UPI", "BANK_TRANSFER", "CHEQUE").contains(d.paymentMode() == null ? "" : d.paymentMode())
                         || d.reference() == null || d.reference().trim().length() < 3 || d.refundedAt() == null
-                        || d.refundedAt().isBefore(c.getRecordedAt()) || d.refundedAt().isAfter(Instant.now().plusSeconds(300)))
+                        || d.refundedAt().isBefore(collectionTime) || d.refundedAt().isAfter(Instant.now().plusSeconds(300)))
                     throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Include the full returned amount and actual refund method, reference and date");
                 r.setStatus("REFUNDED"); outcome = d;
             }
@@ -221,9 +265,9 @@ public class OfflineStaffReviewService {
         // forever under the old client operation key. A later real collection
         // starts from a freshly downloaded version; the original key stays closed.
         var snapshot = c.getCollectionSnapshot();
-        if (List.of("CANCELLED", "REFUNDED").contains(r.getStatus()) && request != null && snapshot != null
+        if (List.of("CANCELLED", "REFUNDED").contains(r.getStatus()) && request != null && (snapshot != null || legacy)
                 && request.getStatus() == CashRequestStatus.ASSIGNED && r.getActorId().equals(request.getAssignedStaffId())
-                && Objects.equals(snapshot.memberId(), request.getMemberId()) && Objects.equals(snapshot.chitId(), request.getChitId())) {
+                && (snapshot == null || (Objects.equals(snapshot.memberId(), request.getMemberId()) && Objects.equals(snapshot.chitId(), request.getChitId())))) {
             request.setUpdatedAt(LocalDateTime.now()); requests.saveAndFlush(request);
         }
         r.setResolvedBy(admin); r.setResolvedAt(Instant.now()); r.setResolutionReason(d.reason().trim());
@@ -237,6 +281,7 @@ public class OfflineStaffReviewService {
                 .tenantId(TenantContext.get()).actorId(actor.toString()).actorRole(role).action(action)
                 .idempotencyKey(r.getOperationId()).originalOfflineAt(original(r).getRecordedAt()).synchronizedAt(Instant.now())
                 .metadata(Map.of("originalActor", r.getActorId().toString(), "requestId", r.getRequestId().toString(), "status", r.getStatus(),
+                        "authority", r.getLegacyPayloadJson() == null ? "SIGNED_GRANT" : r.getResolvedBy() == null ? "UNSIGNED_DEVICE_RECORD" : "ADMIN_VERIFIED_LEGACY",
                         "reason", r.getResolutionReason() == null ? "Changed pickup or account access" : r.getResolutionReason())).build());
     }
     private BusinessException conflict(String message) { return new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, message, HttpStatus.CONFLICT); }

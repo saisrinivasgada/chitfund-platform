@@ -1,3 +1,4 @@
+import { legacyStaffEvidence } from '../../shared/offline/legacyStaffEvidence.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -11,6 +12,7 @@ async function phone({saved=true,storageFails=false,enabled=false,reachable=true
   let loseAck=true;const requests=[];let refreshes=0;
   const access={serverTime:Date.now(),checkedAt:Date.now()};const store=(value)=>({getState:()=>value});
   const deps={
+    '../../shared/offline/legacyStaffEvidence':{legacyStaffEvidence},
     axios:{default:{isAxiosError:(e)=>!!e?.isAxiosError}},
     'expo-crypto':{CryptoDigestAlgorithm:{SHA256:'sha256'},digestStringAsync:async(_,s)=>createHash('sha256').update(s).digest('hex')},
     '@react-native-community/netinfo':{default:{fetch:async()=>({isConnected:reachable,isInternetReachable:reachable})}},
@@ -44,24 +46,32 @@ test('staff signed collections are never sent when durable local storage fails',
   const device=await phone({saved:false,storageFails:true,enabled:true});await assert.rejects(device.queue(),/Storage full/);assert.equal(device.requests.length,0);assert.equal(device.row(),null);
 });
 
-test('changed staff pickups keep the server review identity and never become a successful receipt', async () => {
+for (const mode of ['signed','unsigned','corrupt']) test(`${mode} older pickups retain their evidence and never become a false successful receipt`, async () => {
+  const signed=mode==='signed';
   // Exercise the real queue error handler with an isolated signed command.
   let operation = { operationId: 'held', accountScope: 'scope', actorId: 'staff', tenantId: 'org', action: 'MARK_PICKUP',
-    status: 'QUEUED', attempts: 0, payload: { requestId: 'request', offlineAuthorization: 'original-proof' } };
+    status: 'QUEUED', attempts: 0, createdAt:Date.parse('2026-01-01T12:00:00Z'), payloadHash:createHash('sha256').update(JSON.stringify({requestId:'request'})).digest('hex'), payload: signed ? { requestId: 'request', offlineAuthorization: 'original-proof' } : {requestId:'request'} };
+  if(mode==='corrupt')operation.payloadHash='invalid';
+  const originalPayload=JSON.stringify(operation.payload);let requestCount=0;
   const context=vm.createContext({});const module=new vm.SourceTextModule(source,{context});
   const deps={
+    '../../shared/offline/legacyStaffEvidence':{legacyStaffEvidence},
     axios:{default:{isAxiosError:e=>!!e?.isAxiosError}},'expo-crypto':{},'@react-native-community/netinfo':{default:{}},
     '../store/authStore':{useAuthStore:{}},'./accountScope':{requireOrganizationScope(){}},
     './database':{claimOperation:async()=>true,getOperation(){},getSyncCounts(){},hasOfflineDatabase(){},insertOperation(){},setLastSyncedAt(){},offlineRecordingEpoch(){},
       updateOperation:async(_,scope,status,values)=>{assert.equal(scope,'scope');operation={...operation,status,...values};}},
     '../store/syncStore':{useSyncStore:{}},
-    './accountClient':{accountForScope:()=>({sessionValid:true,userId:'staff',tenantId:'org'}),requestAsAccount:async()=>{
+    './accountClient':{accountForScope:()=>({sessionValid:true,userId:'staff',tenantId:'org'}),requestAsAccount:async(scope,request)=>{
+      requestCount++;assert.notEqual(mode,'corrupt');assert.equal(scope,'scope');assert.equal(request.method,'POST');
+      assert.equal(request.url,signed?'/payments/offline/staff-actions':'/payments/offline/staff-actions/reviews/legacy');
+      if(!signed){assert.equal(request.data.originalPayloadJson,originalPayload);assert.equal(request.data.originalPayloadHash,operation.payloadHash);assert.equal(request.data.recordedAt,'2026-01-01T12:00:00.000Z');}
       throw Object.assign(new Error('Pickup changed'),{isAxiosError:true,response:{status:409,data:{message:'Pickup held for review',data:{reviewId:'server-review'}}}});
     }},'./access':{refreshOfflineAccess(){},offlineAccessForScope(){}},'./accessPolicy':{canRecordOffline(){},requireOfflineRecording(){}},
   };
   await module.link(async name=>{const values=deps[name];if(!values)throw new Error(name);return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v);},{context});});
-  await module.evaluate();assert.equal((await module.namespace.processStaffOperation(operation)).kind,'conflict');
-  assert.equal(operation.status,'CONFLICT');assert.equal(operation.serverReviewId,'server-review');assert.equal(operation.payload.offlineAuthorization,'original-proof');
+  await module.evaluate();const outcome=await module.namespace.processStaffOperation(operation);
+  if(mode==='corrupt'){assert.equal(outcome.kind,'failed');assert.equal(requestCount,0);assert.equal(operation.status,'PERMANENT_FAILURE');assert.equal(operation.errorCode,'LOCAL_RECOVERY_REQUIRED');assert.equal(JSON.stringify(operation.payload),originalPayload);return;}
+  assert.equal(outcome.kind,'conflict');assert.equal(operation.status,'CONFLICT');assert.equal(operation.serverReviewId,'server-review');assert.equal(JSON.stringify(operation.payload),originalPayload);
   assert.equal(operation.serverReceiptId,undefined);
 });
 

@@ -8,4 +8,9 @@ env:
 - runFlow: signout-suite.yaml
 - runFlow: cross-account-suite.yaml
 - runFlow: settings-suite.yaml
-- runFlow: draw-dialog-suite.yaml
+- runFlow: draw-recovery-suite.yaml
+- runFlow: draw-fast-taps.yaml
+- runFlow: staff-review-suite.yaml
+- runFlow: staff-refund-suite.yaml
+- runFlow: staff-legacy-review-suite.yaml
+- runFlow: draw-cold-reopen-suite.yaml

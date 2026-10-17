@@ -3,6 +3,7 @@ package com.chitfund.paymentservice.controller;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.paymentservice.dto.request.*;
 import com.chitfund.paymentservice.service.OfflineStaffReviewService;
+import com.chitfund.paymentservice.exception.OfflineReviewRequiredException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -13,6 +14,18 @@ import java.util.*;
 @RestController @RequestMapping("/payments/offline/staff-actions/reviews") @RequiredArgsConstructor
 public class OfflineStaffReviewController {
     private final OfflineStaffReviewService reviews;
+    @PostMapping("/legacy") @PreAuthorize("hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MANAGER')")
+    public ApiResponse<?> legacy(@Valid @RequestBody LegacyOfflineStaffActionRequest r, Authentication auth) {
+        String role = auth.getAuthorities().stream().map(a -> a.getAuthority().replace("ROLE_", ""))
+                .filter(value -> "STAFF".equals(value) || "MANAGER".equals(value)).findFirst().orElseThrow();
+        // Quarantine only: an older command can never replay an ordinary pickup.
+        UUID id = reviews.preserveLegacy(r, (UUID) auth.getPrincipal(), role, null);
+        throw new OfflineReviewRequiredException(id);
+    }
+    @PostMapping("/recover-legacy") @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ApiResponse<?> recoverLegacy(@Valid @RequestBody RecoverLegacyOfflineStaffActionRequest r, Authentication auth) {
+        return ApiResponse.success(Map.of("reviewId", reviews.preserveLegacy(r.original(), r.originalActorId(), r.originalRole(), (UUID) auth.getPrincipal())));
+    }
     @PostMapping("/recover") @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ApiResponse<?> recover(@Valid @RequestBody RecoverOfflineStaffActionRequest r, Authentication auth) {
         return ApiResponse.success(Map.of("reviewId", reviews.preserve(r.original(), r.originalActorId(), r.originalRole(), (UUID) auth.getPrincipal())));

@@ -193,11 +193,10 @@ jobs:
           working-directory: chitwise-mobile
           disable-animations: true
           script: |
-            export CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT"
-            adb -s "$CHITWISE_QA_DEVICE" install android/app/build/outputs/apk/release/app-release.apk
-            timeout 90s adb -s "$CHITWISE_QA_DEVICE" wait-for-device
-            maestro --device "$CHITWISE_QA_DEVICE" test tests/offline/login.yaml
-            node tests/offline/run-regression.mjs
+            timeout 90s adb -s "emulator-$EMULATOR_PORT" wait-for-device
+            adb -s "emulator-$EMULATOR_PORT" install android/app/build/outputs/apk/release/app-release.apk
+            maestro --device "emulator-$EMULATOR_PORT" test tests/offline/login.yaml
+            CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT" node tests/offline/run-regression.mjs
       - name: Upload native failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

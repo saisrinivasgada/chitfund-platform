@@ -29,6 +29,11 @@ public class OfflinePaymentReviewController {
         return ApiResponse.success(java.util.Map.of("reviewId", reviews.preserveRecovered(request.original(),
                 request.originalActorId(), operationId, (UUID) auth.getPrincipal())));
     }
+    @PostMapping("/recover-legacy") public ApiResponse<?> recoverLegacy(@Valid @RequestBody RecoverOfflineCollectionRequest request,
+            @RequestHeader("X-Idempotency-Key") String operationId, Authentication auth) {
+        return ApiResponse.success(java.util.Map.of("reviewId", reviews.preserveRecoveredLegacy(request.original(),
+                request.originalActorId(), operationId, (UUID) auth.getPrincipal())));
+    }
     @PostMapping("/cancel-unsynced") public ApiResponse<?> cancelUnsynced(@Valid @RequestBody CancelSavedOfflinePaymentRequest request,
             @RequestHeader("X-Idempotency-Key") String operationId, Authentication auth) {
         return ApiResponse.success(reviews.cancelUnconfirmed(request, operationId, (UUID) auth.getPrincipal()));
