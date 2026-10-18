@@ -36,9 +36,9 @@ env:
     text: "Open"
     optional: true
 - extendedWaitUntil:
-    visible: "Owes ₹500"
+    visible: '.*Owes ₹500\b.*'
     timeout: 60000
-- assertVisible: "Paid up"
+- assertVisible: '.*Paid up\b.*'
 - openLink: 'chitwise:///(app)/(member)/chit-detail?chitId=50000000-0000-0000-0000-000000000001'
 - waitForAnimationToEnd
 - tapOn:
