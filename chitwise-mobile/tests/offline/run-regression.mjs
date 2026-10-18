@@ -6,7 +6,7 @@ if(!device)throw new Error('Select the isolated QA device');
 const endpoint=new URL(process.env.CHITWISE_QA_URL??'http://127.0.0.1:3112');
 if(!['localhost','127.0.0.1'].includes(endpoint.hostname))throw new Error('Local QA only');
 const state=async(body)=>{const response=await fetch(new URL('/__qa/state',endpoint),body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});assert.equal(response.ok,true);return(await response.json()).data;};
-const flow=process.env.CHITWISE_QA_SIGN_IN==='1'?'tests/offline/regression-entry.yaml':'tests/offline/regression-suite.yaml';
+const flow=process.env.CHITWISE_QA_SIGN_IN==='1'?'tests/offline/regression-entry.yaml':'tests/offline/regression-with-member-suite.yaml';
 const evidence={flow,result:'RUNNING'};
 try{
   const initial=await state({online:true,org:'a',due:1000,secondDue:500,enabled:true,pausePaymentDelivery:false});

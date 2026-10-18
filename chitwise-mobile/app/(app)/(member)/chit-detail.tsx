@@ -1,4 +1,5 @@
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
+import { outstandingValue } from '../../../../shared/offline/balanceValue';
 import { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,
@@ -187,8 +188,7 @@ export default function ChitDetailScreen() {
   const totalPaid = histArr.reduce((s, r: any) => s + Number(r.amountPaid ?? 0), 0);
   const outstanding = histArr.reduce((s, r: any) => s + Math.max(0, Number(r.amountDue ?? 0) - Number(r.amountPaid ?? 0)), 0);
 
-  const balOwing = bal?.outstandingBalance ?? bal?.balance ?? bal ?? null;
-  const balNum = balOwing != null ? Number(balOwing) : null;
+  const balNum = outstandingValue(bal);
 
   const readKeys = [
     ['member-chits'], ['member-profile-me'], ['member-chit-history', memberId, chitId],

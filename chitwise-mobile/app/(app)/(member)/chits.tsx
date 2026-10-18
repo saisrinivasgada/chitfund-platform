@@ -1,3 +1,5 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
+import { outstandingValue } from '../../../../shared/offline/balanceValue';
 import { useState, useEffect } from 'react';
 import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView, TextInput, Platform } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -35,18 +37,17 @@ function ChitBalance({ memberId, chitId }: { memberId: string; chitId: string })
     queryFn: () => getMemberBalance(memberId, chitId),
     staleTime: 60_000,
   });
-  const owing = bal?.outstandingBalance ?? bal?.balance ?? bal ?? null;
-  if (owing == null) return null;
-  const num = Number(owing);
+  const num = outstandingValue(bal);
+  if (num == null) return <ReadDataBoundary label="Balance" compact queryKeys={[[ 'member-chit-balance', memberId, chitId ]]}><Text style={{ fontSize: 11, color: C.gray500 }}>Unavailable</Text></ReadDataBoundary>;
   return (
-    <View style={{
+    <ReadDataBoundary label="Balance" compact queryKeys={[[ 'member-chit-balance', memberId, chitId ]]}><View style={{
       paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
       backgroundColor: num > 0 ? '#FEF3C7' : '#DCFCE7',
     }}>
       <Text style={{ fontSize: 11, fontWeight: '700', color: num > 0 ? '#92400E' : '#15803D' }}>
         {num > 0 ? `Owes ₹${num.toLocaleString('en-IN')}` : 'Paid up'}
       </Text>
-    </View>
+    </View></ReadDataBoundary>
   );
 }
 
@@ -638,7 +639,7 @@ export default function MemberChitsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-      <FlatList
+      <ReadDataBoundary label="Chits" queryKeys={[['member-chits'], ['member-profile-me']]}><FlatList
         data={filteredChits}
         keyExtractor={(c: any) => c.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
@@ -741,6 +742,7 @@ export default function MemberChitsScreen() {
         )}
       />
 
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

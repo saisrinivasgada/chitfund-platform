@@ -1,0 +1,6 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow: regression-suite.yaml
+- runFlow: member-synced-balance-suite.yaml

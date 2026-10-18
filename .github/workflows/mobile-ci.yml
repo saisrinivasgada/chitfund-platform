@@ -70,7 +70,9 @@ jobs:
   ios-offline:
     name: iOS release offline journeys
     runs-on: macos-15
-    timeout-minutes: 65
+    # Includes the added manager recovery, first-download and member-ledger
+    # journeys after the previous complete ~52-minute iOS build and suite.
+    timeout-minutes: 75
     env:
       EXPO_PUBLIC_API_URL: http://127.0.0.1:3112/api
       CHITWISE_NATIVE_QA: '1'
@@ -142,7 +144,7 @@ jobs:
   android-offline:
     name: Android release offline journeys
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    timeout-minutes: 75
     env:
       EXPO_PUBLIC_API_URL: http://10.0.2.2:3112/api
       CHITWISE_NATIVE_QA: '1'

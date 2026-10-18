@@ -3,12 +3,12 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 
-const owners = ['a', 'b', 'c', 'd'].map((name, index) => {
+const owners = ['a', 'b', 'c', 'd', 'e'].map((name, index) => {
   const id = (prefix) => `${prefix}0000000-0000-0000-0000-00000000000${index + 1}`;
-  const role = name === 'd' ? 'MANAGER' : 'ADMIN';
-  const tenant = { tenantId: id('1'), name: `Offline QA Organisation ${name.toUpperCase()}`, role, plan: 'GROWTH',
+  const role = name === 'e' ? 'MEMBER' : name === 'd' ? 'MANAGER' : 'ADMIN';
+  const tenant = { tenantId: name === 'e' ? '10000000-0000-0000-0000-000000000001' : id('1'), name: `Offline QA Organisation ${name === 'e' ? 'A' : name.toUpperCase()}`, role, plan: 'GROWTH',
     status: 'ACTIVE', planExpiresAt: '2099-12-31T23:59:59', offlineEnabled: true };
-  const user = { id: id('2'), username: `offline-${name}`, fullName: `QA Admin ${name.toUpperCase()}`, role,
+  const user = { id: id('2'), username: name === 'e' ? 'offline-member-a' : `offline-${name}`, fullName: role === 'MEMBER' ? 'QA Member A' : `QA ${role === 'MANAGER' ? 'Manager' : 'Admin'} ${name.toUpperCase()}`, role,
     tenantId: tenant.tenantId, enabled: true, hasAppAccess: true, phone: '9000000000' };
   const token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),
     Buffer.from(JSON.stringify({ sub: user.id, tenantId: tenant.tenantId, role: user.role, exp: 4102444800 })).toString('base64url'), 'local-qa-only'].join('.');
@@ -30,7 +30,7 @@ if (stateFile && existsSync(stateFile)) {
     owner.staffReviews = new Map((prior.staffReviews ?? []).map((r) => [r.id,r]));
   }
 }
-const snapshot = () => ({ online, drawFailure, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
+const snapshot = () => ({ online, drawFailure, organisations: owners.filter(owner => owner.name !== 'e').map((owner) => ({ name: owner.name, due: owner.due,
   credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled, pausePaymentDelivery: owner.pausePaymentDelivery, pauseDownloads: owner.pauseDownloads, drawRequests: owner.drawRequests,
   receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()], staffReviews: [...owner.staffReviews.values()], staffReviewStaleOnce: owner.staffReviewStaleOnce })) });
 const member = (owner) => ({ id: owner.memberId, fullName: `QA Member ${owner.name.toUpperCase()}`, name: `QA Member ${owner.name.toUpperCase()}`,
@@ -75,23 +75,25 @@ http.createServer(async (request, response) => {
     return send(snapshot());
   }
   if (!online) return request.socket.destroy();
-  const owner = owners.find((item) => request.headers.authorization === `Bearer ${item.token}`)
+  const session = owners.find((item) => request.headers.authorization === `Bearer ${item.token}`)
     ?? owners.find((item) => item.refreshToken === body.refreshToken);
+  const owner = session?.user.role === 'MEMBER' ? { ...owners[0], user: session.user, tenant: { ...owners[0].tenant, role: 'MEMBER' } } : session;
   if (url.pathname === '/api/auth/login') {
     const account = owners.find((item) => item.user.username === body.username);
     return account ? send({ accessToken: account.token, refreshToken: account.refreshToken, user: account.user, tenant: { ...account.tenant, offlineEnabled: account.enabled } })
       : send({ message: 'Use offline-a, offline-b or offline-c for local QA' }, 401);
   }
-  if (url.pathname === '/api/auth/refresh') return owner
-    ? send({ accessToken: owner.token, refreshToken: owner.refreshToken, user: owner.user, tenant: { ...owner.tenant, offlineEnabled: owner.enabled } }) : send({ message: 'Unknown local account' }, 401);
+  if (url.pathname === '/api/auth/refresh') return session
+    ? send({ accessToken: session.token, refreshToken: session.refreshToken, user: session.user, tenant: { ...session.tenant, offlineEnabled: owner.enabled } }) : send({ message: 'Unknown local account' }, 401);
   if (!owner) return send({ message: 'Unknown local account' }, 401);
   const path = url.pathname.slice(4);
+  if (owner.user.role === 'MEMBER' && (['/members', '/members/offline-pages', '/payments/batches/all'].includes(path) || /^\/admin\/draws\/chit\//.test(path) || /^\/chits\/[^/]+\/reservations$/.test(path))) return send({ message: 'Member-only endpoint required' }, 403);
   if (owner.pauseDownloads && request.method === 'GET' && /^\/(members|chits)(\/|$)/.test(path)) return send({ message: 'Local QA first download interrupted' }, 503);
   if (path === '/users/me/offline-access') {
     const now = Date.now();
     return send({ enabled: owner.enabled, reason: owner.enabled ? null : 'ADD_ON_REQUIRED', actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: owner.user.role, serverTime: now,
       grant: owner.enabled ? { id: randomUUID(), actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: owner.user.role, issuedAt: now,
-        recordUntil: now + 7 * 86400000, readUntil: now + 7 * 86400000, actions: ['READ', 'RECORD_PAYMENT'], token: `local-proof-${owner.name}` } : null });
+        recordUntil: now + 7 * 86400000, readUntil: now + 7 * 86400000, actions: owner.user.role === 'MEMBER' ? ['READ'] : ['READ', 'RECORD_PAYMENT'], token: `local-proof-${owner.name}` } : null });
   }
 
   const staffReviewBase = '/payments/offline/staff-actions/reviews';
@@ -128,13 +130,22 @@ http.createServer(async (request, response) => {
     return send({ memberId: owner.memberId, chitId: secondary ? owner.secondaryChitId : owner.chitId, totalOutstanding: due,
       months: due ? [{ monthNumber: 1, amountDue: original, amountPaid: original-due, balance: due, dueDate: '2026-10-15', status: due === original ? 'OUTSTANDING' : 'PARTIALLY_PAID' }] : [] });
   }
+  if (path === '/payments/history') {
+    const secondary = url.searchParams.get('chitId') === owner.secondaryChitId;
+    const original = secondary ? 500 : 1000, due = secondary ? owner.secondDue : owner.due;
+    return send([{ id: `qa-history-${secondary ? 'second' : 'first'}`, memberId: owner.memberId,
+      chitId: secondary ? owner.secondaryChitId : owner.chitId, monthNumber: 1,
+      amountDue: original, amountPaid: original - due, balance: due, dueDate: '2026-10-15',
+      status: due === 0 ? 'SETTLED' : due === original ? 'OUTSTANDING' : 'PARTIALLY_PAID' }]);
+  }
+  if (path === '/payments/batches/member') return send([...owner.receipts.values()]);
   if (path === '/payments/balance/total') return send(owner.due + owner.secondDue);
   if (path === '/admin/draws/open' && request.method === 'POST') {
     if (!Number.isInteger(body.monthNumber) || body.monthNumber < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate ?? '') || !(body.installmentAmount > 0) || !(body.maxCycles > 0) || !body.members?.length || body.chitId !== owner.chitId || body.members.some(m => m.memberId !== owner.memberId || !(m.amountDue >= 0))) return send({ message: 'Missing required draw fields or wrong account' }, 400);
     owner.drawRequests.push(body);
     return send({ message: drawFailure ? 'Draw changed while opening. Refresh and try again.' : 'This local fixture does not create financial draws.' }, drawFailure ? 409 : 501);
   }
-  if (path.startsWith('/admin/draws/chit/')) {
+  if (path.startsWith('/admin/draws/chit/') || path.startsWith('/admin/draws/member/chit/')) {
     const selected = path.split('/').at(-1);
     return send([{ id: `qa-draw-${selected}`, chitId: selected, monthNumber: 1, drawDate: '2026-10-15', status: 'COMPLETED' }]);
   }
