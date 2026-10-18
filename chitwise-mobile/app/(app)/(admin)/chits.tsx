@@ -550,6 +550,7 @@ export default function AdminChitsScreen() {
   // ── Mutations: draws ───────────────────────────────────────────────────────
   const dialogClosers = useRef(new Map<symbol, () => void>());
   const drawDialogSequence = useRef(0);
+  useEffect(() => () => { drawDialogSequence.current++; }, []);
   const selectedChitId = useRef(selected?.id);
   selectedChitId.current = selected?.id;
   const [openDrawError, setOpenDrawError] = useState('');

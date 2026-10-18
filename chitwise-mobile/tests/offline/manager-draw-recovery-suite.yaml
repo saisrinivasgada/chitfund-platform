@@ -1,0 +1,106 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"drawFailure":true}'
+- openLink: 'chitwise:///(auth)/login?addAccount=1&username=offline-d'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your password"
+    timeout: 60000
+- waitForAnimationToEnd
+- tapOn: "Enter your password"
+- waitForAnimationToEnd
+- inputText: "local-qa-only"
+- pressKey: Enter
+- waitForAnimationToEnd
+- tapOn:
+    text: "Not Now|Not now"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*Dashboard.*|Welcome to ChitWise"
+    timeout: 60000
+- tapOn:
+    text: "No thanks"
+    optional: true
+- tapOn:
+    text: "Skip for now"
+    optional: true
+- openLink: 'chitwise:///(app)/(manager)/chits'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*QA Monthly Chit D.*"
+    timeout: 60000
+- tapOn: ".*QA Monthly Chit D.*"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: ".*Open Draw #2"
+    timeout: 15000
+- tapOn: ".*Open Draw #2"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      text: "Open Draw"
+      below: "Draw Number"
+    timeout: 15000
+- tapOn:
+    text: "Open Draw"
+    below: "Draw Number"
+- extendedWaitUntil:
+    visible: "Draw changed while opening. Refresh and try again."
+    timeout: 15000
+- tapOn: "Cancel draw"
+- waitForAnimationToEnd
+- tapOn: "Close chit details"
+- waitForAnimationToEnd
+- repeat:
+    times: 3
+    commands:
+      - tapOn: ".*QA Second Chit D.*"
+      - waitForAnimationToEnd
+      - tapOn: ".*Open Draw #2"
+      - waitForAnimationToEnd
+      - assertVisible: "Draw Number"
+      - assertNotVisible: "Draw changed while opening. Refresh and try again."
+      - tapOn: "Cancel draw"
+      - waitForAnimationToEnd
+      - tapOn: "Close chit details"
+      - waitForAnimationToEnd
+      - tapOn: ".*QA Monthly Chit D.*"
+      - waitForAnimationToEnd
+      - tapOn: ".*Open Draw #2"
+      - waitForAnimationToEnd
+      - assertVisible: "Draw Number"
+      - assertNotVisible: "Draw changed while opening. Refresh and try again."
+      - tapOn: "Cancel draw"
+      - waitForAnimationToEnd
+      - tapOn: "Close chit details"
+      - waitForAnimationToEnd
+- assertVisible: ".*QA Monthly Chit D.*"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"drawFailure":false}'
+- openLink: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "switch-account-offline-a"
+    centerElement: false
+- tapOn:
+    id: "switch-account-offline-a"
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 60000

@@ -34,6 +34,12 @@ try{
   assert.ok(c && initialC,'First-download account must be present');
   assert.equal(c.pauseDownloads,false,'The interrupted download must recover');
   for(const key of ['due','secondDue','credit','receipts','reviews','staffReviews']) assert.deepEqual(c[key],initialC[key],`First-download testing cannot change C ${key}`);
+  const d=final.organisations.find(o=>o.name==='d'), initialD=initial.organisations.find(o=>o.name==='d');
+  assert.ok(d && initialD,'Manager recovery account must be present');
+  for(const key of ['due','secondDue','credit','receipts','reviews','staffReviews']) assert.deepEqual(d[key],initialD[key],`Manager error recovery cannot change D ${key}`);
+  const managerRequests=d.drawRequests.slice(initialD.drawRequests.length);
+  assert.equal(managerRequests.length,1,'Only one manager draw is submitted; reopening and cancellation cannot resubmit it');
+  assert.deepEqual(managerRequests[0],{chitId:'40000000-0000-0000-0000-000000000004',monthNumber:2,dueDate:'2026-11-01',installmentAmount:1000,maxCycles:20,members:[{memberId:'30000000-0000-0000-0000-000000000004',amountDue:1000}]});
   evidence.result='PASSED';
   console.log('PASS: native offline save/reopen, empty and counted reviews, non-subscriber gate, exact multi-chit cancellation, sign-out discard/relogin, cross-account delivery, cleared offline list, draw error/rapid-tap/cold-launch recovery, signed pickup decisions, explicit older-record review and first-download interruption/recovery');
 }catch(error){evidence.result='FAILED';evidence.error=error.message;throw error;}
@@ -43,5 +49,6 @@ finally{
     if(process.env.CHITWISE_QA_REPORT)writeFileSync(process.env.CHITWISE_QA_REPORT,JSON.stringify(evidence,null,2));
     await state({online:true,org:'a',enabled:true,pausePaymentDelivery:false});
     await state({org:'c',pauseDownloads:false});
+    await state({drawFailure:false});
   }
 }

@@ -3,16 +3,17 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 
-const owners = ['a', 'b', 'c'].map((name, index) => {
+const owners = ['a', 'b', 'c', 'd'].map((name, index) => {
   const id = (prefix) => `${prefix}0000000-0000-0000-0000-00000000000${index + 1}`;
-  const tenant = { tenantId: id('1'), name: `Offline QA Organisation ${name.toUpperCase()}`, role: 'ADMIN', plan: 'GROWTH',
+  const role = name === 'd' ? 'MANAGER' : 'ADMIN';
+  const tenant = { tenantId: id('1'), name: `Offline QA Organisation ${name.toUpperCase()}`, role, plan: 'GROWTH',
     status: 'ACTIVE', planExpiresAt: '2099-12-31T23:59:59', offlineEnabled: true };
-  const user = { id: id('2'), username: `offline-${name}`, fullName: `QA Admin ${name.toUpperCase()}`, role: 'ADMIN',
+  const user = { id: id('2'), username: `offline-${name}`, fullName: `QA Admin ${name.toUpperCase()}`, role,
     tenantId: tenant.tenantId, enabled: true, hasAppAccess: true, phone: '9000000000' };
   const token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),
     Buffer.from(JSON.stringify({ sub: user.id, tenantId: tenant.tenantId, role: user.role, exp: 4102444800 })).toString('base64url'), 'local-qa-only'].join('.');
   return { name, user, tenant, token, refreshToken: `local-qa-refresh-${name}`, memberId: id('3'), chitId: id('4'), secondaryChitId: id('5'),
-    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, pausePaymentDelivery: false, pauseDownloads: false, receipts: new Map(), reviews: new Map(), staffReviews: new Map(), staffReviewStaleOnce: false };
+    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, pausePaymentDelivery: false, pauseDownloads: false, drawRequests: [], receipts: new Map(), reviews: new Map(), staffReviews: new Map(), staffReviewStaleOnce: false };
 });
 let online = true;
 let drawFailure = false;
@@ -23,13 +24,14 @@ if (stateFile && existsSync(stateFile)) {
   for (const prior of state.organisations ?? []) {
     const owner = owners.find((item) => item.name === prior.name); if (!owner) continue;
     for (const key of ['due','credit','version','enabled','secondDue','pausePaymentDelivery','pauseDownloads','staffReviewStaleOnce']) if (prior[key] != null) owner[key] = prior[key];
+    owner.drawRequests = prior.drawRequests ?? [];
     owner.receipts = new Map((prior.receipts ?? []).map((r) => [r.id,r]));
     owner.reviews = new Map((prior.reviews ?? []).map((r) => [r.id,r]));
     owner.staffReviews = new Map((prior.staffReviews ?? []).map((r) => [r.id,r]));
   }
 }
 const snapshot = () => ({ online, drawFailure, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
-  credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled, pausePaymentDelivery: owner.pausePaymentDelivery, pauseDownloads: owner.pauseDownloads,
+  credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled, pausePaymentDelivery: owner.pausePaymentDelivery, pauseDownloads: owner.pauseDownloads, drawRequests: owner.drawRequests,
   receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()], staffReviews: [...owner.staffReviews.values()], staffReviewStaleOnce: owner.staffReviewStaleOnce })) });
 const member = (owner) => ({ id: owner.memberId, fullName: `QA Member ${owner.name.toUpperCase()}`, name: `QA Member ${owner.name.toUpperCase()}`,
   phone: '9000000001', status: 'ACTIVE', hasAppAccess: true, createdAt: '2026-10-15T12:00:00' });
@@ -87,8 +89,8 @@ http.createServer(async (request, response) => {
   if (owner.pauseDownloads && request.method === 'GET' && /^\/(members|chits)(\/|$)/.test(path)) return send({ message: 'Local QA first download interrupted' }, 503);
   if (path === '/users/me/offline-access') {
     const now = Date.now();
-    return send({ enabled: owner.enabled, reason: owner.enabled ? null : 'ADD_ON_REQUIRED', actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: 'ADMIN', serverTime: now,
-      grant: owner.enabled ? { id: randomUUID(), actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: 'ADMIN', issuedAt: now,
+    return send({ enabled: owner.enabled, reason: owner.enabled ? null : 'ADD_ON_REQUIRED', actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: owner.user.role, serverTime: now,
+      grant: owner.enabled ? { id: randomUUID(), actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: owner.user.role, issuedAt: now,
         recordUntil: now + 7 * 86400000, readUntil: now + 7 * 86400000, actions: ['READ', 'RECORD_PAYMENT'], token: `local-proof-${owner.name}` } : null });
   }
 
@@ -128,6 +130,8 @@ http.createServer(async (request, response) => {
   }
   if (path === '/payments/balance/total') return send(owner.due + owner.secondDue);
   if (path === '/admin/draws/open' && request.method === 'POST') {
+    if (!Number.isInteger(body.monthNumber) || body.monthNumber < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate ?? '') || !(body.installmentAmount > 0) || !(body.maxCycles > 0) || !body.members?.length || body.chitId !== owner.chitId || body.members.some(m => m.memberId !== owner.memberId || !(m.amountDue >= 0))) return send({ message: 'Missing required draw fields or wrong account' }, 400);
+    owner.drawRequests.push(body);
     return send({ message: drawFailure ? 'Draw changed while opening. Refresh and try again.' : 'This local fixture does not create financial draws.' }, drawFailure ? 409 : 501);
   }
   if (path.startsWith('/admin/draws/chit/')) {

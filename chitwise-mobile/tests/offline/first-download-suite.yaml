@@ -118,10 +118,10 @@ env:
 - tapOn:
     text: "Open"
     optional: true
-- extendedWaitUntil:
-    visible:
+- scrollUntilVisible:
+    element:
       id: "switch-account-offline-a"
-    timeout: 60000
+    centerElement: false
 - tapOn:
     id: "switch-account-offline-a"
 - extendedWaitUntil:
