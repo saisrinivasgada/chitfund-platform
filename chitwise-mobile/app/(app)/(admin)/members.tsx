@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Pressable, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -35,17 +36,17 @@ function ChitBalanceBadge({ memberId, chitId, onCollect }: { memberId: string; c
     queryFn: () => getMemberBalance(memberId, chitId),
     staleTime: 60_000,
   });
-  if (isLoading) return <Text style={{ fontSize: 11, color: C.gray400 }}>…</Text>;
+  if (isLoading) return <ReadDataBoundary label="Balance" queryKeys={[['m-chit-balance', memberId, chitId]]} compact><Text style={{ fontSize: 11, color: C.gray400 }}>…</Text></ReadDataBoundary>;
   const outstanding = Number(balance?.totalOutstanding ?? 0);
   const label = outstanding > 0
     ? <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>₹{outstanding.toLocaleString('en-IN')} due</Text>
     : balance !== undefined
       ? <Text style={{ fontSize: 12, fontWeight: '700', color: C.green }}>Clear ✓</Text>
       : null;
-  if (!label) return null;
-  return onCollect
+  if (!label) return <ReadDataBoundary label="Balance" queryKeys={[['m-chit-balance', memberId, chitId]]} compact>{null}</ReadDataBoundary>;
+  return <ReadDataBoundary label="Balance" queryKeys={[['m-chit-balance', memberId, chitId]]} compact>{onCollect
     ? <Pressable onPress={onCollect} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>{label}</Pressable>
-    : label;
+    : label}</ReadDataBoundary>;
 }
 
 // Sub-component for per-card balance (calls its own query so hooks are valid)
@@ -55,13 +56,13 @@ function MemberBalance({ memberId }: { memberId: string }) {
     queryFn: () => getMemberTotalBalance(memberId),
     staleTime: 60_000,
   });
-  if (isLoading) return <Text style={{ fontSize: 11, color: C.gray400 }}>…</Text>;
+  if (isLoading) return <ReadDataBoundary label="Balance" queryKeys={[['m-member-balance-card', memberId]]} compact><Text style={{ fontSize: 11, color: C.gray400 }}>…</Text></ReadDataBoundary>;
   const num = Number(balance ?? 0);
-  if (num === 0) return null;
+  if (num === 0) return <ReadDataBoundary label="Balance" queryKeys={[['m-member-balance-card', memberId]]} compact>{null}</ReadDataBoundary>;
   return (
-    <Text style={{ fontSize: 12, fontWeight: '700', color: num > 0 ? C.red : C.green }}>
+    <ReadDataBoundary label="Balance" queryKeys={[['m-member-balance-card', memberId]]} compact><Text style={{ fontSize: 12, fontWeight: '700', color: num > 0 ? C.red : C.green }}>
       {num > 0 ? `Owes ₹${num.toLocaleString('en-IN')}` : `Cr ₹${Math.abs(num).toLocaleString('en-IN')}`}
-    </Text>
+    </Text></ReadDataBoundary>
   );
 }
 
@@ -72,11 +73,11 @@ function MemberCreditBadge({ memberId }: { memberId: string }) {
     staleTime: 60_000,
   });
   const credit = Number(data?.balance ?? 0);
-  if (credit <= 0) return null;
+  if (credit <= 0) return <ReadDataBoundary label="Credit balance" queryKeys={[['m-member-credit-card', memberId]]} compact>{null}</ReadDataBoundary>;
   return (
-    <Text style={{ fontSize: 12, fontWeight: '700', color: '#059669' }}>
+    <ReadDataBoundary label="Credit balance" queryKeys={[['m-member-credit-card', memberId]]} compact><Text style={{ fontSize: 12, fontWeight: '700', color: '#059669' }}>
       Credit ₹{credit.toLocaleString('en-IN')}
-    </Text>
+    </Text></ReadDataBoundary>
   );
 }
 
@@ -754,6 +755,8 @@ export default function AdminMembersScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Members" queryKeys={showingDeleted ? [['m-members-deleted']] : [['m-members-page', debouncedSearch, statusApiFilter]]}>
+
       {/* Header */}
       <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -1250,6 +1253,7 @@ export default function AdminMembersScreen() {
                         </View>
                       </ScrollView>
                       {/* Payment rows */}
+                      <ReadDataBoundary label="Payment history" queryKeys={[[ 'm-pay-history', selected?.id, payHistChitId ]]}>
                       {(payHistory as any[]).length === 0 ? (
                         <Text style={{ fontSize: 13, color: C.gray400, marginBottom: 16 }}>No payment records for this chit.</Text>
                       ) : (
@@ -1327,6 +1331,7 @@ export default function AdminMembersScreen() {
                         })
                       )}
                       <View style={{ height: 16 }} />
+                      </ReadDataBoundary>
                     </>
                   );
                 })()}
@@ -2150,6 +2155,7 @@ export default function AdminMembersScreen() {
           </View>
         </View>
       </Modal>
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

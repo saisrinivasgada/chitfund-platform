@@ -30,7 +30,7 @@ env:
     text: "Not Now|Not now"
     optional: true
 - extendedWaitUntil:
-    visible: "Dashboard|Welcome to ChitWise"
+    visible: ".*Dashboard.*|Welcome to ChitWise"
     timeout: 60000
 - waitForAnimationToEnd
 - tapOn:
@@ -70,7 +70,7 @@ env:
 - tapOn:
     id: "switch-account-offline-a"
 - extendedWaitUntil:
-    visible: "Dashboard|Welcome to ChitWise"
+    visible: ".*Dashboard.*|Welcome to ChitWise"
     timeout: 60000
 - openLink: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd

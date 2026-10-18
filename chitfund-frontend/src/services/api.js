@@ -654,8 +654,10 @@ export const linkMemberUser = async ({ memberId, userId }) => {
   return res.data.data;
 };
 
-export const getMembers = async (params = {}) => {
-  const res = await api.get('/members', { params: { size: 200, ...params } });
+export const getMembers = async ({ page, size = 200, search, status, sort } = {}) => {
+  // These helpers are also passed directly as query functions. Only server
+  // parameters belong in the URL and in its durable offline request identity.
+  const res = await api.get('/members', { params: { page, size, search, status, sort } });
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
@@ -725,8 +727,8 @@ export const getDeletedMembers = async ({ search, page = 0, size = 20 } = {}) =>
 };
 
 // ─── Chits (chit-service, no strip) ───────────────────────────────────────
-export const getChits = async (params = {}) => {
-  const res = await api.get('/chits', { params });
+export const getChits = async ({ page, size, status, tenantFilter } = {}) => {
+  const res = await api.get('/chits', { params: { page, size, status, tenantFilter } });
   return res.data.data?.content ?? res.data.data ?? [];
 };
 

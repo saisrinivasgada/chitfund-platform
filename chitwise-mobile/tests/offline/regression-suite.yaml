@@ -14,3 +14,4 @@ env:
 - runFlow: staff-refund-suite.yaml
 - runFlow: staff-legacy-review-suite.yaml
 - runFlow: draw-cold-reopen-suite.yaml
+- runFlow: first-download-suite.yaml

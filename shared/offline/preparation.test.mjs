@@ -121,6 +121,9 @@ test('a member preparation never requests organisation member lists or another m
   const result = await prepareCoreData(adapter(), { maxRequests: 30 });
   assert.equal(result.status, 'ready');
   assert.ok(disk.calls.some((call) => call.path === '/admin/draws/member/chit/own-chit'));
+  assert.ok(disk.calls.some((call) => call.path === '/chits/own-chit/reservations/mine'));
+  assert.ok(disk.calls.some((call) => call.path === '/payouts/member/member-0'));
+  assert.ok(disk.calls.every((call) => !/^\/chits\/[^/]+\/reservations$/.test(call.path)), 'Members never download another member’s reservation identity');
   assert.ok(disk.calls.every((call) => call.path !== '/members' && call.path !== '/payments/batches/all'));
   assert.ok(disk.calls.filter((call) => call.path === '/payments/history').every((call) => call.memberId === 'member-0'));
 });

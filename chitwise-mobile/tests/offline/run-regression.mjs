@@ -30,13 +30,18 @@ try{
   const legacy=pickups.find(r=>r.authorizationVerified===false);
   assert.equal(legacy.status,'CANCELLED');assert.equal(legacy.result.decision.legacyDetailsVerified,true);assert.equal(legacy.result.decision.verifiedRecordedAt,undefined);
   assert.equal(final.organisations[1].staffReviews.length,initial.organisations[1].staffReviews.length,'Pickup decisions cannot cross organisations');
+  const c=final.organisations.find(o=>o.name==='c'), initialC=initial.organisations.find(o=>o.name==='c');
+  assert.ok(c && initialC,'First-download account must be present');
+  assert.equal(c.pauseDownloads,false,'The interrupted download must recover');
+  for(const key of ['due','secondDue','credit','receipts','reviews','staffReviews']) assert.deepEqual(c[key],initialC[key],`First-download testing cannot change C ${key}`);
   evidence.result='PASSED';
-  console.log('PASS: native offline save/reopen, empty and counted reviews, non-subscriber gate, exact multi-chit cancellation, sign-out discard/relogin, cross-account delivery, cleared offline list, draw error/rapid-tap/cold-launch recovery, signed pickup decisions and explicit older-record review');
+  console.log('PASS: native offline save/reopen, empty and counted reviews, non-subscriber gate, exact multi-chit cancellation, sign-out discard/relogin, cross-account delivery, cleared offline list, draw error/rapid-tap/cold-launch recovery, signed pickup decisions, explicit older-record review and first-download interruption/recovery');
 }catch(error){evidence.result='FAILED';evidence.error=error.message;throw error;}
 finally{
   try{evidence.final??=await state();}
   finally{
     if(process.env.CHITWISE_QA_REPORT)writeFileSync(process.env.CHITWISE_QA_REPORT,JSON.stringify(evidence,null,2));
     await state({online:true,org:'a',enabled:true,pausePaymentDelivery:false});
+    await state({org:'c',pauseDownloads:false});
   }
 }

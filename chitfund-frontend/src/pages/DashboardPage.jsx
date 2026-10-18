@@ -1,3 +1,4 @@
+import ReadDataBoundary from '../offline/ReadDataBoundary';
 import SnapshotLabel from '../offline/SnapshotLabel';
 import { useState, useRef } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
@@ -402,7 +403,7 @@ export default function DashboardPage() {
   hasRenderedData.current = true;
 
   return (
-    <div className="space-y-8">
+    <ReadDataBoundary label="Dashboard" queryKeys={[['chits'], ['members']]}><div className="space-y-8">
       {limitViolations.length > 0 && !limitsDismissed && (
         <OverLimitModal
           violations={limitViolations}
@@ -825,6 +826,6 @@ export default function DashboardPage() {
       {/* ── Today's Activity Feed ────────────────────────────────────────── */}
       <TodaysActivityFeed />
 
-    </div>
+    </div></ReadDataBoundary>
   );
 }

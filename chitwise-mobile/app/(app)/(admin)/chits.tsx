@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { ChitActionDialog, ChitDialogHost } from '../../../components/ChitActionDialog';
 import { useState, useEffect, useRef } from 'react';
 import {
@@ -75,18 +76,18 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmount, onC
   const total = (payments as any[]).length;
 
   if (isLoading) return (
-    <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+    <ReadDataBoundary label="Instalments" queryKeys={[['draw-payments', drawId]]}><View style={{ paddingVertical: 12, alignItems: 'center' }}>
       <Text style={{ fontSize: 12, color: C.gray400 }}>Loading payments…</Text>
-    </View>
+    </View></ReadDataBoundary>
   );
   if (payments.length === 0) return (
-    <View style={{ marginTop: 12 }}>
+    <ReadDataBoundary label="Instalments" queryKeys={[['draw-payments', drawId]]}><View style={{ marginTop: 12 }}>
       <Text style={{ fontSize: 12, color: C.gray400 }}>No payment records for this draw.</Text>
-    </View>
+    </View></ReadDataBoundary>
   );
 
   return (
-    <View style={{ marginTop: 12 }}>
+    <ReadDataBoundary label="Instalments" queryKeys={[['draw-payments', drawId]]}><View style={{ marginTop: 12 }}>
       <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>
         Member Payments ({cleared}/{total} cleared)
       </Text>
@@ -134,7 +135,7 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmount, onC
           </View>
         );
       })}
-    </View>
+    </View></ReadDataBoundary>
   );
 }
 
@@ -1021,6 +1022,8 @@ export default function AdminChitsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Chits" queryKeys={showingDeleted ? [['a-chits-deleted']] : [['a-chits']]}>
+
       <FlatList
         data={displayChits}
         keyExtractor={(c: any) => c.id}
@@ -1405,7 +1408,7 @@ export default function AdminChitsScreen() {
             )}
 
             {/* ── MEMBERS TAB ──────────────────────────────────────────────── */}
-            {detailTab === 'members' && (() => {
+            {detailTab === 'members' && <ReadDataBoundary label="Enrolments" queryKeys={[['a-enrollments', selected?.id]]}>{(() => {
               const isDraft = selected?.status === 'DRAFT';
               const displayList = isLotteryChit
                 ? Object.entries(memberSpotMap).map(([mid, info]) => ({ mid, ...info }))
@@ -1474,11 +1477,11 @@ export default function AdminChitsScreen() {
                 )}
               </>
               );
-            })()}
+            })()}</ReadDataBoundary>}
 
             {/* ── WINNERS TAB ──────────────────────────────────────────────── */}
             {detailTab === 'winners' && (
-              <>
+              <ReadDataBoundary label="Winners" queryKeys={[['a-winners', selected?.id], ['a-chit-payouts', selected?.id]]}><>
                 <View style={{ marginBottom: 12 }}>
                   <Button label="+ Record Winner" variant="gold" size="sm" disabled={isExpired} onPress={() => setShowWinner(true)} />
                 </View>
@@ -1623,12 +1626,12 @@ export default function AdminChitsScreen() {
                     });
                   })()
                 )}
-              </>
+              </></ReadDataBoundary>
             )}
 
             {/* ── DRAWS TAB ────────────────────────────────────────────────── */}
             {detailTab === 'draws' && (
-              <>
+              <ReadDataBoundary label="Draws" queryKeys={[['a-draws', selected?.id], ['a-enrollments', selected?.id], ['a-chit-batches', selected?.id]]}><>
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                   <View style={{ flex: 1 }}>
                     <Button label="+ Open New Draw" variant="primary" size="sm" disabled={isExpired} onPress={() => {
@@ -1839,11 +1842,11 @@ export default function AdminChitsScreen() {
                     );
                   })
                 )}
-              </>
+              </></ReadDataBoundary>
             )}
 
             {/* ── SCHEDULE / PAYOUTS TAB ───────────────────────────────────── */}
-            {detailTab === 'schedule' && isLotteryChit && (() => {
+            {detailTab === 'schedule' && isLotteryChit && <ReadDataBoundary label="Schedule" queryKeys={[['a-reservations', selected?.id]]}>{(() => {
               const activeSlots = (slotsList as any[]).filter((s: any) => s.status !== 'VOIDED');
               const totalPayout = activeSlots.reduce((sum: number, s: any) => sum + Number(s.payoutAmount ?? 0), 0);
               return (
@@ -1935,10 +1938,10 @@ export default function AdminChitsScreen() {
                   )}
                 </>
               );
-            })()}
+            })()}</ReadDataBoundary>}
 
             {/* ── Auction Pot Amounts Tab (read-only schedule) ────────────────────── */}
-            {detailTab === 'schedule' && isAuctionChit && (() => {
+            {detailTab === 'schedule' && isAuctionChit && <ReadDataBoundary label="Schedule" queryKeys={[['a-reservations', selected?.id]]}>{(() => {
               const activeSlots = (slotsList as any[]).filter((s: any) => s.status !== 'VOIDED');
               return (
                 <View>
@@ -1972,10 +1975,10 @@ export default function AdminChitsScreen() {
                   ))}
                 </View>
               );
-            })()}
+            })()}</ReadDataBoundary>}
 
             {detailTab === 'schedule' && !isLotteryChit && !isAuctionChit && (
-              <>
+              <ReadDataBoundary label="Schedule" queryKeys={[['a-reservations', selected?.id]]}><>
                 {/* Action buttons */}
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
                   <View style={{ flex: 1 }}>
@@ -2195,7 +2198,7 @@ export default function AdminChitsScreen() {
                     );
                   })
                 )}
-              </>
+              </></ReadDataBoundary>
             )}
 
             {/* ── AUDIT TAB ─────────────────────────────────────────────────── */}
@@ -4239,6 +4242,7 @@ export default function AdminChitsScreen() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

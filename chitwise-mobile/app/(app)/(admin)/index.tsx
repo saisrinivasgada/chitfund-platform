@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { NotificationsModal } from '../../../components/NotificationsModal';
@@ -300,6 +301,8 @@ export default function AdminDashboard() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: NEO.background }}>
+      <ReadDataBoundary label="Dashboard" queryKeys={[['m-chits'], ['m-members']]}>
+
       <ScrollView
         scrollEnabled={!isCustomizingDashboard}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
@@ -872,6 +875,7 @@ export default function AdminDashboard() {
         onRealized={() => { refetchOrgReservations(); setShowOrgHoldings(false); }}
       />
 
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

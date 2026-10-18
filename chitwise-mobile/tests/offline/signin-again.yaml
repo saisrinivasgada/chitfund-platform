@@ -18,7 +18,7 @@ appId: com.chitwise.mobile
     text: "Not Now|Not now"
     optional: true
 - extendedWaitUntil:
-    visible: "Dashboard|Welcome to ChitWise"
+    visible: ".*Dashboard.*|Welcome to ChitWise"
     timeout: 60000
 - waitForAnimationToEnd
 - tapOn:

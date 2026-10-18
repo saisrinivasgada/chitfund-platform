@@ -24,9 +24,11 @@ function initialJobs(role, members, chits) {
   if (role === 'MEMBER') {
     const memberId = members[0]?.id;
     if (!memberId) throw new Error('Member profile was not included in the organisation download');
-    result.push(job('/payments/balance/total', { memberId }), job('/payments/credits/' + memberId), job('/payments/requests/my-requests'));
+    result.push(job('/payments/balance/total', { memberId }), job('/payments/credits/' + memberId),
+      job('/payments/requests/my-requests'), job('/payouts/member/' + memberId));
     for (const chit of chits) result.push(job('/chits/' + chit.id), job('/chits/' + chit.id + '/winners'),
-      job('/chits/' + chit.id + '/auction'), job('/admin/draws/member/chit/' + chit.id), ...pairJobs(memberId, chit.id, role));
+      job('/chits/' + chit.id + '/reservations/mine'), job('/chits/' + chit.id + '/auction'),
+      job('/admin/draws/member/chit/' + chit.id), ...pairJobs(memberId, chit.id, role));
     return result;
   }
   if (role === 'STAFF') return [job('/payments/requests/mine', {}, { kind: 'staff-tasks' }),

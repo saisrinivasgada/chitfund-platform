@@ -1,3 +1,4 @@
+import ReadDataBoundary from '../../offline/ReadDataBoundary';
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -328,6 +329,8 @@ export default function MembersPage() {
 
   return (
     <div className="space-y-6">
+      <ReadDataBoundary label="Members" queryKeys={isDeleted ? [['members', 'deleted']] : [['members', 'page', page, PAGE_SIZE, debouncedSearch, statusFilter]]}>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
@@ -429,7 +432,8 @@ export default function MembersPage() {
             : ['Member', 'Phone', 'Email', 'City', 'Outstanding', 'Status']
           }>
             {displayList.map((m) => {
-              const outstanding = Number(balanceMap[m.id] ?? 0);
+              const balanceKnown = balanceMap[m.id] != null && Number.isFinite(Number(balanceMap[m.id]));
+              const outstanding = balanceKnown ? Number(balanceMap[m.id]) : null;
               const hasBalance = outstanding > 0;
               return (
                 <Tr key={m.id} className={isDeleted ? 'opacity-60' : ''} onClick={() => navigate(`/members/${m.id}`)}>
@@ -456,19 +460,23 @@ export default function MembersPage() {
                   }</Td>
                   {!isDeleted && (
                     <Td>
+                      <ReadDataBoundary label="Outstanding balance" compact queryKeys={[[ 'memberBalancesBulk', memberIds ]]}>
                       <div className="flex items-center gap-2">
                         {!hidden && (
                           <span className="w-2 h-2 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: hasBalance ? '#DC2626' : '#16A34A' }} />
+                            style={{ backgroundColor: !balanceKnown ? '#9CA3AF' : hasBalance ? '#DC2626' : '#16A34A' }} />
                         )}
                         {hidden ? (
                           <span className="text-sm font-medium text-gray-400 tracking-widest">••••••</span>
+                        ) : !balanceKnown ? (
+                          <span className="text-xs text-gray-500">Unavailable</span>
                         ) : hasBalance ? (
                           <span className="text-sm font-medium text-red-600">₹{outstanding.toLocaleString('en-IN')}</span>
                         ) : (
                           <span className="text-sm text-gray-400">Clear</span>
                         )}
                       </div>
+                      </ReadDataBoundary>
                     </Td>
                   )}
                   <Td>
@@ -509,6 +517,7 @@ export default function MembersPage() {
       </div>
 
       {showModal && <AddMemberModal onClose={() => setShowModal(false)} />}
+      </ReadDataBoundary>
     </div>
   );
 }

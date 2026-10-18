@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import React from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, ActivityIndicator, Linking } from 'react-native';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
@@ -122,6 +123,10 @@ export default function MemberHomeScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Member dashboard" queryKeys={[
+        ['member-chits'], ['member-profile-me'], ['member-total-balance', memberId],
+      ]}>
+
       <ScrollView
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
@@ -610,6 +615,7 @@ export default function MemberHomeScreen() {
           })() : null}
         </SafeAreaView>
       </Modal>
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

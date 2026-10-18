@@ -3,7 +3,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 
-const owners = ['a', 'b'].map((name, index) => {
+const owners = ['a', 'b', 'c'].map((name, index) => {
   const id = (prefix) => `${prefix}0000000-0000-0000-0000-00000000000${index + 1}`;
   const tenant = { tenantId: id('1'), name: `Offline QA Organisation ${name.toUpperCase()}`, role: 'ADMIN', plan: 'GROWTH',
     status: 'ACTIVE', planExpiresAt: '2099-12-31T23:59:59', offlineEnabled: true };
@@ -12,7 +12,7 @@ const owners = ['a', 'b'].map((name, index) => {
   const token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),
     Buffer.from(JSON.stringify({ sub: user.id, tenantId: tenant.tenantId, role: user.role, exp: 4102444800 })).toString('base64url'), 'local-qa-only'].join('.');
   return { name, user, tenant, token, refreshToken: `local-qa-refresh-${name}`, memberId: id('3'), chitId: id('4'), secondaryChitId: id('5'),
-    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, pausePaymentDelivery: false, receipts: new Map(), reviews: new Map(), staffReviews: new Map(), staffReviewStaleOnce: false };
+    due: 1000, secondDue: 500, credit: 0, version: 1, enabled: true, pausePaymentDelivery: false, pauseDownloads: false, receipts: new Map(), reviews: new Map(), staffReviews: new Map(), staffReviewStaleOnce: false };
 });
 let online = true;
 let drawFailure = false;
@@ -22,14 +22,14 @@ if (stateFile && existsSync(stateFile)) {
   online = state.online ?? true; drawFailure = state.drawFailure ?? false;
   for (const prior of state.organisations ?? []) {
     const owner = owners.find((item) => item.name === prior.name); if (!owner) continue;
-    for (const key of ['due','credit','version','enabled','secondDue','pausePaymentDelivery','staffReviewStaleOnce']) if (prior[key] != null) owner[key] = prior[key];
+    for (const key of ['due','credit','version','enabled','secondDue','pausePaymentDelivery','pauseDownloads','staffReviewStaleOnce']) if (prior[key] != null) owner[key] = prior[key];
     owner.receipts = new Map((prior.receipts ?? []).map((r) => [r.id,r]));
     owner.reviews = new Map((prior.reviews ?? []).map((r) => [r.id,r]));
     owner.staffReviews = new Map((prior.staffReviews ?? []).map((r) => [r.id,r]));
   }
 }
 const snapshot = () => ({ online, drawFailure, organisations: owners.map((owner) => ({ name: owner.name, due: owner.due,
-  credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled, pausePaymentDelivery: owner.pausePaymentDelivery,
+  credit: owner.credit, secondDue: owner.secondDue, version: owner.version, enabled: owner.enabled, pausePaymentDelivery: owner.pausePaymentDelivery, pauseDownloads: owner.pauseDownloads,
   receipts: [...owner.receipts.values()], reviews: [...owner.reviews.values()], staffReviews: [...owner.staffReviews.values()], staffReviewStaleOnce: owner.staffReviewStaleOnce })) });
 const member = (owner) => ({ id: owner.memberId, fullName: `QA Member ${owner.name.toUpperCase()}`, name: `QA Member ${owner.name.toUpperCase()}`,
   phone: '9000000001', status: 'ACTIVE', hasAppAccess: true, createdAt: '2026-10-15T12:00:00' });
@@ -55,6 +55,7 @@ http.createServer(async (request, response) => {
       if (body.online != null) online = body.online;
       if (body.drawFailure != null) drawFailure = body.drawFailure;
       const owner = owners.find((item) => item.name === (body.org ?? 'a'));
+      if (typeof body.pauseDownloads === 'boolean') owner.pauseDownloads = body.pauseDownloads;
       if (typeof body.pausePaymentDelivery === 'boolean') owner.pausePaymentDelivery = body.pausePaymentDelivery;
       if (body.seedStaffReview) {
         if ([...owner.staffReviews.values()].some((r) => r.status === 'PENDING')) return send({ message: 'Finish the existing staff review first' }, 409);
@@ -77,12 +78,13 @@ http.createServer(async (request, response) => {
   if (url.pathname === '/api/auth/login') {
     const account = owners.find((item) => item.user.username === body.username);
     return account ? send({ accessToken: account.token, refreshToken: account.refreshToken, user: account.user, tenant: { ...account.tenant, offlineEnabled: account.enabled } })
-      : send({ message: 'Use offline-a or offline-b for local QA' }, 401);
+      : send({ message: 'Use offline-a, offline-b or offline-c for local QA' }, 401);
   }
   if (url.pathname === '/api/auth/refresh') return owner
     ? send({ accessToken: owner.token, refreshToken: owner.refreshToken, user: owner.user, tenant: { ...owner.tenant, offlineEnabled: owner.enabled } }) : send({ message: 'Unknown local account' }, 401);
   if (!owner) return send({ message: 'Unknown local account' }, 401);
   const path = url.pathname.slice(4);
+  if (owner.pauseDownloads && request.method === 'GET' && /^\/(members|chits)(\/|$)/.test(path)) return send({ message: 'Local QA first download interrupted' }, 503);
   if (path === '/users/me/offline-access') {
     const now = Date.now();
     return send({ enabled: owner.enabled, reason: owner.enabled ? null : 'ADD_ON_REQUIRED', actorId: owner.user.id, tenantId: owner.tenant.tenantId, role: 'ADMIN', serverTime: now,

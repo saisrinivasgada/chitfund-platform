@@ -39,19 +39,19 @@ env:
     when:
       notVisible:
         text: "Record ₹1,500 Payment"
-        above: "Dashboard.*"
+        above: ".*Dashboard.*"
     commands:
       - scrollUntilVisible:
           element:
             text: "Record ₹1,500 Payment"
-            above: "Dashboard.*"
+            above: ".*Dashboard.*"
           direction: DOWN
           centerElement: false
           visibilityPercentage: 90
 - waitForAnimationToEnd
 - tapOn:
     text: "Record ₹1,500 Payment"
-    above: "Dashboard.*"
+    above: ".*Dashboard.*"
 - extendedWaitUntil:
     visible: "Confirm Payment"
     timeout: 10000

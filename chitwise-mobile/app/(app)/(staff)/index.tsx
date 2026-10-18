@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useOfflinePresentation } from '../../../offline/useOfflinePresentation';
 import { useState } from 'react';
 import {
@@ -532,6 +533,8 @@ export default function StaffTasksScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Assigned collections" queryKeys={[['staff-tasks']]}>
+
       <FlatList
         data={assigned}
         keyExtractor={(t: any) => t.id}
@@ -747,6 +750,7 @@ export default function StaffTasksScreen() {
           onRefresh={onRefresh}
         />
       )}
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

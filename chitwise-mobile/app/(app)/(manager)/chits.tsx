@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState } from 'react';
 import {
   View, Text, FlatList, Modal, ScrollView, RefreshControl,
@@ -49,18 +50,18 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
   });
 
   if (isLoading) return (
-    <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><View style={{ paddingVertical: 10, alignItems: 'center' }}>
       <Text style={{ fontSize: 12, color: C.gray400 }}>Loading…</Text>
-    </View>
+    </View></ReadDataBoundary>
   );
   if (!(payments as any[]).length) return (
-    <Text style={{ fontSize: 12, color: C.gray400, marginTop: 8 }}>No payment records.</Text>
+    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><Text style={{ fontSize: 12, color: C.gray400, marginTop: 8 }}>No payment records.</Text></ReadDataBoundary>
   );
 
   const cleared = (payments as any[]).filter((p: any) => CLEARED.has(p.status)).length;
 
   return (
-    <View style={{ marginTop: 10 }}>
+    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><View style={{ marginTop: 10 }}>
       <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, marginBottom: 6 }}>
         MEMBER PAYMENTS ({cleared}/{(payments as any[]).length} cleared)
       </Text>
@@ -97,7 +98,7 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
           </View>
         );
       })}
-    </View>
+    </View></ReadDataBoundary>
   );
 }
 
@@ -395,6 +396,8 @@ export default function ManagerChitsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Chits" queryKeys={[['m-chits']]}>
+
       <FlatList
         data={sorted}
         keyExtractor={(c: any) => c.id}
@@ -550,7 +553,7 @@ export default function ManagerChitsScreen() {
 
             {/* ── DRAWS TAB ───────────────────────────────────────────────── */}
             {detailTab === 'draws' && (
-              <ScrollView
+              <ReadDataBoundary label="Draws" queryKeys={[['m-draws', selected?.id], ['m-enrollments', selected?.id], ['m-winners', selected?.id]]}><ScrollView
                 contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
                 refreshControl={<RefreshControl refreshing={false} onRefresh={refetchDraws} tintColor={C.navy} />}
               >
@@ -668,12 +671,12 @@ export default function ManagerChitsScreen() {
                     );
                   })
                 )}
-              </ScrollView>
+              </ScrollView></ReadDataBoundary>
             )}
 
             {/* ── MEMBERS TAB ─────────────────────────────────────────────── */}
             {detailTab === 'members' && (
-              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+              <ReadDataBoundary label="Enrolments" queryKeys={[['m-enrollments', selected?.id]]}><ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
                 <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
                   {(enrollments as any[]).length} enrolled
                 </Text>
@@ -700,12 +703,12 @@ export default function ManagerChitsScreen() {
                     );
                   })
                 )}
-              </ScrollView>
+              </ScrollView></ReadDataBoundary>
             )}
 
             {/* ── WINNERS TAB ─────────────────────────────────────────────── */}
             {detailTab === 'winners' && (
-              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+              <ReadDataBoundary label="Winners" queryKeys={[['m-winners', selected?.id], ['m-chit-payouts', selected?.id]]}><ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 12 }}>Payouts</Text>
                 {(chitPayouts as any[]).length === 0 ? (
                   <EmptyState title="No payouts yet" message="Payouts appear after winners are recorded." />
@@ -784,11 +787,11 @@ export default function ManagerChitsScreen() {
                     );
                   })
                 )}
-              </ScrollView>
+              </ScrollView></ReadDataBoundary>
             )}
 
             {/* ── SCHEDULE TAB (read-only) ─────────────────────────────────── */}
-            {detailTab === 'schedule' && (() => {
+            {detailTab === 'schedule' && <ReadDataBoundary label="Schedule" queryKeys={[['m-reservations', selected?.id]]}>{(() => {
               const slotsList = [...(reservations as any[])].sort(
                 (a, b) => (a.slotNumber ?? a.monthNumber ?? 0) - (b.slotNumber ?? b.monthNumber ?? 0)
               );
@@ -829,7 +832,7 @@ export default function ManagerChitsScreen() {
                   })}
                 </ScrollView>
               );
-            })()}
+            })()}</ReadDataBoundary>}
 
             {/* ── AUCTION TAB ─────────────────────────────────────────────── */}
             {detailTab === 'auction' && isAuctionChit && (
@@ -1277,6 +1280,7 @@ export default function ManagerChitsScreen() {
           </View>
         </SafeAreaView>
       </Modal>
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

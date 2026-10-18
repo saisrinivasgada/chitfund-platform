@@ -8,9 +8,9 @@ appId: com.chitwise.mobile
       - launchApp
       - waitForAnimationToEnd
       - extendedWaitUntil:
-          visible: 'Dashboard.*'
+          visible: '.*Dashboard.*'
           timeout: 60000
-      - tapOn: 'Chits.*'
+      - tapOn: '.*Chits.*'
       - extendedWaitUntil:
           visible: '.*QA Monthly Chit A.*'
           timeout: 15000

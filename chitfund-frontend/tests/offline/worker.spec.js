@@ -26,7 +26,9 @@ async function preparedBrowser(page, context) {
 test('production app shell can reopen a signed-in organisation while fully offline', async ({ page, context }) => {
   const account = await preparedBrowser(page, context);
   await page.evaluate(async (scope) => {
-    await window.harness.saveCachedResponse(scope, { method: 'get', url: '/members', params: { size: 200 } },
+    // Seed the dashboard's actual read as well as the activity feed's read.
+    // Previously the missing size=50 read silently appeared as zero members.
+    for (const size of [50, 200]) await window.harness.saveCachedResponse(scope, { method: 'get', url: '/members', params: { size } },
       { success: true, data: [{ id: 'member-a', fullName: 'Saved Member', status: 'ACTIVE' }] });
     await window.harness.saveCachedResponse(scope, { method: 'get', url: '/chits', params: {} }, { success: true, data: [] });
   }, account.scope);
@@ -34,8 +36,18 @@ test('production app shell can reopen a signed-in organisation while fully offli
   await page.goto('/dashboard');
   await expect(page.getByText('Offline · showing saved data', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: /Welcome back/ })).toBeVisible();
+  await expect(page.getByText('Saved Member', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Accounts', exact: true })).toBeVisible();
   await expect.poll(() => page.getByAltText('ChitWise Admin').first().evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+});
+
+test('production offline shell distinguishes an unfinished download from an empty dashboard', async ({ page, context }) => {
+  await preparedBrowser(page, context);
+  await context.setOffline(true);
+  await page.goto('/dashboard');
+  await expect(page.getByRole('heading', { name: 'Dashboard unavailable', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Welcome back/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Accounts', exact: true })).toBeVisible();
 });
 
 test('service worker delivers a saved payment after its tab closes without a persisted bearer token', async ({ page, context, request }) => {
