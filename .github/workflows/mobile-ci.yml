@@ -202,7 +202,10 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: google_apis
+          # Exercise Android 15 offline journeys on the standard AOSP image.
+          # The Google APIs image's Pixel Launcher repeatedly ANRed before
+          # sign-in, preventing the actual app assertions from running.
+          target: default
           arch: x86_64
           profile: pixel_7
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -cores 2
