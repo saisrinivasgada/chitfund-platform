@@ -424,8 +424,10 @@ export const sendWhatsAppReminder = async (memberId: string) =>
   (await api.post(`/notifications/whatsapp/${memberId}`)).data;
 
 // ── Members ───────────────────────────────────────────────────────────────────
-export const getMembers = async (params: any = {}) =>
-  unwrapList(await api.get('/members', { params: { size: 200, ...params } }));
+// Direct query callbacks also receive client/signal/queryKey metadata. Keep
+// only server filters in both the URL and the encrypted offline request key.
+export const getMembers = async ({ page, size = 200, search, status, sort }: any = {}) =>
+  unwrapList(await api.get('/members', { params: { page, size, search, status, sort } }));
 
 export interface MembersPage {
   content: any[];
@@ -498,8 +500,8 @@ export const getMemberCredit = async (memberId: string) =>
   (await api.get(`/payments/credits/${memberId}`)).data?.data ?? { balance: 0 };
 
 // ── Chits ──────────────────────────────────────────────────────────────────────
-export const getChits = async (params: any = {}) =>
-  unwrapList(await api.get('/chits', { params: { size: 200, ...params } }));
+export const getChits = async ({ page, size = 200, search, status, sort, type, chitType }: any = {}) =>
+  unwrapList(await api.get('/chits', { params: { page, size, search, status, sort, type, chitType } }));
 export const getChit = async (id: string) => unwrapObj(await api.get(`/chits/${id}`));
 export const createChit = async (body: any) => unwrapObj(await api.post('/chits', body));
 export const updateChitStatus = async (id: string, status: string, startDate?: string) =>
