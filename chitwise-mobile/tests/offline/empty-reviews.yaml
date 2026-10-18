@@ -19,7 +19,8 @@ appId: com.chitwise.mobile
       - tapOn: 'Open'
       - waitForAnimationToEnd
 - extendedWaitUntil:
-    visible: "Select Member"
+    visible:
+      id: "member-row-QA Member A"
     timeout: 60000
 - assertNotVisible: "Offline collection reviews.*"
 - tapOn:
