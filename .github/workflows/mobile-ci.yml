@@ -121,13 +121,20 @@ jobs:
         env:
           CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
         run: node tests/offline/run-regression.mjs
+      - name: Collect bounded driver diagnostics
+        if: always()
+        run: node tests/offline/collect-diagnostics.mjs
       - name: Upload native verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-offline-evidence
           path: |
-            ~/.maestro/tests
+            ~/.maestro/tests/**/screenshots/*.png
+            ~/.maestro/tests/**/screen-hierarchy/*.json
+            ~/.maestro/tests/**/commands.json
+            ~/.maestro/tests/**/xctest_runner*.log
+            ${{ runner.temp }}/chitwise-driver-tail.log
             ${{ runner.temp }}/chitwise-ios-build.log
             ${{ runner.temp }}/chitwise-native-fixture.log
             ${{ runner.temp }}/chitwise-native-result.json
@@ -198,19 +205,28 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_7
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 2048 -cores 2
           working-directory: chitwise-mobile
           disable-animations: true
           script: |
             timeout 90s adb -s "emulator-$EMULATOR_PORT" wait-for-device
             adb -s "emulator-$EMULATOR_PORT" install android/app/build/outputs/apk/release/app-release.apk
+            timeout 90s adb -s "emulator-$EMULATOR_PORT" shell am start -W -n com.chitwise.mobile/.MainActivity
             CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT" node tests/offline/run-regression.mjs
+      - name: Collect bounded driver diagnostics
+        if: always()
+        run: node tests/offline/collect-diagnostics.mjs
       - name: Upload native verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-offline-evidence
           path: |
-            ~/.maestro/tests
+            ~/.maestro/tests/**/screenshots/*.png
+            ~/.maestro/tests/**/screen-hierarchy/*.json
+            ~/.maestro/tests/**/commands.json
+            ~/.maestro/tests/**/xctest_runner*.log
+            ${{ runner.temp }}/chitwise-driver-tail.log
             ${{ runner.temp }}/chitwise-android-build.log
             ${{ runner.temp }}/chitwise-native-fixture.log
             ${{ runner.temp }}/chitwise-native-result.json

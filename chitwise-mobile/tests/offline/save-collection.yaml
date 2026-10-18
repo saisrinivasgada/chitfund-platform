@@ -24,15 +24,21 @@ appId: com.chitwise.mobile
 - assertVisible: "Allocate ₹"
 - runFlow:
     when:
-      notVisible: "Record ₹1,000 Payment"
+      notVisible:
+        text: "Record ₹1,000 Payment"
+        above: "Dashboard.*"
     commands:
       - scrollUntilVisible:
           element:
             text: "Record ₹1,000 Payment"
+            above: "Dashboard.*"
           direction: DOWN
           centerElement: false
           visibilityPercentage: 90
-- tapOn: "Record ₹1,000 Payment"
+- waitForAnimationToEnd
+- tapOn:
+    text: "Record ₹1,000 Payment"
+    above: "Dashboard.*"
 - extendedWaitUntil:
     visible: "Confirm Payment"
     timeout: 10000

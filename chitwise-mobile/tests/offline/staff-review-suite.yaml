@@ -30,6 +30,7 @@ env:
       text: ".*Pickup review reason.*"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - tapOn: ".*Pickup review reason.*"
 - inputText: "Verified original physical cash with collector"
 - pressKey: Enter
@@ -38,10 +39,15 @@ env:
       text: "Confirm pickup decision"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - assertVisible:
     text: "Confirm pickup decision"
     enabled: false
 - tapOn: '.*I verified the original collector, amount and this physical collection.*'
+- assertVisible: '☑ .*I verified the original collector, amount and this physical collection.*'
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: true
 - tapOn: "Confirm pickup decision"
 - extendedWaitUntil:
     visible: "Pickup changed during review. Refresh and review the latest details."
@@ -54,6 +60,7 @@ env:
       text: "Refresh pickup details"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - tapOn: "Refresh pickup details"
 - extendedWaitUntil:
     visible: "Original collector: QA Collector A"
@@ -63,21 +70,34 @@ env:
       text: '.*Cancel this mistaken entry.*'
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - tapOn: '.*Cancel this mistaken entry.*'
 - scrollUntilVisible:
     element:
       text: ".*Pickup review reason.*"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - tapOn: ".*Pickup review reason.*"
 - inputText: "Wrong pickup selected. No cash was collected."
 - pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: '.*No money was collected for this entry.*'
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
 - tapOn: '.*No money was collected for this entry.*'
+- assertVisible: '☑ .*No money was collected for this entry.*'
 - scrollUntilVisible:
     element:
       text: "Confirm pickup decision"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: true
 - tapOn: "Confirm pickup decision"
 - extendedWaitUntil:
     visible: "No staff pickups waiting for review."

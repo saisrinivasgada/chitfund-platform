@@ -30,21 +30,31 @@ env:
       text: '.*Cancel this mistaken entry.*'
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - tapOn: '.*Cancel this mistaken entry.*'
 - scrollUntilVisible:
     element:
       text: ".*Pickup review reason.*"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - tapOn: ".*Pickup review reason.*"
 - inputText: "Verified older mistake. No cash was collected."
 - pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: '.*No money was collected for this entry.*'
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
 - tapOn: '.*No money was collected for this entry.*'
+- assertVisible: '☑ .*No money was collected for this entry.*'
 - scrollUntilVisible:
     element:
       text: "Confirm pickup decision"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
 - assertVisible:
     text: "Confirm pickup decision"
     enabled: false
@@ -53,12 +63,18 @@ env:
       text: '.*I checked this older record against the original collection evidence.*'
     direction: UP
     centerElement: false
+- waitForAnimationToEnd
 - tapOn: '.*I checked this older record against the original collection evidence.*'
+- assertVisible: '☑ .*I checked this older record against the original collection evidence.*'
 - scrollUntilVisible:
     element:
       text: "Confirm pickup decision"
     direction: DOWN
     centerElement: false
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: true
 - tapOn: "Confirm pickup decision"
 - extendedWaitUntil:
     visible: "No staff pickups waiting for review."

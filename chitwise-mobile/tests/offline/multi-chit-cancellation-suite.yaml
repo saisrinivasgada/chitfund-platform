@@ -37,15 +37,21 @@ env:
     id: "payment-chit-50000000-0000-0000-0000-000000000001"
 - runFlow:
     when:
-      notVisible: "Record ₹1,500 Payment"
+      notVisible:
+        text: "Record ₹1,500 Payment"
+        above: "Dashboard.*"
     commands:
       - scrollUntilVisible:
           element:
             text: "Record ₹1,500 Payment"
+            above: "Dashboard.*"
           direction: DOWN
           centerElement: false
           visibilityPercentage: 90
-- tapOn: "Record ₹1,500 Payment"
+- waitForAnimationToEnd
+- tapOn:
+    text: "Record ₹1,500 Payment"
+    above: "Dashboard.*"
 - extendedWaitUntil:
     visible: "Confirm Payment"
     timeout: 10000
