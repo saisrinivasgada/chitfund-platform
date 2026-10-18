@@ -590,6 +590,8 @@ export const getPaymentBatchById = async (batchId: string) =>
   unwrapObj(await api.get(`/payments/batches/${batchId}`));
 export const getAllPaymentBatches = async (params: any = {}) =>
   unwrapList(await api.get('/payments/batches/all', { params }));
+export const getAllPaymentBatchesPage = async (params: any = {}) =>
+  unwrapObj(await api.get('/payments/batches/all', { params }));
 export const voidPaymentBatch = async (batchId: string, reason: string) =>
   unwrapObj(await api.post(`/payments/${batchId}/void`, { reason }));
 export const remitPayment = async (batchId: string) =>

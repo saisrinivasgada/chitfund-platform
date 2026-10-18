@@ -92,7 +92,7 @@ http.createServer(async (request, response) => {
     ? send({ accessToken: session.token, refreshToken: session.refreshToken, user: session.user, tenant: { ...session.tenant, offlineEnabled: owner.enabled } }) : send({ message: 'Unknown local account' }, 401);
   if (!owner) return send({ message: 'Unknown local account' }, 401);
   const path = url.pathname.slice(4);
-  if (owner.user.role === 'MEMBER' && (['/members', '/members/offline-pages', '/payments/batches/all'].includes(path) || /^\/admin\/draws\/chit\//.test(path) || /^\/chits\/[^/]+\/reservations$/.test(path))) return send({ message: 'Member-only endpoint required' }, 403);
+  if (owner.user.role === 'MEMBER' && (['/members', '/members/offline-pages', '/payments/batches', '/payments/batches/all'].includes(path) || /^\/admin\/draws\/chit\//.test(path) || /^\/chits\/[^/]+\/reservations$/.test(path))) return send({ message: 'Member-only endpoint required' }, 403);
   if (owner.pauseDownloads && request.method === 'GET' && /^\/(members|chits)(\/|$)/.test(path)) return send({ message: 'Local QA first download interrupted' }, 503);
   if (path === '/users/me/offline-access') {
     const now = Date.now();
@@ -144,6 +144,13 @@ http.createServer(async (request, response) => {
       status: due === 0 ? 'SETTLED' : due === original ? 'OUTSTANDING' : 'PARTIALLY_PAID' }]);
   }
   if (path === '/payments/batches/member') return send([...owner.receipts.values()]);
+  const filteredReceipts = () => [...owner.receipts.values()].filter(receipt =>
+    (!url.searchParams.get('memberId') || receipt.memberId === url.searchParams.get('memberId'))
+    && (!url.searchParams.get('chitId') || receipt.chitId === url.searchParams.get('chitId')));
+  if (path === '/payments/batches') {
+    if (!url.searchParams.get('memberId') || !url.searchParams.get('chitId')) return send({ message: 'Member and chit IDs are required' }, 400);
+    return send(filteredReceipts());
+  }
   if (path === '/payments/balance/total') return send(owner.due + owner.secondDue);
   if (path === '/admin/draws/open' && request.method === 'POST') {
     if (!Number.isInteger(body.monthNumber) || body.monthNumber < 1 || !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate ?? '') || !(body.installmentAmount > 0) || !(body.maxCycles > 0) || !body.members?.length || body.chitId !== owner.chitId || body.members.some(m => m.memberId !== owner.memberId || !(m.amountDue >= 0))) return send({ message: 'Missing required draw fields or wrong account' }, 400);
@@ -160,7 +167,8 @@ http.createServer(async (request, response) => {
       monthNumber: 1, amountDue: original, amountPaid: original-due, balance: due, status: due === 0 ? 'SETTLED' : due === original ? 'OUTSTANDING' : 'PARTIALLY_PAID' }]);
   }
   if (path.startsWith('/payments/credits/')) return send({ memberId: owner.memberId, balance: owner.credit, recentTransactions: [] });
-  if (path === '/payments/batches/all') return send(page([...owner.receipts.values()], Number(url.searchParams.get('page') ?? 0), Number(url.searchParams.get('size') ?? 50)));
+  if (path === '/payments/batches/all') return send(url.searchParams.has('page')
+    ? page(filteredReceipts(), Number(url.searchParams.get('page')), Number(url.searchParams.get('size') ?? 50)) : filteredReceipts());
   if (path.startsWith('/payments/batches/') && owner.receipts.has(path.split('/').at(-1))) return send(owner.receipts.get(path.split('/').at(-1)));
   if (['/payments', '/payments/offline/record'].includes(path) && request.method === 'POST') {
     if (owner.pausePaymentDelivery) return send({ message: 'Local QA delivery is held until account B is selected' }, 503);

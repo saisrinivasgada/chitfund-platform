@@ -35,3 +35,20 @@ test('batch chunk reads preserve receipt API contracts and unsupported parameter
   assert.equal(await chunkSnapshot('members', { chunks: 1 }, { tenantFilter: 'other' }, load), null);
   await assert.rejects(chunkSnapshot('members', { chunks: 1 }, {}, async () => { throw new Error('Missing encrypted page'); }), /Missing encrypted page/);
 });
+
+test('older chit transactions remain paged and isolated after an offline cold reopen', async () => {
+  const records = Array.from({ length: 453 }, (_, i) => ({ id: `receipt-${i}`, chitId: i % 3 ? 'other-chit' : 'paid-chit', memberId: `member-${i % 11}`, createdAt: '2026-10-18T10:00:00Z' }));
+  const pointer = { chunks: Math.ceil(records.length / 200) };
+  const load = async index => structuredClone(records.slice(index * 200, (index + 1) * 200));
+  const seen=[];
+  for (let page=0;page<4;page++) {
+    const result=await chunkSnapshot('batches',pointer,{chitId:'paid-chit',page,size:50},load);
+    assert.equal(result.data.totalElements,151);
+    assert.equal(result.data.hasMore,page<3);
+    assert.ok(result.data.content.every(receipt=>receipt.chitId==='paid-chit'));
+    seen.push(...result.data.content.map(receipt=>receipt.id));
+  }
+  assert.equal(seen.length,151);
+  assert.equal(new Set(seen).size,151);
+  assert.deepEqual(seen,records.filter(receipt=>receipt.chitId==='paid-chit').map(receipt=>receipt.id));
+});

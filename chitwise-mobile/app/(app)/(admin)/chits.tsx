@@ -8,7 +8,7 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useOnlineMutation } from '../../../offline/useOnlineMutation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -18,7 +18,7 @@ import {
   getReservations, addReservationSlot, removeReservationSlot,
   swapReservationSlots, shiftReservations, markSlotProcessed,
   updateReservationSlot,
-  createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
+  createPayout, disbursePayout, getAllPaymentBatchesPage, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
   pauseChit, resumeChit, getDeletedChits, deleteChit,
@@ -350,12 +350,15 @@ export default function AdminChitsScreen() {
     enabled: !!selected?.id && detailTab === 'winners',
     staleTime: 30_000,
   });
-  // All payment batches for this chit — used in draws tab to show per-member pay status
-  const { data: chitBatches = [] } = useQuery({
-    queryKey: ['a-chit-batches', selected?.id],
-    queryFn: () => getPaymentBatches(undefined, selected!.id),
+  // The member-specific endpoint requires a member ID; draw history spans the chit.
+  const chitBatchPages = useInfiniteQuery({
+    queryKey: ['a-chit-batch-pages', selected?.id],
+    queryFn: ({ pageParam }) => getAllPaymentBatchesPage({ chitId: selected!.id, page: pageParam, size: 50 }),
+    initialPageParam: 0,
+    getNextPageParam: (page, pages) => page.hasMore ? pages.length : undefined,
     enabled: !!selected?.id && detailTab === 'draws',
   });
+  const chitBatches = chitBatchPages.data?.pages.flatMap(page => page.content ?? []) ?? [];
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: chitAudit = [], isLoading: chitAuditLoading, isError: chitAuditError,
     refetch: refetchChitAudit } = useQuery({
@@ -719,7 +722,7 @@ export default function AdminChitsScreen() {
     mutationFn: (drawId: string) => deleteDraw(drawId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
-      qc.invalidateQueries({ queryKey: ['a-chit-batches', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-chit-batch-pages', selected.id] });
       toast.deleted('Empty draw discarded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete draw'),
@@ -728,7 +731,7 @@ export default function AdminChitsScreen() {
   const voidBatchMut = useOnlineMutation({
     mutationFn: () => voidPaymentBatch(voidBatchId, voidBatchReason),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['a-chit-batches', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-chit-batch-pages', selected.id] });
       setVoidBatchId(''); setVoidBatchReason('');
       toast.voided('Payment voided — records reversed');
     },
@@ -1632,7 +1635,7 @@ export default function AdminChitsScreen() {
 
             {/* ── DRAWS TAB ────────────────────────────────────────────────── */}
             {detailTab === 'draws' && (
-              <ReadDataBoundary label="Draws" queryKeys={[['a-draws', selected?.id], ['a-enrollments', selected?.id], ['a-chit-batches', selected?.id]]}><>
+              <ReadDataBoundary label="Draws" queryKeys={[['a-draws', selected?.id], ['a-enrollments', selected?.id], ['a-chit-batch-pages', selected?.id]]}><>
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                   <View style={{ flex: 1 }}>
                     <Button label="+ Open New Draw" variant="primary" size="sm" disabled={isExpired} onPress={() => {
@@ -1843,6 +1846,12 @@ export default function AdminChitsScreen() {
                     );
                   })
                 )}
+                {chitBatchPages.hasNextPage && <View style={{ gap: 8, marginTop: 8 }}>
+                  <Text style={{ color: C.gray500, fontSize: 12 }}>More transactions are available for this chit.</Text>
+                  {chitBatchPages.isFetchNextPageError && <Text accessibilityRole="alert" style={{ color: C.amber, fontSize: 12 }}>Older transactions could not load. Check your connection and try again.</Text>}
+                  <Button label="Load older transactions" variant="ghost" size="sm" loading={chitBatchPages.isFetchingNextPage}
+                    onPress={() => { void chitBatchPages.fetchNextPage(); }} />
+                </View>}
               </></ReadDataBoundary>
             )}
 
