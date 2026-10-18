@@ -14,7 +14,10 @@ env:
 - stopApp
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/payments'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -98,7 +101,10 @@ env:
 - stopApp
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/payments'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -111,7 +117,10 @@ env:
       id: "saved-payments-summary"
     timeout: 60000
 - assertVisible: "Select Member"
-- openLink: 'chitwise:///(app)/(admin)/payments?tab=History'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=History'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"

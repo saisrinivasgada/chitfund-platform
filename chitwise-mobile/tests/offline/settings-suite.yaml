@@ -3,7 +3,10 @@ appId: com.chitwise.mobile
 - stopApp
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/more'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/more'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -39,7 +42,10 @@ appId: com.chitwise.mobile
 - stopApp
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/more'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/more'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"

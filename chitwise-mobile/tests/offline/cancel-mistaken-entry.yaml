@@ -3,7 +3,10 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -57,7 +60,10 @@ appId: com.chitwise.mobile
 - tapOn: "Close"
 - assertNotVisible:
     id: "saved-payments-summary"
-- openLink: 'chitwise:///(app)/(admin)/payments?tab=History'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=History'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"

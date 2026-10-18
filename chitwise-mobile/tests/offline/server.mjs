@@ -2,6 +2,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { openSimulatorLink } from './simulator-link.mjs';
 
 const owners = ['a', 'b', 'c', 'd', 'e'].map((name, index) => {
   const id = (prefix) => `${prefix}0000000-0000-0000-0000-00000000000${index + 1}`;
@@ -52,6 +53,10 @@ http.createServer(async (request, response) => {
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify({ success: status < 400, data, message: status < 400 ? undefined : data.message, errorCode: data.errorCode }));
   };
+  if (url.pathname === '/__qa/open-link' && request.method === 'POST') {
+    try { await openSimulatorLink(process.env.CHITWISE_QA_DEVICE, body.link); return send({ opened: true }); }
+    catch (error) { return send({ message: error.message }, 400); }
+  }
   if (url.pathname === '/__qa/state') {
     if (request.method === 'POST') {
       if (body.online != null) online = body.online;

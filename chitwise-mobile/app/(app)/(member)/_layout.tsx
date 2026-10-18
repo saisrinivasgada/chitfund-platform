@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, useNeumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 import { useReminderSync } from '../../../hooks/useReminderSync';
 import { useMemberStartupPrefetch } from '../../../offline/useStartupPrefetch';
 import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
@@ -17,6 +17,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 }
 
 export default function MemberLayout() {
+  const tabBarStyle = useNeumorphicTabBarStyle();
   useReminderSync();
   useMemberStartupPrefetch();
   useEntitlementRefresh();
@@ -30,7 +31,7 @@ export default function MemberLayout() {
         tabBarButton: RoundedTabButton,
         tabBarInactiveTintColor: C.gray400,
         tabBarBackground: NeumorphicTabBackground,
-        tabBarStyle: neumorphicTabBarStyle,
+        tabBarStyle,
         tabBarItemStyle: neumorphicTabItemStyle,
         tabBarLabelStyle: neumorphicTabLabelStyle,
       })}

@@ -3,7 +3,7 @@ import { Tabs, useRouter } from 'expo-router';
 import { Text, Modal, TouchableOpacity, Pressable } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, useNeumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 import { useUIStore } from '../../../store/uiStore';
 import { getAuditLogs, getBillingInfo } from '../../../services/api';
 import { useAdminStartupPrefetch } from '../../../offline/useStartupPrefetch';
@@ -22,6 +22,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 }
 
 export default function AdminLayout() {
+  const tabBarStyle = useNeumorphicTabBarStyle();
   const { activityBadge, setActivityBadge, activityLastSeenAt, loadActivityLastSeen,
     planExpiredVisible, hidePlanExpired, setIsExpired } = useUIStore();
   const router = useRouter();
@@ -86,7 +87,7 @@ export default function AdminLayout() {
         tabBarButton: RoundedTabButton,
         tabBarInactiveTintColor: C.gray400,
         tabBarBackground: NeumorphicTabBackground,
-        tabBarStyle: neumorphicTabBarStyle,
+        tabBarStyle,
         tabBarItemStyle: neumorphicTabItemStyle,
         tabBarLabelStyle: neumorphicTabLabelStyle,
       })}
@@ -94,7 +95,7 @@ export default function AdminLayout() {
       {/* ── Visible tabs (5) ─────────────────────────────────────── */}
       <Tabs.Screen name="index"    options={{ title: 'Dashboard' }} />
       <Tabs.Screen name="members"  options={{ title: 'Members' }} />
-      <Tabs.Screen name="chits"    options={{ title: 'Chits' }} />
+      <Tabs.Screen name="chits"    options={{ title: 'Chits', tabBarButtonTestID: 'admin-tab-chits' }} />
       <Tabs.Screen name="payments" options={{ title: 'Finance' }} />
       <Tabs.Screen name="more"     options={{
         title: 'More',

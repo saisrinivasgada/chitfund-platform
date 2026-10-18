@@ -2,10 +2,13 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
 - waitForAnimationToEnd
-# A new iOS simulator may show its first-link confirmation after openLink
-# returns. Wait for the prompt OR the destination before attempting the tap.
+# Native iOS routes open directly. If a platform shows a link confirmation,
+# handle it, then require the actual payment screen.
 - extendedWaitUntil:
     visible: 'Open in .*ChitWise.*|Select Member'
     timeout: 60000

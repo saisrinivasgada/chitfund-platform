@@ -10,7 +10,8 @@ appId: com.chitwise.mobile
       - extendedWaitUntil:
           visible: '.*Dashboard.*'
           timeout: 60000
-      - tapOn: '.*Chits.*'
+      - tapOn:
+          id: "admin-tab-chits"
       - extendedWaitUntil:
           visible: '.*QA Monthly Chit A.*'
           timeout: 15000

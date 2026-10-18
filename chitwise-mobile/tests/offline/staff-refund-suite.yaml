@@ -9,7 +9,10 @@ env:
 - stopApp
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/payments'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"

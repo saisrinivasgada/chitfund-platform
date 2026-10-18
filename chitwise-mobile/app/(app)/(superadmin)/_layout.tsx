@@ -1,8 +1,9 @@
 import { Tabs } from 'expo-router';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, useNeumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 
 export default function SuperAdminLayout() {
+  const tabBarStyle = useNeumorphicTabBarStyle();
   return (
     <Tabs screenOptions={({ route }) => ({
       headerShown: false,
@@ -12,7 +13,7 @@ export default function SuperAdminLayout() {
         tabBarButton: RoundedTabButton,
       tabBarInactiveTintColor: C.gray400,
       tabBarBackground: NeumorphicTabBackground,
-      tabBarStyle: neumorphicTabBarStyle,
+      tabBarStyle,
       tabBarItemStyle: neumorphicTabItemStyle,
       tabBarLabelStyle: neumorphicTabLabelStyle,
     })}>

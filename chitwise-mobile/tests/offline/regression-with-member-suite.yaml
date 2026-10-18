@@ -4,3 +4,4 @@ env:
 ---
 - runFlow: regression-suite.yaml
 - runFlow: member-synced-balance-suite.yaml
+- runFlow: payment-preview-suite.yaml

@@ -3,6 +3,9 @@ import { PlatformPressable } from '@react-navigation/elements';
 import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { C } from './ui';
+import { useMemo } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { tabBarMetrics } from './tabBarMetrics';
 
 export function RoundedTabButton(props: BottomTabBarButtonProps) {
   return <PlatformPressable {...props} style={[props.style, { borderRadius: 25, overflow: 'hidden' }]} />;
@@ -70,7 +73,10 @@ const styles = StyleSheet.create({
   },
 });
 
-export const neumorphicTabBarStyle = styles.bar;
+export function useNeumorphicTabBarStyle() {
+  const { bottom } = useSafeAreaInsets();
+  return useMemo(() => [styles.bar, tabBarMetrics(Platform.OS, bottom)], [bottom]);
+}
 export const neumorphicTabLabelStyle = styles.label;
 export const neumorphicTabItemStyle = styles.item;
 export const selectedTabBackgroundColor = C.navy;

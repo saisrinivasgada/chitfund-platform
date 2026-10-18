@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Text, Modal, Pressable, TouchableOpacity } from 'react-native';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, useNeumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 import { useUIStore } from '../../../store/uiStore';
 import { useManagerStartupPrefetch } from '../../../offline/useStartupPrefetch';
 import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
@@ -13,6 +13,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 }
 
 export default function ManagerLayout() {
+  const tabBarStyle = useNeumorphicTabBarStyle();
   const { planExpiredVisible, hidePlanExpired } = useUIStore();
   useManagerStartupPrefetch();
   useEntitlementRefresh();
@@ -43,7 +44,7 @@ export default function ManagerLayout() {
         tabBarButton: RoundedTabButton,
         tabBarInactiveTintColor: C.gray400,
         tabBarBackground: NeumorphicTabBackground,
-        tabBarStyle: neumorphicTabBarStyle,
+        tabBarStyle,
         tabBarItemStyle: neumorphicTabItemStyle,
         tabBarLabelStyle: neumorphicTabLabelStyle,
       })}

@@ -4,7 +4,10 @@ env:
 ---
 # This member belongs to organisation A and reads A's actual posted ledger.
 # Its separate READ-only grant must never grant collection permissions.
-- openLink: 'chitwise:///(auth)/login?addAccount=1&username=offline-member-a'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/login?addAccount=1&username=offline-member-a'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -30,7 +33,10 @@ env:
 - tapOn:
     text: "Skip for now"
     optional: true
-- openLink: 'chitwise:///(app)/(member)/chits'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chits'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -39,7 +45,10 @@ env:
     visible: '.*Owes ₹500\b.*'
     timeout: 60000
 - assertVisible: '.*Paid up\b.*'
-- openLink: 'chitwise:///(app)/(member)/chit-detail?chitId=50000000-0000-0000-0000-000000000001'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=50000000-0000-0000-0000-000000000001'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -48,7 +57,10 @@ env:
     visible: "Owes ₹500"
     timeout: 60000
 - assertNotVisible: "Paid up"
-- openLink: 'chitwise:///(app)/(member)/chit-detail?chitId=40000000-0000-0000-0000-000000000001'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=40000000-0000-0000-0000-000000000001'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -62,7 +74,10 @@ env:
     centerElement: false
 - assertVisible: "₹1,000"
 - assertNotVisible: "Owes ₹1,000"
-- openLink: 'chitwise:///(app)/(member)/payments'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/payments'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -89,7 +104,10 @@ env:
 - extendedWaitUntil:
     visible: ".*My Chits.*"
     timeout: 60000
-- openLink: 'chitwise:///(app)/(member)/chit-detail?chitId=50000000-0000-0000-0000-000000000001'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=50000000-0000-0000-0000-000000000001'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -98,7 +116,10 @@ env:
     visible: "Owes ₹500"
     timeout: 60000
 - assertNotVisible: "Paid up"
-- openLink: 'chitwise:///(app)/(member)/chit-detail?chitId=40000000-0000-0000-0000-000000000001'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=40000000-0000-0000-0000-000000000001'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -110,7 +131,10 @@ env:
     file: fixture-control.js
     env:
       QA_STATE: '{"online":true}'
-- openLink: 'chitwise:///(auth)/accounts'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"

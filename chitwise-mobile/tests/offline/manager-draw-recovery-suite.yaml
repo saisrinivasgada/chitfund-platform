@@ -6,7 +6,10 @@ env:
     file: fixture-control.js
     env:
       QA_STATE: '{"online":true,"drawFailure":true}'
-- openLink: 'chitwise:///(auth)/login?addAccount=1&username=offline-d'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/login?addAccount=1&username=offline-d'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -32,7 +35,10 @@ env:
 - tapOn:
     text: "Skip for now"
     optional: true
-- openLink: 'chitwise:///(app)/(manager)/chits'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(manager)/chits'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -90,7 +96,10 @@ env:
     file: fixture-control.js
     env:
       QA_STATE: '{"drawFailure":false}'
-- openLink: 'chitwise:///(auth)/accounts'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"

@@ -10,7 +10,10 @@ env:
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
 # Finance opens Record Payment first without a tab parameter.
-- openLink: 'chitwise:///(app)/(admin)/payments'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -24,7 +27,10 @@ env:
     timeout: 60000
 - assertNotVisible:
     id: "saved-payments-summary"
-- openLink: 'chitwise:///(auth)/accounts'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -38,7 +44,10 @@ env:
 - stopApp
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/payments'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"
@@ -63,7 +72,10 @@ env:
 - stopApp
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- openLink: 'chitwise:///(app)/(admin)/payments'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
 - waitForAnimationToEnd
 - tapOn:
     text: "Open"

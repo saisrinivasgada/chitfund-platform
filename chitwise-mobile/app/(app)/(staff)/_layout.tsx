@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, useNeumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 import { useStaffStartupPrefetch } from '../../../offline/useStartupPrefetch';
 import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
 
@@ -10,6 +10,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 }
 
 export default function StaffLayout() {
+  const tabBarStyle = useNeumorphicTabBarStyle();
   useStaffStartupPrefetch();
   useEntitlementRefresh();
   return (
@@ -22,7 +23,7 @@ export default function StaffLayout() {
         tabBarButton: RoundedTabButton,
         tabBarInactiveTintColor: C.gray400,
         tabBarBackground: NeumorphicTabBackground,
-        tabBarStyle: neumorphicTabBarStyle,
+        tabBarStyle,
         tabBarItemStyle: neumorphicTabItemStyle,
         tabBarLabelStyle: neumorphicTabLabelStyle,
       })}
