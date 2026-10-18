@@ -20,7 +20,7 @@ env:
 - waitForAnimationToEnd
 - tapOn: 'Draws'
 - waitForAnimationToEnd
-- tapOn: 'Draw #1,.*'
+- tapOn: 'Draw #1\b.*'
 - extendedWaitUntil:
     visible: 'Member Payments \(1/1 cleared\)'
     timeout: 30000
@@ -34,7 +34,7 @@ env:
 - waitForAnimationToEnd
 - tapOn: 'Draws'
 - waitForAnimationToEnd
-- tapOn: 'Draw #1,.*'
+- tapOn: 'Draw #1\b.*'
 - extendedWaitUntil:
     visible: 'Member Payments \(0/1 cleared\)'
     timeout: 30000
@@ -61,7 +61,7 @@ env:
 - waitForAnimationToEnd
 - tapOn: 'Draws'
 - waitForAnimationToEnd
-- tapOn: 'Draw #1,.*'
+- tapOn: 'Draw #1\b.*'
 - extendedWaitUntil:
     visible: 'Member Payments \(1/1 cleared\)'
     timeout: 30000
@@ -74,7 +74,7 @@ env:
 - waitForAnimationToEnd
 - tapOn: 'Draws'
 - waitForAnimationToEnd
-- tapOn: 'Draw #1,.*'
+- tapOn: 'Draw #1\b.*'
 - extendedWaitUntil:
     visible: 'Member Payments \(0/1 cleared\)'
     timeout: 30000
