@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class MemberIdentityMigrationMySqlTest {
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("chitfund_members").withUsername("chitfund").withPassword("testpassword");
+            .withCommand("--log-bin-trust-function-creators=1").withDatabaseName("chitfund_members").withUsername("chitfund").withPassword("testpassword");
 
     @Test
     void activePhoneIsUniqueWithinTenantButReusableAcrossTenantsAndAfterDelete() throws Exception {

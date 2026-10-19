@@ -1,0 +1,150 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+# A new account has no earlier complete snapshot to fall back to. Failure must
+# be distinguished from a genuine empty list, then recover without losing work.
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"c","enabled":true,"pauseDownloads":true}'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/login?addAccount=1&username=offline-c'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your password"
+    timeout: 60000
+- waitForAnimationToEnd
+- tapOn: "Enter your password"
+- waitForAnimationToEnd
+- inputText: "local-qa-only"
+- pressKey: Enter
+- waitForAnimationToEnd
+- tapOn:
+    text: "Not Now|Not now"
+    optional: true
+- extendedWaitUntil:
+    visible: "Dashboard unavailable|Welcome to ChitWise"
+    timeout: 60000
+- tapOn:
+    text: "No thanks"
+    optional: true
+- tapOn:
+    text: "Skip for now"
+    optional: true
+- extendedWaitUntil:
+    visible: "Dashboard unavailable"
+    timeout: 60000
+- assertVisible: ".*has not finished downloading on this device.*"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/members'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Members unavailable"
+    timeout: 60000
+- assertNotVisible: "No members.*"
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/chits'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Chits unavailable"
+    timeout: 60000
+- assertNotVisible: "No chits.*"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"c","pauseDownloads":false}'
+- tapOn: "Try again"
+- extendedWaitUntil:
+    visible: ".*QA Monthly Chit C.*"
+    timeout: 60000
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Select Member"
+    timeout: 60000
+- tapOn:
+    id: "sync-status-button"
+- waitForAnimationToEnd
+- tapOn: "Sync now"
+- extendedWaitUntil:
+    visible: "Available offline"
+    timeout: 60000
+- tapOn: "Close sync details"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/chits'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*QA Monthly Chit C.*"
+    timeout: 60000
+- assertNotVisible: "Chits unavailable"
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/members'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*QA Member C.*"
+    timeout: 60000
+- assertNotVisible: "Members unavailable"
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "switch-account-offline-a"
+    centerElement: false
+- tapOn:
+    id: "switch-account-offline-a"
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 60000

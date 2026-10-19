@@ -5,6 +5,7 @@ interface SyncState {
   accountScope: string | null;
   status: SyncStatus;
   isOnline: boolean;
+  serverReachable: boolean | null;
   pendingCount: number;
   conflictCount: number;
   failedCount: number;
@@ -18,6 +19,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   accountScope: null,
   status: 'synced',
   isOnline: true,
+  serverReachable: null,
   pendingCount: 0,
   conflictCount: 0,
   failedCount: 0,
@@ -31,6 +33,7 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     accountScope: scope,
     status: 'synced',
     isOnline: true,
+  serverReachable: null,
     pendingCount: 0,
     conflictCount: 0,
     failedCount: 0,

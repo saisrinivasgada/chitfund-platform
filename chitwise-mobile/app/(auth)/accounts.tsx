@@ -1,23 +1,27 @@
-import { useState } from 'react';
+import { effectiveOfflineAccess } from '../../offline/accessPolicy';
+import { offlinePresentation } from '../../../shared/offline/presentation';
+import { restoreOfflineAccess, useOfflineAccessStore } from '../../offline/access';
+import { ROLE_ROUTE_GROUP as ROLE_GROUP } from '../../utils/roleRoutes';
+import { useQueryClient } from '@tanstack/react-query';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import NetInfo from '@react-native-community/netinfo';
+import { accountSyncSummary } from '../../../shared/offline/accountSyncSummary';
+import { synchronizeAccount } from '../../offline/syncEngine';
+import { prepareOfflineData, restorePreparationState, usePreparationStore } from '../../offline/preparation';
+import { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert, Platform, ActionSheetIOS } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { accountStorageId, useAuthStore, StoredAccount } from '../../store/authStore';
 import { logoutAccount } from '../../services/api';
-import { getStoredAccountScope } from '../../offline/accountScope';
-import { getSyncCounts, purgeAccountOfflineData } from '../../offline/database';
+import { requestSignOut } from '../../offline/signOut';
+import { getAccountScope, getStoredAccountScope } from '../../offline/accountScope';
+import { getSyncCounts, getLastSyncedAt, makeRetryableOperationsReady, hasOfflineDatabase, purgeAccountOfflineData } from '../../offline/database';
 import { isBiometricEnabled } from '../../utils/biometrics';
 import { C, formatPhone } from '../../components/ui';
 import RoleLogo from '../../components/RoleLogo';
-
-// Kept in sync with app/_layout.tsx's ROLE_GROUP — mirrors it locally so this
-// screen can navigate to the right app section right after a switch, without
-// depending on the root navigation guard's redirect timing.
-const ROLE_GROUP: Record<string, string> = {
-  ADMIN: '(admin)', MANAGER: '(manager)', STAFF: '(staff)',
-  MEMBER: '(member)', SUPER_ADMIN: '(superadmin)', SUPPORT_AGENT: '(hub)',
-};
+import { useReviewNavigationStore } from '../../store/reviewNavigationStore';
 
 const ROLE_BADGE_COLOR: Record<string, string> = {
   ADMIN: '#1D4ED8', MANAGER: '#7C3AED', STAFF: '#059669',
@@ -26,8 +30,43 @@ const ROLE_BADGE_COLOR: Record<string, string> = {
 
 export default function AccountsScreen() {
   const router = useRouter();
-  const { user, accounts, switchToAccount, removeAccount, logoutFromAccount } = useAuthStore();
+  const queryClient = useQueryClient();
+  const { user, accounts, switchToAccount, removeAccount } = useAuthStore();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncInfo, setSyncInfo] = useState<Record<string, any>>({});
+  const [online, setOnline] = useState(true);
+  const access = useOfflineAccessStore((state) => state.accounts);
+  const preparation = usePreparationStore((state) => state.byScope);
+  const refreshStatuses = useCallback(async () => {
+    const network = await NetInfo.fetch(); setOnline(network.isConnected === true && network.isInternetReachable !== false);
+    const results = await Promise.all(accounts.filter((a) => a.authSource !== 'HUB').map(async (account) => {
+      const scope = getStoredAccountScope(account);
+      let counts = { pending: 0, paused: 0, conflicts: 0, failed: 0, syncing: 0 }; let lastSyncedAt = null;
+      try {
+        for (const savedScope of [...new Set([scope, ...(account.retainedOfflineScopes ?? [])])]) {
+          if (!await hasOfflineDatabase(savedScope)) continue;
+          const saved = await getSyncCounts(savedScope);
+          for (const key of Object.keys(counts) as (keyof typeof counts)[]) counts[key] += saved[key] ?? 0;
+          lastSyncedAt = Math.max(lastSyncedAt ?? 0, await getLastSyncedAt(savedScope) ?? 0) || null;
+        }
+        await restoreOfflineAccess(scope);
+        if (await hasOfflineDatabase(scope) || useOfflineAccessStore.getState().accounts[scope]?.enabled) await restorePreparationState(scope);
+        return [account.accountId, { counts, lastSyncedAt }];
+      } catch { return [account.accountId, { counts, locked: true }]; }
+    }));
+    setSyncInfo(Object.fromEntries(results));
+  }, [accounts]);
+  useEffect(() => { let active = true; const update = () => { if (active) refreshStatuses().catch(() => {}); };
+    update(); const timer = setInterval(update, 3_000); return () => { active = false; clearInterval(timer); };
+  }, [refreshStatuses]);
+  async function syncAccount(account: StoredAccount) {
+    if (!account.sessionValid) { await handleSwitch(account); return; }
+    const scope = getStoredAccountScope(account); setSyncingId(account.accountId);
+    try { await makeRetryableOperationsReady(scope); await synchronizeAccount(scope, getAccountScope(useAuthStore.getState().user) === scope ? queryClient : undefined); await prepareOfflineData(scope, { force: true, deadline: Date.now() + 20_000 }); }
+    catch { Alert.alert('Sync paused', 'The connection was interrupted. Saved collections remain protected and will retry for this account.'); }
+    finally { setSyncingId(null); await refreshStatuses(); }
+  }
 
   function goToRoleHome(role: string) {
     const target = ROLE_GROUP[role];
@@ -61,20 +100,22 @@ export default function AccountsScreen() {
   }
 
   async function doLogoutAccount(acc: StoredAccount) {
-    if (acc.refreshToken) {
-      try { await logoutAccount(acc.refreshToken); } catch {}
-    }
-    await logoutFromAccount(acc.accountId);
+    await requestSignOut({ accountId: acc.accountId });
   }
 
   async function doRemoveAccount(acc: StoredAccount) {
     const scope = getStoredAccountScope(acc);
+    const scopes = [...new Set([scope, ...(acc.retainedOfflineScopes ?? [])])];
     let pending = 0;
-    try {
-      const counts = await getSyncCounts(scope);
-      pending = counts.pending + counts.conflicts + counts.failed;
-    } catch {
-      // No encrypted database exists in online-only/Expo Go environments.
+    for (const savedScope of scopes) {
+      if (!await hasOfflineDatabase(savedScope)) continue;
+      try {
+        const counts = await getSyncCounts(savedScope);
+        pending += counts.pending + counts.conflicts + counts.failed;
+      } catch {
+        Alert.alert('Saved records are locked', 'Unlock this device before removing the account so its saved collections can be checked.');
+        return;
+      }
     }
     Alert.alert(
       'Remove account from this device?',
@@ -90,7 +131,7 @@ export default function AccountsScreen() {
             if (acc.refreshToken) {
               try { await logoutAccount(acc.refreshToken); } catch {}
             }
-            try { await purgeAccountOfflineData(scope); } catch {}
+            for (const savedScope of scopes) { try { await purgeAccountOfflineData(savedScope); } catch {} }
             await removeAccount(acc.accountId);
           },
         },
@@ -139,10 +180,11 @@ export default function AccountsScreen() {
           const isCurrent = acc.accountId === currentAccountId;
           const needsLogin = !acc.sessionValid;
           const badgeColor = ROLE_BADGE_COLOR[acc.role] ?? C.navy;
+          const status = accountSyncSummary({ ...syncInfo[acc.accountId], sessionValid: acc.sessionValid, online, syncing: syncingId === acc.accountId, preparation: preparation[getStoredAccountScope(acc)] });
           const phoneLine = acc.phone ? formatPhone(acc.phoneCountryCode ?? '+91', acc.phone) : null;
 
           return (
-            <View key={acc.accountId} style={{
+            <View key={acc.accountId} testID={`saved-account-${acc.username}`} style={{
               backgroundColor: isCurrent ? C.navy50 : needsLogin ? '#FFFBEB' : C.white,
               borderRadius: 16, padding: 14, marginBottom: 10,
               borderWidth: 1.5,
@@ -192,7 +234,7 @@ export default function AccountsScreen() {
                 <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                   {!isCurrent && (
                     <TouchableOpacity
-                      onPress={() => handleSwitch(acc)}
+                      testID={`switch-account-${acc.username}`} accessibilityRole="button" accessibilityLabel={`Switch to ${acc.tenantName ?? acc.fullName}`} onPress={() => handleSwitch(acc)}
                       disabled={busyId === acc.accountId}
                       style={{
                         backgroundColor: needsLogin ? '#F59E0B' : C.navy,
@@ -205,14 +247,40 @@ export default function AccountsScreen() {
                       </Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity onPress={() => handleAccountOptions(acc)} style={{ padding: 6 }}>
+                  <TouchableOpacity testID={`account-options-${acc.username}`} accessibilityLabel={`Options for ${acc.fullName || acc.username}`} onPress={() => handleAccountOptions(acc)} style={{ padding: 6 }}>
                     <Text style={{ fontSize: 20, color: C.gray400, lineHeight: 20 }}>⋮</Text>
                   </TouchableOpacity>
                 </View>
               </View>
+              {!!acc.tenantName && <Text style={{ color: C.gray500, fontSize: 11, marginTop: 9 }}>{acc.tenantName}</Text>}
+              {acc.authSource !== 'HUB' && offlinePresentation(effectiveOfflineAccess(access[getStoredAccountScope(acc)], acc.offlineEnabled, acc.offlineSubscriptionCheckedAt ?? acc.savedAt), acc.offlineEnabled).showSync && <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 11, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name={status.state === 'ready' ? 'cloud-done-outline' : status.state === 'syncing' ? 'cloud-upload-outline' : !online ? 'cloud-offline-outline' : 'cloud-outline'} size={20} color={status.state === 'ready' ? '#16805D' : status.state === 'syncing' ? '#2563EB' : '#A16207'} />
+                <View style={{ flex: 1 }}><Text style={{ color: C.navy, fontSize: 12, fontWeight: '600' }}>{status.label}</Text>
+                  {!!status.detail && <Text style={{ color: C.gray500, fontSize: 10, lineHeight: 15, marginTop: 3 }}>{status.detail}</Text>}
+                  {!!syncInfo[acc.accountId]?.lastSyncedAt && <Text style={{ color: C.gray400, fontSize: 10, marginTop: 3 }}>Last collection sync · {new Date(syncInfo[acc.accountId].lastSyncedAt).toLocaleString('en-IN')}</Text>}
+                </View>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Sync ${acc.tenantName ?? acc.fullName}`} testID={`sync-account-${acc.username}`}
+                  disabled={!online || !!syncingId || status.state === 'checking' || !!syncInfo[acc.accountId]?.locked}
+                  onPress={() => syncAccount(acc)} style={{ padding: 9, borderRadius: 9, backgroundColor: C.navy50, opacity: !online || syncingId ? 0.5 : 1 }}>
+                  <Text style={{ color: C.navy, fontWeight: '700', fontSize: 11 }}>{syncingId === acc.accountId ? 'Syncing…' : !acc.sessionValid ? 'Sign in' : 'Sync now'}</Text>
+                </TouchableOpacity>
+              </View>}
             </View>
           );
         })}
+
+        {user?.role === 'ADMIN' && user.authSource !== 'HUB' && accounts.some((saved) => {
+          const counts = syncInfo[saved.accountId]?.counts;
+          return saved.tenantId === user.tenantId && counts && counts.pending + counts.conflicts + counts.failed > 0;
+        }) && <TouchableOpacity accessibilityRole="button" disabled={!online || !!busyId} onPress={() => {
+          const scope = getAccountScope(useAuthStore.getState().user);
+          if (!scope) return;
+          router.replace('/(app)/(admin)/payments?tab=Record%20Payment');
+          useReviewNavigationStore.getState().openReview(scope);
+        }} style={{ padding: 16, borderRadius: 14, backgroundColor: C.navy50, marginBottom: 12, opacity: online ? 1 : 0.5 }}>
+          <Text style={{ color: C.navy, fontWeight: '700' }}>Recover earlier collections</Text>
+          <Text style={{ color: C.gray600, fontSize: 12, lineHeight: 18, marginTop: 5 }}>Review saved work for this organisation after account access or the subscription changes.</Text>
+        </TouchableOpacity>}
 
         {/* Add another account / fresh login — always available, Instagram-style */}
         <TouchableOpacity

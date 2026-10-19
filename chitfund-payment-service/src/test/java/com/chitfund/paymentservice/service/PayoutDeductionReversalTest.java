@@ -34,6 +34,7 @@ import static org.mockito.Mockito.doThrow;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class PayoutDeductionReversalTest {
+    @org.mockito.Mock FinancialCommandLock commandLocks;
     private static final String TENANT = "tenant-a";
 
     @Mock PaymentBatchRepository batchRepository;

@@ -1,0 +1,14 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - runScript: open-app-route.js
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - openLink: ${APP_LINK}

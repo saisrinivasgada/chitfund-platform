@@ -1,0 +1,44 @@
+# Requires one unsent collection and an unreachable localhost fixture.
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Switch Account"
+    timeout: 60000
+- tapOn:
+    id: "account-options-offline-a"
+- tapOn: "Logout"
+- extendedWaitUntil:
+    visible: "Delete unsynced payments and sign out?"
+    timeout: 30000
+- assertVisible: ".*1 unsynced payment will be permanently deleted.*Signing in again will not restore it.*"
+- tapOn: "Cancel"
+- assertVisible: "Switch Account"
+- assertVisible: ".*1 saved.*(waiting to sync|offline).*"
+- tapOn:
+    id: "account-options-offline-a"
+- tapOn: "Logout"
+- tapOn: "Sign out and delete"
+- extendedWaitUntil:
+    visible: "Choose an Account"
+    timeout: 30000
+- assertVisible: "NEEDS LOGIN"
+- assertNotVisible:
+    id: "chitwise-tools-button"
+- assertNotVisible: ".*1 saved.*(waiting to sync|offline).*"
+- tapOn:
+    id: "switch-account-offline-a"
+- extendedWaitUntil:
+    visible: "Enter your password"
+    timeout: 30000
+- assertNotVisible:
+    id: "chitwise-tools-button"

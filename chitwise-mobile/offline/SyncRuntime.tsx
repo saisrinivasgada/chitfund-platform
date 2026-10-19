@@ -7,7 +7,9 @@ import { useAuthStore } from '../store/authStore';
 import { useSyncStore } from '../store/syncStore';
 import { getAccountScope } from './accountScope';
 import { offlinePersistenceOptions } from './queryPersistence';
-import { refreshSyncState, synchronizeAccount } from './syncEngine';
+import { refreshSyncState, synchronizeSavedAccounts } from './syncEngine';
+import { hasOfflineAccess, refreshOfflineAccess } from './access';
+import { prepareSavedAccountData, restorePreparationState } from './preparation';
 
 export function SyncRuntime() {
   const user = useAuthStore((state) => state.user);
@@ -19,6 +21,7 @@ export function SyncRuntime() {
   useEffect(() => {
     useSyncStore.getState().resetForScope(scope);
     if (!scope || user?.authSource === 'HUB' || isRestoring) return;
+    restorePreparationState(scope).catch(() => {});
 
     refreshSyncState(scope).catch((error) => {
       useSyncStore.getState().setStateForScope(scope, {
@@ -29,7 +32,7 @@ export function SyncRuntime() {
 
     // Sync immediately on every login / account switch so pending offline payments
     // upload without requiring a manual tap.
-    synchronizeAccount(scope, queryClient).catch(() => {});
+    synchronizeSavedAccounts(queryClient).then(() => prepareSavedAccountData()).catch(() => {});
   }, [scope, user?.authSource, isRestoring, queryClient]);
 
   useEffect(() => {
@@ -39,7 +42,8 @@ export function SyncRuntime() {
       if (!scope || user?.authSource === 'HUB' || isRestoring) return;
       useSyncStore.getState().setStateForScope(scope, { isOnline });
       if (isOnline) {
-        synchronizeAccount(scope, queryClient).catch((error) => {
+        refreshOfflineAccess(scope).catch(() => {});
+        synchronizeSavedAccounts(queryClient).then(() => prepareSavedAccountData()).catch((error) => {
           useSyncStore.getState().setStateForScope(scope, {
             status: 'error',
             message: error instanceof Error ? error.message : 'Synchronization failed',
@@ -56,15 +60,11 @@ export function SyncRuntime() {
     const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
       focusManager.setFocused(next === 'active');
       if (appState.current.match(/inactive|background/) && next === 'active' && scope && user?.authSource !== 'HUB' && !isRestoring) {
-        synchronizeAccount(scope, queryClient).catch(() => {});
+        synchronizeSavedAccounts(queryClient).then(() => prepareSavedAccountData()).catch(() => {});
       }
-      // persistQueryClient writes to disk on a throttle, so a change made just
-      // before the OS kills the app (backgrounded, then swiped away or reaped)
-      // can be lost on the next cold start. iOS/Android always deliver
-      // inactive/background before real termination — except a hard crash,
-      // which is out of scope here — so flushing synchronously at that point
-      // closes the race instead of waiting for the throttle window.
-      if (next.match(/inactive|background/) && appState.current === 'active' && scope && user?.authSource !== 'HUB' && !isRestoring) {
+      // Best-effort flush; OS termination may interrupt it. Payment
+      // durability comes from immediate SQLite commits, independent of this cache.
+      if (next.match(/inactive|background/) && appState.current === 'active' && scope && hasOfflineAccess(scope) && user?.authSource !== 'HUB' && !isRestoring) {
         const { persister, buster, dehydrateOptions } = offlinePersistenceOptions(scope);
         persistQueryClientSave({ queryClient, persister, buster, dehydrateOptions }).catch(() => {});
       }
@@ -89,13 +89,14 @@ export function SyncRuntime() {
   useEffect(() => {
     if (!scope || user?.authSource === 'HUB') return;
     const interval = setInterval(() => {
-      if (isRestoring) return;
+      if (isRestoring || AppState.currentState !== 'active') return;
       const { status, accountScope } = useSyncStore.getState();
       if (accountScope !== scope) return;
-      if (status === 'error' || status === 'pending' || status === 'offline') {
-        synchronizeAccount(scope, queryClient).catch(() => {});
+      if (status === 'error' || status === 'pending' || status === 'offline' || status === 'access-required') {
+        synchronizeSavedAccounts(queryClient).then(() => prepareSavedAccountData()).catch(() => {});
         return;
       }
+      synchronizeSavedAccounts(queryClient).then(() => prepareSavedAccountData()).catch(() => {});
       const hasErroredQuery = queryClient
         .getQueryCache()
         .getAll()

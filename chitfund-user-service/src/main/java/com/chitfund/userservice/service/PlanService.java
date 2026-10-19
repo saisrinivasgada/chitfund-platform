@@ -63,7 +63,7 @@ public class PlanService {
      * registry, not a label typed into the Super Admin UI.
      */
     private static final Set<String> ENFORCED_ADD_ONS = Set.of(
-            "full_analytics", "priority_support", "live_chat", "settlement");
+            "full_analytics", "priority_support", "live_chat", "settlement", "offline_support");
 
     public void checkStaffLimit(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) {

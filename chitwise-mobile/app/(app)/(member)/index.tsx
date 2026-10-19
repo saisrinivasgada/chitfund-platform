@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import React from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, ActivityIndicator, Linking } from 'react-native';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
@@ -122,6 +123,10 @@ export default function MemberHomeScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Member dashboard" queryKeys={[
+        ['member-chits'], ['member-profile-me'], ['member-total-balance', memberId],
+      ]}>
+
       <ScrollView
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
@@ -134,11 +139,13 @@ export default function MemberHomeScreen() {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>My ChitWise</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>{user?.tenantName ?? 'Your organization'}</Text>
-              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
+
             </View>
           </View>
           <ProfileAvatarButton size={44} />
         </View>
+
+        <SyncStatusCard compact />
 
         <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
           <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
@@ -608,6 +615,7 @@ export default function MemberHomeScreen() {
           })() : null}
         </SafeAreaView>
       </Modal>
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

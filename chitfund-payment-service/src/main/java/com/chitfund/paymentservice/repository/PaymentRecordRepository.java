@@ -15,6 +15,14 @@ import java.util.UUID;
 
 public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UUID> {
 
+    List<PaymentRecord> findByTenantIdAndMemberIdAndStatusInOrderById(
+            String tenantId, UUID memberId, List<PaymentRecordStatus> statuses);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId AND r.memberId=:memberId AND r.status IN :statuses ORDER BY r.id")
+    List<PaymentRecord> findMemberOutstandingForUpdate(@Param("tenantId") String tenantId,
+            @Param("memberId") UUID memberId, @Param("statuses") List<PaymentRecordStatus> statuses);
+
     Optional<PaymentRecord> findByIdAndTenantId(UUID id, String tenantId);
 
     List<PaymentRecord> findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(

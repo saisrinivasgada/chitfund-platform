@@ -1,3 +1,4 @@
+import { requestSignOut } from '../../../offline/signOut';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -27,7 +28,7 @@ export default function HubHome() {
         <TouchableOpacity onPress={() => router.push('/(app)/(hub)/tickets' as any)} style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>🎫 Tickets</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Handle organization requests and public inquiries</Text></TouchableOpacity>
         <TouchableOpacity onPress={() => router.push('/(app)/(hub)/chat' as any)} style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>💬 Team Chat</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Coordinate with ChitWise employees</Text></TouchableOpacity>
       </View>
-      <TouchableOpacity onPress={logout} style={{ alignSelf: 'center', padding: 14, marginTop: 20 }}><Text style={{ color: C.red, fontWeight: '600' }}>Sign out</Text></TouchableOpacity>
+      <TouchableOpacity onPress={() => requestSignOut()} style={{ alignSelf: 'center', padding: 14, marginTop: 20 }}><Text style={{ color: C.red, fontWeight: '600' }}>Sign out</Text></TouchableOpacity>
     </View>
   </SafeAreaView>;
 }

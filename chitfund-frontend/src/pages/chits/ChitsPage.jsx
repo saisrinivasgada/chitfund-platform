@@ -1,3 +1,4 @@
+import ReadDataBoundary from '../../offline/ReadDataBoundary';
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -1132,6 +1133,13 @@ export default function ChitsPage() {
 
   return (
     <div className="space-y-6">
+      <ReadDataBoundary label="Chits" queryKeys={[
+        ['chits'],
+        ...(showMore && canSeeDeleted && moreFilter !== 'completed' ?
+          [ ...(moreFilter !== 'cancelled' ? [['chits', 'deleted']] : []),
+            ...(moreFilter !== 'deleted' ? [['chits', 'cancelled']] : []) ] : []),
+      ]}>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
@@ -1307,6 +1315,7 @@ export default function ChitsPage() {
       )}
 
       {showModal && <CreateChitModal onClose={() => setShowModal(false)} />}
+      </ReadDataBoundary>
     </div>
   );
 }

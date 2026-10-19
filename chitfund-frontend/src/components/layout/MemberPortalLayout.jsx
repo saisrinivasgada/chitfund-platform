@@ -11,40 +11,9 @@ import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import RoleLogo from '../brand/RoleLogo';
+import OfflineStatus from '../../offline/OfflineStatus';
 
-function SignOutModal({ onConfirm, onClose }) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm" style={{ padding: 40 }} onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white"
-        >✕</button>
-        <div className="flex flex-col items-center text-center">
-          <div className="flex items-center justify-center rounded-2xl" style={{ width: 56, height: 56, backgroundColor: '#FEE2E2', marginBottom: 20 }}>
-            <LogOut size={24} style={{ color: '#DC2626' }} />
-          </div>
-          <h3 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif', marginBottom: 8 }}>Sign out?</h3>
-          <p className="text-sm text-gray-500" style={{ marginBottom: 32 }}>You'll need to sign in again to access your account.</p>
-          <div className="flex w-full" style={{ gap: 16 }}>
-            <button
-              onClick={onClose}
-              className="flex-1 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
-              style={{ paddingTop: 14, paddingBottom: 14 }}
-            >Cancel</button>
-            <button
-              onClick={onConfirm}
-              className="flex-1 text-sm font-medium text-white rounded-xl cursor-pointer"
-              style={{ paddingTop: 14, paddingBottom: 14, backgroundColor: '#DC2626' }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#B91C1C')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#DC2626')}
-            >Sign out</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+
 
 function SwitchRoleModal({ phone, altRole, altLabel, onClose }) {
   const { login } = useAuth();
@@ -273,11 +242,10 @@ const ROLE_LABELS = {
 };
 
 export default function MemberPortalLayout() {
-  const { isAuthenticated, isRestoring, user, tenantId, tenantName, logout, chatEnabled, adminPhone, adminEmail } = useAuth();
+  const { isAuthenticated, isRestoring, user, tenantId, tenantName, requestLogout, chatEnabled, adminPhone, adminEmail } = useAuth();
   const navigate = useNavigate();
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSwitchOrg, setShowSwitchOrg] = useState(false);
-  const [showSignOut, setShowSignOut] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
@@ -438,7 +406,7 @@ export default function MemberPortalLayout() {
               </span>
             </Link>
             <button
-              onClick={() => setShowSignOut(true)}
+              onClick={() => requestLogout()}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 cursor-pointer"
             >
               <LogOut size={15} />
@@ -449,7 +417,8 @@ export default function MemberPortalLayout() {
       </header>
 
       <main className="py-6 px-4 sm:px-8 w-full">
-        <Outlet />
+        <OfflineStatus key={`offline:${user?.id}:${tenantId}:${user?.role}`} />
+        <Outlet key={`screen:${user?.id}:${tenantId}:${user?.role}`} />
       </main>
 
       {showSwitch && altRole && me?.phone && (
@@ -467,12 +436,7 @@ export default function MemberPortalLayout() {
           onClose={() => setShowSwitchOrg(false)}
         />
       )}
-      {showSignOut && (
-        <SignOutModal
-          onConfirm={logout}
-          onClose={() => setShowSignOut(false)}
-        />
-      )}
+
       {chatEnabled && showMessages && <UnifiedMessagesPanel onClose={() => setShowMessages(false)} />}
     </div>
   );

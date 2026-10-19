@@ -1,4 +1,8 @@
-import { useState } from 'react';
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
+import { useState, useRef, useEffect } from 'react';
+import { ChitActionDialog, ChitDialogHost } from '../../../components/ChitActionDialog';
+import { useOnlineMutation } from '../../../offline/useOnlineMutation';
+import { buildOpenDrawRequest } from '../../../features/chits/drawRequest';
 import {
   View, Text, FlatList, Modal, ScrollView, RefreshControl,
   TouchableOpacity, Alert, TextInput, KeyboardAvoidingView, Platform,
@@ -49,18 +53,18 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
   });
 
   if (isLoading) return (
-    <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><View style={{ paddingVertical: 10, alignItems: 'center' }}>
       <Text style={{ fontSize: 12, color: C.gray400 }}>Loading…</Text>
-    </View>
+    </View></ReadDataBoundary>
   );
   if (!(payments as any[]).length) return (
-    <Text style={{ fontSize: 12, color: C.gray400, marginTop: 8 }}>No payment records.</Text>
+    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><Text style={{ fontSize: 12, color: C.gray400, marginTop: 8 }}>No payment records.</Text></ReadDataBoundary>
   );
 
   const cleared = (payments as any[]).filter((p: any) => CLEARED.has(p.status)).length;
 
   return (
-    <View style={{ marginTop: 10 }}>
+    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><View style={{ marginTop: 10 }}>
       <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, marginBottom: 6 }}>
         MEMBER PAYMENTS ({cleared}/{(payments as any[]).length} cleared)
       </Text>
@@ -97,7 +101,7 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
           </View>
         );
       })}
-    </View>
+    </View></ReadDataBoundary>
   );
 }
 
@@ -166,7 +170,7 @@ export default function ManagerChitsScreen() {
 
   const { data: draws = [], refetch: refetchDraws } = useQuery({
     queryKey: ['m-draws', selected?.id],
-    queryFn: () => getDraws(selected!.id),
+    queryFn: async () => (await getDraws(selected!.id)).map((draw: any) => ({ ...draw, drawNumber: draw.monthNumber ?? draw.drawNumber })),
     enabled: !!selected?.id && detailTab === 'draws',
     staleTime: 30_000,
   });
@@ -182,7 +186,7 @@ export default function ManagerChitsScreen() {
   const { data: reservations = [] } = useQuery({
     queryKey: ['m-reservations', selected?.id],
     queryFn: () => getReservations(selected!.id),
-    enabled: !!selected?.id && (detailTab === 'schedule' || (selected?.chitType === 'LOTTERY' && showOpenDraw)),
+    enabled: !!selected?.id && (detailTab === 'schedule' || showOpenDraw),
     staleTime: 60_000,
   });
 
@@ -225,10 +229,27 @@ export default function ManagerChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to close'),
   });
 
-  const openDrawMut = useMutation({
+  const dialogClosers = useRef(new Map<symbol, () => void>());
+  const drawSequence = useRef(0);
+  useEffect(() => () => { drawSequence.current++; }, []);
+  const selectedChitId = useRef(selected?.id);
+  selectedChitId.current = selected?.id;
+  const [openDrawError, setOpenDrawError] = useState('');
+  const actionOpen = showOpenDraw || showSkip || showCollect || showPayout || showDisburse;
+  function closeDrawDialog() {
+    drawSequence.current++; setShowOpenDraw(false); setOpenDrawError('');
+    setOdDrawNum(''); setOdWinnerIds([]); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
+  }
+  function closeDetail() {
+    closeDrawDialog(); setShowSkip(false); setShowCollect(false); setShowPayout(false); setShowDisburse(false); setSelected(null);
+  }
+
+  const openDrawMut = useOnlineMutation({
+    offlineErrorMode: 'handler',
+    onMutate: () => ({ chitId: selected.id, sequence: drawSequence.current }),
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
-      await openDraw({ chitId: selected.id, drawNumber: drawNum });
+      await openDraw(buildOpenDrawRequest(selected, drawNum, enrollments as any[], winners as any[], reservations as any[]));
 
       if (selected?.chitType === 'LOTTERY') {
         const lotterySlot = (reservations as any[]).find(
@@ -266,16 +287,16 @@ export default function ManagerChitsScreen() {
         }
       }
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-draws', selected.id] });
+    onSuccess: (_data, _variables, original) => {
+      for (const key of ['m-draws', 'm-winners', 'm-reservations']) qc.invalidateQueries({ queryKey: [key, original?.chitId] });
       qc.invalidateQueries({ queryKey: ['m-chits'] });
-      qc.invalidateQueries({ queryKey: ['m-winners', selected.id] });
-      qc.invalidateQueries({ queryKey: ['m-reservations', selected.id] });
-      setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum('');
-      setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
+      if (original?.chitId !== selectedChitId.current || original?.sequence !== drawSequence.current) return;
+      closeDrawDialog();
       toast.noted('Draw opened');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to open draw'),
+    onError: (error: any, _variables, original) => {
+      if (original?.chitId === selectedChitId.current && original?.sequence === drawSequence.current) setOpenDrawError(error.response?.data?.message ?? error.message ?? 'Failed to open draw');
+    },
   });
 
   const closeDrawMut = useMutation({
@@ -290,13 +311,10 @@ export default function ManagerChitsScreen() {
 
   const skipDrawMut = useMutation({
     mutationFn: async () => {
-      const uniqueIds = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))];
-      await skipDraw({
-        chitId: selected.id,
-        drawNumber: Number(skipTarget.drawNumber),
-        reason: skipReason || 'Skipped by manager',
-        memberIds: uniqueIds,
-      });
+      const request = buildOpenDrawRequest(selected, Number(skipTarget.drawNumber), enrollments as any[], winners as any[], reservations as any[]);
+      await skipDraw({ chitId: request.chitId, monthNumber: request.monthNumber, dueDate: request.dueDate,
+        installmentAmount: request.installmentAmount, skipReason: skipReason || 'Skipped by manager',
+        memberIds: request.members.map(member => member.memberId) });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-draws', selected.id] });
@@ -395,6 +413,8 @@ export default function ManagerChitsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Chits" queryKeys={[['m-chits']]}>
+
       <FlatList
         data={sorted}
         keyExtractor={(c: any) => c.id}
@@ -487,16 +507,20 @@ export default function ManagerChitsScreen() {
         visible={!!selected}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setSelected(null)}
+        onRequestClose={() => {
+          const closeAction = [...dialogClosers.current.values()].at(-1);
+          if (Platform.OS === 'android' && closeAction) closeAction(); else closeDetail();
+        }}
       >
+        <ChitDialogHost value={dialogClosers}>
         {selected && (
-          <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+          <SafeAreaView accessibilityElementsHidden={actionOpen} importantForAccessibility={actionOpen ? 'no-hide-descendants' : 'auto'} style={{ flex: 1, backgroundColor: C.gray50 }}>
             <View style={{
               flexDirection: 'row', alignItems: 'center', gap: 12,
               paddingHorizontal: 16, paddingVertical: 12,
               backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200,
             }}>
-              <TouchableOpacity onPress={() => setSelected(null)} style={{ padding: 4 }}>
+              <TouchableOpacity accessibilityLabel="Close chit details" onPress={closeDetail} style={{ padding: 4 }}>
                 <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
               </TouchableOpacity>
               <View style={{ flex: 1 }}>
@@ -550,23 +574,21 @@ export default function ManagerChitsScreen() {
 
             {/* ── DRAWS TAB ───────────────────────────────────────────────── */}
             {detailTab === 'draws' && (
-              <ScrollView
+              <ReadDataBoundary label="Draws" queryKeys={[['m-draws', selected?.id], ['m-enrollments', selected?.id], ['m-winners', selected?.id]]}><ScrollView
                 contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
                 refreshControl={<RefreshControl refreshing={false} onRefresh={refetchDraws} tintColor={C.navy} />}
               >
                 {selected.status === 'ACTIVE' && !activeOpenDraw && (
                   <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                     <TouchableOpacity
-                      onPress={() => { setOdDrawNum(String(nextDrawNum)); setShowOpenDraw(true); }}
+                      onPress={() => { drawSequence.current++; setOpenDrawError(''); setOdDrawNum(String(nextDrawNum)); setShowOpenDraw(true); }}
                       style={{ flex: 1, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 11, alignItems: 'center' }}
                     >
                       <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>+ Open Draw #{nextDrawNum}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => {
-                        const pending = (draws as any[]).find((d: any) => d.status === 'PENDING');
-                        if (pending) { setSkipTarget(pending); setShowSkip(true); }
-                        else Alert.alert('No pending draw', 'There are no pending draws to skip.');
+                        setSkipTarget({ drawNumber: nextDrawNum }); setSkipReason(''); setShowSkip(true);
                       }}
                       style={{ backgroundColor: '#FEF3C7', borderRadius: 12, paddingVertical: 11, paddingHorizontal: 16 }}
                     >
@@ -668,12 +690,12 @@ export default function ManagerChitsScreen() {
                     );
                   })
                 )}
-              </ScrollView>
+              </ScrollView></ReadDataBoundary>
             )}
 
             {/* ── MEMBERS TAB ─────────────────────────────────────────────── */}
             {detailTab === 'members' && (
-              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+              <ReadDataBoundary label="Enrolments" queryKeys={[['m-enrollments', selected?.id]]}><ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
                 <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
                   {(enrollments as any[]).length} enrolled
                 </Text>
@@ -700,12 +722,12 @@ export default function ManagerChitsScreen() {
                     );
                   })
                 )}
-              </ScrollView>
+              </ScrollView></ReadDataBoundary>
             )}
 
             {/* ── WINNERS TAB ─────────────────────────────────────────────── */}
             {detailTab === 'winners' && (
-              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+              <ReadDataBoundary label="Winners" queryKeys={[['m-winners', selected?.id], ['m-chit-payouts', selected?.id]]}><ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 12 }}>Payouts</Text>
                 {(chitPayouts as any[]).length === 0 ? (
                   <EmptyState title="No payouts yet" message="Payouts appear after winners are recorded." />
@@ -784,11 +806,11 @@ export default function ManagerChitsScreen() {
                     );
                   })
                 )}
-              </ScrollView>
+              </ScrollView></ReadDataBoundary>
             )}
 
             {/* ── SCHEDULE TAB (read-only) ─────────────────────────────────── */}
-            {detailTab === 'schedule' && (() => {
+            {detailTab === 'schedule' && <ReadDataBoundary label="Schedule" queryKeys={[['m-reservations', selected?.id]]}>{(() => {
               const slotsList = [...(reservations as any[])].sort(
                 (a, b) => (a.slotNumber ?? a.monthNumber ?? 0) - (b.slotNumber ?? b.monthNumber ?? 0)
               );
@@ -829,7 +851,7 @@ export default function ManagerChitsScreen() {
                   })}
                 </ScrollView>
               );
-            })()}
+            })()}</ReadDataBoundary>}
 
             {/* ── AUCTION TAB ─────────────────────────────────────────────── */}
             {detailTab === 'auction' && isAuctionChit && (
@@ -996,10 +1018,9 @@ export default function ManagerChitsScreen() {
             )}
           </SafeAreaView>
         )}
-      </Modal>
 
       {/* ── Open Draw Modal ──────────────────────────────────────────────────── */}
-      <Modal visible={showOpenDraw} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setShowOpenDraw(false); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }}>
+      <ChitActionDialog visible={showOpenDraw} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeDrawDialog}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View>
@@ -1012,10 +1033,11 @@ export default function ManagerChitsScreen() {
                 </Text>
               )}
             </View>
-            <TouchableOpacity onPress={() => { setShowOpenDraw(false); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }}>
+            <TouchableOpacity accessibilityLabel="Cancel draw" onPress={closeDrawDialog}>
               <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
             </TouchableOpacity>
           </View>
+          <ReadDataBoundary label="Draw inputs" queryKeys={[[ 'm-enrollments', selected?.id ], [ 'm-winners', selected?.id ], [ 'm-reservations', selected?.id ] ]}>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number</Text>
@@ -1120,6 +1142,7 @@ export default function ManagerChitsScreen() {
             </ScrollView>
           </KeyboardAvoidingView>
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
+            {!!openDrawError && <Text accessibilityRole="alert" style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{openDrawError}</Text>}
             <Button
               label={isLotteryChit
                 ? (lotteryDrawMode === 'PICK' && lotteryPickedWinnerId ? `Draw · ${memberMap[lotteryPickedWinnerId] ?? 'Selected'}` : `Run Lottery Draw #${odDrawNum || nextDrawNum}`)
@@ -1129,11 +1152,12 @@ export default function ManagerChitsScreen() {
               disabled={openDrawMut.isPending || (isLotteryChit && lotteryDrawMode === 'PICK' && !lotteryPickedWinnerId) || (isLotteryChit && lotteryEligibleIds.length === 0)}
             />
           </View>
+          </ReadDataBoundary>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Skip Draw Modal ──────────────────────────────────────────────────── */}
-      <Modal visible={showSkip} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowSkip(false)}>
+      <ChitActionDialog visible={showSkip} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowSkip(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Skip Draw #{skipTarget?.drawNumber}</Text>
@@ -1158,10 +1182,10 @@ export default function ManagerChitsScreen() {
             <Button label={skipDrawMut.isPending ? 'Skipping…' : 'Confirm Skip'} variant="danger" onPress={() => skipDrawMut.mutate()} loading={skipDrawMut.isPending} />
           </View>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Collect Payment Modal ────────────────────────────────────────────── */}
-      <Modal visible={showCollect} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowCollect(false)}>
+      <ChitActionDialog visible={showCollect} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowCollect(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Collect Payment</Text>
@@ -1200,10 +1224,10 @@ export default function ManagerChitsScreen() {
             <Button label={collectMut.isPending ? 'Recording…' : 'Record Payment'} onPress={() => collectMut.mutate()} loading={collectMut.isPending} disabled={!collectAmount || !collectMemberId} />
           </View>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Create Payout Modal ──────────────────────────────────────────────── */}
-      <Modal visible={showPayout} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowPayout(false)}>
+      <ChitActionDialog visible={showPayout} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowPayout(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Create Payout</Text>
@@ -1231,10 +1255,10 @@ export default function ManagerChitsScreen() {
             <Button label={payoutMut.isPending ? 'Creating…' : 'Create Payout'} onPress={() => payoutMut.mutate()} loading={payoutMut.isPending} disabled={!payoutAmount} />
           </View>
         </SafeAreaView>
-      </Modal>
+      </ChitActionDialog>
 
       {/* ── Disburse Payout Modal ────────────────────────────────────────────── */}
-      <Modal visible={showDisburse} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowDisburse(false)}>
+      <ChitActionDialog visible={showDisburse} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowDisburse(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Disburse Payout</Text>
@@ -1276,7 +1300,10 @@ export default function ManagerChitsScreen() {
             <Button label={disburseMut.isPending ? 'Disbursing…' : 'Confirm Disburse'} onPress={() => disburseMut.mutate()} loading={disburseMut.isPending} />
           </View>
         </SafeAreaView>
+      </ChitActionDialog>
+        </ChitDialogHost>
       </Modal>
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

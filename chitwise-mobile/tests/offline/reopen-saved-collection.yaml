@@ -1,0 +1,25 @@
+# Local QA only: run after save-collection while the fixture server remains unreachable.
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "saved-payments-summary"
+    timeout: 30000
+- tapOn:
+    id: "saved-payments-summary"
+- assertVisible: "QA Member A.*|.*QA Member A.*"
+- extendedWaitUntil:
+    visible: ".*Will retry.*|.*Saved on device.*"
+    timeout: 30000
+
+- tapOn: "Close saved payments"

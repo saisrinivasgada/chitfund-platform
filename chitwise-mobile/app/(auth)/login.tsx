@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { roleHomePath } from '../../utils/roleRoutes';
 import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, Linking, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -391,9 +392,15 @@ export default function LoginScreen() {
       analyticsEnabled:   data.analyticsEnabled === true,
       chatEnabled:        data.chatEnabled === true,
       settlementEnabled:  data.settlementEnabled === true,
+      offlineEnabled: data.offlineEnabled,
+      offlineSubscriptionCheckedAt: typeof data.offlineEnabled === 'boolean' ? Date.now() : undefined,
       adminPhone:         data.adminPhone ?? undefined,
       adminEmail:         data.adminEmail ?? undefined,
     });
+    // Changing account replaces its query provider and remounts the route guard.
+    // Complete login explicitly so the new guard cannot mistake it for the
+    // still-open "add another account" form of the previous session.
+    router.replace((data.mustChangePassword?'/(auth)/force-change-password':roleHomePath(data.role)) as any);
     // Backfill the account's own phone in the background so it can be shown
     // on the Instagram-style account switcher card.
     const accountId = accountStorageId(data.userId, data.tenantId, 'ORGANIZATION');

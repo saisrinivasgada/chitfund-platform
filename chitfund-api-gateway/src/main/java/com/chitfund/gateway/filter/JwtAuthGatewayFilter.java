@@ -155,7 +155,7 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                                               Claims claims, String role, String tenantId) {
         if (requiresLiveEntitlement(exchange, tenantId, role)) {
             return tenantEntitlementClient.getEffectiveEntitlement(tenantId)
-                    .map(this::evaluateEntitlement)
+                    .map(entitlement -> evaluateEntitlement(entitlement, canReconcileSavedWork(exchange)))
                     .switchIfEmpty(Mono.just(EntitlementDecision.unavailable()))
                     .onErrorReturn(EntitlementDecision.unavailable())
                     .flatMap(decision -> decision.allowed()
@@ -190,6 +190,21 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
         return chain.filter(exchange.mutate().request(mutatedRequest).build());
     }
 
+    private boolean canReconcileSavedWork(ServerWebExchange exchange) {
+        if (exchange.getRequest().getMethod() != HttpMethod.POST) return false;
+        String path = exchange.getRequest().getPath().value();
+        // Each handler verifies original evidence or existing collected custody,
+        // and current authority. Ordinary payment entry retains its expiry gate.
+        return Set.of("/api/users/me/offline-access", "/api/payments/offline/record",
+                "/api/payments/offline/staff-actions", "/api/payments/offline/reviews/legacy",
+                "/api/payments/offline/staff-actions/reviews/legacy", "/api/payments/offline/staff-actions/reviews/recover",
+                "/api/payments/offline/staff-actions/reviews/recover-legacy",
+                "/api/payments/offline/reviews/recover", "/api/payments/offline/reviews/recover-legacy", "/api/payments/offline/reviews/cancel-unsynced").contains(path)
+                || path.matches("^/api/payments/offline/reviews/[0-9a-fA-F-]{36}/(resolve|refund|cancel)$")
+                || path.matches("^/api/payments/offline/staff-actions/reviews/[0-9a-fA-F-]{36}/resolve$")
+                || path.matches("^/api/payments/requests/[0-9a-fA-F-]{36}/collect$");
+    }
+
     private boolean requiresLiveEntitlement(ServerWebExchange exchange, String tenantId, String role) {
         HttpMethod method = exchange.getRequest().getMethod();
         if (tenantId == null || tenantId.isBlank() || "SUPER_ADMIN".equals(role)
@@ -209,7 +224,7 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
     }
 
     private EntitlementDecision evaluateEntitlement(
-            TenantEntitlementClient.TenantEntitlement entitlement) {
+            TenantEntitlementClient.TenantEntitlement entitlement, boolean allowExpiredReconciliation) {
         if (entitlement == null || entitlement.tenantStatus() == null
                 || entitlement.tenantStatus().isBlank()) {
             return EntitlementDecision.unavailable();
@@ -222,7 +237,7 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
         }
         if (entitlement.planExpiresAt() != null && !entitlement.planExpiresAt().isBlank()) {
             try {
-                if (LocalDateTime.parse(entitlement.planExpiresAt()).isBefore(LocalDateTime.now())) {
+                if (!allowExpiredReconciliation && LocalDateTime.parse(entitlement.planExpiresAt()).isBefore(LocalDateTime.now())) {
                     return EntitlementDecision.denied("PLAN_002",
                             "Your subscription has expired. Operational changes are disabled; renew to continue.");
                 }

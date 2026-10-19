@@ -24,7 +24,7 @@ const NAV = [
 ];
 
 export default function SuperAdminLayout({ embedded = false }) {
-  const { user: orgUser, logout } = useAuth();
+  const { user: orgUser, requestLogout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const hubUser = (() => {
@@ -78,13 +78,13 @@ export default function SuperAdminLayout({ embedded = false }) {
     return location.pathname.startsWith(to);
   }
 
-  function handleSignOut() {
+  async function handleSignOut() {
     if (embedded) {
       clearHubSession();
       navigate('/hub-login', { replace: true });
     } else {
-      logout();
-      navigate('/login', { replace: true });
+      setShowSignOut(false);
+      if (await requestLogout()) navigate('/login', { replace: true });
     }
   }
 

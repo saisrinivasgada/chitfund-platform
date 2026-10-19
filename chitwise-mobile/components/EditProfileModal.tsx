@@ -1,3 +1,4 @@
+import { requestSignOut } from '../offline/signOut';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, Modal, TouchableOpacity, TextInput, ActivityIndicator,
@@ -7,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../store/authStore';
-import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices, checkUsernameAvailability } from '../services/api';
+import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, checkUsernameAvailability } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
 import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiometric, biometricTypeName } from '../utils/biometrics';
@@ -64,7 +65,7 @@ type ProfileTab = 'profile' | 'security' | 'history' | 'accounts';
 export default function EditProfileModal({ visible, onClose, initialTab = 'profile' }: {
   visible: boolean; onClose: () => void; initialTab?: ProfileTab;
 }) {
-  const { user, logout, accounts, logoutAll } = useAuthStore();
+  const { user } = useAuthStore();
   const router = useRouter();
   const qc = useQueryClient();
   const role = user?.role ?? 'MEMBER';
@@ -126,24 +127,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
   }, [visible]);
 
   async function handleLogoutAll() {
-    Alert.alert(
-      'Logout from All Devices',
-      'This will sign you out on all devices including this one. You will need to login again.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout All', style: 'destructive',
-          onPress: async () => {
-            // Revoking every other device's session needs the network and simply
-            // can't happen while offline — but signing out of THIS device must
-            // not wait on that call succeeding (or timing out after 20s).
-            logoutAllDevices().catch(() => {});
-            await logoutAll();
-            onClose();
-          },
-        },
-      ]
-    );
+    if (await requestSignOut({ all: true, allDevices: true })) onClose();
   }
 
   // Pre-fill when data loads
@@ -637,23 +621,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
 
             {/* Logout — always visible */}
             <TouchableOpacity
-              onPress={() => Alert.alert('Log Out', 'Sign out of this account? The account will remain saved on this device.', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Log Out', style: 'destructive',
-                  onPress: async () => {
-                    // Revoking the refresh token server-side is a courtesy, not a
-                    // requirement — the account is already being wiped locally, so
-                    // this must never block that (a 20s timeout waiting on a dead
-                    // network made "Log Out" look frozen while offline). Fire it in
-                    // the background and let it fail silently if unreachable.
-                    const refreshToken = user ? accounts.find(a => a.userId === user.id)?.refreshToken : undefined;
-                    if (refreshToken) { logoutAccount(refreshToken).catch(() => {}); }
-                    onClose();
-                    await logout();
-                  },
-                },
-              ])}
+              onPress={async () => { if (await requestSignOut()) onClose(); }}
               style={{ borderWidth: 1.5, borderColor: C.red ?? '#DC2626', borderRadius: 12, padding: 14, alignItems: 'center' }}>
               <Text style={{ fontSize: 15, fontWeight: '700', color: C.red ?? '#DC2626' }}>Log Out</Text>
             </TouchableOpacity>

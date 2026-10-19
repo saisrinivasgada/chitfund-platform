@@ -1,0 +1,111 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","enabled":true,"seedStaffReview":"KNOWN","staffReviewStaleOnce":true}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: 'Offline collection reviews \(1\).*'
+    timeout: 60000
+- tapOn: 'Offline collection reviews \(1\).*'
+- waitForAnimationToEnd
+- tapOn: 'Staff pickups \(1\)'
+- tapOn: '.*₹100.*Staff.*pickup.*'
+- extendedWaitUntil:
+    visible: "Original collector: QA Collector A"
+    timeout: 15000
+- tapOn: '.*Record the original cash pickup.*'
+- scrollUntilVisible:
+    element:
+      text: ".*Pickup review reason.*"
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
+- tapOn: ".*Pickup review reason.*"
+- inputText: "Verified original physical cash with collector"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: "Confirm pickup decision"
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: false
+- tapOn: '.*I verified the original collector, amount and this physical collection.*'
+- assertVisible: '☑ .*I verified the original collector, amount and this physical collection.*'
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: true
+- tapOn: "Confirm pickup decision"
+- extendedWaitUntil:
+    visible: "Pickup changed during review. Refresh and review the latest details."
+    timeout: 15000
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: false
+- scrollUntilVisible:
+    element:
+      text: "Refresh pickup details"
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
+- tapOn: "Refresh pickup details"
+- extendedWaitUntil:
+    visible: "Original collector: QA Collector A"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: '.*Cancel this mistaken entry.*'
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
+- tapOn: '.*Cancel this mistaken entry.*'
+- scrollUntilVisible:
+    element:
+      text: ".*Pickup review reason.*"
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
+- tapOn: ".*Pickup review reason.*"
+- inputText: "Wrong pickup selected. No cash was collected."
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: '.*No money was collected for this entry.*'
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
+- tapOn: '.*No money was collected for this entry.*'
+- assertVisible: '☑ .*No money was collected for this entry.*'
+- scrollUntilVisible:
+    element:
+      text: "Confirm pickup decision"
+    direction: DOWN
+    centerElement: false
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: true
+- tapOn: "Confirm pickup decision"
+- extendedWaitUntil:
+    visible: "No staff pickups waiting for review."
+    timeout: 15000
+- tapOn: "Close"
+- waitForAnimationToEnd
+- assertNotVisible: 'Offline collection reviews.*'
+- assertVisible: "Select Member"

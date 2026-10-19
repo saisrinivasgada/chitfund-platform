@@ -1,3 +1,4 @@
+import { requestSignOut } from '../../../offline/signOut';
 import { useState } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, TouchableOpacity,
@@ -119,7 +120,7 @@ export default function SuperAdminOrgsPage() {
             <Text style={{ fontSize: 18 }}>🔔</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={logout}
+            onPress={() => requestSignOut()}
             style={{ paddingHorizontal: 12, height: 42, justifyContent: 'center', borderRadius: 21, backgroundColor: C.gray100 }}
           >
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>Sign out</Text>

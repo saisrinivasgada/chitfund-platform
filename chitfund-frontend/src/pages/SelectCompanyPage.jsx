@@ -106,6 +106,7 @@ export default function SelectCompanyPage() {
         analyticsEnabled: scopedTenant.analyticsEnabled === true,
         chatEnabled: scopedTenant.chatEnabled === true,
         settlementEnabled: scopedTenant.settlementEnabled === true,
+          offlineEnabled: typeof scopedTenant.offlineEnabled === 'boolean' ? scopedTenant.offlineEnabled : undefined,
         adminPhone: scopedTenant.adminPhone ?? null,
         adminEmail: scopedTenant.adminEmail ?? null,
       });

@@ -67,6 +67,7 @@ public enum ErrorCode {
     CUSTOM_INSTALLMENT_NOT_CONFIGURED("PAYMENT_002", "Custom installment amount is not configured for this member"),
     PAYMENT_NOT_FOUND("PAYMENT_003", "Payment record not found"),
     DUPLICATE_PAYMENT("PAYMENT_004", "A payment already exists for this period"),
+    OFFLINE_PAYMENT_REVIEW_REQUIRED("OFFLINE_PAYMENT_REVIEW_REQUIRED", "Saved collection needs admin review"),
     MONTH_ALREADY_OPEN("PAYMENT_005", "A cycle is already open or skipped for this chit month"),
     BATCH_ALREADY_COMPLETED("PAYMENT_006", "This payment batch is already completed"),
     CYCLE_HAS_PAYMENTS("PAYMENT_007", "Cycle has payments recorded — void them before deleting"),

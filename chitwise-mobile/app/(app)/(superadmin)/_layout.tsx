@@ -1,16 +1,19 @@
 import { Tabs } from 'expo-router';
 import { C } from '../../../components/ui';
-import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
+import { NeumorphicTabBackground, NeumorphicTabIcon, useNeumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle, selectedTabBackgroundColor, RoundedTabButton } from '../../../components/NeumorphicTabs';
 
 export default function SuperAdminLayout() {
+  const tabBarStyle = useNeumorphicTabBarStyle();
   return (
     <Tabs screenOptions={({ route }) => ({
       headerShown: false,
       tabBarIcon: ({ focused }) => <NeumorphicTabIcon focused={focused} glyph={route.name === 'tickets' ? '🎫' : route.name === 'hub-chat' ? '💬' : route.name === 'employees' ? '👥' : '⚙'} size={17} />,
-      tabBarActiveTintColor: C.navy,
+      tabBarActiveTintColor: C.white,
+        tabBarActiveBackgroundColor: selectedTabBackgroundColor,
+        tabBarButton: RoundedTabButton,
       tabBarInactiveTintColor: C.gray400,
       tabBarBackground: NeumorphicTabBackground,
-      tabBarStyle: neumorphicTabBarStyle,
+      tabBarStyle,
       tabBarItemStyle: neumorphicTabItemStyle,
       tabBarLabelStyle: neumorphicTabLabelStyle,
     })}>

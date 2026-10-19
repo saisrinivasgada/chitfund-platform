@@ -479,49 +479,16 @@ function SidebarSwitchModal({ phone, altRole, altLabel, onClose }) {
 }
 
 // ─── Sign-out confirmation modal ──────────────────────────────────────────────
-function SignOutModal({ onConfirm, onClose }) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm" style={{ padding: 40 }} onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white"
-        >✕</button>
-        <div className="flex flex-col items-center text-center">
-          <div className="flex items-center justify-center rounded-2xl" style={{ width: 56, height: 56, backgroundColor: '#FEE2E2', marginBottom: 20 }}>
-            <LogOut size={24} style={{ color: '#DC2626' }} />
-          </div>
-          <h3 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif', marginBottom: 8 }}>Sign out?</h3>
-          <p className="text-sm text-gray-500" style={{ marginBottom: 32 }}>You'll need to sign in again to access your account.</p>
-          <div className="flex w-full" style={{ gap: 16 }}>
-            <button
-              onClick={onClose}
-              className="flex-1 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
-              style={{ paddingTop: 14, paddingBottom: 14 }}
-            >Cancel</button>
-            <button
-              onClick={onConfirm}
-              className="flex-1 text-sm font-medium text-white rounded-xl cursor-pointer"
-              style={{ paddingTop: 14, paddingBottom: 14, backgroundColor: '#DC2626' }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#B91C1C')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#DC2626')}
-            >Sign out</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 export default function Sidebar({ open = false, onClose, collapsed = false, onToggleCollapse }) {
-  const { user, logout, analyticsEnabled, chatEnabled, settlementEnabled, tenantName } = useAuth();
+  const { user, requestLogout, analyticsEnabled, chatEnabled, settlementEnabled, tenantName } = useAuth();
   const navigate = useNavigate();
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   const role = user?.role ?? 'ADMIN';
   const initials = (user?.name ?? user?.username ?? 'U').slice(0, 2).toUpperCase();
   const [showSwitch, setShowSwitch] = useState(false);
-  const [showSignOut, setShowSignOut] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
   const [pendingConversation, setPendingConversation] = useState(null);
@@ -755,7 +722,7 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
               {hidden ? <Eye size={16} /> : <EyeOff size={16} />}
             </button>
             <button
-              onClick={() => setShowSignOut(true)}
+              onClick={() => requestLogout()}
               title="Sign out"
               className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
             >
@@ -864,7 +831,7 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
                   </button>
                 )}
                 <button
-                  onClick={() => { setShowMore(false); setShowSignOut(true); }}
+                  onClick={() => { setShowMore(false); requestLogout(); }}
                   className="w-[52px] h-[52px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 hover:scale-105 hover:shadow-md transition-all cursor-pointer shadow-md"
                 >
                   <LogOut size={16} />
@@ -895,13 +862,7 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
           onClose={() => setShowSwitch(false)}
         />
       )}
-      {showSignOut && createPortal(
-        <SignOutModal
-          onConfirm={logout}
-          onClose={() => setShowSignOut(false)}
-        />,
-        document.body
-      )}
+
       {showSupport && createPortal(
         <ContactChitWiseModal onClose={() => setShowSupport(false)} currentUserId={user?.id} />,
         document.body
