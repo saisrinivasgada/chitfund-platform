@@ -179,6 +179,17 @@ jobs:
           root.getroot().find('application').set('{http://schemas.android.com/apk/res/android}usesCleartextTraffic', 'true')
           root.write(path, encoding='utf-8', xml_declaration=True)
           PYQA
+      - name: Check Android toolchain recovery
+        run: node --test scripts/ensure-ci-android-ndk.test.mjs
+      - name: Resolve Android toolchain cache path
+        id: android-sdk
+        run: echo "ndk-path=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.android-sdk.outputs.ndk-path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-chitwise-ndk-27.1.12297006-v1
+      - name: Install verified Android NDK with bounded retries
+        run: bash scripts/ensure-ci-android-ndk.sh
       - name: Build embedded JavaScript release for the emulator
         working-directory: chitwise-mobile/android
         # Expo's release lint exceeded the default 512 MiB class-metadata limit.
@@ -233,5 +244,6 @@ jobs:
             ~/.maestro/tests/**/xctest_runner*.log
             ${{ runner.temp }}/chitwise-driver-tail.log
             ${{ runner.temp }}/chitwise-android-build.log
+            ${{ runner.temp }}/chitwise-ndk-install-*.log
             ${{ runner.temp }}/chitwise-native-fixture.log
             ${{ runner.temp }}/chitwise-native-result.json
