@@ -34,7 +34,8 @@ class AdminWalletPaiseDualWriteTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
         memberCreditService = mock(MemberCreditService.class);
         service = new AdminWalletService(
-                repository, mock(PlanExpiryChecker.class), memberCreditService);
+                repository, mock(PlanExpiryChecker.class), memberCreditService,
+                mock(com.chitfund.paymentservice.client.AuditClient.class));
     }
 
     @Test

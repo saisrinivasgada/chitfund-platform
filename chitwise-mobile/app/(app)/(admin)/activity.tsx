@@ -24,6 +24,12 @@ const TYPE_FILTERS = [
   { key: 'RESERVATION_SLOT', label: 'Reservations' },
   { key: 'INVITATION',     label: 'Invitations' },
   { key: 'TICKET',         label: 'Tickets' },
+  { key: 'RESERVATION_SCHEDULE', label: 'Scheduling' },
+  { key: 'INVITATION_RESPONSE', label: 'Invitation responses' },
+  { key: 'ENROLLMENT', label: 'Enrolments' },
+  { key: 'TREASURY_ENTRY', label: 'Treasury' },
+  { key: 'MEMBER_CREDIT', label: 'Member credit' },
+  { key: 'USER', label: 'Accounts' },
 ];
 
 const DATE_PRESETS = [

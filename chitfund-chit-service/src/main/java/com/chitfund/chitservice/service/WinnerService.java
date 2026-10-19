@@ -20,7 +20,6 @@ import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -137,14 +136,22 @@ public class WinnerService {
 
     @Transactional
     public void deleteWinnerForDraw(UUID chitId, Integer monthNumber) {
-        chitService.findByIdScoped(chitId);
+        chitService.findByIdForUpdate(chitId);
+        List<MonthlyWinner> removed = winnerRepository.findByChitIdOrderByMonthNumberAsc(chitId)
+                .stream().filter(winner -> monthNumber.equals(winner.getMonthNumber())).toList();
+        for (MonthlyWinner winner : removed) {
+            auditClient.log("WINNER_ASSIGNMENT", winner.getId().toString(), chitId.toString(),
+                    "WINNER_REMOVED", null, null,
+                    Map.of("monthNumber", monthNumber, "memberId", winner.getMemberId(),
+                            "winningAmount", winner.getWinningAmount()), null, TenantContext.get());
+        }
         // No-op if no winner was recorded — non-fatal when called as part of cycle deletion
         winnerRepository.deleteByChitIdAndMonthNumber(chitId, monthNumber);
     }
 
     @Transactional
     public MonthReservationResponse reserveMonth(UUID chitId, ReserveMonthRequest request, UUID createdBy) {
-        Chit chit = chitService.findByIdScoped(chitId);
+        Chit chit = chitService.findByIdForUpdate(chitId);
 
         if (chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE);
@@ -164,18 +171,21 @@ public class WinnerService {
                     "Draw " + request.getMonthNumber() + " already has a winner assigned");
         }
 
-        try {
-            MonthReservation reservation = MonthReservation.builder()
-                    .chit(chit)
-                    .memberId(request.getMemberId())
-                    .monthNumber(request.getMonthNumber())
-                    .createdBy(createdBy)
-                    .build();
-            return chitMapper.toReservationResponse(reservationRepository.save(reservation));
-        } catch (ObjectOptimisticLockingFailureException e) {
-            // Two members tried to reserve the same month simultaneously — only one wins
-            throw new BusinessException(ErrorCode.MONTH_ALREADY_RESERVED);
-        }
+        MonthReservation reservation = reservationRepository.findByChitIdAndMonthNumber(chitId, request.getMonthNumber())
+                .stream().filter(slot -> slot.getStatus()
+                        == com.chitfund.chitservice.domain.enums.ReservationStatus.UNALLOCATED)
+                .findFirst().orElseThrow(() -> new BusinessException(ErrorCode.MONTH_ALREADY_RESERVED,
+                        "This draw has no free slot. Refresh the schedule and choose another draw."));
+        reservation.setMemberId(request.getMemberId());
+        reservation.setStatus(com.chitfund.chitservice.domain.enums.ReservationStatus.RESERVED);
+        reservation.setUpdatedBy(createdBy);
+        MonthReservation saved = reservationRepository.saveAndFlush(reservation);
+        auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
+                "SLOT_RESERVED", createdBy != null ? createdBy.toString() : null, null,
+                Map.of("status", "UNALLOCATED"),
+                Map.of("status", "RESERVED", "memberId", request.getMemberId(), "monthNumber", request.getMonthNumber()),
+                TenantContext.get());
+        return chitMapper.toReservationResponse(saved);
     }
 
     public List<MonthReservationResponse> listReservations(UUID chitId) {

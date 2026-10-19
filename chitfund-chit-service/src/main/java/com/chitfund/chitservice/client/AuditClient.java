@@ -26,6 +26,16 @@ public class AuditClient {
         requireBusinessTransaction();
         try {
             AuditRequestContext context = AuditRequestContext.current();
+            var authentication = org.springframework.security.core.context.SecurityContextHolder
+                    .getContext().getAuthentication();
+            if (authentication != null && authentication.isAuthenticated()
+                    && !(authentication instanceof org.springframework.security.authentication.AnonymousAuthenticationToken)) {
+                if (actorId == null || actorId.isBlank()) actorId = authentication.getName();
+                if (actorRole == null || actorRole.isBlank()) actorRole = authentication.getAuthorities().stream()
+                        .map(authority -> authority.getAuthority())
+                        .filter(authority -> authority.startsWith("ROLE_"))
+                        .map(authority -> authority.substring(5)).findFirst().orElse(null);
+            }
             String eventId = UUID.randomUUID().toString();
             AuditLogEvent event = new AuditLogEvent("chit-service", entityType, entityId, chitId,
                     action, actorId, actorRole, context.actorIp(),

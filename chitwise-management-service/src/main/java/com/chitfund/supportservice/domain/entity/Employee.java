@@ -13,6 +13,10 @@ import java.time.Instant;
 @Builder
 public class Employee {
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Id
     private String id;
 

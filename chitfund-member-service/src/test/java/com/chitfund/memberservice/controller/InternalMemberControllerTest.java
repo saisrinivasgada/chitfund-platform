@@ -21,6 +21,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class InternalMemberControllerTest {
     @Mock private MemberRepository memberRepository;
+    @Mock private com.chitfund.memberservice.client.AuditClient auditClient;
     @InjectMocks private InternalMemberController controller;
 
     @BeforeEach
@@ -39,7 +40,10 @@ class InternalMemberControllerTest {
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(member.getStatus()).isEqualTo(MemberStatus.ACTIVE);
+        controller.activateMember(id, "test-key", tenantId);
         verify(memberRepository).save(member);
+        verify(auditClient).log(eq("MEMBER"), eq(id.toString()), eq("STATUS_CHANGED_BY_SETTLEMENT"),
+                isNull(), eq("SYSTEM"), any(), any(), eq(tenantId));
     }
 
     @Test

@@ -511,13 +511,15 @@ public class EmployeeService {
         if (employeeId.equals(actorId)) {
             throw new IllegalArgumentException("You cannot change your own custom role");
         }
+        // Role -> employee is the same lock order used by role edits and deletion.
+        if (customRoleId != null) {
+            roleRepository.findByIdForUpdate(customRoleId)
+                    .orElseThrow(() -> new IllegalArgumentException("Custom role not found"));
+        }
         Employee employee = getById(employeeId);
         String previousCustomRoleId = employee.getCustomRoleId();
         if (Objects.equals(previousCustomRoleId, customRoleId)) {
             return toResponse(employee);
-        }
-        if (customRoleId != null && !roleRepository.existsById(customRoleId)) {
-            throw new IllegalArgumentException("Custom role not found");
         }
         employee.setCustomRoleId(customRoleId);
         employee.setAuthVersion(employee.getAuthVersion() + 1);

@@ -13,6 +13,7 @@ import java.util.UUID;
 @Builder
 public class MonthReservationResponse {
     private UUID id;
+    private Long version;
     private UUID chitId;
     private UUID memberId;
     private boolean orgHeld;

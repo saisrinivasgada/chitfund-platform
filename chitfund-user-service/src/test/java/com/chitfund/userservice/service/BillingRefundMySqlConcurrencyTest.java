@@ -72,7 +72,7 @@ class BillingRefundMySqlConcurrencyTest {
         String actorId = UUID.randomUUID().toString();
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         transactions.executeWithoutResult(status -> {
-            Tenant savedTenant = tenantRepo.saveAndFlush(Tenant.builder().id(requestedTenantId)
+            Tenant savedTenant = tenantRepo.saveAndFlush(Tenant.builder()
                     .name("Concurrency Org").slug("concurrency-" + requestedTenantId)
                     .status("ACTIVE").plan("BASIC").creditBalanceInr(BigDecimal.ZERO).build());
             tenantId.set(savedTenant.getId());

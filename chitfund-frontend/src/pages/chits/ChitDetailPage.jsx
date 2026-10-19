@@ -16,7 +16,7 @@ import {
   getPayoutsByChit, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   listStaff, getUserById, getWalletBalance,
-  getChitAuditLogs, listAuctions,
+  getChitAuditPage, listAuctions,
   sendChitInvitation, getChitInvitations, getChitInvitationDetail, closeChitInvitation, overrideInvitationResponse, approveInvitationResponse, rejectInvitationResponse,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -1410,6 +1410,7 @@ function ReservationScheduleTab({ chitId, chit }) {
     setEdits((prev) => ({
       ...prev,
       [slot.id]: {
+        expectedVersion: slot.version,
         memberId:     slot.orgHeld ? 'ORG' : String(slot.memberId ?? ''),
         payoutAmount: String(slot.payoutAmount ?? ''),
         ...(prev[slot.id] ?? {}),
@@ -1422,6 +1423,7 @@ function ReservationScheduleTab({ chitId, chit }) {
     mutationFn: ({ slot, edit }) => updateReservationSlot({
       chitId,
       reservationId: slot.id,
+      expectedVersion: edit.expectedVersion ?? slot.version,
       reservationMonth: slot.reservationMonth,
       memberId: isLottery ? (slot.memberId || null) : (edit.memberId === 'ORG' ? null : (edit.memberId || null)),
       orgHeld: isLottery ? false : (edit.memberId === 'ORG'),
@@ -1448,7 +1450,8 @@ function ReservationScheduleTab({ chitId, chit }) {
   // replaceAt === 'same' → replacement pins to the voided slot's monthNumber + reservationMonth
   // replaceAt === 'end'  → replacement goes after the last existing slot
   const voidMutation = useMutation({
-    mutationFn: ({ slot, reason }) => removeReservationSlot({ chitId, reservationId: slot.id, reason }),
+    mutationFn: ({ slot, reason }) => removeReservationSlot({ chitId, reservationId: slot.id,
+      expectedVersion: slot.version, reason }),
     onSuccess: async (_, { slot, replaceAt }) => {
       console.log('[voidMutation] replaceAt:', replaceAt, '| slot.monthNumber:', slot?.monthNumber, '| slot.reservationMonth:', slot?.reservationMonth);
       let replacementMonth;
@@ -1503,6 +1506,7 @@ function ReservationScheduleTab({ chitId, chit }) {
     mutationFn: (slot) => updateReservationSlot({
       chitId,
       reservationId: slot.id,
+      expectedVersion: slot.version,
       reservationMonth: slot.reservationMonth,
       memberId: slot.memberId || null,
       payoutAmount: slot.payoutAmount ? Number(slot.payoutAmount) : null,
@@ -1975,6 +1979,7 @@ function PayoutPlanTab({ chitId, chit }) {
   const isAuction = chit?.chitType === 'AUCTION' || chit?.winnerSelectionMode === 'AUCTION';
 
   const [edits, setEdits] = useState({});
+  const [editVersions, setEditVersions] = useState({});
   const [hoveredDrawNum, setHoveredDrawNum] = useState(null);
 
   const { data: slots = [], isLoading: slotsLoading } = useQuery({
@@ -2018,6 +2023,7 @@ function PayoutPlanTab({ chitId, chit }) {
     mutationFn: ({ slot, payoutAmount }) => updateReservationSlot({
       chitId,
       reservationId: slot.id,
+      expectedVersion: editVersions[slot.id] ?? slot.version,
       reservationMonth: slot.reservationMonth,
       memberId: slot.memberId || null,
       orgHeld: false,
@@ -2032,6 +2038,7 @@ function PayoutPlanTab({ chitId, chit }) {
       }
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
       setEdits((prev) => { const n = { ...prev }; delete n[slot.id]; return n; });
+      setEditVersions((prev) => { const n = { ...prev }; delete n[slot.id]; return n; });
       toast.success('Payout amount saved');
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to save'),
@@ -2101,7 +2108,10 @@ function PayoutPlanTab({ chitId, chit }) {
                             <Input
                               type="number" min="0"
                               value={payoutEdit}
-                              onChange={(e) => setEdits((prev) => ({ ...prev, [slot.id]: e.target.value }))}
+                              onChange={(e) => {
+                                setEditVersions((prev) => ({ ...prev, [slot.id]: prev[slot.id] ?? slot.version }));
+                                setEdits((prev) => ({ ...prev, [slot.id]: e.target.value }));
+                              }}
                               style={{ width: 120 }}
                             />
                           </div>
@@ -4268,32 +4278,7 @@ function HeaderActions({ chitId, chit }) {
 
   const statusMutation = useMutation({
     mutationFn: async ({ status, startDate }) => {
-      // When activating with a start date that differs from the anticipated date,
-      // shift all RESERVED/UNALLOCATED reservation months to match the actual start date.
-      if (status === 'ACTIVE' && startDate && chit.startDate && startDate !== chit.startDate) {
-        const [ay, am] = chit.startDate.split('-').map(Number);
-        const [by, bm] = startDate.split('-').map(Number);
-        const offsetMonths = (by - ay) * 12 + (bm - am);
-        if (offsetMonths !== 0) {
-          const shiftable = reservations.filter((r) => r.status === 'RESERVED' || r.status === 'UNALLOCATED');
-          await Promise.all(shiftable.map((r) => {
-            const parts = r.reservationMonth.split('-').map(Number);
-            const totalMonths = (parts[0] - 1) * 12 + parts[1] + offsetMonths;
-            const newYear = Math.floor((totalMonths - 1) / 12) + 1;
-            const newMonth = ((totalMonths - 1) % 12) + 1;
-            const newDate = `${newYear}-${String(newMonth).padStart(2, '0')}-01`;
-            return updateReservationSlot({
-              chitId,
-              reservationId: r.id,
-              reservationMonth: newDate,
-              memberId: r.orgHeld ? null : (r.memberId || null),
-              orgHeld: r.orgHeld ?? false,
-              payoutAmount: r.payoutAmount,
-              postPayoutContribution: r.postPayoutContribution || null,
-            }).catch(() => {});
-          }));
-        }
-      }
+      // The server moves the schedule and activates the chit in one transaction.
       return updateChitStatus({ id: chitId, status, startDate: startDate || null });
     },
     onSuccess: () => { invalidate(); toast.success('Status updated'); setPendingStatus(null); setPendingStartDate(''); setShowStatusMenu(false); },
@@ -4632,11 +4617,11 @@ function buildSummary(action, after, before, memberMap) {
 function AuditTab({ chitId }) {
   const [, setSearchParams] = useSearchParams();
   const [filter,  setFilter]  = useState('all');
-  const [sortAsc, setSortAsc] = useState(false);
 
-  const { data: rawLogs = [], isLoading, isError } = useQuery({
-    queryKey: ['chit-audit', chitId],
-    queryFn: () => getChitAuditLogs(chitId, 0, 200),
+  const [auditPage, setAuditPage] = useState(0);
+  const { data: auditHistory, isLoading, isError } = useQuery({
+    queryKey: ['chit-audit', chitId, auditPage],
+    queryFn: () => getChitAuditPage(chitId, auditPage, 50),
     retry: 1,
   });
   const { data: staffList  = [] } = useQuery({ queryKey: ['staff'],   queryFn: listStaff });
@@ -4649,15 +4634,21 @@ function AuditTab({ chitId }) {
     allMembers.map((m) => [String(m.id), m.fullName ?? m.name ?? 'Member'])
   );
 
-  const NOISE_ACTIONS = new Set(['PAYMENT_COMPLETED', 'CASH_COLLECTED']);
-  const logs = rawLogs.filter((l) => !NOISE_ACTIONS.has(l.action));
+  const logs = auditHistory?.content ?? [];
+  const readableField = (field) => field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+  const readableValue = (value) => {
+    if (value == null) return '—';
+    if (Array.isArray(value)) return value.map(readableValue).join('; ');
+    if (typeof value === 'object') return Object.entries(value).map(([key, val]) => `${readableField(key)}: ${readableValue(val)}`).join(' · ');
+    return memberMap[String(value)] ?? String(value);
+  };
 
   const filtered = (filter === 'all'
     ? logs
     : logs.filter((l) => (ACTION_META[l.action]?.group ?? 'other') === filter)
   ).slice().sort((a, b) => {
     const diff = new Date(a.createdAt) - new Date(b.createdAt);
-    return sortAsc ? diff : -diff;
+    return -diff;
   });
 
   // Collapse multiple PAYOUT_DISBURSED events for the same payout into one grouped row
@@ -4698,6 +4689,7 @@ function AuditTab({ chitId }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-gray-400 text-center">Newest events first · filters below apply to this page</p>
       {/* Filter pills — centered */}
       <div className="flex items-center justify-center gap-2 flex-wrap">
         {AUDIT_FILTERS.map((f) => {
@@ -4735,12 +4727,7 @@ function AuditTab({ chitId }) {
             <span>Event</span>
             <span>Detail</span>
             <span>By</span>
-            <button
-              onClick={() => setSortAsc((p) => !p)}
-              className="flex items-center gap-1 cursor-pointer hover:text-gray-600 transition-colors justify-end"
-            >
-              When {sortAsc ? '↑' : '↓'}
-            </button>
+            <span className="text-right">When</span>
           </div>
 
           {/* Rows */}
@@ -4776,7 +4763,7 @@ function AuditTab({ chitId }) {
               displayTime = formatTime(log.createdAt);
             }
 
-            const actor   = log.actorId ? (actorNameMap[String(log.actorId)] ?? '—') : 'System';
+            const actor   = log.actorId ? (actorNameMap[String(log.actorId)] ?? `Account ${String(log.actorId).slice(0, 8)}`) : 'System';
             const rawRole = log.actorRole?.replace('ROLE_', '') ?? '';
             return (
               <div
@@ -4790,6 +4777,19 @@ function AuditTab({ chitId }) {
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <p className="text-sm text-gray-700 leading-snug">{summary}</p>
+                  {(before || after) && (
+                    <details className="mt-1 text-xs text-gray-600">
+                      <summary className="cursor-pointer text-blue-800">View recorded changes</summary>
+                      <dl className="mt-2 space-y-2">
+                        {[...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])]
+                          .filter((key) => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
+                          .map((key) => <div key={key} className="break-words">
+                            <dt className="capitalize font-semibold">{readableField(key)}</dt>
+                            <dd>{readableValue(before?.[key])} → {readableValue(after?.[key])}</dd>
+                          </div>)}
+                      </dl>
+                    </details>
+                  )}
                   {(log.action === 'ENROLLMENT_FROM_INVITATION' || log.action === 'INVITATION_SENT' || log.action === 'INVITATION_RESPONDED' || log.action === 'INVITATION_CLOSED') && after?.invitationId && (
                     <button
                       onClick={() => setSearchParams(p => { const n = new URLSearchParams(p); n.set('tab', 'Invitations'); n.set('inv', after.invitationId); return n; })}
@@ -4810,6 +4810,11 @@ function AuditTab({ chitId }) {
           })}
         </div>
       )}
+      <div className="flex items-center justify-between gap-3 text-sm text-gray-500">
+        <button disabled={auditPage === 0} onClick={() => setAuditPage(p => p - 1)} className="disabled:opacity-40">Previous</button>
+        <span>Page {auditPage + 1} of {Math.max(1, auditHistory?.totalPages ?? 1)} · {auditHistory?.totalElements ?? 0} events</span>
+        <button disabled={auditHistory?.last ?? true} onClick={() => setAuditPage(p => p + 1)} className="disabled:opacity-40">Next</button>
+      </div>
     </div>
   );
 }

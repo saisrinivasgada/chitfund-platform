@@ -25,6 +25,11 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
 
     Optional<PaymentRecord> findByIdAndTenantId(UUID id, String tenantId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.id=:id AND r.tenantId=:tenantId")
+    Optional<PaymentRecord> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);
+
+
     List<PaymentRecord> findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
             String tenantId, UUID memberId, UUID chitId, List<PaymentRecordStatus> statuses);
 

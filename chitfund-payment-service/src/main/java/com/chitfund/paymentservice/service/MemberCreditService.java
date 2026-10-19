@@ -25,6 +25,7 @@ public class MemberCreditService {
 
     private final MemberCreditBalanceRepository creditBalanceRepository;
     private final MemberCreditTransactionRepository creditTxnRepository;
+    private final com.chitfund.paymentservice.client.AuditClient auditClient;
 
     @Transactional(readOnly = true)
     public BigDecimal getBalance(UUID memberId) {
@@ -150,10 +151,11 @@ public class MemberCreditService {
                             + "the balance changed since it was last read; needs manual reconciliation",
                     HttpStatus.CONFLICT);
         }
+        BigDecimal previousBalance = credit.getBalance();
         credit.setBalance(newBalance);
         creditBalanceRepository.save(credit);
 
-        creditTxnRepository.save(MemberCreditTransaction.builder()
+        MemberCreditTransaction movement = creditTxnRepository.save(MemberCreditTransaction.builder()
                 .tenantId(tenantId)
                 .memberId(memberId)
                 .amount(amount)
@@ -166,6 +168,15 @@ public class MemberCreditService {
                 .description(description)
                 .createdBy(actorId)
                 .build());
+
+        var details = new java.util.LinkedHashMap<String, Object>();
+        details.put("memberId", memberId); details.put("amount", amount); details.put("direction", type);
+        details.put("balance", newBalance); details.put("sourceBatchId", batchId);
+        details.put("sourceSettlementId", settlementId); details.put("sourceDrawId", drawId);
+        details.put("reversalOfId", reversalOfId);
+        auditClient.log("MEMBER_CREDIT", movement.getId().toString(), chitId != null ? chitId.toString() : null,
+                "MEMBER_CREDIT_" + type, actorId != null ? actorId.toString() : null, null,
+                java.util.Map.of("balance", previousBalance), details, tenantId);
 
         log.info("Credit {} ₹{} for member {} (batch {}, settlement {}) — balance now ₹{}",
                 type, amount, memberId, batchId, settlementId, newBalance);

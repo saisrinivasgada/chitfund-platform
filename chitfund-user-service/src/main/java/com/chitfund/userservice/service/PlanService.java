@@ -65,6 +65,14 @@ public class PlanService {
     private static final Set<String> ENFORCED_ADD_ONS = Set.of(
             "full_analytics", "priority_support", "live_chat", "settlement", "offline_support");
 
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void lockStaffQuota(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) throw new BusinessException(ErrorCode.FORBIDDEN, "Organization context is required");
+        tenantRepository.findByIdForUpdate(UUID.fromString(tenantId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Organization not found"));
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public void checkStaffLimit(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Organization context is required");
@@ -113,7 +121,7 @@ public class PlanService {
                     + "Upgrade to Growth or higher to add team members.");
         }
 
-        long currentCount = userRepository.countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(tenantId, STAFF_ROLES);
+        long currentCount = userRepository.findActiveStaffForUpdate(tenantId, STAFF_ROLES).size();
         if (currentCount >= maxStaff) {
             throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,
                     "Your " + displayName + " plan allows a maximum of " + maxStaff

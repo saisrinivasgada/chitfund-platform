@@ -40,6 +40,10 @@ import java.util.UUID;
 @Builder
 public class User implements UserDetails {
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;

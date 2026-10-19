@@ -12,6 +12,10 @@ import java.util.Optional;
 
 public interface HubConversationRepository extends JpaRepository<HubConversation, String> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT c FROM HubConversation c WHERE c.id=:id")
+    java.util.Optional<HubConversation> findForUpdate(@org.springframework.data.repository.query.Param("id") String id);
+
     @Query("SELECT c FROM HubConversation c WHERE c.employee1Id = :eid OR c.employee2Id = :eid ORDER BY CASE WHEN c.lastMessageAt IS NULL THEN 1 ELSE 0 END, c.lastMessageAt DESC")
     List<HubConversation> findByEmployee(String eid);
 

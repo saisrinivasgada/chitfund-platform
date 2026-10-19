@@ -35,7 +35,7 @@ public class EnrollmentService {
     @Transactional
     public ChitEnrollmentResponse enrollMember(UUID chitId, EnrollMemberRequest request) {
         planLimitChecker.checkNotExpired();
-        Chit chit = chitService.findByIdScoped(chitId);
+        Chit chit = chitService.findByIdForUpdate(chitId);
 
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,
@@ -72,7 +72,7 @@ public class EnrollmentService {
 
     @Transactional
     public void removeEnrollment(UUID chitId, UUID memberId) {
-        Chit chit = chitService.findByIdScoped(chitId);
+        Chit chit = chitService.findByIdForUpdate(chitId);
 
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,

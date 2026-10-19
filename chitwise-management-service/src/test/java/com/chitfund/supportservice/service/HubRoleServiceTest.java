@@ -45,7 +45,7 @@ class HubRoleServiceTest {
         request.setPermissions(Set.of("TICKET_VIEW_ACCOUNT"));
         request.setReason("Move this team to the account support queue");
 
-        when(roleRepository.findById("role-1")).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdForUpdate("role-1")).thenReturn(Optional.of(role));
         when(roleRepository.save(role)).thenReturn(role);
         when(employeeRepository.findByCustomRoleId("role-1")).thenReturn(List.of(employee));
 
@@ -73,7 +73,7 @@ class HubRoleServiceTest {
         request.setName("Payments");
         request.setPermissions(Set.of("TICKET_VIEW_PAYMENT"));
         request.setReason("Retry the already applied role configuration");
-        when(roleRepository.findById("role-1")).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdForUpdate("role-1")).thenReturn(Optional.of(role));
 
         service.update("role-1", request, "owner-1");
 

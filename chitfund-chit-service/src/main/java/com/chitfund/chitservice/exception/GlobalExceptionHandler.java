@@ -48,6 +48,29 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.validationError(errors));
     }
 
+    // A deadlock/lock timeout rolls back this attempt. Offline clients must retry
+    // the same operation identity, rather than sending valid money for review.
+    @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleContention(org.springframework.dao.PessimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header("Retry-After", "1")
+                .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
+                        "Another action is in progress. Please try again shortly."));
+    }
+
+    @ExceptionHandler(org.springframework.dao.ConcurrencyFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConcurrency(org.springframework.dao.ConcurrencyFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
+                        "Another request changed this information. Refresh and try again."));
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConflictingWrite(org.springframework.dao.DataIntegrityViolationException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
+                        "These details conflict with an existing record. Refresh and check availability before trying again."));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneral(Exception ex) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);

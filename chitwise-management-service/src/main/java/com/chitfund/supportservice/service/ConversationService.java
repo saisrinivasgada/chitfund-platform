@@ -164,6 +164,9 @@ public class ConversationService {
                                             String senderId, String senderName,
                                             String senderRole, boolean isMember,
                                             SendChatMessageRequest req) {
+        // Lock before inserting a child message: otherwise two FK shared locks
+        // can deadlock when both sends later upgrade to update the parent.
+        conversationRepo.findForUpdate(conversationId, tenantId);
         Conversation conv = findConvSecure(conversationId, tenantId, senderId, isMember);
 
         // Idempotency check — scoped to (conversationId, senderId, clientMessageId)
@@ -193,17 +196,9 @@ public class ConversationService {
         String preview = req.getContent().length() > 197
                 ? req.getContent().substring(0, 197) + "..."
                 : req.getContent();
-        conv.setLastMessageAt(msg.getCreatedAt());
-        conv.setLastMessagePreview(preview);
-        conv.setLastMessageIsAdmin(isAdmin);
-        conversationRepo.save(conv);
-
-        // Atomic increment avoids lost-update race condition under concurrent sends
-        if (isAdmin) {
-            conversationRepo.incrementMemberUnread(conv.getId());
-        } else {
-            conversationRepo.incrementAdminUnread(conv.getId());
-        }
+        // A full entity save would write the stale unread counters that were read
+        // before another sender committed. Mutate metadata and counters together.
+        conversationRepo.recordMessage(conv.getId(), msg.getCreatedAt(), preview, isAdmin);
         // Re-fetch for accurate counts to broadcast
         conv = conversationRepo.findById(conv.getId()).orElse(conv);
 

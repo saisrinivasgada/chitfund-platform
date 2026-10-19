@@ -8,7 +8,7 @@ on:
       - 'shared/offline/**'
       - '.github/workflows/mobile-ci.yml'
   pull_request:
-    branches: [main, test]
+    branches: [main, test, 'feat/**']
     paths:
       - 'chitwise-mobile/**'
       - 'shared/offline/**'
