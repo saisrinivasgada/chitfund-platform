@@ -2,22 +2,10 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- runFlow:
-    file: open-app-route.yaml
-    env:
-      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+# Start through the visible toolbar, including a newly installed app. Opening
+# Finance must not depend on the OS accepting its first external URL request.
+- tapOn: 'Finance(, tab,.*)?'
 - waitForAnimationToEnd
-# Native iOS routes open directly. If a platform shows a link confirmation,
-# handle it, then require the actual payment screen.
-- extendedWaitUntil:
-    visible: 'Open in .*ChitWise.*|Select Member'
-    timeout: 60000
-- runFlow:
-    when:
-      visible: 'Open in .*ChitWise.*'
-    commands:
-      - tapOn: 'Open'
-      - waitForAnimationToEnd
 - extendedWaitUntil:
     visible:
       id: "member-row-QA Member A"
