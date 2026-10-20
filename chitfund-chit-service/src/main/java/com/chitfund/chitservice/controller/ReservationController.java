@@ -260,11 +260,12 @@ public class ReservationController {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Only RESERVED slots can be marked as processed");
         }
+        Map<String, Object> before = slotSnapshot(r);
         r.setStatus(ReservationStatus.PROCESSED);
         r.setUpdatedBy(adminId);
         MonthReservation saved = reservationRepository.saveAndFlush(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_PROCESSED", adminId.toString(), actorRole, null, slotSnapshot(saved),
+                "SLOT_PROCESSED", adminId.toString(), actorRole, before, slotSnapshot(saved),
                 TenantContext.get());
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot marked as processed"));
@@ -378,6 +379,8 @@ public class ReservationController {
         UUID memberB = b.getMemberId();
         boolean orgA = a.isOrgHeld();
         boolean orgB = b.isOrgHeld();
+        Map<String, Object> beforeA = slotSnapshot(a);
+        Map<String, Object> beforeB = slotSnapshot(b);
 
         a.setMemberId(memberB);
         a.setOrgHeld(orgB);
@@ -392,13 +395,11 @@ public class ReservationController {
         String tenantId = TenantContext.get();
         auditClient.log("RESERVATION_SLOT", a.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
-                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", b.getId().toString()),
-                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", b.getId().toString()),
+                swapSnapshot(beforeA, b.getId()), swapSnapshot(slotSnapshot(a), b.getId()),
                 tenantId);
         auditClient.log("RESERVATION_SLOT", b.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
-                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", a.getId().toString()),
-                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", a.getId().toString()),
+                swapSnapshot(beforeB, a.getId()), swapSnapshot(slotSnapshot(b), a.getId()),
                 tenantId);
 
         return ResponseEntity.ok(ApiResponse.success(null, "Slots swapped"));
@@ -440,6 +441,11 @@ public class ReservationController {
 
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Org payout realized to treasury"));
+    }
+
+    private Map<String, Object> swapSnapshot(Map<String, Object> snapshot, UUID otherSlot) {
+        snapshot.put("swappedWithSlot", otherSlot.toString());
+        return snapshot;
     }
 
     private Map<String, Object> slotSnapshot(MonthReservation r) {

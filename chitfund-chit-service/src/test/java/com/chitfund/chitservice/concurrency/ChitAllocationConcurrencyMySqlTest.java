@@ -166,6 +166,39 @@ class ChitAllocationConcurrencyMySqlTest {
         assertThat(slots.findById(slot.getId()).orElseThrow().getMemberId()).isNull();
         assertThat(auditCount("SLOT_UPDATED")).isZero();
     }
+    @Test void scheduleAuditPreservesOrgOwnershipAndProcessingBeforeAfter() throws Exception {
+        var a = freeSlot(1); var b = freeSlot(2); var member = UUID.randomUUID();
+        a.setMemberId(member); a.setStatus(ReservationStatus.RESERVED);
+        b.setOrgHeld(true); b.setStatus(ReservationStatus.RESERVED);
+        slots.saveAndFlush(a); slots.saveAndFlush(b);
+        var request = new SwapSlotsRequest(); request.setSlotAId(a.getId()); request.setSlotBId(b.getId());
+        schedule.swapSlots(chit.getId(), request, auth());
+        var jdbc = new JdbcTemplate(dataSource); var mapper = new ObjectMapper();
+        String payload = jdbc.queryForObject("""
+                SELECT CAST(payload AS CHAR) FROM audit_event_outbox
+                WHERE tenant_id=? AND entity_id=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.action'))='SLOT_SWAPPED'
+                """, String.class, tenant, a.getId().toString());
+        var event = mapper.readTree(payload);
+        var before = mapper.readTree(event.path("beforeState").asText());
+        var after = mapper.readTree(event.path("afterState").asText());
+        assertThat(before.path("memberId").asText()).isEqualTo(member.toString());
+        assertThat(before.path("orgHeld").asBoolean()).isFalse();
+        assertThat(after.path("memberId").isNull()).isTrue();
+        assertThat(after.path("orgHeld").asBoolean()).isTrue();
+        assertThat(after.path("swappedWithSlot").asText()).isEqualTo(b.getId().toString());
+        assertThat(event.path("actorId").asText()).isEqualTo(admin.toString());
+        assertThat(auditCount("SLOT_SWAPPED")).isEqualTo(2);
+
+        schedule.processSlot(chit.getId(), b.getId(), auth());
+        payload = jdbc.queryForObject("""
+                SELECT CAST(payload AS CHAR) FROM audit_event_outbox
+                WHERE tenant_id=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.action'))='SLOT_PROCESSED'
+                """, String.class, tenant);
+        event = mapper.readTree(payload);
+        assertThat(mapper.readTree(event.path("beforeState").asText()).path("status").asText()).isEqualTo("RESERVED");
+        assertThat(mapper.readTree(event.path("afterState").asText()).path("status").asText()).isEqualTo("PROCESSED");
+        assertThat(slots.findById(b.getId()).orElseThrow().getMemberId()).isEqualTo(member);
+    }
     @Test void approvalFailureRollsBackEarlierSlotAndItsAudit() {
         var slot = freeSlot(1); var response = interested(1); response.setRequestedDrawNumbers("[1,2]"); responseRows.saveAndFlush(response);
         assertThatThrownBy(() -> invitations.approveResponse(chit.getId(), invitation.getId(), response.getId(), admin))
