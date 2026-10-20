@@ -72,7 +72,7 @@ jobs:
     runs-on: macos-15
     # Includes the added manager recovery, first-download and member-ledger
     # journeys after the previous complete ~52-minute iOS build and suite.
-    timeout-minutes: 75
+    timeout-minutes: 90
     env:
       EXPO_PUBLIC_API_URL: http://127.0.0.1:3112/api
       CHITWISE_NATIVE_QA: '1'
