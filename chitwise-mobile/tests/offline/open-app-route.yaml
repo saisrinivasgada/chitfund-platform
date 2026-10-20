@@ -7,6 +7,15 @@ env:
       platform: iOS
     commands:
       - runScript: open-app-route.js
+      # simctl returns before iOS has presented its external-link confirmation.
+      # An optional early tap can miss the prompt and strand the next assertion.
+      - extendedWaitUntil:
+          visible: 'Open in .*ChitWise.*'
+          timeout: 60000
+      - tapOn: "Open"
+      - extendedWaitUntil:
+          notVisible: 'Open in .*ChitWise.*'
+          timeout: 15000
 - runFlow:
     when:
       platform: Android
