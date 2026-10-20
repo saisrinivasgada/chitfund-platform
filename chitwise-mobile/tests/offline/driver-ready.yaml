@@ -1,0 +1,7 @@
+appId: com.chitwise.mobile
+---
+# Fresh CI install only. No sign-in or financial actions in this preflight.
+- launchApp
+- extendedWaitUntil:
+    visible: "Enter your username"
+    timeout: 60000

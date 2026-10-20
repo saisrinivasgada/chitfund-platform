@@ -35,7 +35,7 @@ jobs:
         run: npm ci
 
       - name: Offline policy and recovery checks
-        run: npm run offline:policy:test && node --test ../shared/offline/*.test.mjs
+        run: npm run offline:policy:test && node --test ../shared/offline/*.test.mjs scripts/ensure-ci-ios-driver.test.mjs
 
       - name: TypeScript type-check
         run: npm run type-check
@@ -119,6 +119,8 @@ jobs:
         run: |
           node tests/offline/server.mjs > "$RUNNER_TEMP/chitwise-native-fixture.log" 2>&1 &
           node -e 'const wait=async()=>{for(let i=0;i<50;i++){try{if((await fetch("http://127.0.0.1:3112/__qa/state")).ok)return}catch{}await new Promise(r=>setTimeout(r,200))}process.exit(1)};wait()'
+      - name: Verify iOS driver readiness before signing in
+        run: node scripts/ensure-ci-ios-driver.mjs
       - name: Verify complete native offline regression journeys
         env:
           CHITWISE_QA_REPORT: ${{ runner.temp }}/chitwise-native-result.json
@@ -138,6 +140,7 @@ jobs:
             ~/.maestro/tests/**/xctest_runner*.log
             ${{ runner.temp }}/chitwise-driver-tail.log
             ${{ runner.temp }}/chitwise-ios-build.log
+            ${{ runner.temp }}/chitwise-ios-driver-preflight.log
             ${{ runner.temp }}/chitwise-native-fixture.log
             ${{ runner.temp }}/chitwise-native-result.json
 
