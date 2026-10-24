@@ -21,7 +21,7 @@ appId: com.chitwise.mobile
 - extendedWaitUntil:
     visible: "Available offline"
     timeout: 60000
-- tapOn: "Close sync details"
+- runFlow: close-sync-details.yaml
 - waitForAnimationToEnd
 - tapOn:
     id: "chitwise-tools-button"

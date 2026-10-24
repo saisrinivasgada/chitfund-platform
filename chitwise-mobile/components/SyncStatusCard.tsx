@@ -107,8 +107,8 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
         <View style={{ backgroundColor: '#F8FAFC', borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 24, paddingBottom: 38, maxHeight: '86%' }}>
           <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', marginBottom: 22 }} />
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: C.navy }}>Sync & offline data</Text>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close sync details" onPress={() => setOpen(false)} hitSlop={10}>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: C.navy, flex: 1, marginRight: 12 }}>Sync & offline data</Text>
+            <TouchableOpacity testID="close-sync-details" accessibilityRole="button" accessibilityLabel="Close sync details" onPress={() => setOpen(false)} style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748B' }}>Done</Text>
             </TouchableOpacity>
           </View>
