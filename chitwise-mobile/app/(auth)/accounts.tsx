@@ -1,3 +1,4 @@
+import { authorizeDeviceSession } from '../../utils/deviceUnlockSession';
 import { effectiveOfflineAccess } from '../../offline/accessPolicy';
 import { offlinePresentation } from '../../../shared/offline/presentation';
 import { restoreOfflineAccess, useOfflineAccessStore } from '../../offline/access';
@@ -8,17 +9,16 @@ import NetInfo from '@react-native-community/netinfo';
 import { accountSyncSummary } from '../../../shared/offline/accountSyncSummary';
 import { synchronizeAccount } from '../../offline/syncEngine';
 import { prepareOfflineData, restorePreparationState, usePreparationStore } from '../../offline/preparation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Alert, Platform, ActionSheetIOS } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { accountStorageId, useAuthStore, StoredAccount } from '../../store/authStore';
 import { logoutAccount } from '../../services/api';
 import { requestSignOut } from '../../offline/signOut';
 import { getAccountScope, getStoredAccountScope } from '../../offline/accountScope';
 import { getSyncCounts, getLastSyncedAt, makeRetryableOperationsReady, hasOfflineDatabase, purgeAccountOfflineData } from '../../offline/database';
-import { isBiometricEnabled } from '../../utils/biometrics';
+import { isBiometricEnabled, authenticateDevice, rememberUnlockAccount } from '../../utils/biometrics';
 import { C, formatPhone } from '../../components/ui';
 import RoleLogo from '../../components/RoleLogo';
 import { useReviewNavigationStore } from '../../store/reviewNavigationStore';
@@ -32,6 +32,7 @@ export default function AccountsScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user, accounts, switchToAccount, removeAccount } = useAuthStore();
+  const switching = useRef(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncInfo, setSyncInfo] = useState<Record<string, any>>({});
@@ -74,29 +75,32 @@ export default function AccountsScreen() {
   }
 
   async function handleSwitch(acc: StoredAccount) {
+    if (switching.current) return;
     if (!acc.sessionValid) {
       router.push({ pathname: '/(auth)/login', params: { addAccount: '1', username: acc.username } } as any);
       return;
     }
-    const biometricEnabled = await isBiometricEnabled();
-    if (biometricEnabled) {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: `Switch to ${acc.fullName || acc.username}`,
-        cancelLabel: 'Cancel',
-        disableDeviceFallback: false,
-      });
-      if (!result.success) return;
-    }
+    if (switching.current) return;
+    switching.current = true;
     setBusyId(acc.accountId);
-    const result = await switchToAccount(acc.accountId);
-    setBusyId(null);
-    if (result === 'needs-login') {
-      router.push({ pathname: '/(auth)/login', params: { addAccount: '1', username: acc.username } } as any);
-    } else if (result) {
-      goToRoleHome(acc.role);
-    } else {
-      Alert.alert('Switch Failed', 'Could not switch account. Please log in again.');
-    }
+    const originalUser = useAuthStore.getState().user;
+    const originalId = originalUser ? accountStorageId(originalUser.id, originalUser.tenantId, originalUser.authSource) : null;
+    try {
+      if (await isBiometricEnabled() && !await authenticateDevice(`Switch to ${acc.fullName || acc.username}`)) return;
+      const currentUser = useAuthStore.getState().user;
+      const currentId = currentUser ? accountStorageId(currentUser.id, currentUser.tenantId, currentUser.authSource) : null;
+      if (currentId !== originalId) return;
+      authorizeDeviceSession(acc.accountId);
+      const result = await switchToAccount(acc.accountId);
+      if (result === 'needs-login') {
+        router.push({ pathname: '/(auth)/login', params: { addAccount: '1', username: acc.username } } as any);
+      } else if (result) {
+        await rememberUnlockAccount(acc.accountId).catch(() => {});
+        goToRoleHome(acc.role);
+      } else Alert.alert('Switch failed', 'Could not switch account. Please sign in again.');
+    } catch {
+      Alert.alert('Could not unlock account', 'Your saved payments are unchanged. Please try again.');
+    } finally { switching.current = false; setBusyId(null); }
   }
 
   async function doLogoutAccount(acc: StoredAccount) {

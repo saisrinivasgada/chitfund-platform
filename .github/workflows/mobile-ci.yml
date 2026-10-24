@@ -35,7 +35,7 @@ jobs:
         run: npm ci
 
       - name: Offline policy and recovery checks
-        run: npm run offline:policy:test && node --test ../shared/offline/*.test.mjs scripts/ensure-ci-ios-driver.test.mjs
+        run: npm run offline:policy:test && npm run device-unlock:test && node --test ../shared/offline/*.test.mjs scripts/ensure-ci-ios-driver.test.mjs
 
       - name: TypeScript type-check
         run: npm run type-check
@@ -143,6 +143,7 @@ jobs:
             ${{ runner.temp }}/chitwise-ios-driver-preflight.log
             ${{ runner.temp }}/chitwise-native-fixture.log
             ${{ runner.temp }}/chitwise-native-result.json
+            ${{ runner.temp }}/chitwise-device-unlock-result.json
 
   android-offline:
     name: Android release offline journeys
@@ -232,6 +233,8 @@ jobs:
             adb -s "emulator-$EMULATOR_PORT" install android/app/build/outputs/apk/release/app-release.apk
             timeout 90s adb -s "emulator-$EMULATOR_PORT" shell am start -W -n com.chitwise.mobile/.MainActivity
             CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT" node tests/offline/run-regression.mjs
+            adb -s "emulator-$EMULATOR_PORT" shell locksettings set-pin 246810
+            CHITWISE_QA_DEVICE="emulator-$EMULATOR_PORT" CHITWISE_UNLOCK_REPORT="$RUNNER_TEMP/chitwise-device-unlock-result.json" node tests/device-unlock/run-android.mjs
       - name: Collect bounded driver diagnostics
         if: always()
         run: node tests/offline/collect-diagnostics.mjs
@@ -250,3 +253,4 @@ jobs:
             ${{ runner.temp }}/chitwise-ndk-install-*.log
             ${{ runner.temp }}/chitwise-native-fixture.log
             ${{ runner.temp }}/chitwise-native-result.json
+            ${{ runner.temp }}/chitwise-device-unlock-result.json

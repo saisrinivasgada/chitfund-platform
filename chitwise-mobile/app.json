@@ -52,6 +52,12 @@
           "defaultChannel": "default",
           "sounds": []
         }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow ChitWise to use Face ID when opening the app and switching accounts."
+        }
       ]
     ],
     "updates": {

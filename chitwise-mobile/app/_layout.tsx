@@ -1,3 +1,4 @@
+import { DeviceUnlockGate } from '../components/DeviceUnlockGate';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { useSyncStore } from '../store/syncStore';
 import { useOfflinePresentation } from '../offline/useOfflinePresentation';
@@ -197,6 +198,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <DeviceUnlockGate>
       <ScopedQueryProvider>
         <RealtimeUpdater />
         <AuthGuard>
@@ -207,6 +209,7 @@ export default function RootLayout() {
         <ToastRoot />
         <FloatingToolkitRoot />
       </ScopedQueryProvider>
+      </DeviceUnlockGate>
       {showBrandLaunch && <BrandLaunch onFinish={finishBrandLaunch} />}
     </GestureHandlerRootView>
   );

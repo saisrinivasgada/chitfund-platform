@@ -1,0 +1,8 @@
+appId: com.chitwise.mobile
+---
+- extendedWaitUntil:
+    visible: ".*PIN.*"
+    timeout: 15000
+- inputText: "246810"
+- pressKey: Enter
+- waitForAnimationToEnd

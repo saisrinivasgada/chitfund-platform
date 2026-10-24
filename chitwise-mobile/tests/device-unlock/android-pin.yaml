@@ -1,0 +1,127 @@
+appId: com.chitwise.mobile
+---
+# Runs after the complete financial suite, on a disposable emulator with a PIN.
+# The app uses the real Android credential prompt; there is no QA auth bypass.
+- runFlow:
+    file: ../offline/open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/my-account'
+- extendedWaitUntil:
+    visible: "Change Password"
+    timeout: 30000
+- tapOn: "Change Password"
+- scrollUntilVisible:
+    element:
+      id: "device-unlock-setting"
+- tapOn:
+    id: "device-unlock-setting"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: "Protects app opening and account switching"
+    timeout: 15000
+- tapOn:
+    id: "close-account-settings"
+# Cold launch must require device proof. Back cancels without logging out.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".*PIN.*"
+    timeout: 30000
+- back
+- extendedWaitUntil:
+    visible: "ChitWise is locked"
+    timeout: 15000
+- tapOn:
+    id: "unlock-chitwise"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    notVisible: "ChitWise is locked"
+    timeout: 15000
+# Cancelling a switch keeps A selected; the next switch uses another OS proof.
+- runFlow:
+    file: ../offline/open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
+- scrollUntilVisible:
+    element:
+      id: "switch-account-offline-b"
+- tapOn:
+    id: "switch-account-offline-b"
+- extendedWaitUntil:
+    visible: ".*PIN.*"
+    timeout: 15000
+- back
+- assertVisible:
+    id: "switch-account-offline-b"
+- assertNotVisible:
+    id: "switch-account-offline-a"
+- tapOn:
+    id: "switch-account-offline-b"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 30000
+- runFlow:
+    file: ../offline/open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
+- extendedWaitUntil:
+    visible:
+      id: "switch-account-offline-a"
+    timeout: 30000
+- assertNotVisible:
+    id: "switch-account-offline-b"
+# Returning from the background must also work without internet.
+- runScript:
+    file: ../offline/fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- pressKey: Home
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: ".*PIN.*"
+    timeout: 30000
+- back
+- assertVisible: "ChitWise is locked"
+- tapOn:
+    id: "unlock-chitwise"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    notVisible: "ChitWise is locked"
+    timeout: 15000
+- runScript:
+    file: ../offline/fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'
+- tapOn:
+    id: "switch-account-offline-a"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 30000
+# Disabling also requires phone proof and is persisted across a cold launch.
+- runFlow:
+    file: ../offline/open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/my-account'
+- tapOn: "Change Password"
+- scrollUntilVisible:
+    element:
+      id: "device-unlock-setting"
+- tapOn:
+    id: "device-unlock-setting"
+- tapOn: "Disable"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: "Use your phone’s unlock method"
+    timeout: 15000
+- tapOn:
+    id: "close-account-settings"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 30000
+- assertNotVisible: "ChitWise is locked"
+- assertNotVisible: ".*Enter.*PIN.*"

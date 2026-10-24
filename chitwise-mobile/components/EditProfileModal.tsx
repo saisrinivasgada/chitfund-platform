@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useAuthStore } from '../store/authStore';
+import { accountStorageId, useAuthStore } from '../store/authStore';
 import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, checkUsernameAvailability } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
@@ -123,7 +123,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
     if (!visible) return;
     Promise.all([isBiometricAvailable(), isBiometricEnabled(), biometricTypeName()]).then(
       ([avail, on, label]) => { setBiometricAvail(avail); setBiometricOn(on); setBiometricLabel(label); }
-    );
+    ).catch(() => Alert.alert('Could not read app lock settings', 'Please try again.'));
   }, [visible]);
 
   async function handleLogoutAll() {
@@ -316,7 +316,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
             <Text style={{ fontSize: 18, fontWeight: '800', color: C.navy }}>Account Settings</Text>
             <Text style={{ fontSize: 12, color: C.gray400, marginTop: 2 }}>Update your profile and security</Text>
           </View>
-          <TouchableOpacity onPress={onClose}>
+          <TouchableOpacity testID="close-account-settings" accessibilityLabel="Close account settings" onPress={onClose}>
             <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
           </TouchableOpacity>
         </View>
@@ -461,15 +461,17 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                   <>
                     <View style={{ height: 1, backgroundColor: C.gray200, marginVertical: 16 }} />
                     <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>APP LOCK</Text>
-                    <TouchableOpacity
+                    <TouchableOpacity testID="device-unlock-setting" accessibilityRole="switch" accessibilityState={{ checked: biometricOn }}
                       onPress={async () => {
                         if (biometricOn) {
-                          Alert.alert(`Disable ${biometricLabel}?`, 'You will need your password to open the app.', [
+                          Alert.alert('Disable app lock?', 'ChitWise will no longer request device unlock when opening or switching accounts.', [
                             { text: 'Cancel', style: 'cancel' },
-                            { text: 'Disable', style: 'destructive', onPress: async () => { await disableBiometric(); setBiometricOn(false); } },
+                            { text: 'Disable', style: 'destructive', onPress: async () => { try { if (await disableBiometric()) setBiometricOn(false); } catch { Alert.alert('Could not change app lock', 'Please try again.'); } } },
                           ]);
                         } else {
-                          Alert.alert(`Enable ${biometricLabel}`, `Log out and sign in again — you'll be prompted to enable ${biometricLabel} after login.`, [{ text: 'OK' }]);
+                          try {
+                            if (user && await enableBiometric(accountStorageId(user.id, user.tenantId, user.authSource))) setBiometricOn(true);
+                          } catch { Alert.alert('Could not enable app lock', 'Please try again. Your saved payments are unchanged.'); }
                         }
                       }}
                       style={{
@@ -482,9 +484,9 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                         <Text style={{ fontSize: 22 }}>🔒</Text>
                         <View>
-                          <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{biometricLabel} Unlock</Text>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{biometricLabel}</Text>
                           <Text style={{ fontSize: 11, color: C.gray500, marginTop: 1 }}>
-                            {biometricOn ? 'Tap to disable' : `Use ${biometricLabel} to open app`}
+                            {biometricOn ? 'Protects app opening and account switching' : 'Use your phone’s unlock method'}
                           </Text>
                         </View>
                       </View>
