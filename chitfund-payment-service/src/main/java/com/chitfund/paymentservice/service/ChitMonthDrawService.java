@@ -44,6 +44,8 @@ public class ChitMonthDrawService {
     private final PaymentEventPublisher eventPublisher;
     private final com.chitfund.paymentservice.client.AuditClient auditClient;
     private final PlanExpiryChecker planExpiryChecker;
+    private final FinancialCommandLock commandLocks;
+    private final DrawReconciliationQueue reconciliationQueue;
     private final MemberCreditService memberCreditService;
     private final ChitServiceClient chitServiceClient;
     private final com.chitfund.paymentservice.client.PayoutServiceClient payoutServiceClient;
@@ -52,6 +54,7 @@ public class ChitMonthDrawService {
     public DrawSummaryResponse openDraw(OpenMonthRequest request, UUID adminId, String actorRole) {
         planExpiryChecker.assertNotExpired();
         String tenantId = requireTenantContext();
+        commandLocks.lock(tenantId, "draw-schedule:" + request.getChitId());
         ValidatedDrawInput validated = validateChitAndMembers(
                 request.getChitId(), request.getMembers().stream()
                         .map(OpenMonthRequest.MemberAmount::getMemberId).toList());
@@ -436,6 +439,7 @@ public class ChitMonthDrawService {
     public DrawSummaryResponse skipDraw(SkipMonthRequest request, UUID adminId, String actorRole) {
         planExpiryChecker.assertNotExpired();
         String tenantId = requireTenantContext();
+        commandLocks.lock(tenantId, "draw-schedule:" + request.getChitId());
         ValidatedDrawInput validated = validateChitAndMembers(request.getChitId(), request.getMemberIds());
         if (request.getInstallmentAmount().compareTo(validated.chit().getInstallmentAmount()) != 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -548,29 +552,7 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void autoCloseIfAllSettled(UUID chitId, int monthNumber) {
-        String tenantId = requireTenantContext();
-        ChitMonthDraw draw = drawRepository
-                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber).orElse(null);
-        if (draw == null || draw.getStatus() != DrawStatus.OPEN) return;
-
-        List<PaymentRecord> records = paymentRecordRepository
-                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
-
-        boolean allDone = records.stream().allMatch(r ->
-                r.getStatus() == PaymentRecordStatus.SETTLED
-                || r.getStatus() == PaymentRecordStatus.WAIVED
-                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED
-                || r.getStatus() == PaymentRecordStatus.CREDIT_COVERED
-                || r.getStatus() == PaymentRecordStatus.SETTLEMENT_CLEARED);
-
-        if (allDone && !records.isEmpty()) {
-            draw.setStatus(DrawStatus.CLOSED);
-            draw.setClosedAt(LocalDateTime.now());
-            draw.setClosedBy(UUID.fromString("00000000-0000-0000-0000-000000000001")); // system auto-close
-            drawRepository.save(draw);
-            log.info("Auto-closed draw (chit {} month {}) — all {} members settled",
-                    chitId, monthNumber, records.size());
-        }
+        reconciliationQueue.enqueue(requireTenantContext(), chitId, monthNumber, false);
     }
 
     /**
@@ -582,29 +564,7 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void autoReopenIfNotFullySettled(UUID chitId, int monthNumber) {
-        String tenantId = requireTenantContext();
-        ChitMonthDraw draw = drawRepository
-                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber).orElse(null);
-        if (draw == null || draw.getStatus() != DrawStatus.CLOSED) return;
-
-        List<PaymentRecord> records = paymentRecordRepository
-                .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
-
-        boolean allDone = records.stream().allMatch(r ->
-                r.getStatus() == PaymentRecordStatus.SETTLED
-                || r.getStatus() == PaymentRecordStatus.WAIVED
-                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED
-                || r.getStatus() == PaymentRecordStatus.CREDIT_COVERED
-                || r.getStatus() == PaymentRecordStatus.SETTLEMENT_CLEARED);
-
-        if (!allDone && !records.isEmpty()) {
-            draw.setStatus(DrawStatus.OPEN);
-            draw.setClosedAt(null);
-            draw.setClosedBy(null);
-            drawRepository.save(draw);
-            log.info("Auto-reopened draw (chit {} month {}) — void left records unsettled",
-                    chitId, monthNumber);
-        }
+        reconciliationQueue.enqueue(requireTenantContext(), chitId, monthNumber, true);
     }
 
     /**

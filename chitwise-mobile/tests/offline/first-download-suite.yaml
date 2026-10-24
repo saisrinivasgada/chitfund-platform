@@ -95,7 +95,7 @@ env:
 - extendedWaitUntil:
     visible: "Available offline"
     timeout: 60000
-- tapOn: "Close sync details"
+- runFlow: close-sync-details.yaml
 - runScript:
     file: fixture-control.js
     env:

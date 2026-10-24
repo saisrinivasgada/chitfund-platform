@@ -27,11 +27,16 @@ class MemberCreditSettlementReversalTest {
     private static final String TENANT = "tenant-a";
     @Mock private MemberCreditBalanceRepository creditBalanceRepository;
     @Mock private MemberCreditTransactionRepository creditTxnRepository;
+    @Mock private com.chitfund.paymentservice.client.AuditClient auditClient;
     @InjectMocks private MemberCreditService service;
 
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT);
+        lenient().when(creditTxnRepository.save(any())).thenAnswer(invocation -> {
+            var movement = (com.chitfund.paymentservice.domain.MemberCreditTransaction) invocation.getArgument(0);
+            movement.setId(UUID.randomUUID()); return movement;
+        });
     }
 
     @AfterEach

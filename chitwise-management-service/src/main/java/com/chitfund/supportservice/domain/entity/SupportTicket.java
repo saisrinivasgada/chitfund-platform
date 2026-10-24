@@ -18,6 +18,10 @@ import java.time.Instant;
 @Builder
 public class SupportTicket {
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Id
     private String id;
 

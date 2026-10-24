@@ -110,7 +110,7 @@ public class GroupChatService {
     public ChatGroupMemberResponse addMember(String groupId, String tenantId, String callerId,
                                               String callerRole, AddGroupMemberRequest req) {
         requireAdminOrManager(callerRole);
-        findGroupSecure(groupId, tenantId);
+        findGroupForUpdate(groupId, tenantId);
         if (memberRepo.existsByGroupIdAndUserId(groupId, req.getUserId())) {
             throw new IllegalStateException("User is already a member of this group");
         }
@@ -129,7 +129,7 @@ public class GroupChatService {
         if (userId.equals(callerId)) {
             throw new IllegalStateException("You cannot remove yourself from the group");
         }
-        findGroupSecure(groupId, tenantId);
+        findGroupForUpdate(groupId, tenantId);
         ChatGroupMember member = memberRepo.findByGroupIdAndUserId(groupId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("User is not a member of this group"));
         memberRepo.delete(member);
@@ -181,7 +181,7 @@ public class GroupChatService {
     public ChatGroupMessageResponse sendMessage(String groupId, String tenantId,
                                                  String senderId, String senderName,
                                                  String senderRole, SendGroupMessageRequest req) {
-        ChatGroup group = findGroupSecure(groupId, tenantId);
+        ChatGroup group = findGroupForUpdate(groupId, tenantId);
         requireMember(groupId, senderId);
 
         // Idempotency check — scoped to (groupId, senderId, clientMessageId)
@@ -208,9 +208,7 @@ public class GroupChatService {
         String preview = req.getContent().length() > 197
                 ? req.getContent().substring(0, 197) + "..."
                 : req.getContent();
-        group.setLastMessageAt(msg.getCreatedAt());
-        group.setLastMessagePreview(preview);
-        groupRepo.save(group);
+        groupRepo.updatePreview(groupId, msg.getCreatedAt(), preview);
 
         ChatGroupMessageResponse response = toMessageResponse(msg);
         auditClient.logEntity("CHAT_GROUP", groupId, "MESSAGE_SENT",
@@ -223,7 +221,7 @@ public class GroupChatService {
 
     @Transactional
     public void softDeleteMessage(String groupId, String messageId, String tenantId, String userId) {
-        findGroupSecure(groupId, tenantId);
+        findGroupForUpdate(groupId, tenantId);
         ChatGroupMessage msg = messageRepo.findById(messageId)
                 .orElseThrow(() -> new IllegalArgumentException("Message not found"));
 
@@ -255,6 +253,11 @@ public class GroupChatService {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private ChatGroup findGroupForUpdate(String groupId, String tenantId) {
+        return groupRepo.findForUpdate(groupId, tenantId)
+                .orElseThrow(() -> new IllegalArgumentException("Group not found"));
+    }
 
     private ChatGroup findGroupSecure(String groupId, String tenantId) {
         return groupRepo.findByIdAndTenantId(groupId, tenantId)

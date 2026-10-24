@@ -1296,6 +1296,11 @@ export const getUnreadCount = async () => {
 };
 
 // Full chronological audit trail for a chit (draws, payments, payouts, reservations)
+export const getChitAuditPage = async (chitId, page = 0, size = 50) => {
+  const res = await api.get(`/audit/logs/chit/${chitId}`, { params: { page, size } });
+  return res.data.data;
+};
+
 export const getChitAuditLogs = async (chitId, page = 0, size = 100) => {
   const res = await api.get(`/audit/logs/chit/${chitId}`, {
     params: { page, size, sort: 'createdAt,desc' },

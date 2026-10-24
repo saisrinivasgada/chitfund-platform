@@ -68,7 +68,7 @@ class ChitServiceLifecycleAuditTest {
     @Test
     void payoutCompletionUsesPersistedTenantAndCreatesSystemAudit() {
         Chit chit = chit(ChitStatus.ACTIVE);
-        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chit.getId(), TENANT_ID))
+        when(chitRepository.findByIdAndTenantIdForUpdate(chit.getId(), TENANT_ID))
                 .thenReturn(Optional.of(chit));
         when(chitRepository.save(chit)).thenReturn(chit);
         when(chitMapper.toResponse(chit)).thenReturn(mock(ChitResponse.class));
@@ -86,7 +86,7 @@ class ChitServiceLifecycleAuditTest {
     @Test
     void duplicatePayoutCompletionIsIdempotentAndDoesNotDuplicateAudit() {
         Chit chit = chit(ChitStatus.COMPLETED);
-        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chit.getId(), TENANT_ID))
+        when(chitRepository.findByIdAndTenantIdForUpdate(chit.getId(), TENANT_ID))
                 .thenReturn(Optional.of(chit));
         when(chitMapper.toResponse(chit)).thenReturn(mock(ChitResponse.class));
         when(attributeService.getAll(chit)).thenReturn(Map.of());

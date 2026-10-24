@@ -46,14 +46,14 @@ class StaffPlanLimitLockTest {
                 .build();
         when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
         when(planRepo.findById("GROWTH")).thenReturn(Optional.of(limits));
-        when(userRepository.countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(
-                tenantId.toString(), List.of(Role.MANAGER, Role.STAFF))).thenReturn(4L);
+        when(userRepository.findActiveStaffForUpdate(
+                tenantId.toString(), List.of(Role.MANAGER, Role.STAFF))).thenReturn(java.util.Collections.nCopies(4, new com.chitfund.userservice.domain.entity.User()));
 
         planService.checkStaffLimit(tenantId.toString());
 
         var order = inOrder(tenantRepository, userRepository);
         order.verify(tenantRepository).findByIdForUpdate(tenantId);
-        order.verify(userRepository).countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(
+        order.verify(userRepository).findActiveStaffForUpdate(
                 tenantId.toString(), List.of(Role.MANAGER, Role.STAFF));
     }
 
@@ -68,8 +68,8 @@ class StaffPlanLimitLockTest {
                 .build();
         when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
         when(customLimitsRepo.findById(tenantId.toString())).thenReturn(Optional.of(limits));
-        when(userRepository.countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(
-                tenantId.toString(), List.of(Role.MANAGER, Role.STAFF))).thenReturn(4L);
+        when(userRepository.findActiveStaffForUpdate(
+                tenantId.toString(), List.of(Role.MANAGER, Role.STAFF))).thenReturn(java.util.Collections.nCopies(4, new com.chitfund.userservice.domain.entity.User()));
 
         planService.checkStaffLimit(tenantId.toString());
 
@@ -87,8 +87,8 @@ class StaffPlanLimitLockTest {
                 .build();
         when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
         when(customLimitsRepo.findById(tenantId.toString())).thenReturn(Optional.of(limits));
-        when(userRepository.countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(
-                tenantId.toString(), List.of(Role.MANAGER, Role.STAFF))).thenReturn(2L);
+        when(userRepository.findActiveStaffForUpdate(
+                tenantId.toString(), List.of(Role.MANAGER, Role.STAFF))).thenReturn(java.util.Collections.nCopies(2, new com.chitfund.userservice.domain.entity.User()));
 
         assertThatThrownBy(() -> planService.checkStaffLimit(tenantId.toString()))
                 .isInstanceOf(BusinessException.class)

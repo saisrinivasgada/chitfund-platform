@@ -304,7 +304,7 @@ public class TicketService {
                                               String senderId, String senderName,
                                               SenderType senderType, SendMessageRequest request) {
         boolean restrictToCreator = !isHub && senderType == SenderType.ORG_MEMBER;
-        SupportTicket ticket = findTicketSecure(
+        SupportTicket ticket = findTicketSecureForUpdate(
                 ticketId, tenantId, isHub, senderId, restrictToCreator);
 
         if (ticket.getStatus() == TicketStatus.CLOSED || ticket.getStatus() == TicketStatus.RESOLVED) {
@@ -395,7 +395,7 @@ public class TicketService {
         if (blankToNull(req.getNote()) == null) {
             throw new IllegalArgumentException("Assignment reason is required");
         }
-        SupportTicket ticket = ticketRepository.findById(ticketId)
+        SupportTicket ticket = ticketRepository.findByIdForUpdate(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
         com.chitfund.supportservice.domain.entity.Employee assignee =
@@ -436,7 +436,7 @@ public class TicketService {
         if (blankToNull(request.getNote()) == null) {
             throw new IllegalArgumentException("Status change reason is required");
         }
-        SupportTicket ticket = ticketRepository.findById(ticketId)
+        SupportTicket ticket = ticketRepository.findByIdForUpdate(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
         validateStatusTransition(ticket.getStatus(), request.getStatus());
@@ -457,11 +457,23 @@ public class TicketService {
         return toResponse(ticket, 0);
     }
 
+    private SupportTicket findTicketSecureForUpdate(String ticketId, String tenantId, boolean isHub,
+                                                    String requesterId, boolean restrictToCreator) {
+        SupportTicket ticket = ticketRepository.findByIdForUpdate(ticketId)
+                .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
+        return validateTicketAccess(ticket, tenantId, isHub, requesterId, restrictToCreator);
+    }
+
     private SupportTicket findTicketSecure(String ticketId, String tenantId, boolean isHub,
                                            String requesterId, boolean restrictToCreator) {
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
+        return validateTicketAccess(ticket, tenantId, isHub, requesterId, restrictToCreator);
+    }
+
+    private SupportTicket validateTicketAccess(SupportTicket ticket, String tenantId, boolean isHub,
+                                               String requesterId, boolean restrictToCreator) {
         if (!isHub && !java.util.Objects.equals(ticket.getTenantId(), tenantId)) {
             throw new IllegalArgumentException("Ticket not found");
         }
@@ -523,12 +535,11 @@ public class TicketService {
     @Transactional
     protected String generateTicketNumber() {
         int year = Year.now().getValue();
-        // Upsert the row for this year if it doesn't exist yet
-        seqRepository.findByYearForUpdate(year).orElseGet(() ->
-                seqRepository.saveAndFlush(TicketNumberSeq.builder().year(year).lastVal(0).build()));
-        // Atomic increment — safe across multiple JVM instances
-        seqRepository.incrementByYear(year);
+        // The upsert locks an existing row and safely initializes the first request of a year.
+        seqRepository.initializeYear(year);
         TicketNumberSeq seq = seqRepository.findByYearForUpdate(year).orElseThrow();
+        seq.setLastVal(seq.getLastVal() + 1);
+        seqRepository.saveAndFlush(seq);
         return String.format("CW-%d-%04d", year, seq.getLastVal());
     }
 

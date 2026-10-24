@@ -49,6 +49,8 @@ class TicketServiceTest {
     @BeforeEach
     void wireSelf() {
         ReflectionTestUtils.setField(ticketService, "self", ticketService);
+        org.mockito.Mockito.lenient().when(ticketRepository.findByIdForUpdate(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> ticketRepository.findById(invocation.getArgument(0)));
     }
 
     @AfterEach

@@ -28,6 +28,8 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final com.chitfund.userservice.client.AuditClient auditClient;
+    private final PlanService planService;
     private final UserMapper userMapper;
     private final RefreshTokenRepository refreshTokenRepository;
     private final TrustedDeviceRepository trustedDeviceRepository;
@@ -52,8 +54,9 @@ public class UserService {
 
     @Transactional
     public UserResponse lockUser(UUID id, User caller) {
-        User target = userRepository.findById(id)
+        User target = userRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        var before = userAuditState(target);
         requireSameTenant(target);
         // Managers can only lock MEMBER accounts
         if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
@@ -61,13 +64,20 @@ public class UserService {
         }
         target.setLocked(true);
         target.setUpdatedBy(caller.getId());
-        return userMapper.toResponse(userRepository.save(target));
+        User saved = userRepository.save(target);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "USER_LOCKED",
+                caller.getId() != null ? caller.getId().toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     @Transactional
     public UserResponse unlockUser(UUID id, User caller) {
-        User target = userRepository.findById(id)
+        User target = userRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        var before = userAuditState(target);
         requireSameTenant(target);
         // Managers can only unlock MEMBER accounts
         if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
@@ -76,7 +86,13 @@ public class UserService {
         target.setLocked(false);
         target.setFailedLoginAttempts(0);
         target.setUpdatedBy(caller.getId());
-        return userMapper.toResponse(userRepository.save(target));
+        User saved = userRepository.save(target);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "USER_UNLOCKED",
+                caller.getId() != null ? caller.getId().toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     public boolean isUsernameAvailable(String username, UUID excludeUserId) {
@@ -87,8 +103,9 @@ public class UserService {
 
     @Transactional
     public UserResponse updateMyProfile(UUID userId, UpdateUserProfileRequest request) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+        var before = userAuditState(user);
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
 
@@ -123,14 +140,21 @@ public class UserService {
         }
 
         user.setUpdatedBy(userId);
-        return userMapper.toResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "USER_PROFILE_UPDATED",
+                userId != null ? userId.toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     /** Called only by verifyPhoneChangeOtp after OTP is validated — not via the profile PATCH endpoint. */
     @Transactional
     public UserResponse updatePhone(UUID userId, String phone, String countryCode) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+        var before = userAuditState(user);
         String cc = countryCode != null ? countryCode : "+91";
         if (user.getRole() == Role.MEMBER) {
             boolean heldByAnotherMember = userRepository
@@ -145,14 +169,21 @@ public class UserService {
         user.setPhone(phone);
         user.setPhoneCountryCode(cc);
         user.setUpdatedBy(userId);
-        return userMapper.toResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "USER_PHONE_CHANGED",
+                userId != null ? userId.toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     /** Admin/manager updates another user's phone after OTP has been verified on the frontend. */
     @Transactional
     public UserResponse adminUpdatePhone(UUID targetId, User caller, String phone, String countryCode) {
-        User target = userRepository.findById(targetId)
+        User target = userRepository.findByIdForUpdate(targetId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", targetId));
+        var before = userAuditState(target);
         requireSameTenant(target);
         if (target.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
@@ -165,7 +196,13 @@ public class UserService {
         target.setPhone(phone);
         if (countryCode != null) target.setPhoneCountryCode(countryCode);
         target.setUpdatedBy(caller.getId());
-        return userMapper.toResponse(userRepository.save(target));
+        User saved = userRepository.save(target);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "USER_PHONE_CHANGED_BY_ADMIN",
+                caller.getId() != null ? caller.getId().toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     public List<UserResponse> listStaff(boolean includeDeleted) {
@@ -183,8 +220,10 @@ public class UserService {
 
     @Transactional
     public UserResponse deactivateStaff(UUID id) {
-        User user = userRepository.findById(id)
+        planService.lockStaffQuota(requireTenant());
+        User user = userRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        var before = userAuditState(user);
         requireSameTenant(user);
         if (user.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member accounts are managed through the member panel");
@@ -196,23 +235,44 @@ public class UserService {
         }
         user.setEnabled(false);
         user.setUpdatedBy(caller.getId());
-        return userMapper.toResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "STAFF_DEACTIVATED",
+                caller.getId() != null ? caller.getId().toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     @Transactional
     public UserResponse activateStaff(UUID id) {
-        User user = userRepository.findById(id)
+        planService.lockStaffQuota(requireTenant());
+        User user = userRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        var before = userAuditState(user);
         requireSameTenant(user);
+        if (user.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Deleted staff accounts cannot be activated");
+        }
+        if (!user.isEnabled() && (user.getRole() == Role.STAFF || user.getRole() == Role.MANAGER)) {
+            planService.checkStaffLimit(user.getTenantId());
+        }
         user.setEnabled(true);
         user.setLocked(false);
         user.setFailedLoginAttempts(0);
         user.setUpdatedBy(callerId());
-        return userMapper.toResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "STAFF_ACTIVATED",
+                callerId() != null ? callerId().toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     @Transactional
     public UserResponse changeRole(UUID id, Role newRole) {
+        planService.lockStaffQuota(requireTenant());
         if (newRole == null || newRole == Role.MEMBER) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Role must be ADMIN, MANAGER, or STAFF");
         }
@@ -221,21 +281,34 @@ public class UserService {
         if (caller.getId().equals(id)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "You cannot change your own role");
         }
-        User user = userRepository.findById(id)
+        User user = userRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        var before = userAuditState(user);
         requireSameTenant(user);
         if (user.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member roles are managed through the member panel");
         }
+        if (user.isEnabled() && user.getDeletedAt() == null && user.getRole() == Role.ADMIN
+                && (newRole == Role.STAFF || newRole == Role.MANAGER)) {
+            planService.checkStaffLimit(user.getTenantId());
+        }
         user.setRole(newRole);
         user.setUpdatedBy(caller.getId());
-        return userMapper.toResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "STAFF_ROLE_CHANGED",
+                caller.getId() != null ? caller.getId().toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
     }
 
     @Transactional
     public UserResponse softDeleteStaff(UUID id, UUID deletedBy) {
-        User user = userRepository.findById(id)
+        planService.lockStaffQuota(requireTenant());
+        User user = userRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        var before = userAuditState(user);
         requireSameTenant(user);
         if (user.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member accounts are managed through the member panel");
@@ -251,7 +324,27 @@ public class UserService {
         user.setDeletedBy(deletedBy);
         user.setUpdatedBy(deletedBy);
         user.setEnabled(false);
-        return userMapper.toResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        User actor = callerUser();
+        auditClient.log("USER", saved.getId().toString(), "STAFF_DELETED",
+                caller.getId() != null ? caller.getId().toString() : null,
+                actor != null ? actor.getRole().name() : null, before, userAuditState(saved),
+                saved.getTenantId() != null ? saved.getTenantId() : "PLATFORM");
+        return userMapper.toResponse(saved);
+    }
+
+    private java.util.Map<String, Object> userAuditState(User user) {
+        var state = new java.util.LinkedHashMap<String, Object>();
+        state.put("role", user.getRole());
+        state.put("enabled", user.isEnabled());
+        state.put("locked", user.isLocked());
+        state.put("deleted", user.getDeletedAt() != null);
+        state.put("username", user.getUsername());
+        state.put("fullName", user.getFullName());
+        state.put("emailVerificationRequired", user.isEmailVerificationRequired());
+        // Phone/email changes are identified by action; recovery details, OTPs,
+        // passwords and bearer tokens never enter this administrative trail.
+        return state;
     }
 
     private UUID callerId() {

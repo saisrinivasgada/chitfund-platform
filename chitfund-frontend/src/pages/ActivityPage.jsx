@@ -7,7 +7,9 @@ import { searchAuditLogs } from '../services/api';
 const TYPES = [
   ['ALL', 'All activity'], ['PAYMENT_BATCH', 'Payments'], ['CASH_REQUEST', 'Cash pickups'],
   ['CHIT_DRAW', 'Draws'], ['PAYOUT', 'Payouts'], ['CHIT', 'Chits'], ['MEMBER', 'Members'],
-  ['SETTLEMENT', 'Settlements'], ['AUCTION_SESSION', 'Auctions'], ['TICKET', 'Tickets'],
+  ['SETTLEMENT', 'Settlements'], ['RESERVATION_SLOT', 'Slots'], ['RESERVATION_SCHEDULE', 'Scheduling'],
+  ['INVITATION', 'Invitations'], ['INVITATION_RESPONSE', 'Invitation responses'], ['ENROLLMENT', 'Enrolments'],
+  ['TREASURY_ENTRY', 'Treasury'], ['MEMBER_CREDIT', 'Member credit'], ['USER', 'Accounts'], ['AUCTION_SESSION', 'Auctions'], ['TICKET', 'Tickets'],
 ];
 const SOURCES = ['ALL', 'WEB', 'MOBILE', 'HUB', 'OFFLINE_SYNC', 'INTERNAL_API', 'WORKER', 'SYSTEM', 'UNKNOWN'];
 const OUTCOMES = ['ALL', 'SUCCESS', 'FAILURE', 'DENIED'];

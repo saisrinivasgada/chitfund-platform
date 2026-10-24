@@ -812,10 +812,20 @@ public class PaymentService {
 
     @Transactional
     public PaymentRecordResponse updatePromisedDate(UUID recordId, java.time.LocalDate date) {
-        PaymentRecord record = paymentRecordRepository.findByIdAndTenantId(recordId, tenantId())
+        PaymentRecord record = paymentRecordRepository.findByIdAndTenantIdForUpdate(recordId, tenantId())
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("PaymentRecord", recordId));
+        java.util.Map<String, Object> before = new java.util.LinkedHashMap<>();
+        before.put("promisedPaymentDate", record.getPromisedPaymentDate());
         record.setPromisedPaymentDate(date);
         paymentRecordRepository.save(record);
+        java.util.Map<String, Object> after = new java.util.LinkedHashMap<>();
+        after.put("promisedPaymentDate", date);
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        auditClient.log("PAYMENT_RECORD", recordId.toString(), record.getChitId().toString(),
+                "PAYMENT_PROMISED_DATE_CHANGED", auth != null ? auth.getName() : null,
+                auth != null ? auth.getAuthorities().stream().map(a -> a.getAuthority().replace("ROLE_", ""))
+                        .findFirst().orElse(null) : null,
+                before, after, tenantId());
         LocalDate today = LocalDate.now();
         return PaymentRecordResponse.builder()
                 .id(record.getId())

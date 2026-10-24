@@ -27,6 +27,7 @@ class PayoutFinancialCommandServiceTest {
     @Mock InternalFinancialOperationRepository receiptRepository;
     @Mock PaymentService paymentService;
     @Mock AdminWalletService walletService;
+    @Mock private com.chitfund.paymentservice.client.AuditClient auditClient;
     @InjectMocks PayoutFinancialCommandService service;
 
     @AfterEach

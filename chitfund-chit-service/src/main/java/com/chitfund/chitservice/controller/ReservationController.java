@@ -123,7 +123,7 @@ public class ReservationController {
             Authentication auth) {
         planLimitChecker.checkNotExpired();
         UUID adminId = (UUID) auth.getPrincipal();
-        var chit = chitService.findByIdScoped(chitId);
+        var chit = chitService.findByIdForUpdate(chitId);
 
         long activeSlots = reservationRepository.countByChitIdAndStatusNot(chitId, ReservationStatus.VOIDED);
         if (activeSlots >= chit.getCapacity()) {
@@ -139,6 +139,12 @@ public class ReservationController {
                         .findMaxMonthNumberByChitId(chitId)
                         .map(n -> n + 1)
                         .orElse(1);
+
+        if (reservationRepository.findByChitIdAndMonthNumber(chitId, nextNumber).stream()
+                .anyMatch(existing -> existing.getStatus() != ReservationStatus.VOIDED)) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "This draw position is already occupied. Refresh the schedule before adding a slot.");
+        }
 
         boolean isOrg = Boolean.TRUE.equals(request.getOrgHeld());
         if (isOrg) {
@@ -188,14 +194,25 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         String actorRole = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
+        chitService.findByIdForUpdate(chitId);
         MonthReservation r = findScopedReservation(chitId, reservationId);
+
+        if (r.getStatus() == ReservationStatus.VOIDED || r.getStatus() == ReservationStatus.PROCESSED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "This slot is " + r.getStatus() + ". Refresh the schedule before making changes.");
+        }
+        if (request.getExpectedVersion() == null
+                || !request.getExpectedVersion().equals(r.getVersion())) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "The schedule may have changed. Refresh it and review this slot before saving.");
+        }
 
         Map<String, Object> beforeSnap = slotSnapshot(r);
         UUID oldMemberId = r.getMemberId();
 
         boolean isOrg = Boolean.TRUE.equals(request.getOrgHeld());
         if (isOrg && !r.isOrgHeld()) {
-            var chit = chitService.findByIdScoped(chitId);
+            var chit = chitService.findByIdForUpdate(chitId);
             int limit = chit.getOrgHeldSpotsCount() != null ? chit.getOrgHeldSpotsCount() : 0;
             long current = reservationRepository.countByChitIdAndOrgHeldTrueAndStatusNot(chitId, ReservationStatus.VOIDED);
             if (current >= limit) {
@@ -212,11 +229,11 @@ public class ReservationController {
                 ? ReservationStatus.RESERVED : ReservationStatus.UNALLOCATED);
         r.setUpdatedBy(adminId);
 
-        MonthReservation saved = reservationRepository.save(r);
+        MonthReservation saved = reservationRepository.saveAndFlush(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_UPDATED", adminId.toString(), actorRole, beforeSnap, slotSnapshot(saved),
                 com.chitfund.common.context.TenantContext.get());
-        var chit = chitService.findByIdScoped(chitId);
+        var chit = chitService.findByIdForUpdate(chitId);
         if (chit.getStatus() == ChitStatus.ACTIVE) {
             UUID newMemberId = saved.getMemberId();
             if (oldMemberId != null) chitService.syncEnrollmentForMember(chit, oldMemberId);
@@ -237,16 +254,18 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         String actorRole = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
+        chitService.findByIdForUpdate(chitId);
         MonthReservation r = findScopedReservation(chitId, reservationId);
         if (r.getStatus() != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Only RESERVED slots can be marked as processed");
         }
+        Map<String, Object> before = slotSnapshot(r);
         r.setStatus(ReservationStatus.PROCESSED);
         r.setUpdatedBy(adminId);
-        MonthReservation saved = reservationRepository.save(r);
+        MonthReservation saved = reservationRepository.saveAndFlush(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_PROCESSED", adminId.toString(), actorRole, null, slotSnapshot(saved),
+                "SLOT_PROCESSED", adminId.toString(), actorRole, before, slotSnapshot(saved),
                 TenantContext.get());
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot marked as processed"));
@@ -261,21 +280,26 @@ public class ReservationController {
             @RequestParam(required = false) String reason,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        chitService.findByIdForUpdate(chitId);
         MonthReservation r = findScopedReservation(chitId, reservationId);
         Map<String, Object> beforeVoidSnap = slotSnapshot(r);
 
+        if (r.getStatus() == ReservationStatus.VOIDED || r.getStatus() == ReservationStatus.PROCESSED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Only an unallocated or reserved slot can be voided. This slot is already " + r.getStatus());
+        }
         UUID voidedMemberId = r.getMemberId();
         r.setStatus(ReservationStatus.VOIDED);
         r.setVoidReason(reason);
         r.setVoidedAt(LocalDateTime.now());
         r.setVoidedBy(adminId);
         r.setUpdatedBy(adminId);
-        MonthReservation saved = reservationRepository.save(r);
+        MonthReservation saved = reservationRepository.saveAndFlush(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
                 "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoidSnap, slotSnapshot(saved),
                 TenantContext.get());
         if (voidedMemberId != null) {
-            var chit = chitService.findByIdScoped(chitId);
+            var chit = chitService.findByIdForUpdate(chitId);
             if (chit.getStatus() == ChitStatus.ACTIVE)
                 chitService.syncEnrollmentForMember(chit, voidedMemberId);
         }
@@ -298,20 +322,24 @@ public class ReservationController {
             @RequestParam int fromMonth,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        chitService.findByIdScoped(chitId); // validates tenant ownership
-
-        chitService.findByIdScoped(chitId);
+        if (fromMonth < 1) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Choose a valid draw number");
+        chitService.findByIdForUpdate(chitId); // serialize all schedule writers
 
         List<MonthReservation> slots = reservationRepository.findShiftableFromMonth(
                 chitId, fromMonth,
                 List.of(ReservationStatus.RESERVED, ReservationStatus.UNALLOCATED));
 
+        List<Map<String, Object>> beforeSlots = slots.stream().map(this::slotSnapshot).toList();
+        int snapshotIndex = 0;
         for (MonthReservation slot : slots) {
             slot.setMonthNumber(slot.getMonthNumber() + 1);
             if (slot.getReservationMonth() != null) {
                 slot.setReservationMonth(slot.getReservationMonth().plusMonths(1));
             }
             slot.setUpdatedBy(adminId);
+            auditClient.log("RESERVATION_SLOT", slot.getId().toString(), chitId.toString(),
+                    "SLOT_SHIFTED", adminId.toString(), actorRole(auth),
+                    beforeSlots.get(snapshotIndex++), slotSnapshot(slot), TenantContext.get());
         }
         reservationRepository.saveAll(slots);
 
@@ -333,10 +361,11 @@ public class ReservationController {
             @PathVariable UUID chitId,
             @Valid @RequestBody SwapSlotsRequest request,
             Authentication auth) {
+        if (request.getSlotAId().equals(request.getSlotBId())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Choose two different slots to swap");
+        }
         UUID adminId = (UUID) auth.getPrincipal();
-        chitService.findByIdScoped(chitId); // validates tenant ownership
-
-        chitService.findByIdScoped(chitId);
+        chitService.findByIdForUpdate(chitId); // serialize all schedule writers
 
         MonthReservation a = reservationRepository.findByIdAndChitId(request.getSlotAId(), chitId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", request.getSlotAId()));
@@ -350,6 +379,8 @@ public class ReservationController {
         UUID memberB = b.getMemberId();
         boolean orgA = a.isOrgHeld();
         boolean orgB = b.isOrgHeld();
+        Map<String, Object> beforeA = slotSnapshot(a);
+        Map<String, Object> beforeB = slotSnapshot(b);
 
         a.setMemberId(memberB);
         a.setOrgHeld(orgB);
@@ -364,13 +395,11 @@ public class ReservationController {
         String tenantId = TenantContext.get();
         auditClient.log("RESERVATION_SLOT", a.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
-                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", b.getId().toString()),
-                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", b.getId().toString()),
+                swapSnapshot(beforeA, b.getId()), swapSnapshot(slotSnapshot(a), b.getId()),
                 tenantId);
         auditClient.log("RESERVATION_SLOT", b.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
-                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", a.getId().toString()),
-                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", a.getId().toString()),
+                swapSnapshot(beforeB, a.getId()), swapSnapshot(slotSnapshot(b), a.getId()),
                 tenantId);
 
         return ResponseEntity.ok(ApiResponse.success(null, "Slots swapped"));
@@ -384,6 +413,7 @@ public class ReservationController {
             @PathVariable UUID reservationId,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        chitService.findByIdForUpdate(chitId);
         MonthReservation r = findScopedReservation(chitId, reservationId);
 
         if (!r.isOrgHeld()) {
@@ -401,7 +431,7 @@ public class ReservationController {
 
         r.setStatus(ReservationStatus.PROCESSED);
         r.setUpdatedBy(adminId);
-        MonthReservation saved = reservationRepository.save(r);
+        MonthReservation saved = reservationRepository.saveAndFlush(r);
 
         auditClient.log("ORG_RESERVATION", saved.getId().toString(), chitId.toString(),
                 "ORG_PAYOUT_REALIZED", adminId.toString(), "ADMIN",
@@ -413,8 +443,18 @@ public class ReservationController {
                 chitMapper.toReservationResponse(saved), "Org payout realized to treasury"));
     }
 
+    private Map<String, Object> swapSnapshot(Map<String, Object> snapshot, UUID otherSlot) {
+        snapshot.put("swappedWithSlot", otherSlot.toString());
+        return snapshot;
+    }
+
     private Map<String, Object> slotSnapshot(MonthReservation r) {
         Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("id", r.getId());
+        m.put("memberId", r.getMemberId());
+        m.put("payoutAmount", r.getPayoutAmount());
+        m.put("postPayoutContribution", r.getPostPayoutContribution());
+        m.put("voidReason", r.getVoidReason());
         if (r.getMemberId() != null) m.put("memberId", r.getMemberId().toString());
         m.put("status", r.getStatus() != null ? r.getStatus().name() : null);
         if (r.getPayoutAmount() != null) m.put("payoutAmount", r.getPayoutAmount());

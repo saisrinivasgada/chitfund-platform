@@ -61,7 +61,7 @@ public class HubRoleService {
     public HubRoleResponse update(String id, CreateRoleRequest req, String actorId) {
         String reason = requireReason(req.getReason());
         HubPermissionService.validatePermissions(req.getPermissions());
-        HubCustomRole role = roleRepository.findById(id)
+        HubCustomRole role = roleRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found"));
         if (roleRepository.existsByNameIgnoreCaseAndIdNot(req.getName().trim(), id)) {
             throw new IllegalStateException("A role with this name already exists");
@@ -105,7 +105,7 @@ public class HubRoleService {
     @Transactional
     public void delete(String id, String actorId, String reason) {
         String normalizedReason = requireReason(reason);
-        HubCustomRole role = roleRepository.findById(id)
+        HubCustomRole role = roleRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found"));
         if (roleRepository.countEmployeesWithRole(id) > 0) {
             throw new IllegalStateException("Cannot delete a role that is assigned to employees");

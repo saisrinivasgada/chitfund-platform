@@ -59,7 +59,7 @@ public class InvitationService {
 
     @Transactional
     public ChitInvitationResponse sendInvitation(UUID chitId, UUID createdBy, SendInvitationRequest req) {
-        Chit chit = chitService.findByIdScoped(chitId);
+        Chit chit = chitService.findByIdForUpdate(chitId);
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,
                     "Invitations can only be sent for DRAFT or ACTIVE chits");
@@ -163,6 +163,7 @@ public class InvitationService {
 
     @Transactional
     public ChitInvitationResponse closeInvitation(UUID chitId, UUID invId) {
+        chitService.findByIdForUpdate(chitId);
         ChitInvitation inv = loadInvitation(chitId, invId);
         if (inv.getStatus() == InvitationStatus.CLOSED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Invitation is already closed");
@@ -201,21 +202,33 @@ public class InvitationService {
 
     @Transactional
     public InvitationResponseDTO overrideResponse(UUID chitId, UUID invId, UUID responseId, OverrideResponseRequest req) {
-        chitService.findByIdScoped(chitId);
+        chitService.findByIdForUpdate(chitId);
         InvitationResponse r = loadResponse(chitId, invId, responseId);
+        if (r.isApproved()) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "This response has already been approved. Its allocation cannot be changed here.");
+        }
+        Map<String, Object> before = responseSnapshot(r);
         if (req.getApprovedSpots() != null) r.setApprovedSpots(req.getApprovedSpots());
         if (req.getApprovedDrawNumbers() != null) {
             r.setApprovedDrawNumbers(toJson(req.getApprovedDrawNumbers()));
         }
         r = responseRepository.save(r);
+        auditClient.log("INVITATION_RESPONSE", r.getId().toString(), chitId.toString(),
+                "INVITATION_RESPONSE_OVERRIDDEN", null, null,
+                before, responseSnapshot(r), TenantContext.get());
         return enrichResponseDTO(r, r.getInvitation().getChit());
     }
 
     @Transactional
     public InvitationResponseDTO approveResponse(UUID chitId, UUID invId, UUID responseId, UUID approverId) {
-        Chit chit = chitService.findByIdScoped(chitId);
+        Chit chit = chitService.findByIdForUpdate(chitId);
         InvitationResponse r = loadResponse(chitId, invId, responseId);
 
+        if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,
+                    "Participation can only be approved for a draft or active chit");
+        }
         if (r.isApproved()) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Response is already approved");
         }
@@ -241,6 +254,7 @@ public class InvitationService {
         auditAfter.put("source", "INVITATION");
         auditAfter.put("invitationId", invId.toString());
         auditAfter.put("invitationResponseId", responseId.toString());
+        auditAfter.put("approvedAllocation", responseSnapshot(r));
         auditClient.log("ENROLLMENT", r.getMemberId().toString(), chitId.toString(),
                 "ENROLLMENT_FROM_INVITATION", approverId.toString(), "ADMIN",
                 null, auditAfter, TenantContext.get());
@@ -282,6 +296,7 @@ public class InvitationService {
 
     @Transactional
     public InvitationResponseDTO respondToInvitation(UUID invId, UUID memberId, RespondToInvitationRequest req) {
+        chitService.findByInvitationForUpdate(invId);
         InvitationResponse r = responseRepository
                 .findByInvitationIdAndMemberIdAndInvitation_TenantId(invId, memberId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("InvitationResponse", invId));
@@ -295,6 +310,7 @@ public class InvitationService {
                     "Your response has already been approved and cannot be changed");
         }
 
+        Map<String, Object> before = responseSnapshot(r);
         r.setResponseStatus(Boolean.TRUE.equals(req.getInterested())
                 ? ResponseStatus.INTERESTED : ResponseStatus.NOT_INTERESTED);
         r.setReason(req.getReason());
@@ -306,11 +322,8 @@ public class InvitationService {
         r = responseRepository.save(r);
 
         auditClient.log("INVITATION_RESPONSE", r.getId().toString(), r.getInvitation().getChit().getId().toString(),
-                "INVITATION_RESPONDED", memberId.toString(), "MEMBER",
-                null,
-                Map.of("invitationId", invId.toString(),
-                        "memberId", memberId.toString(),
-                        "responseStatus", r.getResponseStatus().name()),
+                "INVITATION_RESPONDED", null, null,
+                before, responseSnapshot(r),
                 TenantContext.get());
 
         return enrichResponseDTO(r, r.getInvitation().getChit());
@@ -328,6 +341,9 @@ public class InvitationService {
                     "No draw numbers to assign — member has not selected any slots");
         }
 
+        if (new java.util.HashSet<>(drawNumbers).size() != drawNumbers.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Select each draw only once");
+        }
         for (Integer drawNum : drawNumbers) {
             List<MonthReservation> slots = reservationRepository.findByChitIdAndMonthNumber(chit.getId(), drawNum);
             MonthReservation slot = slots.stream()
@@ -336,10 +352,18 @@ public class InvitationService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                             "Draw " + drawNum + " slot is not available (not found or already reserved)"));
 
+            Map<String, Object> before = new LinkedHashMap<>();
+            before.put("status", slot.getStatus());
+            before.put("memberId", slot.getMemberId());
+            before.put("monthNumber", slot.getMonthNumber());
             slot.setMemberId(r.getMemberId());
             slot.setStatus(ReservationStatus.RESERVED);
             slot.setUpdatedBy(approverId);
             reservationRepository.save(slot);
+            auditClient.log("RESERVATION_SLOT", slot.getId().toString(), chit.getId().toString(),
+                    "SLOT_ALLOCATED_FROM_INVITATION", approverId.toString(), null,
+                    before, Map.of("status", slot.getStatus(), "memberId", r.getMemberId(),
+                            "monthNumber", drawNum, "invitationResponseId", r.getId()), TenantContext.get());
 
             if (chit.getStatus() == ChitStatus.ACTIVE) {
                 chitService.syncEnrollmentForMember(chit, r.getMemberId());
@@ -351,18 +375,19 @@ public class InvitationService {
         int spotsToApprove = r.getApprovedSpots() != null ? r.getApprovedSpots()
                 : (r.getSpotsRequested() != null ? r.getSpotsRequested() : 0);
 
-        if (spotsToApprove <= 0) return;
+        if (spotsToApprove <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Approve at least one spot");
+        }
+        long currentSpots = enrollmentRepository.countByChitIdAndMemberIdAndActiveTrue(chit.getId(), r.getMemberId());
+        long additional = Math.max(0, spotsToApprove - currentSpots);
 
         long totalEnrolled = enrollmentRepository.countByChitIdAndActiveTrue(chit.getId());
         int remaining = chit.getCapacity() - (int) totalEnrolled;
-        if (spotsToApprove > remaining) {
+        if (additional > remaining) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Chit is full — only " + remaining + " spot" + (remaining == 1 ? "" : "s") +
                     " remaining. Reduce approved spots or reject this response.");
         }
-
-        long currentSpots = enrollmentRepository.countByChitIdAndMemberIdAndActiveTrue(chit.getId(), r.getMemberId());
-        long additional = spotsToApprove - currentSpots;
 
         for (long i = 0; i < additional; i++) {
             ChitEnrollment enrollment = ChitEnrollment.builder()
@@ -376,7 +401,7 @@ public class InvitationService {
     @Transactional
     public InvitationResponseDTO rejectResponse(
             UUID chitId, UUID invId, UUID responseId, UUID adminId, String reason) {
-        chitService.findByIdScoped(chitId);
+        chitService.findByIdForUpdate(chitId);
         InvitationResponse r = loadResponse(chitId, invId, responseId);
         if (r.isApproved()) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -408,6 +433,21 @@ public class InvitationService {
                 TenantContext.get());
 
         return enrichResponseDTO(r, chit);
+    }
+
+    private Map<String, Object> responseSnapshot(InvitationResponse response) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("invitationId", response.getInvitation().getId());
+        state.put("memberId", response.getMemberId());
+        state.put("responseStatus", response.getResponseStatus());
+        state.put("memberReason", response.getReason());
+        state.put("adminRejectionReason", response.getAdminRejectionReason());
+        state.put("spotsRequested", response.getSpotsRequested());
+        state.put("approvedSpots", response.getApprovedSpots());
+        state.put("requestedDrawNumbers", fromJson(response.getRequestedDrawNumbers()));
+        state.put("approvedDrawNumbers", fromJson(response.getApprovedDrawNumbers()));
+        state.put("approved", response.isApproved());
+        return state;
     }
 
     private List<SlotInfo> buildSlotGrid(UUID chitId, UUID memberId) {

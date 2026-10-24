@@ -55,7 +55,7 @@ public class AuctionService {
 
     @Transactional
     public AuctionSessionResponse openAuction(UUID chitId, OpenAuctionRequest request, UUID openedBy) {
-        Chit chit = chitService.findByIdScoped(chitId);
+        Chit chit = chitService.findByIdForUpdate(chitId);
         validateAuctionChit(chit);
 
         if (auctionSessionRepository.existsByChitIdAndMonthNumberAndStatus(
@@ -118,6 +118,7 @@ public class AuctionService {
     @Transactional
     public AuctionSessionResponse placeBid(UUID chitId, UUID auctionId, PlaceBidRequest request,
                                            UUID memberId, UUID actorId, String actorRole) {
+        chitService.findByIdForUpdate(chitId);
         AuctionSession session = getOpenSessionForUpdate(auctionId, chitId);
         String tenantId = session.getTenantId();
 
@@ -237,9 +238,10 @@ public class AuctionService {
     @Transactional
     public AuctionSessionResponse closeAuction(UUID chitId, UUID auctionId,
                                                CloseAuctionRequest request, UUID closedBy) {
+        chitService.findByIdForUpdate(chitId);
         AuctionSession session = getOpenSessionForUpdate(auctionId, chitId);
         String auctionTenantId = session.getTenantId();
-        Chit chit = chitService.findByIdScoped(chitId);
+        Chit chit = chitService.findByIdForUpdate(chitId);
 
         UUID winnerId;
         BigDecimal wonAmount;
@@ -378,6 +380,7 @@ public class AuctionService {
 
     @Transactional
     public AuctionSessionResponse extendAuction(UUID chitId, UUID auctionId, int additionalMinutes, UUID adminId) {
+        chitService.findByIdForUpdate(chitId);
         AuctionSession session = auctionSessionRepository
                 .findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));
@@ -410,6 +413,7 @@ public class AuctionService {
 
     @Transactional
     public AuctionSessionResponse voidAuction(UUID chitId, UUID auctionId, UUID adminId) {
+        chitService.findByIdForUpdate(chitId);
         AuctionSession session = auctionSessionRepository
                 .findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));

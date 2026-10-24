@@ -107,6 +107,7 @@ public class HubChatService {
     @Transactional
     public HubMessageResponse sendDmMessage(String convId, String senderId, String senderName,
                                              SendHubMessageRequest req) {
+        dmRepo.findForUpdate(convId); // parent before child insert, then participant authorization
         HubConversation conv = findDmSecure(convId, senderId);
 
         if (req.getClientMessageId() != null) {
@@ -237,7 +238,7 @@ public class HubChatService {
 
     @Transactional
     public void addHubGroupMember(String groupId, String callerId, String callerRole, String employeeId) {
-        groupRepo.findById(groupId)
+        groupRepo.findForUpdate(groupId)
                 .orElseThrow(() -> new IllegalArgumentException("Group not found"));
         // Only group members or SUPER_ADMINs can add new members
         if (!"SUPER_ADMIN".equals(callerRole) && !groupMemberRepo.existsByGroupIdAndEmployeeId(groupId, callerId)) {
@@ -262,7 +263,7 @@ public class HubChatService {
 
     @Transactional
     public void removeHubGroupMember(String groupId, String employeeId, String callerId, String callerRole) {
-        groupRepo.findById(groupId)
+        groupRepo.findForUpdate(groupId)
                 .orElseThrow(() -> new IllegalArgumentException("Group not found"));
         if (employeeId.equals(callerId)) {
             throw new IllegalStateException("Cannot remove yourself");
@@ -306,7 +307,7 @@ public class HubChatService {
     @Transactional
     public HubMessageResponse sendHubGroupMessage(String groupId, String senderId, String senderName,
                                                     SendHubMessageRequest req) {
-        HubGroup group = groupRepo.findById(groupId)
+        HubGroup group = groupRepo.findForUpdate(groupId)
                 .orElseThrow(() -> new IllegalArgumentException("Group not found"));
         requireHubGroupMember(groupId, senderId);
 
@@ -328,9 +329,7 @@ public class HubChatService {
 
         String preview = req.getContent().length() > 197
                 ? req.getContent().substring(0, 197) + "..." : req.getContent();
-        group.setLastMessageAt(msg.getCreatedAt());
-        group.setLastMessagePreview(preview);
-        groupRepo.save(group);
+        groupRepo.updatePreview(groupId, msg.getCreatedAt(), preview);
 
         HubMessageResponse response = toGroupMessageResponse(msg);
         auditClient.logEntity("HUB_CHAT_GROUP", groupId, "MESSAGE_SENT",
@@ -344,6 +343,7 @@ public class HubChatService {
 
     @Transactional
     public void deleteHubGroupMessage(String groupId, String msgId, String callerId) {
+        groupRepo.findForUpdate(groupId).orElseThrow(() -> new IllegalArgumentException("Group not found"));
         requireHubGroupMember(groupId, callerId);
         HubGroupMessage msg = groupMsgRepo.findById(msgId)
                 .orElseThrow(() -> new IllegalArgumentException("Message not found"));

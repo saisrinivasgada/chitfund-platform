@@ -82,11 +82,16 @@ env:
     centerElement: false
 - assertVisible:
     text: '☑ .*full original collection has already been returned.*'
+# The accessibility tree can expose a clipped button's top edge as visible.
+# Bring the control below it into view so the confirmation is fully tappable.
 - scrollUntilVisible:
     element:
-      text: "Confirm pickup decision"
+      text: "Back to pickup reviews"
     direction: DOWN
-    centerElement: false
+    centerElement: true
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: true
 - tapOn: "Confirm pickup decision"
 - extendedWaitUntil:
     visible: "No staff pickups waiting for review."

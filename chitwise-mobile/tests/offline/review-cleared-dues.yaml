@@ -18,7 +18,7 @@ appId: com.chitwise.mobile
     visible: "Sync now"
     timeout: 10000
 - tapOn: "Sync now"
-- tapOn: "Close sync details"
+- runFlow: close-sync-details.yaml
 - extendedWaitUntil:
     visible: "Review needed|Sync needs attention.*"
     timeout: 60000

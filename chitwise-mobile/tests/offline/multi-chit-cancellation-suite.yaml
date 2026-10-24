@@ -82,7 +82,14 @@ env:
     centerElement: true
 - tapOn: ".*Cancellation reason.*"
 - inputText: "Mistaken multi-chit entry: no money was collected"
-- hideKeyboard
+- pressKey: Enter
+- assertVisible: "Saved payment details"
+- assertVisible: "Mistaken multi-chit entry: no money was collected"
+- scrollUntilVisible:
+    element:
+      text: "I confirm no money was collected"
+    direction: DOWN
+    centerElement: true
 - tapOn: "I confirm no money was collected"
 - scrollUntilVisible:
     element:

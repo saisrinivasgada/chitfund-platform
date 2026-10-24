@@ -788,7 +788,7 @@ public class AuthService {
                 user.setTempPasswordHash(null);
                 user.setFailedLoginAttempts(0);
                 userRepository.save(user);
-            } catch (Exception e) {
+            } catch (org.springframework.security.core.AuthenticationException e) {
                 boolean locked = authenticationSecurityService.recordFailedLoginAttempt(user.getId());
                 if (locked) {
                     throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,

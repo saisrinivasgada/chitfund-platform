@@ -19,7 +19,7 @@ import {
   swapReservationSlots, shiftReservations, markSlotProcessed,
   updateReservationSlot,
   createPayout, disbursePayout, getAllPaymentBatchesPage, voidPaymentBatch, getPayoutsByChit,
-  listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
+  listStaff, updateChitDetails, getAuditLogPage, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
   pauseChit, resumeChit, getDeletedChits, deleteChit,
   getChitLifecycleSync, retryChitLifecycleSync,
@@ -291,6 +291,7 @@ export default function AdminChitsScreen() {
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [slotEditMemberId, setSlotEditMemberId] = useState('');
   const [slotEditPayout, setSlotEditPayout] = useState('');
+  const [slotEditVersion, setSlotEditVersion] = useState<number | undefined>();
 
   // ── Lottery-specific ────────────────────────────────────────────────────────
   const [lotteryDrawMode, setLotteryDrawMode] = useState<'RANDOM' | 'PICK'>('RANDOM');
@@ -360,13 +361,17 @@ export default function AdminChitsScreen() {
   });
   const chitBatches = chitBatchPages.data?.pages.flatMap(page => page.content ?? []) ?? [];
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
-  const { data: chitAudit = [], isLoading: chitAuditLoading, isError: chitAuditError,
+  const [auditPageNumber, setAuditPageNumber] = useState(0);
+  const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
+  useEffect(() => { setAuditPageNumber(0); setExpandedAuditId(null); }, [selected?.id]);
+  const { data: chitAuditPage, isLoading: chitAuditLoading, isError: chitAuditError,
     refetch: refetchChitAudit } = useQuery({
-    queryKey: ['a-chit-audit', selected?.id],
-    queryFn: () => getChitAuditHistory(selected!.id),
+    queryKey: ['a-chit-audit', selected?.id, auditPageNumber],
+    queryFn: () => getAuditLogPage({ chitId: selected!.id, page: auditPageNumber, size: 50 }),
     enabled: !!selected?.id && detailTab === 'audit',
     staleTime: 30_000,
   });
+  const chitAudit: any[] = chitAuditPage?.content ?? [];
   const { data: auctionSessions = [], refetch: refetchAuctions } = useQuery({
     queryKey: ['m-auctions', selected?.id],
     queryFn: () => listAuctions(selected!.id),
@@ -643,6 +648,7 @@ export default function AdminChitsScreen() {
 
         if (lotterySlot && winnerRecord?.memberId) {
           await updateReservationSlot(selected.id, lotterySlot.id, {
+            expectedVersion: lotterySlot.version,
             reservationMonth: lotterySlot.reservationMonth,
             memberId: winnerRecord.memberId,
             orgHeld: false,
@@ -849,6 +855,7 @@ export default function AdminChitsScreen() {
     mutationFn: ({ slot, memberId, payoutAmount }: { slot: any; memberId: string; payoutAmount: string }) => {
       const isOrg = memberId === 'ORG';
       return updateReservationSlot(selected.id, slot.id, {
+        expectedVersion: slotEditVersion,
         reservationMonth: slot.reservationMonth,
         memberId: isOrg ? null : (memberId || null),
         orgHeld: isOrg,
@@ -1895,7 +1902,7 @@ export default function AdminChitsScreen() {
                             </View>
                             {!isProcessed && !isEditing && (
                               <TouchableOpacity
-                                onPress={() => { setEditingSlotId(slot.id); setSlotEditPayout(slot.payoutAmount ? String(slot.payoutAmount) : ''); }}
+                                onPress={() => { setEditingSlotId(slot.id); setSlotEditVersion(slot.version); setSlotEditPayout(slot.payoutAmount ? String(slot.payoutAmount) : ''); }}
                                 style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.navy + '10', borderRadius: 6 }}>
                                 <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>Edit</Text>
                               </TouchableOpacity>
@@ -2080,7 +2087,7 @@ export default function AdminChitsScreen() {
                           {!isVoided && !isEditing && (
                             <TouchableOpacity
                               onPress={() => {
-                                setEditingSlotId(slot.id);
+                                setEditingSlotId(slot.id); setSlotEditVersion(slot.version);
                                 setSlotEditMemberId(slot.orgHeld ? 'ORG' : (slot.memberId ?? ''));
                                 setSlotEditPayout(slot.payoutAmount ? String(slot.payoutAmount) : '');
                               }}
@@ -2231,8 +2238,8 @@ export default function AdminChitsScreen() {
               }
               function buildAuditSummary(entry: any): string | null {
                 if (entry.action !== 'CHIT_DETAILS_UPDATED') return entry.description ?? null;
-                const b = entry.oldValue ?? entry.beforeValue ?? {};
-                const a = entry.newValue ?? entry.afterValue ?? {};
+                const b = auditState(entry.beforeState);
+                const a = auditState(entry.afterState);
                 const parts: string[] = [];
                 if (b.name !== a.name && a.name) parts.push(`Name: "${b.name}" → "${a.name}"`);
                 if (b.chitValue !== undefined && b.chitValue !== a.chitValue)
@@ -2240,6 +2247,17 @@ export default function AdminChitsScreen() {
                 if (b.installmentAmount !== undefined && b.installmentAmount !== a.installmentAmount)
                   parts.push(`Installment: ₹${Number(b.installmentAmount).toLocaleString('en-IN')} → ₹${Number(a.installmentAmount).toLocaleString('en-IN')}`);
                 return parts.length > 0 ? parts.join(' · ') : 'Chit details updated';
+              }
+              function auditState(value: any): Record<string, any> {
+                if (typeof value === 'object' && value) return value;
+                try { return JSON.parse(value ?? '{}') ?? {}; } catch { return {}; }
+              }
+              function fieldLabel(field: string) { return field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' '); }
+              function auditValue(value: any): string {
+                if (value == null) return '—';
+                if (Array.isArray(value)) return value.map(auditValue).join('; ');
+                if (typeof value === 'object') return Object.entries(value).map(([key, val]) => `${fieldLabel(key)}: ${auditValue(val)}`).join(' · ');
+                return (members as any[]).find(member => member.id === value)?.fullName ?? String(value);
               }
               function getAuditColor(action: string): string {
                 if (action === 'CHIT_DETAILS_UPDATED') return '#6366F1';
@@ -2273,6 +2291,12 @@ export default function AdminChitsScreen() {
                     const label = buildAuditLabel(entry.action ?? entry.eventType ?? '');
                     const summary = buildAuditSummary(entry);
                     const color = getAuditColor(entry.action ?? '');
+                    const before = auditState(entry.beforeState); const after = auditState(entry.afterState);
+                    const changes = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+                      .filter(key => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+                    const actor = (staff as any[]).find(person => person.id === entry.actorId)?.fullName
+                      ?? (members as any[]).find(member => member.userId === entry.actorId)?.fullName
+                      ?? (entry.actorId ? `${entry.actorRole ?? 'Account'} · ${entry.actorId.slice(0, 8)}` : 'System');
                     return (
                       <View key={entry.id ?? i} style={{ marginBottom: 10, borderLeftWidth: 2, borderLeftColor: color, paddingLeft: 12 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 2 }}>
@@ -2284,13 +2308,23 @@ export default function AdminChitsScreen() {
                         {summary && (
                           <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>{summary}</Text>
                         )}
-                        {entry.performedBy && (
-                          <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>by {entry.performedBy}</Text>
-                        )}
+                        <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>By {actor}</Text>
+                        {changes.length > 0 && <TouchableOpacity onPress={() => setExpandedAuditId(expandedAuditId === entry.id ? null : entry.id)} style={{ paddingVertical: 8 }}>
+                          <Text style={{ color: C.navy, fontSize: 12, fontWeight: '600' }}>{expandedAuditId === entry.id ? 'Hide changes' : 'View recorded changes'}</Text>
+                        </TouchableOpacity>}
+                        {expandedAuditId === entry.id && changes.map(key => <View key={key} style={{ marginBottom: 6 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, textTransform: 'capitalize' }}>{fieldLabel(key)}</Text>
+                          <Text style={{ fontSize: 12, color: C.gray500 }}>{auditValue(before[key])} → {auditValue(after[key])}</Text>
+                        </View>)}
                       </View>
                     );
                   })
                 )}
+                {!chitAuditLoading && !chitAuditError && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 }}>
+                  <TouchableOpacity disabled={auditPageNumber === 0} onPress={() => setAuditPageNumber(p => p - 1)} style={{ opacity: auditPageNumber === 0 ? 0.4 : 1, padding: 8 }}><Text style={{ color: C.navy }}>Previous</Text></TouchableOpacity>
+                  <Text style={{ color: C.gray500, fontSize: 12 }}>Page {auditPageNumber + 1} of {Math.max(1, chitAuditPage?.totalPages ?? 1)}</Text>
+                  <TouchableOpacity disabled={chitAuditPage?.last ?? true} onPress={() => setAuditPageNumber(p => p + 1)} style={{ opacity: (chitAuditPage?.last ?? true) ? 0.4 : 1, padding: 8 }}><Text style={{ color: C.navy }}>Next</Text></TouchableOpacity>
+                </View>}
               </>
               );
             })()}

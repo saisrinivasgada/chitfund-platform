@@ -1,0 +1,10 @@
+appId: com.chitwise.mobile
+---
+- waitForAnimationToEnd
+- tapOn:
+    id: "close-sync-details"
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    notVisible: "Sync & offline data"
+    timeout: 10000
+- waitForAnimationToEnd
