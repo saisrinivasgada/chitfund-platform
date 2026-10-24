@@ -3,14 +3,10 @@ appId: com.chitwise.mobile
 ---
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
-- runFlow:
-    file: open-app-route.yaml
-    env:
-      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=Record%20Payment'
+# Use the same visible tab navigation as a collector after cold restoration.
+# A second OS URL intent can be accepted without replacing the restored route.
+- tapOn: "Finance(, tab,.*)?"
 - waitForAnimationToEnd
-- tapOn:
-    text: "Open"
-    optional: true
 - extendedWaitUntil:
     visible:
       id: "member-row-QA Member A"
