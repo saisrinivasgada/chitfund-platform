@@ -115,6 +115,14 @@ jobs:
             ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES build \
             > "$RUNNER_TEMP/chitwise-ios-build.log" 2>&1
           xcrun simctl install "$CHITWISE_QA_DEVICE" "$RUNNER_TEMP/chitwise-ios/Build/Products/Release-iphonesimulator/ChitWise.app"
+      - name: Package simulator build for visible verification
+        run: ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/chitwise-ios/Build/Products/Release-iphonesimulator/ChitWise.app" "$RUNNER_TEMP/chitwise-simulator-qa.zip"
+      - name: Retain simulator QA build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-qa-app
+          path: ${{ runner.temp }}/chitwise-simulator-qa.zip
+          retention-days: 7
       - name: Start localhost fixture
         run: |
           node tests/offline/server.mjs > "$RUNNER_TEMP/chitwise-native-fixture.log" 2>&1 &
