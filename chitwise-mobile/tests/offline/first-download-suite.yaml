@@ -73,7 +73,10 @@ env:
     file: fixture-control.js
     env:
       QA_STATE: '{"online":true,"org":"c","pauseDownloads":false}'
-- tapOn: "Try again"
+# Recovery can finish automatically before the explicit retry is tapped.
+- tapOn:
+    text: "Try again"
+    optional: true
 - extendedWaitUntil:
     visible: ".*QA Monthly Chit C.*"
     timeout: 60000
