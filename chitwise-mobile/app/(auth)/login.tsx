@@ -1,3 +1,4 @@
+import { authorizeAccountLogin } from '../../utils/authorizeAccountLogin';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { authorizeDeviceSession } from '../../utils/deviceUnlockSession';
 import { roleHomePath } from '../../utils/roleRoutes';
@@ -369,14 +370,17 @@ export default function LoginScreen() {
     checkBiometric().catch(() => setError('Device unlock settings could not be read. Please try again.'));
   }, [checkBiometric]);
 
-  async function applyAuth(data: any, offerBiometric = false, tenantName?: string) {
+  async function applyAuth(data: any, offerBiometric = false, tenantName?: string, deviceAlreadyApproved = false) {
     if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword && data.refreshToken) {
       setPendingCreds({ data, tenantName });
       setShowEnablePrompt(true);
       return;
     }
     const unlockedAccountId = accountStorageId(data.userId, data.tenantId, 'ORGANIZATION');
-    authorizeDeviceSession(unlockedAccountId);
+    if (!await authorizeAccountLogin(unlockedAccountId, deviceAlreadyApproved)) {
+      setError('Phone unlock was cancelled. Your current account and saved payments are unchanged.');
+      return;
+    }
     // Wait until SecureStore contains this account's tokens before AuthGuard
     // mounts its role dashboard and dashboard queries begin.
     await setUser({
@@ -565,13 +569,14 @@ export default function LoginScreen() {
     if (!pending || loading) return;
     setLoading(true);
     try {
+      let deviceApproved = false;
       if (enable) {
         const id = accountStorageId(pending.data.userId, pending.data.tenantId, 'ORGANIZATION');
-        await enableBiometric(id);
+        deviceApproved = await enableBiometric(id);
       }
       setShowEnablePrompt(false);
       setPendingCreds(null);
-      await applyAuth(pending.data, false, pending.tenantName);
+      await applyAuth(pending.data, false, pending.tenantName, deviceApproved);
     } catch {
       setError('Could not save device unlock settings. Please try again.');
     } finally { setLoading(false); }
@@ -816,9 +821,11 @@ export default function LoginScreen() {
             <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 28, lineHeight: 20 }}>
               Use your phone’s unlock method when opening ChitWise and switching accounts.
             </Text>
+            {!!error && <Text style={{ color: '#DC2626', textAlign: 'center', marginBottom: 14 }}>{error}</Text>}
             <Button
               label={`Enable ${biometricLabel}`}
               onPress={() => finishUnlockOffer(true)}
+              loading={loading}
               fullWidth
               size="lg"
             />
