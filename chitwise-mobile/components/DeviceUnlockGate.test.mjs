@@ -14,7 +14,7 @@ const [gateSource, sessionSource] = await Promise.all([transpile('./DeviceUnlock
 const userA = { id: 'u', tenantId: 'a', authSource: 'ORGANIZATION' };
 const userB = { id: 'u', tenantId: 'b', authSource: 'ORGANIZATION' };
 const id = (u) => `${u.authSource}:${u.id}:${u.tenantId}`;
-async function phone({ enabled = true, loading = false, unreadable = false, user = userA, approve = false } = {}) {
+async function phone({ os = 'android', enabled = true, loading = false, unreadable = false, user = userA, approve = false } = {}) {
   let state = { user, isLoading: loading };
   const authListeners = new Set(), stateListeners = new Set(), settingListeners = new Set();
   let pending, nativeBusy = false, settingsFail = unreadable;
@@ -31,6 +31,7 @@ async function phone({ enabled = true, loading = false, unreadable = false, user
       Modal: ({ visible, children }) => React.createElement('NativeModal', { visible }, visible ? children : null),
     },
     '@expo/vector-icons/Ionicons': { default: 'Icon' },
+    './NativeDeviceLock': { NativeDeviceLock: os === 'ios' ? 'NativeDeviceLock' : null },
     '../store/authStore': { useAuthStore, accountStorageId: (userId, tenantId, source) => `${source}:${userId}:${tenantId}` },
     '../utils/biometrics': {
       isBiometricEnabled: async () => { if (settingsFail) throw new Error('Storage unavailable'); return enabled; },
@@ -50,7 +51,8 @@ async function phone({ enabled = true, loading = false, unreadable = false, user
   const update = async (fn) => act(async () => { fn(); });
   const result = {
     calls, signOuts, session: session.namespace,
-    visible: () => renderer.root.findAllByType('NativeModal').some((modal) => modal.props.visible),
+    visible: () => os === 'ios' ? renderer.root.findByType('NativeDeviceLock').props.active : renderer.root.findAllByType('NativeModal').some((modal) => modal.props.visible),
+    nativeProps: () => renderer.root.findByType('NativeDeviceLock').props,
     modalCount: () => renderer.root.findAllByType('NativeModal').length,
     text: () => JSON.stringify(renderer.toJSON()),
     resolve: async (success) => update(() => { assert.ok(pending, 'A native request must be pending'); const finish = pending; pending = null; finish(success); }),
@@ -60,7 +62,7 @@ async function phone({ enabled = true, loading = false, unreadable = false, user
     setAuth: async (next) => update(() => { state = { ...state, ...next }; authListeners.forEach((l) => l()); }),
     authorize: async (accountId) => update(() => session.namespace.authorizeDeviceSession(accountId)),
     settings: async (on, approvedId) => update(() => { enabled = on; settingListeners.forEach((l) => l(on, approvedId)); }),
-    retry: async () => update(() => renderer.root.findAllByType('Button').find((b) => b.props.testID === 'unlock-chitwise').props.onPress()),
+    retry: async () => update(() => os === 'ios' ? renderer.root.findByType('NativeDeviceLock').props.onUnlockPress() : renderer.root.findAllByType('Button').find((b) => b.props.testID === 'unlock-chitwise').props.onPress()),
     signOut: async () => update(() => renderer.root.findAllByType('Button').find((b) => b.props.testID !== 'unlock-chitwise').props.onPress()),
     storageRecovers: () => { settingsFail = false; },
     dispose: async () => act(async () => renderer.unmount()),
@@ -129,4 +131,15 @@ test('enabling and disabling app lock updates protection without remounting or a
 test('cancelling the existing sign-out confirmation leaves the lock and stored collections in place', async () => {
   const app = await phone(); await app.resolve(false); await app.signOut();
   assert.equal(app.signOuts.length, 1); assert.equal(app.visible(), true); await app.dispose();
+});
+
+test('iOS uses a window curtain instead of a competing modal and retains protection through cancellation and resume', async () => {
+  const app = await phone({ os: 'ios' });
+  assert.equal(app.modalCount(), 0); assert.equal(app.visible(), true);
+  assert.equal(app.nativeProps().protectionEnabled, true); assert.equal(app.nativeProps().busy, true);
+  await app.resolve(false); assert.equal(app.visible(), true); assert.equal(app.nativeProps().busy, false);
+  await app.retry(); await app.resolve(true); assert.equal(app.visible(), false);
+  assert.equal(app.nativeProps().protectionEnabled, true, 'Native background snapshot protection remains enabled after approval');
+  await app.background(); assert.equal(app.visible(), true); await app.foreground();
+  await app.resolve(true); assert.equal(app.visible(), false); assert.equal(app.signOuts.length, 0); await app.dispose();
 });

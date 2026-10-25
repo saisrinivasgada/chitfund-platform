@@ -1,3 +1,4 @@
+import { NativeDeviceLock } from './NativeDeviceLock';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, AppState, Modal, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -76,7 +77,16 @@ export function DeviceUnlockGate({ children }: { children: React.ReactNode }) {
   const visible = loading || enabled === null || locked || (enabled === true && !!accountId && obscured);
   return <View style={{ flex: 1 }}>
     {children}
-    {visible && <Modal visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => {}}>
+    {NativeDeviceLock ? <NativeDeviceLock
+      style={{ position: 'absolute', width: 1, height: 1 }} pointerEvents="none"
+      active={visible} protectionEnabled={enabled === true && !!accountId}
+      busy={loading || busy || obscured} canSignOut={!!accountId}
+      title={loading ? 'ChitWise' : 'ChitWise is locked'}
+      message={error || 'Use your phone’s fingerprint, face or device passcode to continue.'}
+      buttonTitle={enabled === null ? 'Try again' : 'Unlock ChitWise'}
+      onUnlockPress={enabled === null ? loadSetting : unlock}
+      onSignOutPress={() => { requestSignOut(); }}
+    /> : visible && <Modal visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => {}}>
       <View style={{ flex: 1, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
         <View style={{ width: 80, height: 80, borderRadius: 24, backgroundColor: '#FFFFFF18', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
           <Ionicons name="lock-closed-outline" size={36} color="#FFF" />
