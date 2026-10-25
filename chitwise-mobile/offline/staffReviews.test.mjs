@@ -15,7 +15,7 @@ async function recovery({status='PENDING',otherTenant=false,networkFails=false}=
     './accountScope':{getStoredAccountScope:a=>a.scope},
     './accountClient':{accountForScope:()=>({role:'ADMIN',tenantId:otherTenant?'org-b':'org-a'}),requestAsAccount:async(scope,request)=>{
       requests.push({scope,request});if(networkFails)throw new Error('Connection lost');return{data:{data:{id:'review-id',status,result:{outcome:{id:'original-request'}},resolutionReason:'Verified outcome'}}};}},
-    './database':{getOperationsAwaitingReview:async()=>[operation],deferReviewPoll:async()=>{deferred++;},updateOperation:async(...args)=>updates.push(args),
+    './database':{claimRecoveryOperation:async()=>null,completeRecoveryOperation:async()=>false,releaseRecoveryOperation:async()=>{},getOperationsAwaitingReview:async()=>[operation],deferReviewPoll:async()=>{deferred++;},updateOperation:async(...args)=>updates.push(args),
       getRecoverablePayments:async()=>[],getRecoverableStaffCollections:async()=>[],hasOfflineDatabase:async()=>false},
   };
   const context=vm.createContext({});const m=new vm.SourceTextModule(source,{context});
@@ -53,7 +53,7 @@ for(const oldRole of ['STAFF','ADMIN']) test(`current admin quarantines unchange
   '../store/authStore':{useAuthStore:{getState:()=>({accounts:[{scope:'admin-scope:ADMIN',tenantId:'org-a',retainedOfflineScopes:[originalScope]},{scope:'other-scope:STAFF',tenantId:'org-b'}]})}},
   './accountScope':{getStoredAccountScope:a=>a.scope},
   './accountClient':{accountForScope:()=>({sessionValid:true,role:'ADMIN',tenantId:'org-a'}),requestAsAccount:async(scope,request)=>{requests.push({scope,request});return{data:{data:{reviewId:'preserved-review'}}};}},
-  './database':{hasOfflineDatabase:async scope=>{opened.push(scope);return true;},getRecoverablePayments:async scope=>oldRole==='ADMIN'&&scope===originalScope?[operation]:[],getRecoverableStaffCollections:async scope=>oldRole==='STAFF'&&scope===originalScope?[{...operation,operationId:'corrupt-old',payloadHash:'invalid'},operation]:[],getOperationsAwaitingReview:async()=>[],deferReviewPoll(){},updateOperation:async(...args)=>updates.push(args)},
+  './database':{claimRecoveryOperation:async()=> 'lease',completeRecoveryOperation:async(op,lease,reviewId)=>{updates.push([op.operationId,op.accountScope,'CONFLICT',{serverReviewId:reviewId}]);return true;},releaseRecoveryOperation:async()=>{},hasOfflineDatabase:async scope=>{opened.push(scope);return true;},getRecoverablePayments:async scope=>oldRole==='ADMIN'&&scope===originalScope?[operation]:[],getRecoverableStaffCollections:async scope=>oldRole==='STAFF'&&scope===originalScope?[{...operation,operationId:'corrupt-old',payloadHash:'invalid'},operation]:[],getOperationsAwaitingReview:async()=>[],deferReviewPoll(){},updateOperation:async(...args)=>updates.push(args)},
  };
  const context=vm.createContext({});const m=new vm.SourceTextModule(source,{context});await m.link(async name=>{const values=deps[name];if(!values)throw new Error(name);return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v);},{context});});await m.evaluate();
  assert.equal(await m.namespace.recoverSavedCollections('admin-scope:ADMIN'),1);assert.equal(requests.length,1);assert.ok(!opened.includes('other-scope:STAFF'));

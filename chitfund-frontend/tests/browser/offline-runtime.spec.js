@@ -487,3 +487,103 @@ test('a fresh sign-in without the add-on disables stale grants but still deliver
   expect(result.enabled).toBe(false); expect(result.denied).toContain('not enabled');
   expect(result.status).toBe('SUCCEEDED'); expect(posted).toEqual([result.original]);
 });
+
+test('recovery never uploads a never-sent cancelled collection or replaces its cancellation evidence', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  let uploads = 0;
+  await page.route('**/api/payments/offline/**', (route) => { uploads++; return route.abort(); });
+  const result = await page.evaluate(async (scope) => {
+    const { cancelSavedPayment, recoverSavedCollections } = await import('/src/offline/outbox.js');
+    const { readRows, unseal } = await import('/src/offline/storage.js');
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+    const before = (await readRows('outbox'))[0];
+    await cancelSavedPayment(scope, before.key, 'No money collected; mistaken entry', true);
+    const count = await recoverSavedCollections(scope);
+    const after = (await readRows('outbox'))[0];
+    return { count, status: after.status, reviewId: after.reviewId,
+      reason: (await unseal(scope, after.cancellation)).reason,
+      unchanged: JSON.stringify(await unseal(scope, before.encrypted)) === JSON.stringify(await unseal(scope, after.encrypted)) };
+  }, account.scope);
+  expect(result).toMatchObject({ count: 0, status: 'CANCELLED', unchanged: true, reason: 'No money collected; mistaken entry' });
+  expect(result.reviewId).toBeUndefined(); expect(uploads).toBe(0);
+});
+
+test('recovery preserves an uncertain cancellation and uses cancellation reconciliation rather than ordinary review upload', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  let recoveries = 0; let payments = 0; let cancellations = 0;
+  await page.route('**/api/payments/offline/reviews/recover', (route) => { recoveries++; return route.abort(); });
+  await page.route('**/api/payments/offline/record', (route) => { payments++; return route.abort(); });
+  await page.route('**/api/payments/offline/reviews/cancel-unsynced', (route) => { cancellations++;
+    expect(route.request().postDataJSON().cancellation.noMoneyCollected).toBe(true);
+    return route.fulfill({ json: { success: true, data: { id: 'cancel-review', status: 'CANCELLED' } } });
+  });
+  const result = await page.evaluate(async (scope) => {
+    const { cancelSavedPayment, recoverSavedCollections } = await import('/src/offline/outbox.js');
+    const { readRows, mutateRow } = await import('/src/offline/storage.js');
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+    const before = (await readRows('outbox'))[0];
+    await mutateRow('outbox', before.key, (row) => ({ ...row, attempts: 1, status: 'RETRYABLE_FAILURE' }));
+    await cancelSavedPayment(scope, before.key, 'No money collected; uncertain earlier attempt', true);
+    const count = await recoverSavedCollections(scope);
+    return { count, status: (await readRows('outbox'))[0].status };
+  }, account.scope);
+  expect(result).toEqual({ count: 0, status: 'CANCELLED' });
+  expect(recoveries).toBe(0); expect(payments).toBe(0); expect(cancellations).toBe(1);
+});
+
+test('cancellation and recovery claims serialize before either can upload evidence', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  const result = await page.evaluate(async (scope) => {
+    const { requestOutboxCancellation, claimOutboxRecovery, readRows, seal } = await import('/src/offline/storage.js');
+    const row = (await readRows('outbox'))[0];
+    const cancellation = await seal(scope, { reason: 'No money collected', noMoneyCollected: true });
+    const [cancel, recover] = await Promise.all([
+      requestOutboxCancellation(scope, row.key, cancellation), claimOutboxRecovery(row.key, scope),
+    ]);
+    return { cancelled: cancel.status, claimed: !!recover, final: (await readRows('outbox'))[0].status };
+  }, account.scope);
+  expect(result).toEqual({ cancelled: 'CANCELLED', claimed: false, final: 'CANCELLED' });
+});
+
+test('an in-flight recovery cannot be cancelled locally or overwritten by another recovery', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  let uploads = 0; let release;
+  const pause = new Promise((resolve) => { release = resolve; });
+  await page.route('**/api/payments/offline/reviews/recover', async (route) => { uploads++; await pause;
+    await route.fulfill({ json: { success: true, data: { reviewId: 'recovery-race' } } });
+  });
+  await page.evaluate(async (scope) => {
+    const { recoverSavedCollections } = await import('/src/offline/outbox.js'); window.qaRecovery = recoverSavedCollections(scope);
+  }, account.scope);
+  try {
+    await expect.poll(() => uploads).toBe(1);
+    const during = await page.evaluate(async (scope) => {
+      const { cancelSavedPayment } = await import('/src/offline/outbox.js');
+      const { readRows, claimOutboxRecovery } = await import('/src/offline/storage.js');
+      Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+      const row = (await readRows('outbox'))[0];
+      let message; try { await cancelSavedPayment(scope, row.key, 'No money collected', true); } catch (error) { message = error.message; }
+      return { message, claimedAgain: !!await claimOutboxRecovery(row.key, scope), status: (await readRows('outbox'))[0].status };
+    }, account.scope);
+    expect(during.message).toContain('started syncing'); expect(during.claimedAgain).toBe(false); expect(during.status).toBe('SYNCING');
+  } finally { release(); }
+  const after = await page.evaluate(async () => {
+    await window.qaRecovery; return (await (await import('/src/offline/storage.js')).readRows('outbox'))[0];
+  });
+  expect(uploads).toBe(1); expect(after.status).toBe('CONFLICT'); expect(after.reviewId).toBe('recovery-race'); expect(after.cancellation).toBeUndefined();
+});
+
+test('a failed recovery releases only its lease and preserves the original collection', async ({ page }) => {
+  const [account] = await prepare(page); await queue(page, account.scope);
+  await page.route('**/api/payments/offline/reviews/recover', (route) => route.fulfill({ status: 503, json: { success: false, message: 'Unavailable' } }));
+  const result = await page.evaluate(async (scope) => {
+    const { recoverSavedCollections } = await import('/src/offline/outbox.js');
+    const { readRows, unseal } = await import('/src/offline/storage.js');
+    const before = (await readRows('outbox'))[0]; let failed = false;
+    try { await recoverSavedCollections(scope); } catch { failed = true; }
+    const after = (await readRows('outbox'))[0];
+    return { failed, status: after.status, leaseUntil: after.leaseUntil, attempts: after.attempts,
+      unchanged: JSON.stringify(await unseal(scope, before.encrypted)) === JSON.stringify(await unseal(scope, after.encrypted)) };
+  }, account.scope);
+  expect(result).toEqual({ failed: true, status: 'QUEUED', leaseUntil: 0, attempts: 1, unchanged: true });
+});

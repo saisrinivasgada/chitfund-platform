@@ -2,7 +2,7 @@ import { refreshFinancialSnapshots } from '../../../shared/offline/financialRefr
 import { saveCachedResponse } from './cache';
 import { runAccountTasks } from '../../../shared/offline/scheduling';
 import { accountScope, requestForAccount } from './accountClient';
-import { claimOutbox, mutateRow, readRow, readRows, requestOutboxCancellation, saveOutboxForAccount, seal, unseal, writeRow } from './storage';
+import { claimOutbox, claimOutboxRecovery, mutateRow, readRow, readRows, requestOutboxCancellation, saveOutboxForAccount, seal, unseal, writeRow } from './storage';
 
 import { canRecordOffline, recordingPauseMessage } from '../../../shared/offline/accessPolicy';
 export { canRecordOffline } from '../../../shared/offline/accessPolicy';
@@ -178,18 +178,29 @@ export async function recoverSavedCollections(adminScope) {
   const owners = new Map(accounts.filter((a) => a.tenant.tenantId === admin.tenant.tenantId).map((a) => [a.scope, a]));
   let count = 0;
   for (const entry of (await readRows('outbox')).filter((e) => owners.has(e.scope) && !e.reviewId
-      && !['SUCCEEDED', 'SYNCING'].includes(e.status)).slice(0, 25)) {
-    const payload = await unseal(entry.scope, entry.encrypted);
-    if (!payload.offlineAuthorization) continue;
-    const owner = owners.get(entry.scope);
-    const result = await requestForAccount(adminScope, '/payments/offline/reviews/recover', {
-      method: 'POST', headers: { 'X-Idempotency-Key': entry.operationId }, body: { originalActorId: owner.user.id, original: payload },
-    });
-    if (!result?.reviewId) throw new Error('Server did not confirm recovery. The original collection remains on this browser');
-    await mutateRow('outbox', entry.key, (current) => current && !['SUCCEEDED', 'SYNCING'].includes(current.status)
-      ? { ...current, status: 'CONFLICT', reviewId: result.reviewId, recoveryScope: adminScope,
-        errorMessage: 'Recovered for admin review. The original collection remains preserved.' } : undefined);
-    notifyOfflineChange(entry.scope); notifyOfflineChange(adminScope); count++;
+      && !e.cancellation && !e.receipt && !['SUCCEEDED', 'CANCELLED', 'SYNCING'].includes(e.status)
+      && !['CANCELLED', 'REFUNDED'].includes(e.reviewResolution)).slice(0, 25)) {
+    const claim = await claimOutboxRecovery(entry.key, adminScope);
+    if (!claim) continue;
+    const claimed = claim.entry;
+    let recovered = false;
+    try {
+      const payload = await unseal(claimed.scope, claimed.encrypted);
+      if (!payload.offlineAuthorization) continue;
+      const owner = owners.get(claimed.scope);
+      const result = await requestForAccount(adminScope, '/payments/offline/reviews/recover', {
+        method: 'POST', headers: { 'X-Idempotency-Key': claimed.operationId }, body: { originalActorId: owner.user.id, original: payload },
+      });
+      if (!result?.reviewId) throw new Error('Server did not confirm recovery. The original collection remains on this browser');
+      recovered = !!await mutateRow('outbox', claimed.key, (current) => current?.leaseId === claimed.leaseId
+          && current.status === 'SYNCING' && !current.cancellation
+        ? { ...current, status: 'CONFLICT', reviewId: result.reviewId, recoveryScope: adminScope,
+          leaseUntil: 0, errorMessage: 'Recovered for admin review. The original collection remains preserved.' } : undefined);
+      if (recovered) { notifyOfflineChange(claimed.scope); notifyOfflineChange(adminScope); count++; }
+    } finally {
+      if (!recovered) await mutateRow('outbox', claimed.key, (current) => current?.leaseId === claimed.leaseId && current.status === 'SYNCING'
+        ? { ...current, status: claim.previousStatus, leaseUntil: 0 } : undefined);
+    }
   }
   await syncSavedPayments();
   return count;

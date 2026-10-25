@@ -4,7 +4,20 @@ import { useAuthStore } from '../store/authStore';
 import { getStoredAccountScope } from './accountScope';
 import { accountForScope } from './accountClient';
 import { requestAsAccount } from './accountClient';
-import { deferReviewPoll, getOperationsAwaitingReview, getRecoverablePayments, getRecoverableStaffCollections, hasOfflineDatabase, updateOperation } from './database';
+import { claimRecoveryOperation, completeRecoveryOperation, releaseRecoveryOperation, deferReviewPoll, getOperationsAwaitingReview, getRecoverablePayments, getRecoverableStaffCollections, hasOfflineDatabase, updateOperation } from './database';
+import type { QueuedOperation } from './types';
+
+async function recoverClaimed(operation: QueuedOperation, send: () => Promise<{ reviewId?: string }>) {
+  const lease = await claimRecoveryOperation(operation);
+  if (!lease) return false;
+  let completed = false;
+  try {
+    const result = await send();
+    if (!result?.reviewId) throw new Error('Server did not confirm recovery; the original collection remains on this device');
+    completed = await completeRecoveryOperation(operation, lease, result.reviewId);
+    return completed;
+  } finally { if (!completed) await releaseRecoveryOperation(operation, lease); }
+}
 
 export async function loadOfflinePaymentReviews(scope: string, page = 0) {
   return (await requestAsAccount(scope, { method: 'GET', url: '/payments/offline/reviews', params: { page, size: 20 } })).data.data;
@@ -80,22 +93,18 @@ export async function recoverSavedCollections(adminScope: string) {
     for (const scope of [...new Set([getStoredAccountScope(account), ...(account.retainedOfflineScopes ?? [])])]) {
       if (!await hasOfflineDatabase(scope)) continue;
       for (const operation of await getRecoverablePayments(scope)) {
-        if (operation.tenantId !== admin.tenantId || operation.payload.localRecoveryRequired || (!operation.payload.offlineAuthorization && !scope.endsWith(':ADMIN'))) continue;
-        const result = (await requestAsAccount(adminScope, { method: 'POST', url: operation.payload.offlineAuthorization ? '/payments/offline/reviews/recover' : '/payments/offline/reviews/recover-legacy',
-          headers: { 'X-Idempotency-Key': operation.operationId }, data: { originalActorId: operation.actorId, original: operation.payload } })).data.data;
-        if (!result?.reviewId) throw new Error('Server did not confirm recovery; the original collection remains on this device');
-        await updateOperation(operation.operationId, scope, 'CONFLICT', { serverReviewId: result.reviewId,
-          errorMessage: 'Recovered for admin review. Original collection evidence is preserved.' });
-        count++;
+        if (operation.tenantId !== admin.tenantId || operation.serverReceipt || operation.payload.localRecoveryRequired || (!operation.payload.offlineAuthorization && !scope.endsWith(':ADMIN'))) continue;
+        if (await recoverClaimed(operation, async () => (await requestAsAccount(adminScope, { method: 'POST', url: operation.payload.offlineAuthorization ? '/payments/offline/reviews/recover' : '/payments/offline/reviews/recover-legacy',
+          headers: { 'X-Idempotency-Key': operation.operationId }, data: { originalActorId: operation.actorId, original: operation.payload } })).data.data)) count++;
       }
       const originalRole = scope.slice(scope.lastIndexOf(':') + 1);
       if (['STAFF','MANAGER'].includes(originalRole)) for (const operation of await getRecoverableStaffCollections(scope)) {
-        if (operation.tenantId !== admin.tenantId || operation.payload.localRecoveryRequired) continue;
+        if (operation.tenantId !== admin.tenantId || operation.serverReceipt || operation.payload.localRecoveryRequired) continue;
         const snapshot = operation.payload.collectionSnapshot;
         const original = { ...operation.payload, operationId: operation.operationId, action: operation.action,
           collectionSnapshot: snapshot ? { memberId: snapshot.memberId, chitId: snapshot.chitId, requestedAmount: snapshot.requestedAmount } : undefined };
         const signed = !!operation.payload.offlineAuthorization;
-        let legacy;
+        let legacy: ReturnType<typeof legacyStaffEvidence> | undefined;
         if (!signed) {
           try { legacy = legacyStaffEvidence(operation); }
           catch (error: any) {
@@ -105,12 +114,8 @@ export async function recoverSavedCollections(adminScope: string) {
             continue; // One damaged record must not prevent other collections reaching review.
           }
         }
-        const result = (await requestAsAccount(adminScope, { method: 'POST', url: signed ? '/payments/offline/staff-actions/reviews/recover' : '/payments/offline/staff-actions/reviews/recover-legacy',
-          data: { originalActorId: operation.actorId, originalRole, original: signed ? original : legacy } })).data.data;
-        if (!result?.reviewId) throw new Error('Server did not confirm pickup recovery; the original collection remains preserved');
-        await updateOperation(operation.operationId, scope, 'CONFLICT', { serverReviewId: result.reviewId,
-          errorMessage: 'Original pickup preserved for admin review. No member credit has been posted.' });
-        count++;
+        if (await recoverClaimed(operation, async () => (await requestAsAccount(adminScope, { method: 'POST', url: signed ? '/payments/offline/staff-actions/reviews/recover' : '/payments/offline/staff-actions/reviews/recover-legacy',
+          data: { originalActorId: operation.actorId, originalRole, original: signed ? original : legacy } })).data.data)) count++;
       }
       await refreshReviewedPayments(scope, true, Date.now() + 20_000, adminScope);
     }

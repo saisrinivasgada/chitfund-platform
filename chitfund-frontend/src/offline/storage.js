@@ -163,6 +163,36 @@ export async function claimOutbox(key, now = Date.now()) {
   });
 }
 
+/** Recovery and cancellation contend on the same row before any server call. */
+export async function claimOutboxRecovery(key, adminScope, now = Date.now()) {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['accounts', 'outbox'], 'readwrite'); let result;
+    const accounts = tx.objectStore('accounts'); const outbox = tx.objectStore('outbox');
+    const admin = accounts.get(adminScope);
+    admin.onsuccess = () => {
+      if (!admin.result?.sessionValid || admin.result.user?.role !== 'ADMIN') return;
+      const request = outbox.get(key);
+      request.onsuccess = () => {
+        const entry = request.result;
+        if (!entry || entry.action !== 'RECORD_PAYMENT' || entry.cancellation || entry.reviewId || entry.receipt
+            || ['SUCCEEDED', 'CANCELLED', 'SYNCING'].includes(entry.status)
+            || ['CANCELLED', 'REFUNDED'].includes(entry.reviewResolution)) return;
+        const owner = accounts.get(entry.scope);
+        owner.onsuccess = () => {
+          if (!owner.result || owner.result.tenant?.tenantId !== admin.result.tenant?.tenantId) return;
+          const claimed = { ...entry, status: 'SYNCING', attempts: (entry.attempts ?? 0) + 1,
+            leaseUntil: now + 120_000, leaseId: crypto.randomUUID() };
+          result = { entry: claimed, previousStatus: entry.status };
+          outbox.put(claimed);
+        };
+      };
+    };
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error ?? new Error('Recovery claim interrupted'));
+  });
+}
+
 /** Atomic against the service worker claim and voluntary sign-out. */
 export async function requestOutboxCancellation(scope, key, cancellation) {
   const db = await database();

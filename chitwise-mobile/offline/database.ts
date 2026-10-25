@@ -5,7 +5,7 @@ import { File } from 'expo-file-system';
 import type { PersistedClient, Persister } from '@tanstack/query-persist-client-core';
 import type { QueuedOperation, SyncCounts, SyncOperationStatus } from './types';
 
-const DATABASE_VERSION = 7;
+const DATABASE_VERSION = 8;
 
 // One open connection per account scope. Each scope gets its own encrypted
 // database file and its own key — tenant A's key reveals nothing about tenant B.
@@ -166,7 +166,7 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
   await db.runAsync('INSERT OR IGNORE INTO offline_session_guard(account_scope,signed_out,session_epoch) VALUES (?,?,?)',accountScope,blocked?1:0,epoch);
   if (blocked) await db.runAsync('UPDATE offline_session_guard SET signed_out=1,session_epoch=? WHERE account_scope=?',epoch,accountScope);
   const operationColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_operations)');
-  for (const name of ['server_review_id', 'server_receipt_json']) {
+  for (const name of ['server_review_id', 'server_receipt_json', 'recovery_lease_id']) {
     if (!operationColumns.some((column) => column.name === name)) await db.execAsync(`ALTER TABLE sync_operations ADD COLUMN ${name} TEXT`);
   }
   if (priorVersion < 3) {
@@ -376,7 +376,7 @@ export async function getReadyOperations(accountScope: string, limit = 25): Prom
 export async function claimOperation(operation: QueuedOperation): Promise<boolean> {
   const db = await getOfflineDatabase(operation.accountScope);
   const result = await db.runAsync(
-    `UPDATE sync_operations SET status = 'SYNCING', attempts = attempts + 1, updated_at = ?
+    `UPDATE sync_operations SET status = 'SYNCING', attempts = attempts + 1, updated_at = ?, recovery_lease_id=NULL
      WHERE operation_id = ? AND account_scope = ?
        AND status IN ('QUEUED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS')
        AND NOT EXISTS (SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)`,
@@ -385,12 +385,42 @@ export async function claimOperation(operation: QueuedOperation): Promise<boolea
   return result.changes === 1;
 }
 
+/** Admin recovery must win the same atomic row claim as cancellation/delivery. */
+export async function claimRecoveryOperation(operation: QueuedOperation): Promise<string | null> {
+  const db = await getOfflineDatabase(operation.accountScope);
+  const lease = Crypto.randomUUID();
+  const result = await db.runAsync(`UPDATE sync_operations SET status='SYNCING', attempts=attempts+1, updated_at=?, recovery_lease_id=?
+    WHERE operation_id=? AND account_scope=? AND tenant_id=? AND actor_id=? AND payload_hash=?
+      AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','CONFLICT','PERMANENT_FAILURE')
+      AND server_review_id IS NULL AND server_receipt_id IS NULL AND server_receipt_json IS NULL
+      AND NOT EXISTS(SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)`,
+    Date.now(), lease, operation.operationId, operation.accountScope, operation.tenantId, operation.actorId, operation.payloadHash, operation.accountScope);
+  return result.changes === 1 ? lease : null;
+}
+
+export async function completeRecoveryOperation(operation: QueuedOperation, lease: string, reviewId: string): Promise<boolean> {
+  const db = await getOfflineDatabase(operation.accountScope);
+  const result = await db.runAsync(`UPDATE sync_operations SET status='CONFLICT', server_review_id=?, recovery_lease_id=NULL,
+    last_error_code=NULL, last_error_message='Recovered for admin review. Original collection evidence is preserved.', updated_at=?
+    WHERE operation_id=? AND account_scope=? AND status='SYNCING' AND recovery_lease_id=?
+      AND server_receipt_id IS NULL AND server_receipt_json IS NULL`,
+    reviewId, Date.now(), operation.operationId, operation.accountScope, lease);
+  return result.changes === 1;
+}
+
+export async function releaseRecoveryOperation(operation: QueuedOperation, lease: string): Promise<void> {
+  const db = await getOfflineDatabase(operation.accountScope);
+  await db.runAsync(`UPDATE sync_operations SET status=?, recovery_lease_id=NULL, updated_at=?
+    WHERE operation_id=? AND account_scope=? AND status='SYNCING' AND recovery_lease_id=?`,
+    operation.status, Date.now(), operation.operationId, operation.accountScope, lease);
+}
+
 export async function recoverInterruptedOperations(accountScope: string): Promise<void> {
   const db = await getOfflineDatabase(accountScope);
   const leaseExpiredAt = Date.now() - 2 * 60_000;
   await db.runAsync(
     `UPDATE sync_operations
-     SET status = 'RETRYABLE_FAILURE', next_attempt_at = ?,
+     SET status = 'RETRYABLE_FAILURE', next_attempt_at = ?, recovery_lease_id=NULL,
          last_error_code = 'INTERRUPTED',
          last_error_message = 'The app closed during sync; retrying safely',
          updated_at = ?
@@ -626,9 +656,9 @@ export async function withOfflineTransaction(scope: string, work: (tx: SQLite.SQ
 export async function getRecoverablePayments(scope: string): Promise<QueuedOperation<any>[]> {
   if (!await hasOfflineDatabase(scope)) return [];
   const db = await getOfflineDatabase(scope);
-  const rows = await db.getAllAsync<any>(`SELECT * FROM sync_operations WHERE action='RECORD_PAYMENT'
+  const rows = await db.getAllAsync<any>(`SELECT * FROM sync_operations WHERE account_scope=? AND action='RECORD_PAYMENT'
     AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','CONFLICT','PERMANENT_FAILURE')
-    AND server_review_id IS NULL ORDER BY created_at LIMIT 25`);
+    AND server_review_id IS NULL AND server_receipt_id IS NULL AND server_receipt_json IS NULL ORDER BY created_at LIMIT 25`, scope);
   return rows.map(mapOperation);
 }
 
@@ -637,6 +667,6 @@ export async function getRecoverableStaffCollections(scope: string): Promise<Que
   const db = await getOfflineDatabase(scope);
   const rows = await db.getAllAsync<any>(`SELECT * FROM sync_operations WHERE account_scope=? AND action IN ('MARK_PICKUP','PARTIAL_COLLECT')
     AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','CONFLICT','PERMANENT_FAILURE')
-    AND server_review_id IS NULL ORDER BY created_at LIMIT 25`, scope);
+    AND server_review_id IS NULL AND server_receipt_id IS NULL AND server_receipt_json IS NULL ORDER BY created_at LIMIT 25`, scope);
   return rows.map(mapOperation);
 }
