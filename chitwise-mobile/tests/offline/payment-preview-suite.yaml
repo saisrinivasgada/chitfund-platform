@@ -4,10 +4,9 @@ env:
 ---
 # Check the resized toolbar against a real remaining due, without saving cash.
 - runFlow:
-    file: open-app-route.yaml
+    file: open-finance.yaml
     env:
-      APP_LINK: 'chitwise:///(app)/(admin)/payments'
-- waitForAnimationToEnd
+      FINANCE_TAB: 'Record Payment'
 - extendedWaitUntil:
     visible:
       id: "member-row-QA Member A"

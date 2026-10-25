@@ -10,13 +10,9 @@ env:
 - launchApp
 - runFlow: wait-for-restored-screen.yaml
 - runFlow:
-    file: open-app-route.yaml
+    file: open-finance.yaml
     env:
-      APP_LINK: 'chitwise:///(app)/(admin)/payments'
-- waitForAnimationToEnd
-- tapOn:
-    text: "Open"
-    optional: true
+      FINANCE_TAB: 'Record Payment'
 - extendedWaitUntil:
     visible: 'Offline collection reviews \(1\).*'
     timeout: 60000

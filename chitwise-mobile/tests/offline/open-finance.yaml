@@ -1,0 +1,9 @@
+appId: com.chitwise.mobile
+env:
+  FINANCE_TAB: Record Payment
+---
+# Exercise collector navigation through the app, without a second OS URL intent.
+- tapOn: "Finance(, tab,.*)?"
+- waitForAnimationToEnd
+- tapOn: ${FINANCE_TAB}
+- waitForAnimationToEnd
