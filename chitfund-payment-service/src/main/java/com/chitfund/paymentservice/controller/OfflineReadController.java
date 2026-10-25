@@ -46,7 +46,7 @@ public class OfflineReadController {
             UUID profile = member ? members.getProfileIdByUserId(actor, TenantContext.get()) : null;
             if (member && profile == null) throw new com.chitfund.common.exception.BusinessException(com.chitfund.common.exception.ErrorCode.FORBIDDEN, "Member profile is required");
             var result = staff ? service.getPendingCollectorBatchesPaged(actor, page, size)
-                    : service.getAllBatchesPaged(null, member ? profile : null, manager ? java.time.LocalDate.now().minusDays(7) : null,
+                    : service.getAllBatchesPaged(null, member ? profile : null, manager ? java.time.LocalDate.now().minusDays(6) : null,
                       manager ? java.time.LocalDate.now() : null, page, size);
             return OfflineSnapshotReader.page(result.getContent(), page, size, result.getTotalElements());
         }));
