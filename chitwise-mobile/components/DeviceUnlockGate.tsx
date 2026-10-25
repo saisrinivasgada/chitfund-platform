@@ -1,6 +1,6 @@
 import { NativeDeviceLock } from './NativeDeviceLock';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ActivityIndicator, AppState, Modal, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Modal, Platform, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { accountStorageId, useAuthStore } from '../store/authStore';
 import { authenticateDevice, deviceAuthenticationInProgress, isBiometricEnabled, subscribeDeviceUnlock } from '../utils/biometrics';
@@ -49,7 +49,7 @@ export function DeviceUnlockGate({ children }: { children: React.ReactNode }) {
       setObscured(next !== 'active');
       // Android's own credential activity can background the app. Its pending
       // OS proof must complete; iOS interruptions only temporarily hide content.
-      if (next === 'background' && !deviceAuthenticationInProgress()) invalidateDeviceSession();
+      if (next === 'background' && (Platform.OS !== 'android' || !deviceAuthenticationInProgress())) invalidateDeviceSession();
     });
     return () => subscription.remove();
   }, []);

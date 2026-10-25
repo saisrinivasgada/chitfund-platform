@@ -27,6 +27,7 @@ async function phone({ os = 'android', enabled = true, loading = false, unreadab
   const dependencies = {
     react: React, 'react/jsx-runtime': jsxRuntime,
     'react-native': {
+      Platform: { OS: os },
       ActivityIndicator: 'Spinner', View: 'View', Text: 'Text', TouchableOpacity: 'Button', AppState: appState,
       Modal: ({ visible, children }) => React.createElement('NativeModal', { visible }, visible ? children : null),
     },
@@ -92,6 +93,15 @@ test('temporary inactive interruptions hide content without an unnecessary secon
 test('Android credential activity does not create a repeated unlock loop', async () => {
   const app = await phone(); await app.background(); await app.foreground(); assert.equal(app.calls.length, 1);
   await app.resolve(true); assert.equal(app.visible(), false); assert.equal(app.calls.length, 1); await app.dispose();
+});
+test('a real iOS background visit invalidates the pending proof as well as earlier approvals', async () => {
+  const app = await phone({ os: 'ios' });
+  await app.background(); await app.foreground();
+  await app.resolve(true);
+  assert.equal(app.visible(), true, 'A result from the previous foreground visit must not unlock the app');
+  assert.equal(app.session.getDeviceUnlockSession().accounts.has(id(userA)), false);
+  await app.retry(); await app.resolve(true);
+  assert.equal(app.visible(), false); await app.dispose();
 });
 test('an OS success for A cannot unlock a different account changed while the dialog was open', async () => {
   const app = await phone(); await app.setAuth({ user: userB }); await app.resolve(true);
