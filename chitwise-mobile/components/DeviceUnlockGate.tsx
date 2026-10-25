@@ -76,7 +76,7 @@ export function DeviceUnlockGate({ children }: { children: React.ReactNode }) {
   const visible = loading || enabled === null || locked || (enabled === true && !!accountId && obscured);
   return <View style={{ flex: 1 }}>
     {children}
-    <Modal visible={visible} animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => {}}>
+    {visible && <Modal visible animationType="none" statusBarTranslucent navigationBarTranslucent onRequestClose={() => {}}>
       <View style={{ flex: 1, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
         <View style={{ width: 80, height: 80, borderRadius: 24, backgroundColor: '#FFFFFF18', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
           <Ionicons name="lock-closed-outline" size={36} color="#FFF" />
@@ -95,6 +95,6 @@ export function DeviceUnlockGate({ children }: { children: React.ReactNode }) {
           </TouchableOpacity>}
         </>}
       </View>
-    </Modal>
+    </Modal>}
   </View>;
 }

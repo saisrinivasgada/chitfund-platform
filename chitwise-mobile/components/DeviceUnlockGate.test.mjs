@@ -50,7 +50,8 @@ async function phone({ enabled = true, loading = false, unreadable = false, user
   const update = async (fn) => act(async () => { fn(); });
   const result = {
     calls, signOuts, session: session.namespace,
-    visible: () => renderer.root.findByType('NativeModal').props.visible,
+    visible: () => renderer.root.findAllByType('NativeModal').some((modal) => modal.props.visible),
+    modalCount: () => renderer.root.findAllByType('NativeModal').length,
     text: () => JSON.stringify(renderer.toJSON()),
     resolve: async (success) => update(() => { assert.ok(pending, 'A native request must be pending'); const finish = pending; pending = null; finish(success); }),
     background: async () => update(() => { appState.currentState = 'background'; stateListeners.forEach((l) => l('background')); }),
@@ -69,7 +70,7 @@ async function phone({ enabled = true, loading = false, unreadable = false, user
 }
 test('cold start covers private content until native device approval succeeds', async () => {
   const app = await phone(); assert.equal(app.visible(), true); assert.equal(app.calls.length, 1);
-  await app.resolve(true); assert.equal(app.visible(), false); assert.equal(app.signOuts.length, 0); await app.dispose();
+  await app.resolve(true); assert.equal(app.visible(), false); assert.equal(app.modalCount(), 0, 'Remove the native modal host after unlock so it cannot intercept taps'); assert.equal(app.signOuts.length, 0); await app.dispose();
 });
 test('cancelled or failed unlock stays locked, preserves the account and allows an explicit retry', async () => {
   const app = await phone(); await app.resolve(false);
