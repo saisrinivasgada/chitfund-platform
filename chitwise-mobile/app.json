@@ -2,7 +2,7 @@
   "expo": {
     "name": "ChitWise",
     "slug": "chitwise-mobile",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "chitwise",
@@ -13,7 +13,7 @@
       "backgroundColor": "#1E3A5F"
     },
     "ios": {
-      "buildNumber": "5",
+      "buildNumber": "6",
       "supportsTablet": true,
       "bundleIdentifier": "com.chitwise.mobile",
       "infoPlist": {
@@ -26,7 +26,7 @@
         "backgroundColor": "#1E3A5F"
       },
       "package": "com.chitwise.mobile",
-      "versionCode": 5
+      "versionCode": 6
     },
     "web": {
       "bundler": "metro",

@@ -25,7 +25,7 @@ module.exports = ({ config }) => {
         backgroundColor: '#1E3A5F',
       },
       package: 'com.chitwise.hub',
-      versionCode: 1,
+      versionCode: 2,
     },
     plugins: config.plugins.map((plugin) => {
       if (!Array.isArray(plugin) || plugin[0] !== 'expo-notifications') return plugin;
