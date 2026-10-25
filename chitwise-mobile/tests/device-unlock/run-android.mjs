@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { promisify } from 'node:util';
+const execute = promisify(execFile);
 const device = process.env.CHITWISE_QA_DEVICE;
 if (!/^emulator-\d+$/.test(device ?? '')) throw new Error('Device unlock QA requires a disposable Android emulator');
 const endpoint = new URL(process.env.CHITWISE_QA_URL ?? 'http://127.0.0.1:3112');
@@ -24,7 +26,23 @@ try {
   }
   evidence.result = 'PASSED';
   console.log('PASS: real Android PIN enable, cold-open cancellation/retry, account switch cancellation/isolation, offline background unlock and protected disable; financial records unchanged');
-} catch (error) { evidence.result = 'FAILED'; evidence.error = error.message; throw error; }
+} catch (error) {
+  evidence.result = 'FAILED'; evidence.error = error.message;
+  // Capture the native window while the disposable emulator is still running.
+  // Protected credential screenshots are black and cannot explain which OS
+  // activity still owns input. These commands only read this QA emulator.
+  evidence.nativeDiagnostics = Object.fromEntries(await Promise.all([
+    ['activities', ['shell', 'dumpsys', 'activity', 'activities']],
+    ['windows', ['shell', 'dumpsys', 'window', 'windows']],
+    ['logcat', ['logcat', '-d', '-t', '500']],
+  ].map(async ([name, args]) => {
+    try {
+      const result = await execute('adb', ['-s', device, ...args], { timeout: 10000, maxBuffer: 2_000_000 });
+      return [name, result.stdout.slice(-100_000)];
+    } catch (diagnosticError) { return [name, diagnosticError.message]; }
+  })));
+  throw error;
+}
 finally {
   evidence.final ??= await state();
   if (process.env.CHITWISE_UNLOCK_REPORT) writeFileSync(process.env.CHITWISE_UNLOCK_REPORT, JSON.stringify(evidence, null, 2));

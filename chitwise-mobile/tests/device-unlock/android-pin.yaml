@@ -24,11 +24,16 @@ appId: com.chitwise.mobile
 # A wrong OS PIN must not grant access; Back cancels without logging out.
 - stopApp
 - launchApp
-- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "com.android.systemui:id/lockPassword"
+    timeout: 15000
 - inputText: "000000"
 - pressKey: Enter
 - waitForAnimationToEnd
-- back
+- assertVisible:
+    id: "com.android.systemui:id/auth_credential_input"
+- runFlow: cancel-pin.yaml
 - extendedWaitUntil:
     visible: "ChitWise is locked"
     timeout: 15000
@@ -48,8 +53,11 @@ appId: com.chitwise.mobile
       id: "switch-account-offline-b"
 - tapOn:
     id: "switch-account-offline-b"
-- waitForAnimationToEnd
-- back
+- extendedWaitUntil:
+    visible:
+      id: "com.android.systemui:id/lockPassword"
+    timeout: 15000
+- runFlow: cancel-pin.yaml
 - assertVisible:
     id: "switch-account-offline-b"
 - assertNotVisible:
@@ -78,8 +86,11 @@ appId: com.chitwise.mobile
 - pressKey: Home
 - launchApp:
     stopApp: false
-- waitForAnimationToEnd
-- back
+- extendedWaitUntil:
+    visible:
+      id: "com.android.systemui:id/lockPassword"
+    timeout: 15000
+- runFlow: cancel-pin.yaml
 - assertVisible: "ChitWise is locked"
 - tapOn:
     id: "unlock-chitwise"
