@@ -654,9 +654,7 @@ public class ChitMonthDrawService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         BigDecimal totalOutstanding = records.stream()
-                .filter(r -> r.getStatus() == PaymentRecordStatus.OUTSTANDING
-                          || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID
-                          || r.getStatus() == PaymentRecordStatus.PARTIAL_CREDIT)
+                .filter(r -> r.getStatus().hasOutstandingBalance())
                 .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
                 .filter(b -> b.compareTo(BigDecimal.ZERO) > 0)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -817,8 +815,7 @@ public class ChitMonthDrawService {
                         .amountPaid(r.getAmountPaid())
                         .balance(r.getAmountDue().subtract(r.getAmountPaid()))
                         .status(r.getStatus())
-                        .overdue((r.getStatus() == PaymentRecordStatus.OUTSTANDING
-                                || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
+                        .overdue((r.getStatus().hasOutstandingBalance())
                                 && r.getDueDate().isBefore(today))
                         .promisedPaymentDate(r.getPromisedPaymentDate())
                         .createdAt(r.getCreatedAt())

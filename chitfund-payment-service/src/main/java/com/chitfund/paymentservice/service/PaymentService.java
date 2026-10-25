@@ -407,7 +407,7 @@ public class PaymentService {
         // Match FIFO's lock order; validate and apply within the same transaction.
         BigDecimal credit = lock ? memberCreditService.getBalanceForUpdate(request.getMemberId())
                 : memberCreditService.getBalance(request.getMemberId());
-        var statuses = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+        var statuses = PaymentRecordStatus.outstandingStatuses();
         var records = lock ? paymentRecordRepository.findMemberOutstandingForUpdate(tenant, request.getMemberId(), statuses)
                 : paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(tenant, request.getMemberId(), statuses);
         Map<UUID, BigDecimal> dues = new HashMap<>();
@@ -690,12 +690,8 @@ public class PaymentService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
                         "Installment record was not found for payout deduction"));
         BigDecimal outstanding = record.getAmountDue().subtract(record.getAmountPaid());
-        if (record.getSettledByPayoutId() != null
-                && !record.getSettledByPayoutId().equals(payoutId)) {
-            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
-                    "Installment already has a payout deduction in progress");
-        }
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0
+        validatePayoutDeductionLink(record, payoutId);
+        if (!record.getStatus().hasOutstandingBalance() || amount == null || amount.compareTo(BigDecimal.ZERO) <= 0
                 || amount.compareTo(outstanding) > 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Payout deduction must be positive and cannot exceed the installment balance");
@@ -705,6 +701,7 @@ public class PaymentService {
                 ? PaymentRecordStatus.PAYOUT_DEDUCTED
                 : PaymentRecordStatus.PARTIALLY_PAID);
         record.setSettledByPayoutId(payoutId);
+        record.setPayoutDeductedAmount((record.getPayoutDeductedAmount() == null ? BigDecimal.ZERO : record.getPayoutDeductedAmount()).add(amount));
         paymentRecordRepository.save(record);
         chitMonthDrawService.autoCloseIfAllSettled(chitId, monthNumber);
     }
@@ -721,7 +718,7 @@ public class PaymentService {
         List<PaymentRecord> records = paymentRecordRepository
                 .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
                         tenantId, memberId, chitId,
-                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+                        PaymentRecordStatus.outstandingStatuses());
         BigDecimal applied = applyCrossChitDeduction(chitId, memberId, amount, payoutId, records);
         if (applied.compareTo(amount) != 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -731,10 +728,20 @@ public class PaymentService {
 
     private BigDecimal applyCrossChitDeduction(UUID chitId, UUID memberId, BigDecimal amount,
                                                UUID payoutId, List<PaymentRecord> records) {
+        if (amount == null || amount.signum() <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Payout deduction must be positive");
+        BigDecimal toValidate = amount;
+        for (PaymentRecord record : records) {
+            if (toValidate.signum() <= 0) break;
+            validatePayoutDeductionLink(record, payoutId);
+            toValidate = toValidate.subtract(record.getAmountDue().subtract(record.getAmountPaid()));
+        }
+        if (toValidate.signum() > 0) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Cross-chit payout deduction exceeds the outstanding balance");
         BigDecimal remaining = amount;
         for (PaymentRecord record : records) {
             if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
             BigDecimal owed = record.getAmountDue().subtract(record.getAmountPaid());
+            BigDecimal deduction = remaining.min(owed);
+            record.setPayoutDeductedAmount((record.getPayoutDeductedAmount() == null ? BigDecimal.ZERO : record.getPayoutDeductedAmount()).add(deduction));
             if (remaining.compareTo(owed) >= 0) {
                 record.setAmountPaid(record.getAmountDue());
                 record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
@@ -759,6 +766,18 @@ public class PaymentService {
         return amount.subtract(remaining);
     }
 
+    private void validatePayoutDeductionLink(PaymentRecord record, UUID payoutId) {
+        if (record.getSettledByPayoutId() != null && (!record.getSettledByPayoutId().equals(payoutId)
+                || record.getPayoutDeductedAmount() == null || record.getPayoutDeductedAmount().signum() <= 0
+                || record.getPayoutDeductedAmount().compareTo(record.getAmountPaid()) > 0)) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Installment has another or unverified payout deduction; reconcile it before continuing", HttpStatus.CONFLICT);
+        }
+        if (record.getSettledByPayoutId() == null && record.getPayoutDeductedAmount() != null && record.getPayoutDeductedAmount().signum() != 0) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "Payout deduction linkage needs reconciliation", HttpStatus.CONFLICT);
+        }
+    }
+
     /**
      * Reverses every full or partial payout deduction linked to a payout.
      * Called when a payout is cancelled or its draw is deleted.
@@ -769,25 +788,19 @@ public class PaymentService {
                 paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(tenantId, payoutId);
         List<PaymentRecord> reverted = new java.util.ArrayList<>();
 
-        // Batch-load all allocations and batch statuses upfront to avoid N+1
-        List<UUID> deductedRecordIds = records.stream().map(PaymentRecord::getId).toList();
-        Map<UUID, List<PaymentAllocation>> allocsByRecord = deductedRecordIds.isEmpty()
-                ? Map.of()
-                : allocationRepository.findByTenantIdAndPaymentRecordIdIn(tenantId, deductedRecordIds).stream()
-                        .collect(Collectors.groupingBy(PaymentAllocation::getPaymentRecordId));
-        Set<UUID> batchIdSet = allocsByRecord.values().stream()
-                .flatMap(List::stream).map(PaymentAllocation::getBatchId)
-                .collect(java.util.stream.Collectors.toSet());
-        Map<UUID, BatchStatus> batchStatusMap = batchIdSet.isEmpty()
-                ? Map.of()
-                : batchRepository.findAllByTenantIdAndIdIn(tenantId, List.copyOf(batchIdSet)).stream()
-                        .collect(Collectors.toMap(PaymentBatch::getId, PaymentBatch::getStatus));
-
+        // Opening credit has no PaymentAllocation. Reverse the persisted payout
+        // effect only; legacy unknown amounts require explicit reconciliation.
+        for (PaymentRecord record : records) {
+            if (record.getPayoutDeductedAmount() == null
+                    || record.getPayoutDeductedAmount().signum() <= 0
+                    || record.getPayoutDeductedAmount().compareTo(record.getAmountPaid()) > 0) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "The exact payout deduction needs reconciliation before reversal; no amounts were changed",
+                        HttpStatus.CONFLICT);
+            }
+        }
         for (PaymentRecord r : records) {
-            BigDecimal cashPaid = allocsByRecord.getOrDefault(r.getId(), List.of()).stream()
-                    .filter(a -> batchStatusMap.get(a.getBatchId()) == BatchStatus.COMPLETED)
-                    .map(PaymentAllocation::getAllocatedAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal cashPaid = r.getAmountPaid().subtract(r.getPayoutDeductedAmount());
             r.setAmountPaid(cashPaid);
             r.setStatus(cashPaid.compareTo(BigDecimal.ZERO) == 0
                     ? PaymentRecordStatus.OUTSTANDING
@@ -795,6 +808,7 @@ public class PaymentService {
                             ? PaymentRecordStatus.SETTLED
                             : PaymentRecordStatus.PARTIALLY_PAID);
             r.setSettledByPayoutId(null);
+            r.setPayoutDeductedAmount(null);
             paymentRecordRepository.save(r);
             reverted.add(r);
         }
@@ -837,8 +851,7 @@ public class PaymentService {
                 .amountPaid(record.getAmountPaid())
                 .balance(record.getAmountDue().subtract(record.getAmountPaid()))
                 .status(record.getStatus())
-                .overdue((record.getStatus() == PaymentRecordStatus.OUTSTANDING
-                        || record.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
+                .overdue((record.getStatus().hasOutstandingBalance())
                         && record.getDueDate().isBefore(today))
                 .promisedPaymentDate(record.getPromisedPaymentDate())
                 .createdAt(record.getCreatedAt())
@@ -940,7 +953,7 @@ public class PaymentService {
      */
     private List<PaymentAllocation> applyFifo(PaymentBatch batch, UUID actorId) {
         List<PaymentRecordStatus> pendingStatuses =
-                List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+                PaymentRecordStatus.outstandingStatuses();
 
         // Step 1: Auto-consume credit up to what member owes across ALL chits.
         // Locked read: two concurrent batches for the same member must not both
@@ -1045,7 +1058,7 @@ public class PaymentService {
                 .toList();
         List<PaymentAllocation> allocations = new ArrayList<>();
         List<PaymentRecordStatus> pendingStatuses =
-                List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+                PaymentRecordStatus.outstandingStatuses();
 
         // Locks are acquired in deterministic chit-id order to avoid deadlocks
         // when two admins pay the same member's chits concurrently.
@@ -1112,7 +1125,7 @@ public class PaymentService {
         List<PaymentRecord> nonSettled = paymentRecordRepository
                 .findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
                         tenantId(), memberId, chitId,
-                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+                        PaymentRecordStatus.outstandingStatuses());
 
         BigDecimal totalOutstanding = nonSettled.stream()
                 .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
@@ -1154,8 +1167,7 @@ public class PaymentService {
                         .amountPaid(r.getAmountPaid())
                         .balance(r.getAmountDue().subtract(r.getAmountPaid()))
                         .status(r.getStatus())
-                        .overdue((r.getStatus() == PaymentRecordStatus.OUTSTANDING
-                                || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
+                        .overdue((r.getStatus().hasOutstandingBalance())
                                 && r.getDueDate().isBefore(today))
                         .promisedPaymentDate(r.getPromisedPaymentDate())
                         .createdAt(r.getCreatedAt())
@@ -1247,14 +1259,14 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public BigDecimal getMemberTotalBalance(UUID memberId) {
-        List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+        List<PaymentRecordStatus> pending = PaymentRecordStatus.outstandingStatuses();
         return paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
                 tenantId(), memberId, pending);
     }
 
     @Transactional(readOnly = true)
     public Map<String, Object> getChitOutstandingSummary(UUID chitId) {
-        List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+        List<PaymentRecordStatus> pending = PaymentRecordStatus.outstandingStatuses();
         String currentTenant = tenantId();
         BigDecimal total = paymentRecordRepository.findTotalOutstandingByTenantIdAndChitId(
                 currentTenant, chitId, pending);
@@ -1268,7 +1280,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public Map<UUID, BigDecimal> getMemberTotalBalanceBulk(List<UUID> memberIds) {
-        List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+        List<PaymentRecordStatus> pending = PaymentRecordStatus.outstandingStatuses();
         List<Object[]> rows = paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberIds(
                 tenantId(), memberIds, pending);
         Map<UUID, BigDecimal> result = new HashMap<>();
@@ -1291,7 +1303,7 @@ public class PaymentService {
         BigDecimal totalPaid = all.stream().map(PaymentRecord::getAmountPaid).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         long settled  = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.SETTLED).count();
-        long partial  = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID).count();
+        long partial  = all.stream().filter(r -> (r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID || r.getStatus() == PaymentRecordStatus.PARTIAL_CREDIT)).count();
         long outstanding = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.OUTSTANDING).count();
         long waived   = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.WAIVED).count();
         Instant occurredAt = batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now();

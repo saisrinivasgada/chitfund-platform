@@ -102,7 +102,7 @@ class PayoutDeductionReversalTest {
                 record.getChitId(), record.getMemberId(), 1, new BigDecimal("100"),
                 UUID.randomUUID(), TENANT))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("already has a payout deduction");
+                .hasMessageContaining("payout deduction");
     }
 
     @Test
@@ -112,7 +112,7 @@ class PayoutDeductionReversalTest {
         when(paymentRecordRepository
                 .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
                         TENANT, record.getMemberId(), record.getChitId(),
-                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID)))
+                        PaymentRecordStatus.outstandingStatuses()))
                 .thenReturn(List.of(record));
         when(paymentRecordRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -132,7 +132,7 @@ class PayoutDeductionReversalTest {
         when(paymentRecordRepository
                 .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
                         TENANT, record.getMemberId(), record.getChitId(),
-                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID)))
+                        PaymentRecordStatus.outstandingStatuses()))
                 .thenReturn(List.of(record));
         doThrow(new IllegalStateException("draw write failed")).when(chitMonthDrawService)
                 .autoCloseIfAllSettled(record.getChitId(), 1);
@@ -148,6 +148,7 @@ class PayoutDeductionReversalTest {
         UUID payoutId = UUID.randomUUID();
         PaymentRecord record = record("1000", "1000");
         record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
+        record.setPayoutDeductedAmount(new BigDecimal("1000"));
         record.setSettledByPayoutId(payoutId);
         when(paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(TENANT, payoutId))
                 .thenReturn(List.of(record));
@@ -159,6 +160,48 @@ class PayoutDeductionReversalTest {
         assertThatThrownBy(() -> service.revertPayoutDeductions(payoutId, TENANT))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("draw write failed");
+    }
+
+    @Test
+    void payoutReversalPreservesOpeningCreditAndLaterCashAndAccumulatesSamePayoutCommands() {
+        UUID payoutId = UUID.randomUUID();
+        PaymentRecord record = record("1000", "500");
+        record.setStatus(PaymentRecordStatus.PARTIAL_CREDIT);
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMemberIdAndMonthNumberForUpdate(
+                TENANT, record.getChitId(), record.getMemberId(), 1)).thenReturn(Optional.of(record));
+        service.markPayoutDeducted(record.getChitId(), record.getMemberId(), 1, new BigDecimal("100"), payoutId, TENANT);
+        service.markPayoutDeducted(record.getChitId(), record.getMemberId(), 1, new BigDecimal("200"), payoutId, TENANT);
+        assertThat(record.getPayoutDeductedAmount()).isEqualByComparingTo("300");
+        record.setAmountPaid(new BigDecimal("950")); // another 150 cash arrived after deduction
+        when(paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(TENANT, payoutId)).thenReturn(List.of(record));
+        service.revertPayoutDeductions(payoutId, TENANT);
+        assertThat(record.getAmountPaid()).isEqualByComparingTo("650");
+        assertThat(record.getAmountDue().subtract(record.getAmountPaid())).isEqualByComparingTo("350");
+        assertThat(record.getSettledByPayoutId()).isNull();
+        assertThat(record.getPayoutDeductedAmount()).isNull();
+    }
+
+    @Test
+    void aLegacyUnknownDeductionStopsTheWholeReversalBeforeChangingKnownRows() {
+        UUID payoutId = UUID.randomUUID();
+        PaymentRecord known = record("1000", "800"); known.setSettledByPayoutId(payoutId); known.setPayoutDeductedAmount(new BigDecimal("300"));
+        PaymentRecord legacy = record("1000", "1000"); legacy.setSettledByPayoutId(payoutId);
+        when(paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(TENANT, payoutId)).thenReturn(List.of(known,legacy));
+        assertThatThrownBy(() -> service.revertPayoutDeductions(payoutId,TENANT)).isInstanceOf(BusinessException.class).hasMessageContaining("reconciliation");
+        assertThat(known.getAmountPaid()).isEqualByComparingTo("800");
+        assertThat(legacy.getAmountPaid()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void crossChitDeductionCannotReplaceAnotherPayoutOrExtendAnUnprovenLegacyLink() {
+        UUID payoutId = UUID.randomUUID(); PaymentRecord record=record("1000","500");
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                TENANT,record.getMemberId(),record.getChitId(),PaymentRecordStatus.outstandingStatuses())).thenReturn(List.of(record));
+        record.setSettledByPayoutId(UUID.randomUUID());record.setPayoutDeductedAmount(new BigDecimal("100"));
+        assertThatThrownBy(() -> service.markCrossChitDisbursementSettled(record.getChitId(),record.getMemberId(),new BigDecimal("100"),payoutId,TENANT)).isInstanceOf(BusinessException.class);
+        record.setSettledByPayoutId(payoutId);record.setPayoutDeductedAmount(null);
+        assertThatThrownBy(() -> service.markCrossChitDisbursementSettled(record.getChitId(),record.getMemberId(),new BigDecimal("100"),payoutId,TENANT)).isInstanceOf(BusinessException.class);
+        assertThat(record.getAmountPaid()).isEqualByComparingTo("500");
     }
 
     private PaymentRecord record(String due, String paid) {

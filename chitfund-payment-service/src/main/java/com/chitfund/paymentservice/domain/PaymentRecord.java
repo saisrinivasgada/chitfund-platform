@@ -65,6 +65,11 @@ public class PaymentRecord {
     // Used by revertPayoutDeductions to undo across all chits in one call.
     private UUID settledByPayoutId;
 
+    // Null on legacy linked deductions whose exact effect has not been proven.
+    // New commands accumulate only their payout contribution, preserving cash/credit.
+    @Column(precision = 15, scale = 2)
+    private BigDecimal payoutDeductedAmount;
+
     // Admin note: date the member said they will pay. No financial effect — purely operational.
     private LocalDate promisedPaymentDate;
 

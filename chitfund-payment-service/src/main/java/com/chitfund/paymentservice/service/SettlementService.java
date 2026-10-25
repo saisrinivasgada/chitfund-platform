@@ -245,7 +245,7 @@ public class SettlementService {
             List<PaymentRecord> openRecords = paymentRecordRepository
                     .findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
                             tenantId, memberId, chitId,
-                            List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+                            PaymentRecordStatus.outstandingStatuses());
             for (PaymentRecord rec : openRecords) {
                 recordEffects.add(SettlementPaymentRecordEffect.builder()
                         .tenantId(tenantId)
@@ -588,8 +588,7 @@ public class SettlementService {
 
         // Unpaid dues: sum of (amountDue - amountPaid) for OUTSTANDING / PARTIALLY_PAID
         BigDecimal unpaidDues = allRecords.stream()
-                .filter(r -> r.getStatus() == PaymentRecordStatus.OUTSTANDING
-                          || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
+                .filter(r -> r.getStatus().hasOutstandingBalance())
                 .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 

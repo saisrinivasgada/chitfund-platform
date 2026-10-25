@@ -50,6 +50,9 @@ class DrawConcurrencyMySqlTest {
     @Autowired ChitServiceClient chits;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired DataSource ds;
+    @Autowired MemberCreditService credit;
+    @Autowired PlanExpiryChecker plan;
+    @Autowired MemberServiceClient members;
     final UUID admin = UUID.randomUUID();
     String tenant;
     UUID chitId, member;
@@ -148,6 +151,31 @@ class DrawConcurrencyMySqlTest {
         var saved=records.findById(record.getId()).orElseThrow();
         assertThat(saved.getAmountPaid()).isEqualByComparingTo("600"); assertThat(saved.getStatus()).isEqualTo(PaymentRecordStatus.PARTIALLY_PAID);
         assertThat(auditCount("PAYMENT_PROMISED_DATE_CHANGED")).isEqualTo(1);
+    }
+    @Test void openingCreditLeavesCollectibleDuesAndBothOfflineAllocationModesVoidExactly() {
+        when(credit.getBalanceForUpdate(member)).thenReturn(new BigDecimal("500"),BigDecimal.ZERO);
+        when(plan.assertRecordedPaymentMaySync(eq(admin),anyString(),any())).thenReturn("verified-grant");
+        when(members.getMemberName(member)).thenReturn("Credit member");
+        draws.openDraw(request(1),admin,"ADMIN");
+        UUID recordId=records.findByTenantIdAndChitIdAndMonthNumber(tenant,chitId,1).get(0).getId();
+        assertThat(records.findById(recordId).orElseThrow().getStatus()).isEqualTo(PaymentRecordStatus.PARTIAL_CREDIT);
+        for (boolean explicit : List.of(false,true)) {
+            var payment=new com.chitfund.paymentservice.dto.request.RecordPaymentRequest();
+            payment.setChitId(chitId);payment.setMemberId(member);payment.setAmount(new BigDecimal("500"));
+            payment.setPaymentMode(PaymentMode.CASH);payment.setOfflineAuthorization("proof");payment.setRecordedAt(java.time.Instant.now());
+            if(explicit){var allocation=new com.chitfund.paymentservice.dto.request.RequestedChitAllocation();allocation.setChitId(chitId);allocation.setAmount(new BigDecimal("500"));payment.setAllocations(List.of(allocation));}
+            assertThat(payments.getMemberTotalBalance(member)).isEqualByComparingTo("500");
+            assertThat(payments.offlineBalanceSnapshot(payment,false).selectedOutstanding()).isEqualByComparingTo("500");
+            var receipt=payments.recordPayment(payment,admin,"partial-credit-"+UUID.randomUUID());
+            assertThat(records.findById(recordId).orElseThrow().getAmountPaid()).isEqualByComparingTo("1000");
+            assertThat(records.findById(recordId).orElseThrow().getStatus()).isEqualTo(PaymentRecordStatus.SETTLED);
+            assertThat(payments.getMemberTotalBalance(member)).isEqualByComparingTo("0");
+            var reason=new com.chitfund.paymentservice.dto.request.VoidPaymentRequest();reason.setReason("Reverse test cash only");
+            payments.voidPayment(receipt.getId(),reason,admin);
+            assertThat(records.findById(recordId).orElseThrow().getAmountPaid()).isEqualByComparingTo("500");
+            assertThat(payments.getMemberTotalBalance(member)).isEqualByComparingTo("500");
+        }
+        verify(credit,never()).addCredit(eq(member),any(),any(),any(),any(),anyString());
     }
     long auditCount(String action) {
         return new JdbcTemplate(ds).queryForObject("SELECT COUNT(*) FROM event_outbox WHERE tenant_id=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.action'))=?",Long.class,tenant,action);
