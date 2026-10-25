@@ -2,14 +2,8 @@ appId: com.chitwise.mobile
 ---
 # Runs after the complete financial suite, on a disposable emulator with a PIN.
 # The app uses the real Android credential prompt; there is no QA auth bypass.
-- runFlow:
-    file: ../offline/open-app-route.yaml
-    env:
-      APP_LINK: 'chitwise:///(app)/(admin)/my-account'
-- extendedWaitUntil:
-    visible: "Change Password"
-    timeout: 30000
-- tapOn: "Change Password"
+- tapOn: "Profile Menu"
+- tapOn: "Security"
 - scrollUntilVisible:
     element:
       id: "device-unlock-setting"
@@ -44,10 +38,12 @@ appId: com.chitwise.mobile
     notVisible: "ChitWise is locked"
     timeout: 15000
 # Cancelling a switch keeps A selected; the next switch uses another OS proof.
-- runFlow:
-    file: ../offline/open-app-route.yaml
-    env:
-      APP_LINK: 'chitwise:///(auth)/accounts'
+# Stay inside the app. An external intent genuinely backgrounds Android and
+# correctly requires another opening proof, unrelated to account selection.
+- tapOn: "Profile Menu"
+- scrollUntilVisible:
+    element: "Switch Account"
+- tapOn: "Switch Account"
 - scrollUntilVisible:
     element:
       id: "switch-account-offline-b"
@@ -68,10 +64,12 @@ appId: com.chitwise.mobile
 - extendedWaitUntil:
     visible: ".*Dashboard.*"
     timeout: 30000
-- runFlow:
-    file: ../offline/open-app-route.yaml
-    env:
-      APP_LINK: 'chitwise:///(auth)/accounts'
+# Stay inside the app. An external intent genuinely backgrounds Android and
+# correctly requires another opening proof, unrelated to account selection.
+- tapOn: "Profile Menu"
+- scrollUntilVisible:
+    element: "Switch Account"
+- tapOn: "Switch Account"
 - extendedWaitUntil:
     visible:
       id: "switch-account-offline-a"
@@ -109,11 +107,8 @@ appId: com.chitwise.mobile
     visible: ".*Dashboard.*"
     timeout: 30000
 # Disabling also requires phone proof and is persisted across a cold launch.
-- runFlow:
-    file: ../offline/open-app-route.yaml
-    env:
-      APP_LINK: 'chitwise:///(app)/(admin)/my-account'
-- tapOn: "Change Password"
+- tapOn: "Profile Menu"
+- tapOn: "Security"
 - scrollUntilVisible:
     element:
       id: "device-unlock-setting"
