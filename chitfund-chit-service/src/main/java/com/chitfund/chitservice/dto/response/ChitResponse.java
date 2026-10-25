@@ -17,6 +17,7 @@ import java.util.UUID;
 @Builder
 public class ChitResponse {
     private UUID id;
+    private UUID scheduleSyncCommandId;
     private ChitType chitType;
     private String name;
     private String description;

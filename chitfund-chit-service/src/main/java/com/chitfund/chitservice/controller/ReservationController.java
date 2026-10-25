@@ -41,6 +41,7 @@ import java.util.Map;
 public class ReservationController {
 
     private final ChitService chitService;
+    private final com.chitfund.chitservice.service.DrawSkipCoordinator drawSkipCoordinator;
     private final MonthReservationRepository reservationRepository;
     private final ChitMapper chitMapper;
     private final AuditClient auditClient;
@@ -317,41 +318,12 @@ public class ReservationController {
     @PostMapping("/shift")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @Transactional
-    public ResponseEntity<ApiResponse<Map<String, Integer>>> shiftReservations(
-            @PathVariable UUID chitId,
-            @RequestParam int fromMonth,
-            Authentication auth) {
-        UUID adminId = (UUID) auth.getPrincipal();
-        if (fromMonth < 1) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Choose a valid draw number");
-        chitService.findByIdForUpdate(chitId); // serialize all schedule writers
-
-        List<MonthReservation> slots = reservationRepository.findShiftableFromMonth(
-                chitId, fromMonth,
-                List.of(ReservationStatus.RESERVED, ReservationStatus.UNALLOCATED));
-
-        List<Map<String, Object>> beforeSlots = slots.stream().map(this::slotSnapshot).toList();
-        int snapshotIndex = 0;
-        for (MonthReservation slot : slots) {
-            slot.setMonthNumber(slot.getMonthNumber() + 1);
-            if (slot.getReservationMonth() != null) {
-                slot.setReservationMonth(slot.getReservationMonth().plusMonths(1));
-            }
-            slot.setUpdatedBy(adminId);
-            auditClient.log("RESERVATION_SLOT", slot.getId().toString(), chitId.toString(),
-                    "SLOT_SHIFTED", adminId.toString(), actorRole(auth),
-                    beforeSlots.get(snapshotIndex++), slotSnapshot(slot), TenantContext.get());
-        }
-        reservationRepository.saveAll(slots);
-
-        auditClient.log("RESERVATION_SCHEDULE", chitId.toString(), chitId.toString(),
-                "SLOTS_SHIFTED", adminId.toString(), actorRole(auth),
-                Map.of("fromMonth", fromMonth),
-                Map.of("fromMonth", fromMonth, "monthsShifted", 1, "slotCount", slots.size()),
-                com.chitfund.common.context.TenantContext.get());
-
+    public ResponseEntity<ApiResponse<Map<String, Object>>> shiftReservations(
+            @PathVariable UUID chitId, @RequestParam int fromMonth,
+            @RequestHeader(value = "Idempotency-Key", required = false) UUID requestId, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
-                Map.of("shifted", slots.size()),
-                slots.size() + " reservation slot(s) shifted forward by 1 draw"));
+                drawSkipCoordinator.shiftSchedule(chitId, fromMonth, requestId, (UUID) auth.getPrincipal(), actorRole(auth)),
+                "Schedule shifted forward by one draw"));
     }
 
     @PostMapping("/swap")

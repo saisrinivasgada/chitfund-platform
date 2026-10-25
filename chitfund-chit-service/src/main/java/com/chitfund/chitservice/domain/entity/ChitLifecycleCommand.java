@@ -59,6 +59,9 @@ public class ChitLifecycleCommand {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "payload_json", columnDefinition = "LONGTEXT")
+    private String payloadJson;
+
     @PrePersist
     void prePersist() {
         LocalDateTime now = LocalDateTime.now();

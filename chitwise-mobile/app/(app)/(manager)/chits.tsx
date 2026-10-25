@@ -1,3 +1,4 @@
+import { applyChitScheduleCommand } from '../../../features/chits/scheduleCommand';
 import { DrawPaymentRows } from '../../../components/DrawPaymentRows';
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState, useRef, useEffect } from 'react';
@@ -12,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Crypto from 'expo-crypto';
 import {
-  getChits, getDraws, openDraw, closeDraw, skipDraw, deleteDraw,
+  getChit, getChits, getDraws, openDraw, closeDraw, skipDraw, deleteDraw,
   getEnrollments, getMembers, getWinners, recordWinner,
   getPayoutsByChit,
   recordPayment, createPayout, disbursePayout,
@@ -38,12 +39,19 @@ export default function ManagerChitsScreen() {
   const { data: lifecycleSync } = useQuery({
     queryKey: ['m-chit-lifecycle-sync', selected?.id],
     queryFn: () => getChitLifecycleSync(selected.id),
-    enabled: selected?.status === 'COMPLETED' && !!selected?.id,
+    enabled: (selected?.status === 'COMPLETED' || !!selected?.scheduleSyncCommandId) && !!selected?.id,
     refetchInterval: (query) => {
       const status = (query.state.data as any)?.status;
-      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+      return status && ['PENDING', 'RETRYING'].includes(status) ? 3000 : false;
     },
   });
+  useEffect(() => {
+    if (!['COMPLETED', 'REJECTED'].includes(lifecycleSync?.status ?? '') || !selected?.scheduleSyncCommandId) return;
+    const chitId = selected.id;
+    getChit(chitId).then((fresh) => setSelected((current: any) => current?.id === chitId ? fresh : current)).catch(() => {});
+    for (const key of ['m-draws', 'm-reservations', 'm-chits']) qc.invalidateQueries({ queryKey: key === 'm-chits' ? [key] : [key, chitId] });
+  }, [lifecycleSync?.status, selected?.scheduleSyncCommandId, selected?.id, qc]);
+
   const [detailTab, setDetailTab] = useState<DetailTab>('draws');
   const [expandedDrawId, setExpandedDrawId] = useState<string | null>(null);
 
@@ -236,17 +244,28 @@ export default function ManagerChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
+  const skipAttemptIds = useRef<Record<string, string>>({});
   const skipDrawMut = useMutation({
     mutationFn: async () => {
+      const chitId = selected.id;
       const request = buildOpenDrawRequest(selected, Number(skipTarget.drawNumber), enrollments as any[], winners as any[], reservations as any[]);
-      await skipDraw({ chitId: request.chitId, monthNumber: request.monthNumber, dueDate: request.dueDate,
+      const attemptId = skipAttemptIds.current[chitId] ??= Crypto.randomUUID();
+      const command = await skipDraw({ attemptId, chitId: request.chitId, monthNumber: request.monthNumber, dueDate: request.dueDate,
         installmentAmount: request.installmentAmount, skipReason: skipReason || 'Skipped by manager',
         memberIds: request.members.map(member => member.memberId) });
+      return { ...command, chitId, attemptId };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-draws', selected.id] });
+    onSuccess: (command: any) => {
+      if (skipAttemptIds.current[command.chitId] === command.attemptId) delete skipAttemptIds.current[command.chitId];
+      setSelected((prev: any) => applyChitScheduleCommand(prev, command));
+      qc.invalidateQueries({ queryKey: ['m-chit-lifecycle-sync', command.chitId] });
+      qc.invalidateQueries({ queryKey: ['m-draws', command.chitId] });
+      qc.invalidateQueries({ queryKey: ['m-chits'] });
+      qc.invalidateQueries({ queryKey: ['m-reservations', command.chitId] });
+      if (selectedChitId.current !== command.chitId) return;
       setShowSkip(false); setSkipTarget(null); setSkipReason('');
-      toast.cancelled('Draw skipped');
+      if (command.status === 'REJECTED') Alert.alert('Draw unchanged', 'This skip request was rejected because a draw already exists at or after this number. Refresh the draw list.');
+      else toast.cancelled('Skip requested — draw and schedule are syncing');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to skip draw'),
   });
@@ -461,17 +480,23 @@ export default function ManagerChitsScreen() {
               </View>
             </View>
 
-            {selected.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+          {lifecycleSync?.status === 'REJECTED' && (
+            <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FFFBEB' }}>
+              <Text style={{ color: C.amber, fontWeight: '700' }}>Schedule change was not applied</Text>
+              <Text style={{ color: C.gray700, fontSize: 12, marginTop: 4 }}>A draw already exists at or after that number. Your draw, payments and schedule are unchanged. Refresh the draw list before continuing.</Text>
+            </View>
+          )}
+            {lifecycleSync?.status === 'FAILED' && (
               <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
-                <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Completion needs attention</Text>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Chit sync needs attention</Text>
                 <Text style={{ fontSize: 12, color: C.red, marginTop: 3 }}>
-                  Open payment draws could not be closed automatically. Ask an administrator to retry the sync.
+                  A chit change could not finish syncing. Ask an administrator to retry before changing this schedule.
                 </Text>
               </View>
             )}
-            {selected.status === 'COMPLETED' && ['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
+            {['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
               <View style={{ marginHorizontal: 12, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Finalizing completion…</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Syncing chit and schedule…</Text>
               </View>
             )}
 

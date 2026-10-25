@@ -35,6 +35,9 @@ public class Chit {
     @Column(name = "tenant_id", nullable = false, columnDefinition = "varchar(36)")
     private String tenantId;
 
+    @Column(name = "schedule_sync_command_id")
+    private UUID scheduleSyncCommandId;
+
     // ── Type ──────────────────────────────────────────────────────────────────
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, columnDefinition = "varchar(20)")

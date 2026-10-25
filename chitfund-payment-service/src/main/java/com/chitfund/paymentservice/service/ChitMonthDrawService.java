@@ -58,6 +58,10 @@ public class ChitMonthDrawService {
         ValidatedDrawInput validated = validateChitAndMembers(
                 request.getChitId(), request.getMembers().stream()
                         .map(OpenMonthRequest.MemberAmount::getMemberId).toList());
+        if (validated.chit().getScheduleSyncCommandId() != null) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "The skipped draw and schedule are still syncing. Retry after sync completes.", org.springframework.http.HttpStatus.CONFLICT);
+        }
         ChitServiceClient.ChitDto chit = validated.chit();
         validateOpenDrawContract(request, chit, validated.amounts());
         long realCycles = drawRepository.countByTenantIdAndChitIdAndStatusNot(
@@ -435,12 +439,41 @@ public class ChitMonthDrawService {
                 draw.getId(), chitId, monthNumber, records.size());
     }
 
+    /** A schedule-only fence creates no draw or member obligation. */
+    public void verifyScheduleShift(com.chitfund.common.dto.DrawSkipCommand command) {
+        var chit = chitServiceClient.getChit(command.request().getChitId());
+        if (chit == null || !command.commandId().equals(chit.getScheduleSyncCommandId()))
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "The pending schedule request could not be verified");
+    }
+
     @Transactional
     public DrawSummaryResponse skipDraw(SkipMonthRequest request, UUID adminId, String actorRole) {
-        planExpiryChecker.assertNotExpired();
+        return skipDrawCommand(new com.chitfund.common.dto.DrawSkipCommand(null, adminId, actorRole, request));
+    }
+
+    @Transactional
+    public DrawSummaryResponse skipDrawCommand(com.chitfund.common.dto.DrawSkipCommand envelope) {
+        var request = envelope.request();
+        UUID adminId = envelope.actorId(); String actorRole = envelope.actorRole();
+        // The chit service verified access when it durably accepted this command.
+        if (envelope.commandId() == null) planExpiryChecker.assertNotExpired();
         String tenantId = requireTenantContext();
         commandLocks.lock(tenantId, "draw-schedule:" + request.getChitId());
+        var existing = drawRepository.findByTenantIdAndChitIdAndMonthNumber(tenantId, request.getChitId(), request.getMonthNumber());
+        if (existing.isPresent()) {
+            var prior = existing.get();
+            if (envelope.commandId() != null && envelope.commandId().equals(prior.getSkipCommandId())
+                    && envelope.fingerprint().equals(prior.getSkipRequestHash()) && prior.getStatus() == DrawStatus.SKIPPED)
+                return buildSummary(prior, paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(tenantId, request.getChitId(), request.getMonthNumber()));
+            throw new BusinessException(ErrorCode.MONTH_ALREADY_OPEN, "This draw is already open or skipped");
+        }
+        if (drawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(tenantId, request.getChitId()).stream()
+                .anyMatch(draw -> draw.getMonthNumber() >= request.getMonthNumber()))
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "A draw already exists at or after this number. Historical draws cannot be shifted.", org.springframework.http.HttpStatus.CONFLICT);
         ValidatedDrawInput validated = validateChitAndMembers(request.getChitId(), request.getMemberIds());
+        if (!java.util.Objects.equals(validated.chit().getScheduleSyncCommandId(), envelope.commandId()))
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, "The pending skip command could not be verified", org.springframework.http.HttpStatus.CONFLICT);
         if (request.getInstallmentAmount().compareTo(validated.chit().getInstallmentAmount()) != 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Installment amount does not match the chit configuration");
@@ -460,6 +493,8 @@ public class ChitMonthDrawService {
                 .capacity(request.getMemberIds().size())
                 .status(DrawStatus.SKIPPED)
                 .skipReason(request.getSkipReason())
+                .skipCommandId(envelope.commandId())
+                .skipRequestHash(envelope.fingerprint())
                 .skippedAt(LocalDateTime.now())
                 .skippedBy(adminId)
                 .build();
@@ -857,7 +892,7 @@ public class ChitMonthDrawService {
                         ChitServiceClient.MemberAmountDto::getAmountDue, (left, right) -> left));
         java.util.Set<UUID> requested = new java.util.HashSet<>(requestedMemberIds);
         java.util.Set<UUID> active = amounts.keySet();
-        if (requested.size() != requestedMemberIds.size() || !requested.equals(active)) {
+        if (active.isEmpty() || requested.size() != requestedMemberIds.size() || !requested.equals(active)) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_ENROLLED,
                     "Draw members must exactly match the chit's active members");
         }

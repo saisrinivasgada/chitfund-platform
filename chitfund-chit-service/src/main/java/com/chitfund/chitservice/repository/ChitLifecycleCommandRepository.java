@@ -32,6 +32,12 @@ public interface ChitLifecycleCommandRepository
     List<ChitLifecycleCommand> findByTenantIdAndChitIdOrderByCreatedAt(
             String tenantId, UUID chitId);
 
+    java.util.Optional<ChitLifecycleCommand> findByTenantIdAndDedupeKey(String tenantId, String dedupeKey);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM ChitLifecycleCommand c WHERE c.id=:id")
+    java.util.Optional<ChitLifecycleCommand> findByIdForUpdate(@Param("id") UUID id);
+
     long countByStatus(String status);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)

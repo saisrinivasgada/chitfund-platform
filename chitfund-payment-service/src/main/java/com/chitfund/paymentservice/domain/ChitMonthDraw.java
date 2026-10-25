@@ -50,6 +50,10 @@ public class ChitMonthDraw {
     @Column(columnDefinition = "text")
     private String skipReason;
 
+    private UUID skipCommandId;
+    @Column(length = 64)
+    private String skipRequestHash;
+
     private LocalDateTime openedAt;
     private UUID openedBy;
     private LocalDateTime closedAt;

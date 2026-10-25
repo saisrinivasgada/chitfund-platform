@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 public class AdminDrawController {
 
     private final ChitMonthDrawService drawService;
+    private final com.chitfund.paymentservice.service.CoordinatedDrawSkipService coordinatedSkips;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -68,11 +69,25 @@ public class AdminDrawController {
     public ResponseEntity<ApiResponse<DrawSummaryResponse>> skipDraw(
             @Valid @RequestBody SkipMonthRequest request,
             Authentication auth) {
-        UUID adminId = (UUID) auth.getPrincipal();
-        String role = auth.getAuthorities().stream().findFirst()
-                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
-        DrawSummaryResponse response = drawService.skipDraw(request, adminId, role);
-        return ResponseEntity.ok(ApiResponse.success(response));
+        throw new com.chitfund.common.exception.BusinessException(com.chitfund.common.exception.ErrorCode.CONCURRENT_MODIFICATION,
+                "Update the app and retry. Skipped draws must sync with their schedule in one request.", HttpStatus.CONFLICT);
+    }
+
+    @PostMapping("/internal/skip-command")
+    @PreAuthorize("true")
+    public ResponseEntity<com.chitfund.common.dto.DrawSkipResult> skipCommand(@Valid @RequestBody com.chitfund.common.dto.DrawSkipCommand command,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        if (tenantId == null || tenantId.isBlank()) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        String prior = com.chitfund.common.context.TenantContext.get();
+        try {
+            com.chitfund.common.context.TenantContext.set(tenantId);
+            return ResponseEntity.ok(coordinatedSkips.execute(command));
+        } finally {
+            if (prior == null) com.chitfund.common.context.TenantContext.clear();
+            else com.chitfund.common.context.TenantContext.set(prior);
+        }
     }
 
     /**

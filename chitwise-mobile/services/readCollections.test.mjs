@@ -13,6 +13,7 @@ async function client() {
   const calls = [];
   const http = {
     interceptors: { request: { use() {} }, response: { use() {} } },
+    post: async (path, body, config) => { calls.push({ path, body, headers: config?.headers }); return { data: { data: { commandId: 'command', status: 'PENDING' } } }; },
     get: async (path, config) => { calls.push({ path, params: config.params }); return { data: { data: { content: [] } } }; },
   };
   const dependencies = {
@@ -59,4 +60,13 @@ test('native list filters and paging remain part of the durable server identity'
   await phone.api.getMembers({ ...input, queryKey: ['ignored'] });
   assert.equal(requestKey('/members', phone.calls[0].params), requestKey('/members', input));
   assert.equal(listSnapshot('members', [{ id: 'other', fullName: 'Other', status: 'ACTIVE' }], phone.calls[0].params).data.totalElements, 0);
+});
+
+test('native draw skips submit one coordinated request and manual shifts retain caller identity', async () => {
+  const phone = await client(); const body = { chitId: 'chit', monthNumber: 1 };
+  const receipt = await phone.api.skipDraw(body);
+  assert.equal(receipt.status, 'PENDING'); assert.equal(phone.calls[0].path, '/chits/chit/skip-draw');
+  assert.equal(phone.calls.length, 1, 'No separate client-side schedule shift');
+  await phone.api.shiftReservations('chit', 1, 'stable-request');
+  assert.equal(phone.calls[1].headers['Idempotency-Key'], 'stable-request');
 });

@@ -539,7 +539,7 @@ export const getMyDraws = async (chitId: string) =>
   unwrapList(await api.get(`/admin/draws/member/chit/${chitId}`));
 export const openDraw = async (body: any) => unwrapObj(await api.post('/admin/draws/open', body));
 export const closeDraw = async (drawId: string) => unwrapObj(await api.post(`/admin/draws/${drawId}/close`));
-export const skipDraw = async (body: any) => unwrapObj(await api.post('/admin/draws/skip', body));
+export const skipDraw = async (body: any) => unwrapObj(await api.post(`/chits/${body.chitId}/skip-draw`, body));
 export const deleteDraw = async (drawId: string) => unwrapObj(await api.delete(`/admin/draws/${drawId}`));
 export const getDrawPayments = async (drawId: string) => unwrapList(await api.get(`/admin/draws/${drawId}/payments`));
 
@@ -558,8 +558,8 @@ export const removeReservationSlot = async (chitId: string, reservationId: strin
   unwrapObj(await api.delete(`/chits/${chitId}/reservations/${reservationId}`, { params: reason ? { reason } : {} }));
 export const swapReservationSlots = async (chitId: string, slotAId: string, slotBId: string) =>
   unwrapObj(await api.post(`/chits/${chitId}/reservations/swap`, { slotAId, slotBId }));
-export const shiftReservations = async (chitId: string, fromMonth: number) =>
-  unwrapObj(await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth } }));
+export const shiftReservations = async (chitId: string, fromMonth: number, requestId: string) =>
+  unwrapObj(await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth }, headers: { 'Idempotency-Key': requestId } }));
 export const markSlotProcessed = async (chitId: string, reservationId: string) =>
   unwrapObj(await api.patch(`/chits/${chitId}/reservations/${reservationId}/process`));
 export const updateReservationSlot = async (chitId: string, reservationId: string, body: any) =>

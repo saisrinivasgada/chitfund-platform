@@ -532,6 +532,7 @@ public class ChitService {
     public ChitResponse completeAfterFinalDisbursement(UUID id, String tenantId) {
         Chit chit = chitRepository.findByIdAndTenantIdForUpdate(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+        assertScheduleReady(chit);
         if (chit.getStatus() == ChitStatus.COMPLETED) {
             lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
             return enrich(chit);
@@ -563,8 +564,9 @@ public class ChitService {
                 || "PROCESSING".equals(c.getStatus())).count();
         String status = commands.isEmpty() ? "NOT_SCHEDULED"
                 : failed > 0 ? "FAILED"
-                : completed == commands.size() ? "COMPLETED"
-                : retrying > 0 ? "RETRYING" : "PENDING";
+                : retrying > 0 ? "RETRYING"
+                : pending > 0 ? "PENDING"
+                : "REJECTED".equals(commands.get(commands.size() - 1).getStatus()) ? "REJECTED" : "COMPLETED";
         String lastError = commands.stream()
                 .map(ChitLifecycleCommand::getLastErrorCode)
                 .filter(java.util.Objects::nonNull)
@@ -663,15 +665,24 @@ public class ChitService {
     // writes for the same chit must serialize (e.g. winner assignment) rather than
     // both reading stale state and racing past each other.
     public Chit findByIdForUpdate(UUID id) {
-        return chitRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
-                .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+        return assertScheduleReady(chitRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", id)));
     }
 
     // Resolve the aggregate with a locking query, without first loading an invitation
     // into the persistence context or creating a repeatable-read snapshot.
     public Chit findByInvitationForUpdate(UUID invitationId) {
-        return chitRepository.findByInvitationForUpdate(invitationId, TenantContext.get())
-                .orElseThrow(() -> new ResourceNotFoundException("Invitation", invitationId));
+        return assertScheduleReady(chitRepository.findByInvitationForUpdate(invitationId, TenantContext.get())
+                .orElseThrow(() -> new ResourceNotFoundException("Invitation", invitationId)));
+    }
+
+    public static Chit assertScheduleReady(Chit chit) {
+        if (chit.getScheduleSyncCommandId() != null) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "This chit's skipped draw and schedule are still syncing. Wait for sync or retry it before making another change.",
+                    org.springframework.http.HttpStatus.CONFLICT);
+        }
+        return chit;
     }
 
     // Used by all admin-facing operations — enforces tenant ownership

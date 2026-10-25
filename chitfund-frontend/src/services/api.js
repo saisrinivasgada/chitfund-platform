@@ -860,8 +860,8 @@ export const swapSlots = async ({ chitId, slotAId, slotBId }) => {
 };
 
 // Shifts all future RESERVED/UNALLOCATED slots forward by 1 month, called after a skip
-export const shiftReservations = async ({ chitId, fromMonth }) => {
-  const res = await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth } });
+export const shiftReservations = async ({ chitId, fromMonth, requestId }) => {
+  const res = await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth }, headers: { 'Idempotency-Key': requestId } });
   return res.data.data;
 };
 
@@ -959,7 +959,7 @@ export const deleteDraw = async (drawId) => {
 };
 
 export const skipDraw = async (body) => {
-  const res = await api.post('/admin/draws/skip', body);
+  const res = await api.post(`/chits/${body.chitId}/skip-draw`, body);
   return res.data.data;
 };
 

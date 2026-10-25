@@ -7,7 +7,7 @@ import {
   getChitLifecycleSync, retryChitLifecycleSync,
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
-  getDraws, closeDraw, skipDraw, deleteDraw, shiftReservations,
+  getDraws, closeDraw, skipDraw, deleteDraw,
   getWinners, recordWinner,
   getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
@@ -2174,6 +2174,7 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
     : 1;
 
   const [form, setForm] = useState({
+    attemptId: crypto.randomUUID(),
     monthNumber: String(nextCycleNum),
     dueDate: computeDefaultDueDate(chit?.startDate, nextCycleNum, chit?.monthlyDueDate),
     skipReason: '',
@@ -2185,22 +2186,24 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
   const mutation = useMutation({
     mutationFn: async () => {
       const monthNum = Number(form.monthNumber);
-      await skipDraw({
+      return skipDraw({
         chitId,
+        attemptId: form.attemptId,
         monthNumber: monthNum,
         dueDate: form.dueDate,
         installmentAmount: baseInstallment,
         memberIds: uniqueMemberIds,
         skipReason: form.skipReason,
       });
-      // Shift all future schedule slots forward by 1 — the skipped month is a moratorium,
-      // so the member who was due in this month moves to the next real cycle.
-      await shiftReservations({ chitId, fromMonth: monthNum }).catch(() => {});
+
     },
-    onSuccess: () => {
+    onSuccess: (command) => {
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
-      toast.success('Draw skipped — schedule shifted forward by 1 month');
+      qc.invalidateQueries({ queryKey: ['chit', chitId] });
+      qc.invalidateQueries({ queryKey: ['chit-lifecycle-sync', chitId] });
+      if (command.status === 'REJECTED') toast.error('Skip was not applied: a draw already exists at or after this number.');
+      else toast.success('Skip requested — draw and schedule are syncing');
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to skip draw'),
@@ -5412,12 +5415,16 @@ export default function ChitDetailPage() {
   const { data: lifecycleSync } = useQuery({
     queryKey: ['chit-lifecycle-sync', id],
     queryFn: () => getChitLifecycleSync(id),
-    enabled: !!id && chit?.status === 'COMPLETED',
+    enabled: !!id && (chit?.status === 'COMPLETED' || !!chit?.scheduleSyncCommandId),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+      return status && ['PENDING', 'RETRYING'].includes(status) ? 3000 : false;
     },
   });
+  useEffect(() => {
+    if (!['COMPLETED', 'REJECTED'].includes(lifecycleSync?.status) || !chit?.scheduleSyncCommandId) return;
+    for (const key of ['chit', 'draws', 'reservations']) qc.invalidateQueries({ queryKey: [key, id] });
+  }, [lifecycleSync?.status, chit?.scheduleSyncCommandId, id, qc]);
   const retryLifecycle = useMutation({
     mutationFn: () => retryChitLifecycleSync(id),
     onSuccess: () => {
@@ -5504,14 +5511,20 @@ export default function ChitDetailPage() {
         </div>
       )}
 
-      {chit.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+      {lifecycleSync?.status === 'REJECTED' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+          <p className="text-sm font-semibold text-amber-800">Schedule change was not applied</p>
+          <p className="text-xs text-amber-700 mt-1">A draw already exists at or after that number. Your draw, payments and schedule are unchanged. Refresh the draw list before continuing.</p>
+        </div>
+      )}
+      {lifecycleSync?.status === 'FAILED' && (
         <div className="flex items-start justify-between gap-4 bg-red-50 border border-red-200 rounded-xl px-5 py-4">
           <div className="flex items-start gap-3">
             <AlertTriangle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-semibold text-red-800">Completion needs attention</p>
+              <p className="text-sm font-semibold text-red-800">Chit sync needs attention</p>
               <p className="text-xs text-red-600 mt-0.5">
-                The chit is completed, but its payment draws could not be closed automatically.
+                A chit change could not finish syncing. Its schedule remains protected until sync completes.
                 No financial history was removed. Retry after the dependent service recovers.
               </p>
             </div>
@@ -5525,12 +5538,12 @@ export default function ChitDetailPage() {
         </div>
       )}
 
-      {chit.status === 'COMPLETED' && lifecycleSync
+      {lifecycleSync
         && ['PENDING', 'RETRYING'].includes(lifecycleSync.status) && (
         <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
           <RotateCcw size={16} className="text-amber-600 animate-spin" />
           <p className="text-sm text-amber-800">
-            Finalizing completion — closing remaining open payment draws.
+            Syncing chit changes and schedule. Related changes will be available when this finishes.
           </p>
         </div>
       )}

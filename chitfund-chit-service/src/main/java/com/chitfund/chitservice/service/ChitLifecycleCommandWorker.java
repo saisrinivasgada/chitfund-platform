@@ -19,6 +19,7 @@ public class ChitLifecycleCommandWorker {
     private final ChitLifecycleCommandRepository repository;
     private final ChitLifecycleCommandStore store;
     private final NotificationClient paymentClient;
+    private final DrawSkipCoordinator drawSkips;
     private final Counter completed;
     private final Counter retried;
     private final AtomicLong pendingGauge = new AtomicLong();
@@ -27,7 +28,8 @@ public class ChitLifecycleCommandWorker {
     public ChitLifecycleCommandWorker(ChitLifecycleCommandRepository repository,
                                       ChitLifecycleCommandStore store,
                                       NotificationClient paymentClient,
-                                      MeterRegistry meterRegistry) {
+                                      MeterRegistry meterRegistry, DrawSkipCoordinator drawSkips) {
+        this.drawSkips = drawSkips;
         this.repository = repository;
         this.store = store;
         this.paymentClient = paymentClient;
@@ -47,12 +49,15 @@ public class ChitLifecycleCommandWorker {
                 if (claimed.isEmpty()) continue;
                 var command = claimed.get();
                 try {
-                    if (!ChitLifecycleCommandStore.CLOSE_DRAWS.equals(command.getCommandType())) {
+                    if (DrawSkipCoordinator.SKIP_DRAW.equals(command.getCommandType()) || "SHIFT_SCHEDULE".equals(command.getCommandType())) {
+                        var result = paymentClient.skipDraw(drawSkips.decode(command), command.getTenantId());
+                        drawSkips.complete(command, result);
+                    } else if (ChitLifecycleCommandStore.CLOSE_DRAWS.equals(command.getCommandType())) {
+                        paymentClient.closeDrawsForChit(command.getChitId(), command.getTenantId());
+                        store.complete(id, command.getClaimToken());
+                    } else {
                         throw new IllegalArgumentException("Unsupported chit lifecycle command");
                     }
-                    paymentClient.closeDrawsForChit(
-                            command.getChitId(), command.getTenantId());
-                    store.complete(id, command.getClaimToken());
                     completed.increment();
                 } catch (Exception error) {
                     log.warn("Chit lifecycle command {} failed; it will retry", id);

@@ -50,6 +50,9 @@ class ChitAllocationConcurrencyMySqlTest {
     @Autowired EnrollmentService enrollments;
     @Autowired ReservationController schedule;
     @Autowired ChitService chits;
+    @Autowired DrawSkipCoordinator skips;
+    @Autowired ChitLifecycleCommandStore lifecycle;
+    @Autowired ChitLifecycleCommandRepository commands;
     @Autowired ChitRepository chitRows;
     @Autowired ChitInvitationRepository invitationRows;
     @Autowired InvitationResponseRepository responseRows;
@@ -225,13 +228,116 @@ class ChitAllocationConcurrencyMySqlTest {
         assertThatThrownBy(() -> invitations.respondToInvitation(invitation.getId(), response.getMemberId(), request))
                 .isInstanceOf(BusinessException.class);
     }
+    com.chitfund.common.dto.DrawSkipResult applied(ChitLifecycleCommand command) {
+        return new com.chitfund.common.dto.DrawSkipResult(command.getId(), skips.decode(command).fingerprint(), "APPLIED", null);
+    }
+    com.chitfund.common.dto.DrawSkipRequest skipRequest() {
+        chit.setStatus(ChitStatus.ACTIVE); chit.setEndDate(LocalDate.of(2027, 1, 1)); chitRows.saveAndFlush(chit);
+        UUID member = UUID.randomUUID();
+        enrollmentRows.saveAndFlush(ChitEnrollment.builder().chit(chit).memberId(member).active(true).build());
+        var request = new com.chitfund.common.dto.DrawSkipRequest(); request.setAttemptId(UUID.randomUUID()); request.setChitId(chit.getId()); request.setMonthNumber(1);
+        request.setDueDate(LocalDate.now()); request.setInstallmentAmount(new BigDecimal("1000"));
+        request.setSkipReason("Holiday pause"); request.setMemberIds(List.of(member)); return request;
+    }
+    @Test void duplicateSkipRequestsCommitOneCommandAndBlockDependentChangesUntilOneShift() throws Exception {
+        var request = skipRequest(); var slot = freeSlot(1);
+        var result = race(() -> skips.submit(request, admin, "ADMIN"), () -> skips.submit(request, admin, "MANAGER"));
+        assertThat(result).allMatch(Objects::isNull);
+        var rows = commands.findByTenantIdAndChitIdOrderByCreatedAt(tenant, chit.getId()); assertThat(rows).hasSize(1);
+        assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(1);
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).execute(status -> chits.findByIdForUpdate(chit.getId()))).isInstanceOf(BusinessException.class).hasMessageContaining("still syncing");
+        var claimed = lifecycle.claim(rows.get(0).getId()).orElseThrow();
+        skips.complete(claimed, applied(claimed)); // simulate an acknowledged payment receipt
+        skips.complete(claimed, applied(claimed)); // lost acknowledgement/repeated worker completion
+        assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(2);
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getEndDate()).isEqualTo(LocalDate.of(2027, 2, 1));
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getScheduleSyncCommandId()).isNull();
+        assertThat(auditCount("SLOT_SHIFTED")).isEqualTo(1); assertThat(auditCount("SLOTS_SHIFTED")).isEqualTo(1);
+        assertThat(skips.submit(request, admin, "ADMIN").get("status")).isEqualTo("COMPLETED");
+    }
+    @Test void aLostClaimCannotShiftAndAReplacementCompletesExactlyOnce() {
+        var request = skipRequest(); var slot = freeSlot(1); UUID id = (UUID) skips.submit(request, admin, "ADMIN").get("commandId");
+        var old = lifecycle.claim(id).orElseThrow();
+        new JdbcTemplate(dataSource).update("UPDATE chit_lifecycle_commands SET claimed_until=DATE_SUB(NOW(6), INTERVAL 1 SECOND) WHERE id=?", id.toString());
+        var replacement = lifecycle.claim(id).orElseThrow();
+        skips.complete(old, applied(old)); assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(1);
+        skips.complete(replacement, applied(replacement)); assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(2);
+    }
+    @Test void failedLocalCompletionRollsBackSlotsEndDateReceiptAndAuditsTogether() {
+        var request = skipRequest(); var slot = freeSlot(1); UUID id = (UUID) skips.submit(request, admin, "ADMIN").get("commandId");
+        var claimed = lifecycle.claim(id).orElseThrow();
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> { skips.complete(claimed, applied(claimed)); status.setRollbackOnly(); });
+        assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(1);
+        assertThat(commands.findById(id).orElseThrow().getStatus()).isEqualTo("PROCESSING");
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getScheduleSyncCommandId()).isEqualTo(id);
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getEndDate()).isEqualTo(LocalDate.of(2027, 1, 1));
+        assertThat(auditCount("SLOT_SHIFTED")).isZero();
+        skips.complete(claimed, applied(claimed)); assertThat(auditCount("SLOT_SHIFTED")).isEqualTo(1);
+    }
+    @Test void aChangedDuplicateRequestCannotReplaceTheOriginalPendingEvidence() {
+        var request = skipRequest(); skips.submit(request, admin, "ADMIN"); request.setSkipReason("Different reason");
+        assertThatThrownBy(() -> skips.submit(request, admin, "MANAGER")).isInstanceOf(BusinessException.class).hasMessageContaining("different details");
+        assertThat(commands.findByTenantIdAndChitIdOrderByCreatedAt(tenant, chit.getId())).hasSize(1);
+    }
+    @Test void processedTargetConflictLeavesTheSkipAndAllSlotsUntouched() {
+        var request = skipRequest(); var moving = freeSlot(1); var processed = freeSlot(2); processed.setStatus(ReservationStatus.PROCESSED); slots.saveAndFlush(processed);
+        assertThatThrownBy(() -> skips.submit(request, admin, "ADMIN")).isInstanceOf(BusinessException.class).hasMessageContaining("processed slot");
+        assertThat(commands.findByTenantIdAndChitIdOrderByCreatedAt(tenant, chit.getId())).isEmpty();
+        assertThat(slots.findById(moving.getId()).orElseThrow().getMonthNumber()).isEqualTo(1);
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getScheduleSyncCommandId()).isNull();
+    }
+    @Test void manualShiftRequiresIdentityAndReplaysWithoutShiftingAgain() {
+        freeSlot(1); UUID key = UUID.randomUUID();
+        assertThatThrownBy(() -> skips.shiftSchedule(chit.getId(), 1, null, admin, "ADMIN")).isInstanceOf(BusinessException.class);
+        var response = skips.shiftSchedule(chit.getId(), 1, key, admin, "ADMIN"); skips.shiftSchedule(chit.getId(), 1, key, admin, "ADMIN");
+        var claimed = lifecycle.claim((UUID) response.get("commandId")).orElseThrow(); skips.complete(claimed, applied(claimed));
+        assertThat(slots.findByChitIdAndTenantId(chit.getId(), tenant)).singleElement().extracting(MonthReservation::getMonthNumber).isEqualTo(2);
+        assertThatThrownBy(() -> skips.shiftSchedule(chit.getId(), 2, key, admin, "ADMIN")).isInstanceOf(BusinessException.class).hasMessageContaining("different details");
+        assertThat(auditCount("SLOT_SHIFTED")).isEqualTo(1);
+    }
+    @Test void confirmedNoEffectRejectionReleasesTheChitWithoutShiftingItsSchedule() {
+        var request = skipRequest(); var slot = freeSlot(1); UUID id = (UUID) skips.submit(request, admin, "ADMIN").get("commandId");
+        var claimed = lifecycle.claim(id).orElseThrow();
+        var result = new com.chitfund.common.dto.DrawSkipResult(id, skips.decode(claimed).fingerprint(), "REJECTED", "DRAW_ALREADY_EXISTS");
+        skips.complete(claimed, result); skips.complete(claimed, result);
+        assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(1);
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getEndDate()).isEqualTo(LocalDate.of(2027, 1, 1));
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getScheduleSyncCommandId()).isNull();
+        assertThat(chits.getLifecycleSync(chit.getId()).getStatus()).isEqualTo("REJECTED");
+        assertThat(auditCount("DRAW_SKIP_REJECTED")).isEqualTo(1); assertThat(auditCount("SLOTS_SHIFTED")).isZero();
+    }
+    @Test void unverifiedResponseKeepsTheChitProtectedAndDoesNotShift() {
+        var request = skipRequest(); var slot = freeSlot(1); UUID id = (UUID) skips.submit(request, admin, "ADMIN").get("commandId"); var claimed = lifecycle.claim(id).orElseThrow();
+        assertThatThrownBy(() -> skips.complete(claimed, new com.chitfund.common.dto.DrawSkipResult(id, "wrong-hash", "REJECTED", null))).isInstanceOf(BusinessException.class);
+        assertThat(chitRows.findById(chit.getId()).orElseThrow().getScheduleSyncCommandId()).isEqualTo(id);
+        assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(1);
+    }
+    @Test void duplicateLiveOrdinalsAndEmptyOrCompletedManualShiftsAreRejectedBeforeMutation() {
+        freeSlot(1); freeSlot(1);
+        assertThatThrownBy(() -> skips.shiftSchedule(chit.getId(), 1, UUID.randomUUID(), admin, "ADMIN")).isInstanceOf(BusinessException.class).hasMessageContaining("duplicate draw");
+        assertThat(auditCount("SLOT_SHIFTED")).isZero();
+        assertThatThrownBy(() -> skips.shiftSchedule(chit.getId(), 9, UUID.randomUUID(), admin, "ADMIN")).isInstanceOf(BusinessException.class);
+        chit.setStatus(ChitStatus.COMPLETED); chitRows.saveAndFlush(chit);
+        assertThatThrownBy(() -> skips.shiftSchedule(chit.getId(), 1, UUID.randomUUID(), admin, "ADMIN")).isInstanceOf(BusinessException.class).hasMessageContaining("no longer");
+    }
+    @Test void aFreshAttemptCanFollowAProvenRejectionButOldRetriesKeepTheirOriginalResult() {
+        var request = skipRequest(); var slot = freeSlot(1);
+        UUID oldId = (UUID) skips.submit(request, admin, "ADMIN").get("commandId"); var oldClaim = lifecycle.claim(oldId).orElseThrow();
+        skips.complete(oldClaim, new com.chitfund.common.dto.DrawSkipResult(oldId, skips.decode(oldClaim).fingerprint(), "REJECTED", "DRAW_ALREADY_EXISTS"));
+        UUID firstAttempt = request.getAttemptId(); request.setAttemptId(UUID.randomUUID());
+        UUID newId = (UUID) skips.submit(request, admin, "ADMIN").get("commandId"); assertThat(newId).isNotEqualTo(oldId);
+        request.setAttemptId(firstAttempt); assertThat(skips.submit(request, admin, "ADMIN").get("status")).isEqualTo("REJECTED");
+        var newClaim = lifecycle.claim(newId).orElseThrow(); skips.complete(newClaim, applied(newClaim));
+        assertThat(slots.findById(slot.getId()).orElseThrow().getMonthNumber()).isEqualTo(2);
+        assertThat(auditCount("SLOT_SHIFTED")).isEqualTo(1);
+    }
     ReservationSlotRequest edit(MonthReservation slot, UUID member) {
         var r = new ReservationSlotRequest(); r.setReservationMonth(slot.getReservationMonth());
         r.setMemberId(member); r.setExpectedVersion(slot.getVersion()); return r;
     }
     @Configuration @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses = ChitRepository.class)
-    @Import({ChitService.class, InvitationService.class, EnrollmentService.class, ReservationController.class, AuditClient.class})
+    @Import({ChitService.class, InvitationService.class, EnrollmentService.class, ReservationController.class, AuditClient.class, DrawSkipCoordinator.class, ChitLifecycleCommandStore.class})
     static class Config {
         @Bean DataSource dataSource() { return new DriverManagerDataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword()); }
         @Bean Flyway flyway(DataSource ds) { var f=Flyway.configure().dataSource(ds).locations("classpath:db/migration").load(); f.migrate(); return f; }
@@ -246,7 +352,6 @@ class ChitAllocationConcurrencyMySqlTest {
         @Bean ChitAttributeService attributes(ObjectMapper json) { return new ChitAttributeService(json); }
         @Bean PlanLimitChecker planLimits() { return mock(PlanLimitChecker.class); }
         @Bean NotificationClient notifications() { return mock(NotificationClient.class); }
-        @Bean ChitLifecycleCommandStore lifecycle() { return mock(ChitLifecycleCommandStore.class); }
         @Bean DurableAuditOutbox auditOutbox(DataSource ds) { return new DurableAuditOutbox(new JdbcTemplate(ds)); }
     }
 }

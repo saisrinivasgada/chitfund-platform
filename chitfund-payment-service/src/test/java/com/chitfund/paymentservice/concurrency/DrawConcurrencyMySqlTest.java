@@ -42,6 +42,7 @@ class DrawConcurrencyMySqlTest {
             .withCommand("--log-bin-trust-function-creators=1").withDatabaseName("chitfund_payments")
             .withUsername("chitfund").withPassword("testpassword");
     @Autowired ChitMonthDrawService draws;
+    @Autowired CoordinatedDrawSkipService coordinatedSkips;
     @Autowired PaymentService payments;
     @Autowired DrawReconciliationQueue queue;
     @Autowired FinancialCommandLock locks;
@@ -197,12 +198,60 @@ class DrawConcurrencyMySqlTest {
         assertThat(payments.getMemberTotalBalance(member)).isEqualByComparingTo("500");
         verify(credit, never()).addCredit(eq(member), any(), any(), any(), any(), anyString());
     }
+    @Test void coordinatedSkipReplaysTheSameReceiptAfterALostResponseWithoutDuplicateWaivers() {
+        UUID commandId = UUID.randomUUID(); var request = new com.chitfund.common.dto.DrawSkipRequest();
+        request.setChitId(chitId); request.setMonthNumber(1); request.setDueDate(LocalDate.now());
+        request.setInstallmentAmount(new BigDecimal("1000")); request.setSkipReason("Holiday pause"); request.setMemberIds(List.of(member));
+        var chit = chits.getChit(chitId); chit.setScheduleSyncCommandId(commandId);
+        var command = new com.chitfund.common.dto.DrawSkipCommand(commandId, admin, "ADMIN", request);
+        var first = draws.skipDrawCommand(command); var replay = draws.skipDrawCommand(command);
+        assertThat(replay.getId()).isEqualTo(first.getId());
+        assertThat(records.findByTenantIdAndChitIdAndMonthNumber(tenant, chitId, 1)).hasSize(1);
+        assertThat(auditCount("DRAW_SKIPPED")).isEqualTo(1);
+        request.setSkipReason("Changed details");
+        assertThatThrownBy(() -> draws.skipDrawCommand(command)).isInstanceOf(BusinessException.class);
+        assertThat(auditCount("DRAW_SKIPPED")).isEqualTo(1);
+        assertThatThrownBy(() -> draws.openDraw(request(2), admin, "ADMIN")).isInstanceOf(BusinessException.class).hasMessageContaining("still syncing");
+    }
+    com.chitfund.common.dto.DrawSkipCommand coordinatedCommand(int month) {
+        UUID id = UUID.randomUUID(); var request = new com.chitfund.common.dto.DrawSkipRequest();
+        request.setChitId(chitId); request.setMonthNumber(month); request.setDueDate(LocalDate.now()); request.setInstallmentAmount(new BigDecimal("1000"));
+        request.setSkipReason("Holiday pause"); request.setMemberIds(List.of(member));
+        chits.getChit(chitId).setScheduleSyncCommandId(id);
+        return new com.chitfund.common.dto.DrawSkipCommand(id, admin, "ADMIN", request);
+    }
+    @Test void existingDrawCreatesAStableNoEffectRejectionThatCannotBecomeASkipLater() {
+        var open = draws.openDraw(request(1), admin, "ADMIN"); var command = coordinatedCommand(1);
+        var result = coordinatedSkips.execute(command); assertThat(result.status()).isEqualTo("REJECTED");
+        assertThat(drawRows.findByTenantIdAndChitIdAndMonthNumber(tenant, chitId, 1).orElseThrow().getStatus()).isEqualTo(DrawStatus.OPEN);
+        assertThat(records.findByTenantIdAndChitIdAndMonthNumber(tenant, chitId, 1)).singleElement().extracting(PaymentRecord::getStatus).isEqualTo(PaymentRecordStatus.OUTSTANDING);
+        assertThat(auditCount("DRAW_SKIPPED")).isZero();
+        assertThat(coordinatedSkips.execute(command)).isEqualTo(result);
+    }
+    @Test void appliedDecisionReplaysAfterResponseLossAndCannotBeReclassifiedAsRejected() {
+        var command = coordinatedCommand(1); var result = coordinatedSkips.execute(command);
+        assertThat(result.status()).isEqualTo("APPLIED"); assertThat(coordinatedSkips.execute(command)).isEqualTo(result);
+        assertThat(auditCount("DRAW_SKIPPED")).isEqualTo(1);
+        assertThat(records.findByTenantIdAndChitIdAndMonthNumber(tenant, chitId, 1)).hasSize(1);
+        command.request().setSkipReason("Changed details");
+        assertThatThrownBy(() -> coordinatedSkips.execute(command)).isInstanceOf(BusinessException.class).hasMessageContaining("details changed");
+    }
+    @Test void scheduleOnlyFenceNeverCreatesAWaivedDrawOrMemberObligation() {
+        var original = coordinatedCommand(1);
+        var command = new com.chitfund.common.dto.DrawSkipCommand(original.commandId(), admin, "ADMIN", original.request(), true);
+        assertThat(coordinatedSkips.execute(command).status()).isEqualTo("APPLIED");
+        assertThat(coordinatedSkips.execute(command).status()).isEqualTo("APPLIED");
+        assertThat(drawRows.findByTenantIdAndChitIdOrderByMonthNumberAsc(tenant, chitId)).isEmpty();
+        assertThat(records.findByTenantIdAndChitIdAndMonthNumber(tenant, chitId, 1)).isEmpty();
+        assertThat(auditCount("DRAW_SKIPPED")).isZero();
+        assertThatThrownBy(() -> coordinatedSkips.execute(original)).isInstanceOf(BusinessException.class).hasMessageContaining("details changed");
+    }
     long auditCount(String action) {
         return new JdbcTemplate(ds).queryForObject("SELECT COUNT(*) FROM event_outbox WHERE tenant_id=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.action'))=?",Long.class,tenant,action);
     }
     @Configuration @EnableTransactionManagement
     @EnableJpaRepositories(basePackageClasses=ChitMonthDrawRepository.class)
-    @Import({ChitMonthDrawService.class,DrawReconciliationQueue.class,FinancialCommandLock.class,AuditClient.class,PaymentOutboxStore.class,PaymentService.class})
+    @Import({ChitMonthDrawService.class,DrawReconciliationQueue.class,FinancialCommandLock.class,AuditClient.class,PaymentOutboxStore.class,PaymentService.class,CoordinatedDrawSkipService.class})
     static class Config {
         @Bean DataSource dataSource(){return new DriverManagerDataSource(MYSQL.getJdbcUrl(),MYSQL.getUsername(),MYSQL.getPassword());}
         @Bean Flyway flyway(DataSource ds){var f=Flyway.configure().dataSource(ds).locations("classpath:db/migration").load();f.migrate();return f;}

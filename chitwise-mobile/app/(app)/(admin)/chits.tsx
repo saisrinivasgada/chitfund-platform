@@ -1,3 +1,4 @@
+import { applyChitScheduleCommand } from '../../../features/chits/scheduleCommand';
 import { DrawPaymentRows } from '../../../components/DrawPaymentRows';
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { ChitActionDialog, ChitDialogHost } from '../../../components/ChitActionDialog';
@@ -13,7 +14,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tansta
 import { useOnlineMutation } from '../../../offline/useOnlineMutation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  getChits, createChit, updateChitStatus, getEnrollments, enrollMember,
+  getChit, getChits, createChit, updateChitStatus, getEnrollments, enrollMember,
   removeEnrollment, getMembers, getWinners, recordWinner,
   getDraws, openDraw, closeDraw, skipDraw, deleteDraw,
   getReservations, addReservationSlot, removeReservationSlot,
@@ -69,10 +70,10 @@ export default function AdminChitsScreen() {
   const { data: lifecycleSync } = useQuery({
     queryKey: ['a-chit-lifecycle-sync', selected?.id],
     queryFn: () => getChitLifecycleSync(selected.id),
-    enabled: showDetail && selected?.status === 'COMPLETED' && !!selected?.id,
+    enabled: showDetail && (selected?.status === 'COMPLETED' || !!selected?.scheduleSyncCommandId) && !!selected?.id,
     refetchInterval: (query) => {
       const status = (query.state.data as any)?.status;
-      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+      return status && ['PENDING', 'RETRYING'].includes(status) ? 3000 : false;
     },
   });
   const retryLifecycleMut = useOnlineMutation({
@@ -85,6 +86,13 @@ export default function AdminChitsScreen() {
       e.response?.data?.message ?? 'Could not retry completion sync'),
   });
   // Typed confirmation for chit deletion — mirrors the web DELETE guard.
+  useEffect(() => {
+    if (!['COMPLETED', 'REJECTED'].includes(lifecycleSync?.status ?? '') || !selected?.scheduleSyncCommandId) return;
+    const chitId = selected.id;
+    getChit(chitId).then((fresh) => setSelected((current: any) => current?.id === chitId ? fresh : current)).catch(() => {});
+    for (const key of ['a-draws', 'a-reservations', 'a-chits']) qc.invalidateQueries({ queryKey: key === 'a-chits' ? [key] : [key, chitId] });
+  }, [lifecycleSync?.status, selected?.scheduleSyncCommandId, selected?.id, qc]);
+
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('info');
@@ -604,13 +612,16 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
 
+  const skipAttemptIds = useRef<Record<string, string>>({});
   const skipDrawMut = useOnlineMutation({
     mutationFn: async () => {
+      const chitId = selected.id;
       const monthNum = Number(sdDrawNum);
       const baseInstallment = Number(selected.installmentAmount ?? (Number(selected.chitValue ?? 0) / Number(selected.capacity ?? 1)));
       const uniqueMemberIds = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))];
       const dueDate = computeDueDate(selected.startDate, monthNum, selected.monthlyDueDate);
-      await skipDraw({
+      const attemptId = skipAttemptIds.current[chitId] ??= Crypto.randomUUID();
+      const command = await skipDraw({ attemptId,
         chitId: selected.id,
         monthNumber: monthNum,
         dueDate,
@@ -618,14 +629,20 @@ export default function AdminChitsScreen() {
         memberIds: uniqueMemberIds,
         skipReason: sdReason,
       });
-      await shiftReservations(selected.id, monthNum).catch(() => {});
+
+      return { ...command, chitId, attemptId };
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
-      qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
+    onSuccess: (command: any) => {
+      if (skipAttemptIds.current[command.chitId] === command.attemptId) delete skipAttemptIds.current[command.chitId];
+      setSelected((prev: any) => applyChitScheduleCommand(prev, command));
+      qc.invalidateQueries({ queryKey: ['a-chit-lifecycle-sync', command.chitId] });
+      qc.invalidateQueries({ queryKey: ['a-draws', command.chitId] });
+      qc.invalidateQueries({ queryKey: ['a-reservations', command.chitId] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
+      if (selectedChitId.current !== command.chitId) return;
       setShowSkipDraw(false); setSdDrawId(''); setSdDrawNum(''); setSdReason('');
-      toast.skipped('Draw skipped — slots shifted forward');
+      if (command.status === 'REJECTED') Alert.alert('Draw unchanged', 'This skip request was rejected because a draw already exists at or after this number. Refresh the draw list.');
+      else toast.skipped('Skip requested — draw and schedule are syncing');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
@@ -741,12 +758,22 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Swap Failed', e.response?.data?.message ?? e.message ?? 'Failed to swap slots. Both slots must be in RESERVED status.'),
   });
 
+  const shiftRequestIds = useRef<Record<string, string>>({});
   const shiftMut = useOnlineMutation({
-    mutationFn: () => shiftReservations(selected.id, Number(shiftFrom)),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
+    mutationFn: async () => {
+      const chitId = selected.id, requestId = shiftRequestIds.current[chitId] ??= Crypto.randomUUID();
+      const command = await shiftReservations(chitId, Number(shiftFrom), requestId);
+      return { ...command, chitId, requestId };
+    },
+    onSuccess: (command: any) => {
+      setSelected((prev: any) => applyChitScheduleCommand(prev, command));
+      qc.invalidateQueries({ queryKey: ['a-chit-lifecycle-sync', command.chitId] });
+      qc.invalidateQueries({ queryKey: ['a-reservations', command.chitId] });
+      if (shiftRequestIds.current[command.chitId] === command.requestId) delete shiftRequestIds.current[command.chitId];
+      if (selectedChitId.current !== command.chitId) return;
       setShowShift(false); setShiftFrom('');
-      toast.saved('Schedule shifted forward by 1 draw');
+      if (command.status === 'REJECTED') Alert.alert('Schedule unchanged', 'A draw already exists at or after that number. Refresh the draw list before continuing.');
+      else toast.saved(command.status === 'COMPLETED' ? 'Schedule shifted' : 'Schedule shift requested — syncing');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
@@ -1153,11 +1180,17 @@ export default function AdminChitsScreen() {
             </View>
           </View>
 
-          {selected?.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+          {lifecycleSync?.status === 'REJECTED' && (
+            <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FFFBEB' }}>
+              <Text style={{ color: C.amber, fontWeight: '700' }}>Schedule change was not applied</Text>
+              <Text style={{ color: C.gray700, fontSize: 12, marginTop: 4 }}>A draw already exists at or after that number. Your draw, payments and schedule are unchanged. Refresh the draw list before continuing.</Text>
+            </View>
+          )}
+          {lifecycleSync?.status === 'FAILED' && (
             <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Completion needs attention</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Chit sync needs attention</Text>
               <Text style={{ fontSize: 12, color: C.red, marginTop: 3 }}>
-                Open payment draws could not be closed automatically. Financial history is preserved.
+                A chit change could not finish syncing. Financial history is preserved. Retry sync before changing this schedule.
               </Text>
               <TouchableOpacity onPress={() => retryLifecycleMut.mutate()} disabled={retryLifecycleMut.isPending}
                 style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: C.red }}>
@@ -1167,9 +1200,9 @@ export default function AdminChitsScreen() {
               </TouchableOpacity>
             </View>
           )}
-          {selected?.status === 'COMPLETED' && ['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
+          {['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
             <View style={{ marginHorizontal: 12, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Finalizing completion…</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Syncing chit and schedule…</Text>
             </View>
           )}
 

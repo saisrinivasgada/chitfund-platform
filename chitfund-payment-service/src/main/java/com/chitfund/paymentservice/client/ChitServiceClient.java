@@ -65,6 +65,7 @@ public class ChitServiceClient {
 
     @Data
     public static class ChitDto {
+        private UUID scheduleSyncCommandId;
         private UUID id;
         private String name;
         private String status;
@@ -345,6 +346,7 @@ public class ChitServiceClient {
     private ChitDto mapToChitDto(Map<String, Object> raw) {
         ChitDto dto = new ChitDto();
         dto.setId(parseUuid(raw.get("id")));
+        dto.setScheduleSyncCommandId(parseUuid(raw.get("scheduleSyncCommandId")));
         dto.setName(raw.get("name") != null ? raw.get("name").toString() : null);
         dto.setStatus(raw.get("status") != null ? raw.get("status").toString() : null);
         dto.setChitValue(parseBigDecimal(raw.get("chitValue")));

@@ -270,6 +270,9 @@ public class InternalSettlementController {
         if (tenantId == null || tenantId.isBlank()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
+        com.chitfund.chitservice.service.ChitService.assertScheduleReady(
+                chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, tenantId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Chit", chitId)));
         List<com.chitfund.chitservice.domain.entity.MonthlyWinner> winners = winnerRepository
                 .findForPayoutValidation(chitId, monthNumber, memberId, tenantId);
         Map<String, Object> data = new LinkedHashMap<>();

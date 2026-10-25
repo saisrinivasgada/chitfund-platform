@@ -39,6 +39,7 @@ import java.util.stream.Collectors;
 public class ChitController {
 
     private final ChitService chitService;
+    private final com.chitfund.chitservice.service.DrawSkipCoordinator drawSkipCoordinator;
     private final MonthReservationRepository reservationRepository;
     private final ChitMapper chitMapper;
 
@@ -50,6 +51,16 @@ public class ChitController {
         UUID createdBy = (UUID) auth.getPrincipal();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(chitService.createChit(request, createdBy), "Chit created"));
+    }
+
+    @PostMapping("/{id}/skip-draw")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<java.util.Map<String,Object>>> skipDraw(
+            @PathVariable UUID id, @Valid @RequestBody com.chitfund.common.dto.DrawSkipRequest request, Authentication auth) {
+        if (!id.equals(request.getChitId())) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chit does not match the request");
+        return ResponseEntity.accepted().body(ApiResponse.success(
+                drawSkipCoordinator.submit(request, (UUID) auth.getPrincipal(), role(auth)),
+                "Skip requested. The draw and schedule will sync together."));
     }
 
     @GetMapping("/{id}")

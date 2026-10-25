@@ -36,6 +36,18 @@ public class NotificationClient {
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
 
+    public com.chitfund.common.dto.DrawSkipResult skipDraw(com.chitfund.common.dto.DrawSkipCommand command, String tenantId) {
+        HttpHeaders headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Internal-Key", internalKey); headers.set("X-Tenant-ID", requireTenant(tenantId));
+        var result = restTemplate.postForObject(paymentServiceUrl + "/admin/draws/internal/skip-command",
+                new HttpEntity<>(command, headers), com.chitfund.common.dto.DrawSkipResult.class);
+        if (result == null || !command.commandId().equals(result.commandId())
+                || !command.fingerprint().equals(result.requestHash())
+                || !("APPLIED".equals(result.status()) || "REJECTED".equals(result.status())))
+            throw new IllegalStateException("Payment service returned an unverified skip decision");
+        return result;
+    }
+
     public void closeDrawsForChit(java.util.UUID chitId, String tenantId) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
