@@ -21,12 +21,13 @@ appId: com.chitwise.mobile
     timeout: 15000
 - tapOn:
     id: "close-account-settings"
-# Cold launch must require device proof. Back cancels without logging out.
+# A wrong OS PIN must not grant access; Back cancels without logging out.
 - stopApp
 - launchApp
-- extendedWaitUntil:
-    visible: ".*PIN.*"
-    timeout: 30000
+- waitForAnimationToEnd
+- inputText: "000000"
+- pressKey: Enter
+- waitForAnimationToEnd
 - back
 - extendedWaitUntil:
     visible: "ChitWise is locked"
@@ -47,9 +48,7 @@ appId: com.chitwise.mobile
       id: "switch-account-offline-b"
 - tapOn:
     id: "switch-account-offline-b"
-- extendedWaitUntil:
-    visible: ".*PIN.*"
-    timeout: 15000
+- waitForAnimationToEnd
 - back
 - assertVisible:
     id: "switch-account-offline-b"
@@ -79,9 +78,7 @@ appId: com.chitwise.mobile
 - pressKey: Home
 - launchApp:
     stopApp: false
-- extendedWaitUntil:
-    visible: ".*PIN.*"
-    timeout: 30000
+- waitForAnimationToEnd
 - back
 - assertVisible: "ChitWise is locked"
 - tapOn:

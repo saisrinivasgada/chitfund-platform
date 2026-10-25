@@ -1,8 +1,8 @@
 appId: com.chitwise.mobile
 ---
-- extendedWaitUntil:
-    visible: ".*PIN.*"
-    timeout: 15000
+# Android protects this system credential window from screenshots/text lookup.
+# The caller asserts the resulting protected app state after native PIN entry.
+- waitForAnimationToEnd
 - inputText: "246810"
 - pressKey: Enter
 - waitForAnimationToEnd
