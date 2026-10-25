@@ -43,10 +43,37 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
+async function deliverSavedPayments(backgroundSync) {
+  const deadline = Date.now() + 25_000;
+  let outcome;
+  let previousRemaining = Infinity;
+  for (let batch = 0; batch < 10; batch++) {
+    outcome = await syncSavedPayments({ deadline });
+    if (!outcome.retryNeeded) return;
+    // Drain another bounded batch while this worker is already awake. Avoid
+    // waiting for a browser-controlled wake-up just for entry 26, and stop on
+    // backoff, no progress or the overall event budget.
+    if (outcome.nextAttemptAt > Date.now() || outcome.remaining >= previousRemaining || Date.now() >= deadline) break;
+    previousRemaining = outcome.remaining;
+  }
+  if (!outcome.retryNeeded) return;
+  // An immediately deliverable remainder (batch/time budget) needs another
+  // event. Re-register while firing so the browser retains this tag.
+  if (outcome.nextAttemptAt <= Date.now() && self.registration.sync) {
+    await self.registration.sync.register('chitwise-payments');
+    return;
+  }
+  // Do not turn a transport failure into a successful Background Sync event.
+  // Reject so the browser applies its retry/backoff policy. Auth/review-only
+  // work is excluded from retryNeeded and cannot create a retry loop.
+  if (backgroundSync) throw new Error('Saved collections need another background sync attempt');
+  if (self.registration.sync) await self.registration.sync.register('chitwise-payments');
+}
+
 self.addEventListener('sync', (event) => {
-  if (event.tag === 'chitwise-payments') event.waitUntil(syncSavedPayments({ deadline: Date.now() + 25_000 }));
+  if (event.tag === 'chitwise-payments') event.waitUntil(deliverSavedPayments(true));
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SYNC_SAVED_PAYMENTS') event.waitUntil(syncSavedPayments({ deadline: Date.now() + 25_000 }));
+  if (event.data?.type === 'SYNC_SAVED_PAYMENTS') event.waitUntil(deliverSavedPayments(false));
 });

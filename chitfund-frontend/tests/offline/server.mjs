@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 
 const root = resolve('dist');
 const receipts = new Map();
+const attempts = new Map();
 const cookieId = (org) => createHash('sha256').update(`WEB:actor-${org}:org-${org}:ADMIN`).digest('hex').slice(0, 32);
 const user = (org) => ({ id: `actor-${org}`, username: `user-${org}`, fullName: `User ${org}`, role: 'ADMIN' });
 const tenant = (org) => ({ tenantId: `org-${org}`, name: `Organisation ${org}`, slug: `org-${org}`, role: 'ADMIN', plan: 'GROWTH', status: 'ACTIVE', offlineEnabled: true });
@@ -45,6 +46,8 @@ http.createServer(async (request, response) => {
       if (!org || payload.offlineAuthorization !== `proof-${org}`) return json({ message: 'Wrong account' }, 403);
       const operationId = request.headers['x-idempotency-key'];
       const key = `${org}:${operationId}`;
+      attempts.set(key, (attempts.get(key) ?? 0) + 1);
+      if (String(operationId).startsWith('retry-503-') && attempts.get(key) === 1) return json({ success: false, message: 'Transient fixture failure' }, 503);
       if (!receipts.has(key)) receipts.set(key, { id: `receipt-${operationId}`, org, operationId, payload });
       return json({ success: true, data: receipts.get(key) });
     }

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 async function preparedBrowser(page, context) {
   await page.goto('/__offline-harness');
@@ -85,4 +86,65 @@ test('production app reopens offline without the add-on with a connection notice
   await expect(page.getByRole('button', { name: /Sync now|saved payment|Record Cash Payment/ })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Welcome back|Record Payment/ })).toHaveCount(0);
   await page.screenshot({ path: '/tmp/chitwise-pwa-no-addon.png' });
+});
+
+test('background sync rejects transport backoff and registers another event for a ready remainder', async () => {
+  const source=(await readFile(new URL('../../src/offline/worker.js',import.meta.url),'utf8')).replace(/^import .*\n/, '');
+  for(const [outcome, rejection, registrations] of [
+    [{retryNeeded:true,nextAttemptAt:Date.now()+60000},true,0],
+    [{retryNeeded:true,nextAttemptAt:0},false,1],
+    [{retryNeeded:false,nextAttemptAt:null},false,0],
+  ]) {
+    const handlers=new Map();const tags=[];
+    const worker={addEventListener:(name,handler)=>handlers.set(name,handler),registration:{sync:{register:async tag=>tags.push(tag)}}};
+    new Function('self','syncSavedPayments','__CHITWISE_OFFLINE_BUILD__',source)(worker,async()=>outcome,'test-build');
+    let completion;handlers.get('sync')({tag:'chitwise-payments',waitUntil:value=>{completion=value;}});
+    if(rejection) await expect(completion).rejects.toThrow('another background sync attempt'); else await completion;
+    expect(tags).toEqual(Array(registrations).fill('chitwise-payments'));
+  }
+});
+
+async function queueWithoutAutomaticWake(page,scope,prefix,count) {
+  return page.evaluate(async({scope,prefix,count})=>{
+    // Control wake-up timing, not authentication or transport. The production
+    // worker still handles every delivery through the real fixture HTTP API.
+    const worker=navigator.serviceWorker;const original=worker.getRegistration;
+    worker.getRegistration=async()=>undefined;
+    try { for(let i=0;i<count;i++) await window.harness.queuePayment(scope,{memberId:'member-a',chitId:'chit-a',amount:300,paymentMode:'CASH',idempotencyKey:`${prefix}-${i}`}); }
+    finally { worker.getRegistration=original; }
+  },{scope,prefix,count});
+}
+
+test('a closed tab continues a queue larger than one worker batch',async({page,context,request})=>{
+  const account=await preparedBrowser(page,context);const prefix=`closed-backlog-${Date.now()}`;
+  await queueWithoutAutomaticWake(page,account.scope,prefix,26);
+  await page.evaluate(()=>navigator.serviceWorker.controller.postMessage({type:'SYNC_SAVED_PAYMENTS'}));
+  await page.close();
+  await expect.poll(async()=>{
+    const response=await request.get('/__test/receipts');return (await response.json()).filter(r=>r.operationId.startsWith(prefix)).length;
+  },{timeout:20000}).toBe(26);
+});
+
+test('transport failure and exhausted time budget report remaining delivery rather than success',async({page,context,request})=>{
+  const account=await preparedBrowser(page,context);const prefix=`retry-503-${Date.now()}`;
+  await queueWithoutAutomaticWake(page,account.scope,prefix,1);
+  const outcome=await page.evaluate(async()=>{
+    const budget=await window.harness.syncSavedPayments({deadline:Date.now()});
+    const transport=await window.harness.syncSavedPayments();
+    return {budget,transport};
+  });
+  expect(outcome.budget).toMatchObject({retryNeeded:true,remaining:1});
+  expect(outcome.transport).toMatchObject({retryNeeded:true,remaining:1});
+  expect(outcome.transport.nextAttemptAt).toBeGreaterThan(Date.now()-1000);
+  await page.evaluate(async()=>{
+    // Advance the persisted backoff without making this test sleep. A later
+    // native worker event must retry the unchanged operation identity.
+    const row=(await window.harness.readRows('outbox'))[0];
+    await window.harness.mutateRow('outbox',row.key,current=>({...current,nextAttemptAt:0}));
+    navigator.serviceWorker.controller.postMessage({type:'SYNC_SAVED_PAYMENTS'});
+  });
+  await page.close();
+  await expect.poll(async()=>{
+    const response=await request.get('/__test/receipts');return (await response.json()).filter(r=>r.operationId===`${prefix}-0`).length;
+  }).toBe(1);
 });

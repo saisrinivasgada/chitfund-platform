@@ -80,14 +80,15 @@ function pending(entry, payload) {
 // completed sync while startup is still holding the operation's lease.
 const activeAccountSyncs = new Map();
 
-export async function syncSavedPayments({ deadline = Date.now() + 60_000, scope: requestedScope } = {}) {
+export async function syncSavedPayments({ deadline = Date.now() + 60_000, scope: requestedScope, reconciliationOnly = false } = {}) {
   const accounts = await readRows('accounts');
   await runAccountTasks(accounts.filter((account) => account.sessionValid && (!requestedScope || account.scope === requestedScope)), async (account) => {
     const running = activeAccountSyncs.get(account.scope);
     if (running) return running;
     const task = (async () => {
     const operations = (await readRows('outbox')).sort((a, b) => a.createdAt - b.createdAt);
-    const ready = operations.filter((entry) => (entry.recoveryScope ?? entry.scope) === account.scope && !['SUCCEEDED', 'CANCELLED', 'FAILED'].includes(entry.status));
+    const ready = operations.filter((entry) => (entry.recoveryScope ?? entry.scope) === account.scope && !['SUCCEEDED', 'CANCELLED', 'FAILED'].includes(entry.status)
+      && (!reconciliationOnly || entry.cancellation || (entry.status === 'CONFLICT' && entry.reviewId)));
     let attempted = 0;
     for (const entry of ready) {
       if (Date.now() >= deadline || attempted >= 25) break;
@@ -160,6 +161,13 @@ export async function syncSavedPayments({ deadline = Date.now() + 60_000, scope:
     try { await task; }
     finally { if (activeAccountSyncs.get(account.scope) === task) activeAccountSyncs.delete(account.scope); }
   }, { deadline });
+  const validScopes = new Set((await readRows('accounts')).filter((account) => account.sessionValid
+    && (!requestedScope || account.scope === requestedScope)).map((account) => account.scope));
+  const remaining = (await readRows('outbox')).filter((entry) => validScopes.has(entry.scope)
+    && ['QUEUED', 'RETRYABLE_FAILURE', 'SYNCING'].includes(entry.status));
+  return { retryNeeded: remaining.length > 0, remaining: remaining.length,
+    nextAttemptAt: remaining.length ? Math.min(...remaining.map((entry) => entry.status === 'SYNCING'
+      ? entry.leaseUntil ?? 0 : entry.nextAttemptAt ?? 0)) : null };
 }
 
 export async function savedPaymentActivity(scope, includeSynced = false) {
@@ -180,6 +188,9 @@ export async function recoverSavedCollections(adminScope) {
   for (const entry of (await readRows('outbox')).filter((e) => owners.has(e.scope) && !e.reviewId
       && !e.cancellation && !e.receipt && !['SUCCEEDED', 'CANCELLED', 'SYNCING'].includes(e.status)
       && !['CANCELLED', 'REFUNDED'].includes(e.reviewResolution)).slice(0, 25)) {
+    // Unsupported legacy entries must not gain a delivery attempt merely from
+    // being inspected: an unsent cancellation must remain local.
+    if (!(await unseal(entry.scope, entry.encrypted)).offlineAuthorization) continue;
     const claim = await claimOutboxRecovery(entry.key, adminScope);
     if (!claim) continue;
     const claimed = claim.entry;
@@ -202,7 +213,9 @@ export async function recoverSavedCollections(adminScope) {
         ? { ...current, status: claim.previousStatus, leaseUntil: 0 } : undefined);
     }
   }
-  await syncSavedPayments();
+  // Reconcile existing review/cancellation decisions without turning unrelated
+  // never-sent collections into a side effect of inspecting recovery.
+  await syncSavedPayments({ scope: adminScope, reconciliationOnly: true });
   return count;
 }
 

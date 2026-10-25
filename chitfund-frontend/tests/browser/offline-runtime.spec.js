@@ -587,3 +587,20 @@ test('a failed recovery releases only its lease and preserves the original colle
   }, account.scope);
   expect(result).toEqual({ failed: true, status: 'QUEUED', leaseUntil: 0, attempts: 1, unchanged: true });
 });
+
+test('inspecting an unsigned unsent legacy collection does not make its cancellation require a server',async({page})=>{
+  const [account]=await prepare(page);await queue(page,account.scope);
+  let uploads=0;await page.route('**/api/payments/offline/**',route=>{uploads++;return route.abort();});
+  const result=await page.evaluate(async scope=>{
+    const {readRows,unseal,seal,mutateRow}=await import('/src/offline/storage.js');
+    const {recoverSavedCollections,cancelSavedPayment}=await import('/src/offline/outbox.js');
+    Object.defineProperty(navigator,'onLine',{configurable:true,get:()=>false});
+    const row=(await readRows('outbox'))[0];const payload=await unseal(scope,row.encrypted);delete payload.offlineAuthorization;
+    const encrypted=await seal(scope,payload);await mutateRow('outbox',row.key,current=>({...current,encrypted}));
+    const count=await recoverSavedCollections(scope); // no generic recovery request for unsigned evidence
+    const inspected=(await readRows('outbox'))[0];
+    await cancelSavedPayment(scope,row.key,'No money collected; legacy test',true);
+    return {count,attempts:inspected.attempts,status:(await readRows('outbox'))[0].status};
+  },account.scope);
+  expect(result).toEqual({count:0,attempts:0,status:'CANCELLED'});expect(uploads).toBe(0);
+});
