@@ -172,6 +172,9 @@ public class DrawSkipCoordinator {
         List<MonthReservation> all = reservations.findByChitIdAndTenantId(chit.getId(), chit.getTenantId());
         if (all.stream().anyMatch(slot -> slot.getMonthNumber() == null || slot.getMonthNumber() < 1 || slot.getMonthNumber() == Integer.MAX_VALUE))
             throw conflict("The schedule contains an invalid draw number. Correct it before shifting.");
+        if (all.stream().anyMatch(s -> s.getMonthNumber() >= from && s.getStatus() == ReservationStatus.PROCESSED)
+                || winners.findByChitIdOrderByMonthNumberAsc(chit.getId()).stream().anyMatch(w -> w.getMonthNumber() >= from))
+            throw conflict("A winner or processed slot already exists at or after this draw. The historical schedule cannot be shifted.");
         Set<Integer> proposed = new HashSet<>();
         for (MonthReservation slot : all) {
             if (slot.getStatus() == ReservationStatus.VOIDED) continue;
@@ -179,9 +182,6 @@ public class DrawSkipCoordinator {
             int target = Math.addExact(slot.getMonthNumber(), move ? 1 : 0);
             if (!proposed.add(target)) throw conflict("The shifted schedule would contain duplicate draw numbers. Correct the slots before continuing.");
         }
-        if (all.stream().anyMatch(s -> s.getMonthNumber() >= from && s.getStatus() == ReservationStatus.PROCESSED)
-                || winners.findByChitIdOrderByMonthNumberAsc(chit.getId()).stream().anyMatch(w -> w.getMonthNumber() >= from))
-            throw conflict("A winner or processed slot already exists at or after this draw. The historical schedule cannot be shifted.");
         List<MonthReservation> moving = all.stream().filter(s -> s.getMonthNumber() >= from
                 && (s.getStatus() == ReservationStatus.RESERVED || s.getStatus() == ReservationStatus.UNALLOCATED)).toList();
         Set<Integer> fixed = new HashSet<>();

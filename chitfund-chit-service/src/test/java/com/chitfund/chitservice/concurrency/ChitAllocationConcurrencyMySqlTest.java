@@ -339,6 +339,7 @@ class ChitAllocationConcurrencyMySqlTest {
     @EnableJpaRepositories(basePackageClasses = ChitRepository.class)
     @Import({ChitService.class, InvitationService.class, EnrollmentService.class, ReservationController.class, AuditClient.class, DrawSkipCoordinator.class, ChitLifecycleCommandStore.class})
     static class Config {
+        @Bean JdbcTemplate jdbcTemplate(DataSource dataSource) { return new JdbcTemplate(dataSource); }
         @Bean DataSource dataSource() { return new DriverManagerDataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword()); }
         @Bean Flyway flyway(DataSource ds) { var f=Flyway.configure().dataSource(ds).locations("classpath:db/migration").load(); f.migrate(); return f; }
         @Bean @DependsOn("flyway") LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource ds) {
