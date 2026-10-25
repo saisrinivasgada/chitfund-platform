@@ -2,9 +2,21 @@
 appId: com.chitwise.mobile
 ---
 - launchApp
-- extendedWaitUntil:
-    visible: "Enter your username"
-    timeout: 60000
+# Recover only a named system launcher ANR. A ChitWise app ANR still fails.
+- repeat:
+    times: 3
+    commands:
+      - extendedWaitUntil:
+          visible: "Enter your username|Quickstep isn't responding|Pixel Launcher isn't responding"
+          timeout: 60000
+      - runFlow:
+          when:
+            platform: Android
+            visible: "Quickstep isn't responding|Pixel Launcher isn't responding"
+          commands:
+            - tapOn: "Close app"
+            - launchApp
+- assertVisible: "Enter your username"
 - waitForAnimationToEnd
 - tapOn: "Enter your username"
 - waitForAnimationToEnd
