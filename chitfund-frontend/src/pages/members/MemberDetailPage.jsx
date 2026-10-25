@@ -949,7 +949,7 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
                           {hidden ? '••••••' : `₹${Number(r.amountPaid).toLocaleString('en-IN')}`}
                           <span className="text-gray-400 font-normal"> / {hidden ? '••••••' : `₹${Number(r.amountDue).toLocaleString('en-IN')}`}</span>
                         </p>
-                        {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID') && (
+                        {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID' || r.status === 'PARTIAL_CREDIT') && (
                           <p className="text-xs text-red-500">{hidden ? '••••••' : `₹${cycleOutstanding.toLocaleString('en-IN')}`} pending</p>
                         )}
                       </div>
@@ -2055,7 +2055,7 @@ function ChitDrawsExpanded({ memberId, chit, balance, hidden }) {
                       {hidden ? '••••••' : `₹${Number(r.amountPaid).toLocaleString('en-IN')}`}
                       <span className="text-gray-400 font-normal"> / {hidden ? '••••••' : `₹${Number(r.amountDue).toLocaleString('en-IN')}`}</span>
                     </p>
-                    {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID') && (
+                    {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID' || r.status === 'PARTIAL_CREDIT') && (
                       <p className="text-xs text-red-500">{hidden ? '••••••' : `₹${cycleOutstanding.toLocaleString('en-IN')}`} pending</p>
                     )}
                   </div>

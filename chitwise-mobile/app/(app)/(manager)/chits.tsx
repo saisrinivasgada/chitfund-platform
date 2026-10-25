@@ -1,3 +1,4 @@
+import { DrawPaymentRows } from '../../../components/DrawPaymentRows';
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState, useRef, useEffect } from 'react';
 import { ChitActionDialog, ChitDialogHost } from '../../../components/ChitActionDialog';
@@ -13,7 +14,7 @@ import * as Crypto from 'expo-crypto';
 import {
   getChits, getDraws, openDraw, closeDraw, skipDraw, deleteDraw,
   getEnrollments, getMembers, getWinners, recordWinner,
-  getDrawPayments, getPayoutsByChit,
+  getPayoutsByChit,
   recordPayment, createPayout, disbursePayout,
   getReservations, updateReservationSlot, markSlotProcessed,
   listAuctions, closeAuction, placeBid,
@@ -25,85 +26,11 @@ import {
 } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
-const CLEARED = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED']);
-const PAY_COLOR: Record<string, string> = {
-  SETTLED: C.green, SETTLEMENT_CLEARED: '#0D9488', WAIVED: C.gray400,
-  PAYOUT_DEDUCTED: C.navy, PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
-};
-const PAY_LABEL: Record<string, string> = {
-  SETTLED: 'Settled', SETTLEMENT_CLEARED: 'Settled', WAIVED: 'Waived',
-  PAYOUT_DEDUCTED: 'Payout', PARTIALLY_PAID: 'Partial', OUTSTANDING: 'Pending',
-};
 const DRAW_STATUS_COLOR: Record<string, string> = {
   PENDING: C.gray400, OPEN: C.green, CLOSED: C.navy, SKIPPED: C.amber,
 };
 
 type DetailTab = 'draws' | 'members' | 'winners' | 'schedule' | 'info' | 'auction';
-
-function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
-  drawId: string; drawStatus: string;
-  memberMap: Record<string, string>;
-  onCollect: (memberId: string) => void;
-}) {
-  const { data: payments = [], isLoading } = useQuery({
-    queryKey: ['m-draw-payments', drawId],
-    queryFn: () => getDrawPayments(drawId),
-    staleTime: 30_000,
-    enabled: !!drawId,
-  });
-
-  if (isLoading) return (
-    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><View style={{ paddingVertical: 10, alignItems: 'center' }}>
-      <Text style={{ fontSize: 12, color: C.gray400 }}>Loading…</Text>
-    </View></ReadDataBoundary>
-  );
-  if (!(payments as any[]).length) return (
-    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><Text style={{ fontSize: 12, color: C.gray400, marginTop: 8 }}>No payment records.</Text></ReadDataBoundary>
-  );
-
-  const cleared = (payments as any[]).filter((p: any) => CLEARED.has(p.status)).length;
-
-  return (
-    <ReadDataBoundary label="Instalments" queryKeys={[['m-draw-payments', drawId]]}><View style={{ marginTop: 10 }}>
-      <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, marginBottom: 6 }}>
-        MEMBER PAYMENTS ({cleared}/{(payments as any[]).length} cleared)
-      </Text>
-      {(payments as any[]).map((p: any) => {
-        const isCleared = CLEARED.has(p.status);
-        const canCollect = (p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID') && drawStatus === 'OPEN';
-        const col = PAY_COLOR[p.status] ?? C.gray400;
-        return (
-          <View key={p.id} style={{ paddingVertical: 7, borderTopWidth: 1, borderTopColor: C.gray100 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: col }} />
-              <Text style={{ flex: 1, fontSize: 13, color: C.gray900 }}>
-                {memberMap[p.memberId] ?? 'Unknown'}
-              </Text>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: col }}>
-                {PAY_LABEL[p.status] ?? p.status}
-              </Text>
-              {canCollect && (
-                <TouchableOpacity
-                  onPress={() => onCollect(p.memberId)}
-                  style={{ backgroundColor: C.green + '18', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.green }}>Collect</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={{ marginTop: 4, height: 3, backgroundColor: C.gray100, borderRadius: 2 }}>
-              <View style={{
-                height: 3, borderRadius: 2,
-                backgroundColor: isCleared ? C.green : Number(p.amountPaid) > 0 ? C.navy : C.red,
-                width: isCleared ? '100%' : `${Math.min(100, Math.round(((p.amountPaid ?? 0) / (p.amountDue ?? 1)) * 100))}%`,
-              }} />
-            </View>
-          </View>
-        );
-      })}
-    </View></ReadDataBoundary>
-  );
-}
 
 export default function ManagerChitsScreen() {
   const qc = useQueryClient();
@@ -669,7 +596,7 @@ export default function ManagerChitsScreen() {
                               </TouchableOpacity>
                             )}
                             {(d.status === 'OPEN' || d.status === 'CLOSED') && (
-                              <DrawPaymentRows
+                              <DrawPaymentRows queryKeyPrefix="m-draw-payments"
                                 drawId={d.id}
                                 drawStatus={d.status}
                                 memberMap={memberMap}

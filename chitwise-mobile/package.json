@@ -12,7 +12,7 @@
     "web": "expo start --web",
     "audit:ci": "node scripts/audit-dependencies.mjs",
     "audit:test": "node --test scripts/audit-dependencies.test.mjs",
-    "offline:policy:test": "node --experimental-strip-types --test tests/offline/simulator-link.test.mjs components/tabBarMetrics.test.mjs features/chits/drawRequest.test.mjs offline/accessPolicy.test.mjs store/serializeActions.test.mjs store/savedAccounts.test.mjs store/reviewNavigationStore.test.mjs && node --experimental-vm-modules --test --test-concurrency=1 services/readCollections.test.mjs offline/paymentQueue.test.mjs offline/signOut.test.mjs offline/signOutDatabase.test.mjs offline/staffQueue.test.mjs offline/staffReviews.test.mjs offline/useOnlineMutation.test.mjs store/toolkitStore.test.mjs",
+    "offline:policy:test": "node --experimental-strip-types --test tests/offline/simulator-link.test.mjs components/tabBarMetrics.test.mjs features/chits/drawRequest.test.mjs offline/accessPolicy.test.mjs store/serializeActions.test.mjs store/savedAccounts.test.mjs store/reviewNavigationStore.test.mjs && node --experimental-vm-modules --test --test-concurrency=1 components/DrawPaymentRows.test.mjs services/readCollections.test.mjs offline/paymentQueue.test.mjs offline/signOut.test.mjs offline/signOutDatabase.test.mjs offline/staffQueue.test.mjs offline/staffReviews.test.mjs offline/useOnlineMutation.test.mjs store/toolkitStore.test.mjs",
     "type-check": "tsc --noEmit",
     "doctor": "expo-doctor",
     "device-unlock:test": "node --experimental-vm-modules --test utils/biometrics.test.mjs utils/authorizeAccountLogin.test.mjs components/DeviceUnlockGate.test.mjs"

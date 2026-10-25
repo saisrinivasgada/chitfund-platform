@@ -1260,7 +1260,7 @@ export default function AdminMembersScreen() {
                         (payHistory as any[]).map((h: any, i: number) => {
                           const statusColor = PAY_STATUS_COLOR[h.status] ?? C.gray500;
                           // Only unpaid records can carry a promise to pay.
-                          const canPromise = h.status === 'OUTSTANDING' || h.status === 'PARTIALLY_PAID';
+                          const canPromise = h.status === 'OUTSTANDING' || h.status === 'PARTIALLY_PAID' || h.status === 'PARTIAL_CREDIT';
                           const editing = promiseRecordId === h.id;
                           return (
                             <View key={h.id ?? i} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>

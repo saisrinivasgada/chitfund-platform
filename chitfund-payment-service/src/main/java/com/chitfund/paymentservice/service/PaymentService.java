@@ -791,7 +791,8 @@ public class PaymentService {
         // Opening credit has no PaymentAllocation. Reverse the persisted payout
         // effect only; legacy unknown amounts require explicit reconciliation.
         for (PaymentRecord record : records) {
-            if (record.getPayoutDeductedAmount() == null
+            if ((!record.getStatus().hasOutstandingBalance() && record.getStatus() != PaymentRecordStatus.SETTLED && record.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED)
+                    || record.getPayoutDeductedAmount() == null
                     || record.getPayoutDeductedAmount().signum() <= 0
                     || record.getPayoutDeductedAmount().compareTo(record.getAmountPaid()) > 0) {
                 throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,

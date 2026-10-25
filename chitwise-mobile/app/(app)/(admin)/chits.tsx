@@ -1,3 +1,4 @@
+import { DrawPaymentRows } from '../../../components/DrawPaymentRows';
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { ChitActionDialog, ChitDialogHost } from '../../../components/ChitActionDialog';
 import { useState, useEffect, useRef } from 'react';
@@ -14,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getChits, createChit, updateChitStatus, getEnrollments, enrollMember,
   removeEnrollment, getMembers, getWinners, recordWinner,
-  getDraws, openDraw, closeDraw, skipDraw, deleteDraw, getDrawPayments,
+  getDraws, openDraw, closeDraw, skipDraw, deleteDraw,
   getReservations, addReservationSlot, removeReservationSlot,
   swapReservationSlots, shiftReservations, markSlotProcessed,
   updateReservationSlot,
@@ -29,19 +30,6 @@ import { useUIStore } from '../../../store/uiStore';
 import { toast } from '../../../components/Toast';
 import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 
-// Statuses that count as "cleared" (no payment needed)
-const CLEARED_STATUSES = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED', 'CREDIT_COVERED', 'PARTIAL_CREDIT']);
-const PAY_STATUS_COLOR: Record<string, string> = {
-  SETTLED: C.green, SETTLEMENT_CLEARED: C.green, WAIVED: C.gray400,
-  PAYOUT_DEDUCTED: C.navy, PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
-  CREDIT_COVERED: C.green, PARTIAL_CREDIT: C.amber,
-};
-const PAY_STATUS_LABEL: Record<string, string> = {
-  SETTLED: 'Settled', SETTLEMENT_CLEARED: 'Settled', WAIVED: 'Waived',
-  PAYOUT_DEDUCTED: 'Payout', PARTIALLY_PAID: 'Partial', OUTSTANDING: 'Pending',
-  CREDIT_COVERED: 'Credit', PARTIAL_CREDIT: 'Partial Credit',
-};
-
 // Compute ISO due date for a given cycle number relative to chit start date
 function computeDueDate(startDateStr: string | null | undefined, cycleNum: number, monthlyDueDate?: number | null): string {
   if (!startDateStr) return '';
@@ -55,88 +43,6 @@ function computeDueDate(startDateStr: string | null | undefined, cycleNum: numbe
   const lastDay = new Date(targetYear, targetMon + 1, 0).getDate();
   const day = Math.min(dueDay, lastDay);
   return `${targetYear}-${String(targetMon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-// Sub-component: fetches real per-draw payment records (includes SETTLEMENT_CLEARED)
-function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmount, onCollect }: {
-  drawId: string;
-  drawStatus: string;
-  memberMap: Record<string, string>;
-  installmentAmount?: number;
-  onCollect: (memberId: string) => void;
-}) {
-  const { data: payments = [], isLoading } = useQuery({
-    queryKey: ['draw-payments', drawId],
-    queryFn: () => getDrawPayments(drawId),
-    staleTime: 30_000,
-    enabled: !!drawId,
-  });
-
-  const cleared = (payments as any[]).filter((p: any) => CLEARED_STATUSES.has(p.status)).length;
-  const total = (payments as any[]).length;
-
-  if (isLoading) return (
-    <ReadDataBoundary label="Instalments" queryKeys={[['draw-payments', drawId]]}><View style={{ paddingVertical: 12, alignItems: 'center' }}>
-      <Text style={{ fontSize: 12, color: C.gray400 }}>Loading payments…</Text>
-    </View></ReadDataBoundary>
-  );
-  if (payments.length === 0) return (
-    <ReadDataBoundary label="Instalments" queryKeys={[['draw-payments', drawId]]}><View style={{ marginTop: 12 }}>
-      <Text style={{ fontSize: 12, color: C.gray400 }}>No payment records for this draw.</Text>
-    </View></ReadDataBoundary>
-  );
-
-  return (
-    <ReadDataBoundary label="Instalments" queryKeys={[['draw-payments', drawId]]}><View style={{ marginTop: 12 }}>
-      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>
-        Member Payments ({cleared}/{total} cleared)
-      </Text>
-      {(payments as any[]).map((p: any) => {
-        const mName = memberMap[p.memberId] ?? 'Unknown';
-        const isCleared = CLEARED_STATUSES.has(p.status);
-        const isPendingSync = p._pendingSync === true;
-        const canCollect = !isPendingSync && (p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID') && drawStatus === 'OPEN';
-        const dotColor = isPendingSync ? C.amber : (PAY_STATUS_COLOR[p.status] ?? C.gray400);
-        const label = `${PAY_STATUS_LABEL[p.status] ?? p.status?.replace(/_/g, ' ') ?? ''}${isPendingSync ? ' ↑' : ''}`;
-        const outstanding = Number(p.balance ?? 0);
-        const pct = p.amountDue > 0 ? Math.min(100, Math.round((p.amountPaid / p.amountDue) * 100)) : 0;
-        const effectivePct = isCleared ? 100 : pct;
-        const barColor = isCleared ? C.green : pct > 0 ? C.navy : C.red;
-
-        return (
-          <View key={p.id} style={{
-            paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.gray100,
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor }} />
-                <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500', flex: 1 }}>{mName}</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: dotColor }}>{label}</Text>
-              </View>
-              {canCollect && (
-                <TouchableOpacity
-                  onPress={() => onCollect(p.memberId)}
-                  style={{ marginLeft: 8, backgroundColor: C.green + '15', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 12, color: C.green, fontWeight: '700' }}>Collect</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            {/* Progress bar */}
-            <View style={{ marginTop: 5, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ flex: 1, height: 4, backgroundColor: C.gray100, borderRadius: 2 }}>
-                <View style={{ width: `${effectivePct}%`, height: 4, backgroundColor: barColor, borderRadius: 2 }} />
-              </View>
-              {outstanding > 0 && !isCleared ? (
-                <Text style={{ fontSize: 10, color: C.red, fontWeight: '600' }}>₹{outstanding.toLocaleString('en-IN')} due</Text>
-              ) : isCleared ? (
-                <Text style={{ fontSize: 10, color: C.green, fontWeight: '600' }}>Clear ✓</Text>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
-    </View></ReadDataBoundary>
-  );
 }
 
 const STATUS_NEXT: Record<string, string[]> = {

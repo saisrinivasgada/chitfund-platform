@@ -204,6 +204,20 @@ class PayoutDeductionReversalTest {
         assertThat(record.getAmountPaid()).isEqualByComparingTo("500");
     }
 
+    @Test
+    void settledOrWaivedRowsStopTheWholeReversalBeforeReopeningAnyDues() {
+        for (PaymentRecordStatus status : List.of(PaymentRecordStatus.SETTLEMENT_CLEARED, PaymentRecordStatus.WAIVED)) {
+            UUID payoutId = UUID.randomUUID();
+            PaymentRecord known = record("1000", "800"); known.setSettledByPayoutId(payoutId); known.setPayoutDeductedAmount(new BigDecimal("300"));
+            PaymentRecord closed = record("1000", "1000"); closed.setSettledByPayoutId(payoutId); closed.setPayoutDeductedAmount(new BigDecimal("300")); closed.setStatus(status);
+            when(paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(TENANT, payoutId)).thenReturn(List.of(known, closed));
+            assertThatThrownBy(() -> service.revertPayoutDeductions(payoutId, TENANT)).isInstanceOf(BusinessException.class);
+            assertThat(known.getAmountPaid()).isEqualByComparingTo("800");
+            assertThat(closed.getAmountPaid()).isEqualByComparingTo("1000");
+            assertThat(closed.getStatus()).isEqualTo(status);
+        }
+    }
+
     private PaymentRecord record(String due, String paid) {
         return PaymentRecord.builder()
                 .id(UUID.randomUUID()).tenantId(TENANT)

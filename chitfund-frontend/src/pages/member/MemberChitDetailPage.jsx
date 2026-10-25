@@ -575,7 +575,7 @@ export default function MemberChitDetailPage() {
                           {ha(r.amountPaid)}
                           <span className="text-xs text-gray-400 font-normal"> / {ha(r.amountDue)}</span>
                         </p>
-                        {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID') && (
+                        {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID' || r.status === 'PARTIAL_CREDIT') && (
                           <p className="text-xs text-red-500">{ha(cycleOutstanding)} due</p>
                         )}
                       </div>

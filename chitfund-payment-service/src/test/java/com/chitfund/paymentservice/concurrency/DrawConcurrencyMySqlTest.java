@@ -177,6 +177,26 @@ class DrawConcurrencyMySqlTest {
         }
         verify(credit,never()).addCredit(eq(member),any(),any(),any(),any(),anyString());
     }
+    @Test void partialPayoutAllowsActualLaterCashAndReversalPreservesCreditAndCash() {
+        when(credit.getBalanceForUpdate(member)).thenReturn(new BigDecimal("500"), BigDecimal.ZERO);
+        when(members.getMemberName(member)).thenReturn("Credit member");
+        draws.openDraw(request(1), admin, "ADMIN");
+        UUID recordId = records.findByTenantIdAndChitIdAndMonthNumber(tenant, chitId, 1).get(0).getId();
+        UUID payout = UUID.randomUUID();
+        payments.markCrossChitDisbursementSettled(chitId, member, new BigDecimal("300"), payout, tenant);
+        var payment = new com.chitfund.paymentservice.dto.request.RecordPaymentRequest();
+        payment.setChitId(chitId); payment.setMemberId(member); payment.setAmount(new BigDecimal("150")); payment.setPaymentMode(PaymentMode.CASH);
+        var receipt = payments.recordPayment(payment, admin, "cash-after-payout-" + UUID.randomUUID());
+        assertThat(records.findById(recordId).orElseThrow().getAmountPaid()).isEqualByComparingTo("950");
+        payments.revertPayoutDeductions(payout, tenant);
+        assertThat(records.findById(recordId).orElseThrow().getAmountPaid()).isEqualByComparingTo("650");
+        assertThat(payments.getMemberTotalBalance(member)).isEqualByComparingTo("350");
+        var reason = new com.chitfund.paymentservice.dto.request.VoidPaymentRequest(); reason.setReason("Reverse cash after payout reversal");
+        payments.voidPayment(receipt.getId(), reason, admin);
+        assertThat(records.findById(recordId).orElseThrow().getAmountPaid()).isEqualByComparingTo("500");
+        assertThat(payments.getMemberTotalBalance(member)).isEqualByComparingTo("500");
+        verify(credit, never()).addCredit(eq(member), any(), any(), any(), any(), anyString());
+    }
     long auditCount(String action) {
         return new JdbcTemplate(ds).queryForObject("SELECT COUNT(*) FROM event_outbox WHERE tenant_id=? AND JSON_UNQUOTE(JSON_EXTRACT(payload,'$.action'))=?",Long.class,tenant,action);
     }

@@ -169,7 +169,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
   const winnerByMonth = Object.fromEntries((winners as any[]).map((w: any) => [w.monthNumber, w]));
   const myPayout = (allPayouts as any[]).find((p: any) => p.chitId === chit.id);
   const histArr = history as any[];
-  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED', 'PARTIAL_CREDIT'].includes(r.status)).length;
+  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED'].includes(r.status)).length;
   const totalPaid = histArr.reduce((s, r: any) => s + Number(r.amountPaid ?? 0), 0);
   const outstanding = histArr.reduce((s, r: any) => s + Math.max(0, Number(r.amountDue ?? 0) - Number(r.amountPaid ?? 0)), 0);
 

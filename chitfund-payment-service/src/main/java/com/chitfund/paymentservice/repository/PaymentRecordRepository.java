@@ -58,7 +58,7 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId AND r.memberId=:memberId "
-            + "AND r.chitId=:chitId AND r.status IN :statuses AND r.settledByPayoutId IS NULL "
+            + "AND r.chitId=:chitId AND r.status IN :statuses "
             + "ORDER BY r.monthNumber ASC")
     List<PaymentRecord> findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
             @Param("tenantId") String tenantId, @Param("memberId") UUID memberId,
