@@ -5,5 +5,16 @@ env:
 # Exercise collector navigation through the app, without a second OS URL intent.
 - tapOn: "Finance(, tab,.*)?"
 - waitForAnimationToEnd
-- tapOn: ${FINANCE_TAB}
+- scrollUntilVisible:
+    element:
+      id: "finance-tab-Record Payment"
+    direction: LEFT
+    centerElement: true
+- scrollUntilVisible:
+    element:
+      id: "finance-tab-${FINANCE_TAB}"
+    direction: RIGHT
+    centerElement: true
+- tapOn:
+    id: "finance-tab-${FINANCE_TAB}"
 - waitForAnimationToEnd

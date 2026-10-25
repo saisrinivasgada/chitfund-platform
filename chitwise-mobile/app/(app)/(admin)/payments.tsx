@@ -4348,11 +4348,11 @@ export default function AdminPaymentsScreen() {
       </View>
 
       {/* Tab bar */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      <ScrollView testID="finance-tabs" horizontal showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
         contentContainerStyle={{ paddingHorizontal: 16 }}>
         {tabs.map((tab) => (
-          <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)}
+          <TouchableOpacity key={tab} testID={`finance-tab-${tab}`} accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab }} onPress={() => setActiveTab(tab)}
             style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: activeTab === tab ? C.navy : 'transparent', marginRight: 4 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: activeTab === tab ? C.navy : C.gray400 }}>
               {tab}
