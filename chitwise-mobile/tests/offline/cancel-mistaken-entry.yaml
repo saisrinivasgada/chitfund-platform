@@ -55,13 +55,9 @@ appId: com.chitwise.mobile
 - assertNotVisible:
     id: "saved-payments-summary"
 - runFlow:
-    file: open-app-route.yaml
+    file: open-finance.yaml
     env:
-      APP_LINK: 'chitwise:///(app)/(admin)/payments?tab=History'
-- waitForAnimationToEnd
-- tapOn:
-    text: "Open"
-    optional: true
+      FINANCE_TAB: 'History'
 - tapOn:
     id: "saved-payment-history"
 - extendedWaitUntil:

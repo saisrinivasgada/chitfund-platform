@@ -77,13 +77,9 @@ env:
     visible: ".*Dashboard.*|Welcome to ChitWise"
     timeout: 60000
 - runFlow:
-    file: open-app-route.yaml
+    file: open-finance.yaml
     env:
-      APP_LINK: 'chitwise:///(app)/(admin)/payments'
-- waitForAnimationToEnd
-- tapOn:
-    text: "Open"
-    optional: true
+      FINANCE_TAB: 'Record Payment'
 - assertVisible: "Select Member"
 - assertNotVisible:
     id: "saved-payments-summary"
