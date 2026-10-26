@@ -45,6 +45,13 @@ env:
 - tapOn: ".*Pickup review reason.*"
 - inputText: "Original held cash returned with witness"
 - pressKey: Enter
+# Keyboard dismissal can restore a viewport ending at the reason field. Bring
+# the separate refund confirmation below it into view before tapping it.
+- scrollUntilVisible:
+    element:
+      text: '.*full original collection has already been returned.*'
+    direction: DOWN
+    centerElement: true
 - tapOn: '.*full original collection has already been returned.*'
 - scrollUntilVisible:
     element:
