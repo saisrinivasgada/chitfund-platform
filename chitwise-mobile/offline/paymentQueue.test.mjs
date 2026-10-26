@@ -19,7 +19,7 @@ async function device(status = 'RETRYABLE_FAILURE', receipt, options = {}) {
     './accountScope': { requireOrganizationScope: () => ({ scope: 'scope-a', actorId: 'actor-a', tenantId: 'tenant-a' }) },
     './database': { offlineRecordingEpoch: async()=>'', hasOfflineDatabase: async () => true, getOperation: async () => row,
       getSyncCounts: async () => ({ pending: row.status === 'SUCCEEDED' ? 0 : 1, conflicts: 0, failed: 0 }),
-      claimOperation: async () => { options.beforeClaim?.(row); return true; }, insertOperation: async () => { throw new Error('Original must not be replaced'); }, setLastSyncedAt: async () => {},
+      withDeliveryClaim: async (_, work) => { options.beforeClaim?.(row); row.attempts++; return work(structuredClone(row), async (status, values) => { row.status = status; Object.assign(row, values); }); }, isDeliveryClaimLost: e => e?.code === 'OFFLINE_CLAIM_LOST', insertOperation: async () => { throw new Error('Original must not be replaced'); }, setLastSyncedAt: async () => {},
       updateOperation: async (_, scope, state, values) => { assert.equal(scope, 'scope-a'); row.status = state; Object.assign(row, values); } },
     '../store/syncStore': { useSyncStore: store({ setStateForScope() {} }) },
     './accountClient': { accountForScope: () => ({ userId: 'actor-a', tenantId: 'tenant-a', sessionValid: true }), requestAsAccount: async (scope, request) => {

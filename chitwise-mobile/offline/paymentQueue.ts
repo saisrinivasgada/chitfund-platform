@@ -12,14 +12,13 @@ import {
   insertOperation,
   offlineRecordingEpoch,
   setLastSyncedAt,
-  updateOperation,
+  withDeliveryClaim, isDeliveryClaimLost,
 } from './database';
 import type { OfflinePaymentResult, QueuedOperation } from './types';
 import { useSyncStore } from '../store/syncStore';
 import { accountForScope, requestAsAccount } from './accountClient';
 import { refreshOfflineAccess, offlineAccessForScope } from './access';
 import { canRecordOffline, requireOfflineRecording } from './accessPolicy';
-import { claimOperation } from './database';
 
 export interface RecordPaymentPayload {
   chitId: string;
@@ -120,84 +119,85 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
     return { kind: 'auth-required', error: new Error('Sign in to the account that recorded this payment') };
   }
 
-  const attempts = operation.attempts + 1;
+  return (await withDeliveryClaim(operation, async (claimed, complete): Promise<ProcessOperationResult> => {
+    operation = claimed;
+    const attempts = operation.attempts;
 
-  if (operation.payload?.localRecoveryRequired) {
-    await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
-      errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: 'Saved record needs local recovery. Its original data is preserved.',
-    });
-    return { kind: 'failed', error: new Error('Saved record needs local recovery') };
-  }
-
-  try {
-    if (!await claimOperation(operation)) return { kind: 'retryable', error: new Error('Payment is already being synchronized') };
-    const claimed = await getOperation(operation.operationId, operation.accountScope);
-    if (!claimed) throw new Error('Saved payment is no longer available for delivery');
-    const cancellation = claimed.serverReceipt?.cancellationRequest;
-    const response = await requestAsAccount(operation.accountScope, {
-      method: 'POST', url: cancellation ? '/payments/offline/reviews/cancel-unsynced' : operation.payload.offlineAuthorization ? '/payments/offline/record' : '/payments/offline/reviews/legacy', data: cancellation ? { originalActorId: operation.actorId, original: operation.payload, cancellation: { reason: cancellation.reason, noMoneyCollected: cancellation.noMoneyCollected } } : operation.payload,
-      headers: { 'X-Idempotency-Key': operation.operationId },
-    });
-    const result = response.data?.data ?? response.data;
-    if (cancellation && (result?.status === 'CANCELLED' || (result?.status === 'REFUNDED' && result?.refund))) {
-      await updateOperation(operation.operationId, operation.accountScope, 'CANCELLED', {
-        attempts, serverReviewId: result.id, serverReceipt: { offlineReviewResolution: result.status, reviewId: result.id, reason: result.resolutionReason, refund: result.refund },
+    if (operation.payload?.localRecoveryRequired) {
+      await complete('PERMANENT_FAILURE', {
+        errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: 'Saved record needs local recovery. Its original data is preserved.',
       });
+      return { kind: 'failed', error: new Error('Saved record needs local recovery') };
+    }
+
+    try {
+      const cancellation = operation.serverReceipt?.cancellationRequest;
+      const response = await requestAsAccount(operation.accountScope, {
+        method: 'POST', url: cancellation ? '/payments/offline/reviews/cancel-unsynced' : operation.payload.offlineAuthorization ? '/payments/offline/record' : '/payments/offline/reviews/legacy', data: cancellation ? { originalActorId: operation.actorId, original: operation.payload, cancellation: { reason: cancellation.reason, noMoneyCollected: cancellation.noMoneyCollected } } : operation.payload,
+        headers: { 'X-Idempotency-Key': operation.operationId },
+      });
+      const result = response.data?.data ?? response.data;
+      if (cancellation && (result?.status === 'CANCELLED' || (result?.status === 'REFUNDED' && result?.refund))) {
+        await complete('CANCELLED', {
+          attempts, serverReviewId: result.id, serverReceipt: { offlineReviewResolution: result.status, reviewId: result.id, reason: result.resolutionReason, refund: result.refund },
+        });
+        return { kind: 'succeeded', result };
+      }
+      const confirmed = cancellation && result?.status === 'RECEIPT_EXISTS' ? result.receipt : result;
+      if (!confirmed?.id) throw new Error('Server did not confirm a payment receipt; retrying safely');
+      await complete('SUCCEEDED', {
+        attempts,
+        serverReceiptId: String(confirmed.id),
+        serverReceipt: confirmed,
+      });
+      try { await refreshPostedCollection(operation.accountScope, operation.payload, confirmed); } catch { /* Receipt is confirmed; preparation retries stale reads separately. */ }
       return { kind: 'succeeded', result };
-    }
-    const confirmed = cancellation && result?.status === 'RECEIPT_EXISTS' ? result.receipt : result;
-    if (!confirmed?.id) throw new Error('Server did not confirm a payment receipt; retrying safely');
-    await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
-      attempts,
-      serverReceiptId: String(confirmed.id),
-      serverReceipt: confirmed,
-    });
-    try { await refreshPostedCollection(operation.accountScope, operation.payload, confirmed); } catch { /* Receipt is confirmed; preparation retries stale reads separately. */ }
-    return { kind: 'succeeded', result };
-  } catch (error) {
-    const details = errorDetails(error);
-    if (details.status === 401 || (error as any)?.requiresLogin) {
-      await updateOperation(operation.operationId, operation.accountScope, 'RETRYABLE_FAILURE', {
-        attempts,
-        nextAttemptAt: Date.now() + 60_000,
-        errorCode: details.code,
-        errorMessage: 'Login required before this payment can sync',
-      });
-      return { kind: 'auth-required', error };
-    }
-    if (details.status === 403 || ['PLAN_002', 'ADD_ON_REQUIRED'].includes(details.code)) {
-      await updateOperation(operation.operationId, operation.accountScope, 'PAUSED_ACCESS', {
-        attempts, nextAttemptAt: Date.now() + 5 * 60_000, errorCode: details.code,
-        errorMessage: 'Saved payment needs access restored or review. It is preserved on this device.',
-      });
-      return { kind: 'access-required', error };
-    }
-    if (details.status === 409) {
-      await updateOperation(operation.operationId, operation.accountScope, 'CONFLICT', {
-        attempts,
-        errorCode: details.code,
-        errorMessage: details.message,
-        serverReviewId: axios.isAxiosError(error) ? error.response?.data?.data?.reviewId : undefined,
-      });
-      return { kind: 'conflict', error };
-    }
-    if (details.status != null && details.status >= 400 && details.status < 500 && details.status !== 408 && details.status !== 429) {
-      await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
-        attempts,
-        errorCode: details.code,
-        errorMessage: details.message,
-      });
-      return { kind: 'failed', error };
-    }
+    } catch (error) {
+      if (isDeliveryClaimLost(error)) throw error;
+      const details = errorDetails(error);
+      if (details.status === 401 || (error as any)?.requiresLogin) {
+        await complete('RETRYABLE_FAILURE', {
+          attempts,
+          nextAttemptAt: Date.now() + 60_000,
+          errorCode: details.code,
+          errorMessage: 'Login required before this payment can sync',
+        });
+        return { kind: 'auth-required', error };
+      }
+      if (details.status === 403 || ['PLAN_002', 'ADD_ON_REQUIRED'].includes(details.code)) {
+        await complete('PAUSED_ACCESS', {
+          attempts, nextAttemptAt: Date.now() + 5 * 60_000, errorCode: details.code,
+          errorMessage: 'Saved payment needs access restored or review. It is preserved on this device.',
+        });
+        return { kind: 'access-required', error };
+      }
+      if (details.status === 409) {
+        await complete('CONFLICT', {
+          attempts,
+          errorCode: details.code,
+          errorMessage: details.message,
+          serverReviewId: axios.isAxiosError(error) ? error.response?.data?.data?.reviewId : undefined,
+        });
+        return { kind: 'conflict', error };
+      }
+      if (details.status != null && details.status >= 400 && details.status < 500 && details.status !== 408 && details.status !== 429) {
+        await complete('PERMANENT_FAILURE', {
+          attempts,
+          errorCode: details.code,
+          errorMessage: details.message,
+        });
+        return { kind: 'failed', error };
+      }
 
-    await updateOperation(operation.operationId, operation.accountScope, 'RETRYABLE_FAILURE', {
-      attempts,
-      nextAttemptAt: Date.now() + retryDelay(attempts),
-      errorCode: details.code,
-      errorMessage: details.message,
-    });
-    return { kind: 'retryable', error };
-  }
+      await complete('RETRYABLE_FAILURE', {
+        attempts,
+        nextAttemptAt: Date.now() + retryDelay(attempts),
+        errorCode: details.code,
+        errorMessage: details.message,
+      });
+      return { kind: 'retryable', error };
+    }
+  })) ?? { kind: 'retryable', error: new Error('Payment sync was superseded by another attempt') };
 }
 
 function pendingResult(operationId: string, payload: RecordPaymentPayload): OfflinePaymentResult {

@@ -5,8 +5,8 @@ import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../store/authStore';
 import { requireOrganizationScope } from './accountScope';
 import {
-  claimOperation, getOperation, getSyncCounts, hasOfflineDatabase, insertOperation,
-  setLastSyncedAt, updateOperation,
+  withDeliveryClaim, isDeliveryClaimLost, getOperation, getSyncCounts, hasOfflineDatabase, insertOperation,
+  setLastSyncedAt,
   offlineRecordingEpoch,
 } from './database';
 import type { QueuedOperation } from './types';
@@ -51,70 +51,73 @@ export async function processStaffOperation(operation: QueuedOperation<any>): Pr
   if (!owner?.sessionValid || owner.userId !== operation.actorId || owner.tenantId !== operation.tenantId) {
     return { kind: 'auth-required', error: new Error('Sign in to the account that recorded this collection') };
   }
-  const attempts = operation.attempts + 1;
-  if (operation.payload?.localRecoveryRequired) {
-    await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
-      errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: 'Saved record needs local recovery. Its original data is preserved.',
-    });
-    return { kind: 'failed', error: new Error('Saved record needs local recovery') };
-  }
-  try {
-    if (!await claimOperation(operation)) return { kind: 'retryable', error: new Error('Collection is already synchronizing') };
-    const result = operation.payload.offlineAuthorization
-      ? await send(operation.accountScope, operation.operationId, operation.action, operation.payload)
-      : (await requestAsAccount(operation.accountScope, { method: 'POST', url: '/payments/offline/staff-actions/reviews/legacy',
-          data: legacyStaffEvidence(operation) })).data.data;
-    if (!result?.id) throw new Error('Server did not confirm a collection receipt; retrying safely');
-    await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
-      attempts, serverReceiptId: String(result.id), serverReceipt: result,
-    });
-    return { kind: 'succeeded', result };
-  } catch (error) {
-    if ((error as any)?.code === 'LOCAL_RECOVERY_REQUIRED') {
-      await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
-        attempts, errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: (error as Error).message,
+  return (await withDeliveryClaim(operation, async (claimed, complete): Promise<ProcessOperationResult> => {
+    operation = claimed;
+    const attempts = operation.attempts;
+    if (operation.payload?.localRecoveryRequired) {
+      await complete('PERMANENT_FAILURE', {
+        errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: 'Saved record needs local recovery. Its original data is preserved.',
       });
-      return { kind: 'failed', error };
+      return { kind: 'failed', error: new Error('Saved record needs local recovery') };
     }
-    const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-    const code = String(axios.isAxiosError(error) ? error.response?.data?.errorCode ?? error.code : 'LOCAL_ERROR');
-    const message = String(axios.isAxiosError(error) ? error.response?.data?.message ?? error.message
-      : error instanceof Error ? error.message : 'Sync failed').slice(0, 300);
-    if (status === 401 || (error as any)?.requiresLogin) {
-      await updateOperation(operation.operationId, operation.accountScope, 'RETRYABLE_FAILURE', {
-        attempts, nextAttemptAt: Date.now() + 60_000, errorCode: code,
-        errorMessage: 'Sign in again to sync this saved collection',
+    try {
+      const result = operation.payload.offlineAuthorization
+        ? await send(operation.accountScope, operation.operationId, operation.action, operation.payload)
+        : (await requestAsAccount(operation.accountScope, { method: 'POST', url: '/payments/offline/staff-actions/reviews/legacy',
+            data: legacyStaffEvidence(operation) })).data.data;
+      if (!result?.id) throw new Error('Server did not confirm a collection receipt; retrying safely');
+      await complete('SUCCEEDED', {
+        attempts, serverReceiptId: String(result.id), serverReceipt: result,
       });
-      return { kind: 'auth-required', error };
-    }
-    if (status === 403 || ['PLAN_002', 'ADD_ON_REQUIRED'].includes(code)) {
-      await updateOperation(operation.operationId, operation.accountScope, 'PAUSED_ACCESS', {
-        attempts, nextAttemptAt: Date.now() + 5 * 60_000, errorCode: code,
-        errorMessage: 'Saved collection needs access restored or review. It remains on this device.',
+      return { kind: 'succeeded', result };
+    } catch (error) {
+      if (isDeliveryClaimLost(error)) throw error;
+      if ((error as any)?.code === 'LOCAL_RECOVERY_REQUIRED') {
+        await complete('PERMANENT_FAILURE', {
+          attempts, errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: (error as Error).message,
+        });
+        return { kind: 'failed', error };
+      }
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      const code = String(axios.isAxiosError(error) ? error.response?.data?.errorCode ?? error.code : 'LOCAL_ERROR');
+      const message = String(axios.isAxiosError(error) ? error.response?.data?.message ?? error.message
+        : error instanceof Error ? error.message : 'Sync failed').slice(0, 300);
+      if (status === 401 || (error as any)?.requiresLogin) {
+        await complete('RETRYABLE_FAILURE', {
+          attempts, nextAttemptAt: Date.now() + 60_000, errorCode: code,
+          errorMessage: 'Sign in again to sync this saved collection',
+        });
+        return { kind: 'auth-required', error };
+      }
+      if (status === 403 || ['PLAN_002', 'ADD_ON_REQUIRED'].includes(code)) {
+        await complete('PAUSED_ACCESS', {
+          attempts, nextAttemptAt: Date.now() + 5 * 60_000, errorCode: code,
+          errorMessage: 'Saved collection needs access restored or review. It remains on this device.',
+        });
+        return { kind: 'access-required', error };
+      }
+      if (status === 409 || (status === 400 && !operation.payload.offlineAuthorization)) {
+        // A state conflict is never proof that this particular collection succeeded.
+        await complete('CONFLICT', {
+          attempts, errorCode: code, errorMessage: message,
+          serverReviewId: axios.isAxiosError(error) ? error.response?.data?.data?.reviewId : undefined,
+        });
+        return { kind: 'conflict', error };
+      }
+      if (status != null && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+        await complete('PERMANENT_FAILURE', {
+          attempts, errorCode: code, errorMessage: message,
+        });
+        return { kind: 'failed', error };
+      }
+      const backoff = Math.min(5 * 60_000, 2 ** Math.max(0, attempts - 1) * 5_000);
+      await complete('RETRYABLE_FAILURE', {
+        attempts, nextAttemptAt: Date.now() + backoff + Math.floor(Math.random() * 2_000),
+        errorCode: code, errorMessage: message,
       });
-      return { kind: 'access-required', error };
+      return { kind: 'retryable', error };
     }
-    if (status === 409 || (status === 400 && !operation.payload.offlineAuthorization)) {
-      // A state conflict is never proof that this particular collection succeeded.
-      await updateOperation(operation.operationId, operation.accountScope, 'CONFLICT', {
-        attempts, errorCode: code, errorMessage: message,
-        serverReviewId: axios.isAxiosError(error) ? error.response?.data?.data?.reviewId : undefined,
-      });
-      return { kind: 'conflict', error };
-    }
-    if (status != null && status >= 400 && status < 500 && status !== 408 && status !== 429) {
-      await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
-        attempts, errorCode: code, errorMessage: message,
-      });
-      return { kind: 'failed', error };
-    }
-    const backoff = Math.min(5 * 60_000, 2 ** Math.max(0, attempts - 1) * 5_000);
-    await updateOperation(operation.operationId, operation.accountScope, 'RETRYABLE_FAILURE', {
-      attempts, nextAttemptAt: Date.now() + backoff + Math.floor(Math.random() * 2_000),
-      errorCode: code, errorMessage: message,
-    });
-    return { kind: 'retryable', error };
-  }
+  })) ?? { kind: 'retryable', error: new Error('Collection sync was superseded by another attempt') };
 }
 
 async function finish(operation: QueuedOperation<StaffPayload>, reachable: boolean) {

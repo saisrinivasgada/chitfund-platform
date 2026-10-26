@@ -5,7 +5,7 @@ import { File } from 'expo-file-system';
 import type { PersistedClient, Persister } from '@tanstack/query-persist-client-core';
 import type { QueuedOperation, SyncCounts, SyncOperationStatus } from './types';
 
-const DATABASE_VERSION = 8;
+const DATABASE_VERSION = 9;
 
 // One open connection per account scope. Each scope gets its own encrypted
 // database file and its own key — tenant A's key reveals nothing about tenant B.
@@ -166,7 +166,7 @@ async function openAndMigrate(accountScope: string): Promise<SQLite.SQLiteDataba
   await db.runAsync('INSERT OR IGNORE INTO offline_session_guard(account_scope,signed_out,session_epoch) VALUES (?,?,?)',accountScope,blocked?1:0,epoch);
   if (blocked) await db.runAsync('UPDATE offline_session_guard SET signed_out=1,session_epoch=? WHERE account_scope=?',epoch,accountScope);
   const operationColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_operations)');
-  for (const name of ['server_review_id', 'server_receipt_json', 'recovery_lease_id']) {
+  for (const name of ['server_review_id', 'server_receipt_json', 'recovery_lease_id', 'delivery_lease_id']) {
     if (!operationColumns.some((column) => column.name === name)) await db.execAsync(`ALTER TABLE sync_operations ADD COLUMN ${name} TEXT`);
   }
   if (priorVersion < 3) {
@@ -275,6 +275,7 @@ function mapOperation(row: any): QueuedOperation {
     serverReceiptId: row.server_receipt_id,
     serverReviewId: row.server_review_id,
     serverReceipt,
+    deliveryLeaseId: row.delivery_lease_id,
   };
 }
 
@@ -373,23 +374,25 @@ export async function getReadyOperations(accountScope: string, limit = 25): Prom
 }
 
 /** Atomic per-entry lease shared by foreground and native background runtimes. */
-export async function claimOperation(operation: QueuedOperation): Promise<boolean> {
+export async function claimOperation(operation: QueuedOperation): Promise<string | null> {
   const db = await getOfflineDatabase(operation.accountScope);
+  const lease = Crypto.randomUUID();
   const result = await db.runAsync(
-    `UPDATE sync_operations SET status = 'SYNCING', attempts = attempts + 1, updated_at = ?, recovery_lease_id=NULL
+    `UPDATE sync_operations SET status = 'SYNCING', attempts = attempts + 1, updated_at = ?, recovery_lease_id=NULL, delivery_lease_id=?
      WHERE operation_id = ? AND account_scope = ?
+       AND tenant_id=? AND actor_id=? AND payload_hash=? AND action=?
        AND status IN ('QUEUED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS')
        AND NOT EXISTS (SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)`,
-    Date.now(), operation.operationId, operation.accountScope, operation.accountScope,
+    Date.now(), lease, operation.operationId, operation.accountScope, operation.tenantId, operation.actorId, operation.payloadHash, operation.action, operation.accountScope,
   );
-  return result.changes === 1;
+  return result.changes === 1 ? lease : null;
 }
 
 /** Admin recovery must win the same atomic row claim as cancellation/delivery. */
 export async function claimRecoveryOperation(operation: QueuedOperation): Promise<string | null> {
   const db = await getOfflineDatabase(operation.accountScope);
   const lease = Crypto.randomUUID();
-  const result = await db.runAsync(`UPDATE sync_operations SET status='SYNCING', attempts=attempts+1, updated_at=?, recovery_lease_id=?
+  const result = await db.runAsync(`UPDATE sync_operations SET status='SYNCING', attempts=attempts+1, updated_at=?, recovery_lease_id=?, delivery_lease_id=NULL
     WHERE operation_id=? AND account_scope=? AND tenant_id=? AND actor_id=? AND payload_hash=?
       AND status IN ('QUEUED','RETRYABLE_FAILURE','PAUSED_ACCESS','CONFLICT','PERMANENT_FAILURE')
       AND server_review_id IS NULL AND server_receipt_id IS NULL AND server_receipt_json IS NULL
@@ -420,7 +423,7 @@ export async function recoverInterruptedOperations(accountScope: string): Promis
   const leaseExpiredAt = Date.now() - 2 * 60_000;
   await db.runAsync(
     `UPDATE sync_operations
-     SET status = 'RETRYABLE_FAILURE', next_attempt_at = ?, recovery_lease_id=NULL,
+     SET status = 'RETRYABLE_FAILURE', next_attempt_at = ?, recovery_lease_id=NULL, delivery_lease_id=NULL,
          last_error_code = 'INTERRUPTED',
          last_error_message = 'The app closed during sync; retrying safely',
          updated_at = ?
@@ -478,33 +481,73 @@ export async function deferReviewPoll(operation: QueuedOperation) {
     Date.now() + 60_000, operation.operationId);
 }
 
-export async function updateOperation(
+export interface OperationUpdate {
+  attempts?: number;
+  nextAttemptAt?: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  serverReceiptId?: string | null;
+  serverReviewId?: string | null;
+  serverReceipt?: unknown;
+}
+
+export async function updateOperation(operationId: string, accountScope: string, status: SyncOperationStatus, values: OperationUpdate = {}): Promise<void> {
+  await writeOperation(operationId, accountScope, status, values);
+}
+
+/** Every HTTP outcome must still own the exact attempt which sent it. */
+export async function completeClaimedOperation(operationId: string, accountScope: string, lease: string, status: SyncOperationStatus, values: OperationUpdate = {}): Promise<boolean> {
+  if (!lease) return false;
+  return writeOperation(operationId, accountScope, status, values, lease);
+}
+
+class DeliveryClaimLost extends Error { readonly code = 'OFFLINE_CLAIM_LOST'; }
+export function isDeliveryClaimLost(error: unknown): boolean { return (error as any)?.code === 'OFFLINE_CLAIM_LOST'; }
+
+/** Reload authoritative attempts/payload after claiming; discard every stale outcome. */
+export async function withDeliveryClaim<T>(operation: QueuedOperation<any>, work: (
+  claimed: QueuedOperation<any>, complete: (status: SyncOperationStatus, values?: OperationUpdate) => Promise<void>,
+) => Promise<T>): Promise<T | null> {
+  const lease = await claimOperation(operation);
+  if (!lease) return null;
+  const claimed = await getOperation(operation.operationId, operation.accountScope);
+  if (!claimed || claimed.status !== 'SYNCING' || claimed.deliveryLeaseId !== lease) return null;
+  try {
+    return await work(claimed, async (status, values = {}) => {
+      if (!await completeClaimedOperation(claimed.operationId, claimed.accountScope, lease, status, values)) {
+        throw new DeliveryClaimLost('A newer sync attempt owns this saved collection');
+      }
+    });
+  } catch (error) {
+    if (isDeliveryClaimLost(error)) return null;
+    throw error;
+  }
+}
+
+async function writeOperation(
   operationId: string,
   accountScope: string,
   status: SyncOperationStatus,
-  values: {
-    attempts?: number;
-    nextAttemptAt?: number;
-    errorCode?: string | null;
-    errorMessage?: string | null;
-    serverReceiptId?: string | null;
-    serverReviewId?: string | null;
-    serverReceipt?: unknown;
-  } = {},
-): Promise<void> {
+  values: OperationUpdate,
+  lease: string | null = null,
+): Promise<boolean> {
   const db = await getOfflineDatabase(accountScope);
-  await db.runAsync(
+  const result = await db.runAsync(
     `UPDATE sync_operations SET
        status = ?,
-       attempts = COALESCE(?, attempts),
+       attempts = MAX(COALESCE(?, attempts), attempts),
        next_attempt_at = COALESCE(?, next_attempt_at),
        last_error_code = ?,
        last_error_message = ?,
        server_receipt_id = COALESCE(?, server_receipt_id),
        server_review_id = COALESCE(?, server_review_id),
        server_receipt_json = COALESCE(?, server_receipt_json),
+       delivery_lease_id = NULL,
        updated_at = ?
-     WHERE operation_id = ?`,
+     WHERE operation_id = ? AND account_scope = ?
+       AND ((? IS NULL AND status!='SYNCING' AND delivery_lease_id IS NULL)
+         OR (? IS NOT NULL AND status='SYNCING' AND delivery_lease_id=?))
+       AND NOT EXISTS(SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)`,
     status,
     values.attempts ?? null,
     values.nextAttemptAt ?? null,
@@ -515,7 +558,9 @@ export async function updateOperation(
     values.serverReceipt ? JSON.stringify(values.serverReceipt) : null,
     Date.now(),
     operationId,
+    accountScope, lease, lease, lease, accountScope,
   );
+  return result.changes === 1;
 }
 
 export async function getPendingCountForMember(accountScope: string, memberId: string): Promise<number> {
@@ -582,6 +627,7 @@ export async function discardUnsentOperationsForSignOut(scope: string): Promise<
   await withOfflineTransaction(scope, async (tx) => {
     await tx.runAsync('INSERT INTO offline_session_guard(account_scope,signed_out,session_epoch) VALUES (?,1,?) ON CONFLICT(account_scope) DO UPDATE SET signed_out=1,session_epoch=excluded.session_epoch', scope,epoch);
     await tx.runAsync(`DELETE FROM sync_operations WHERE ${UNSENT_OPERATION}`, scope);
+    await tx.runAsync('UPDATE sync_operations SET delivery_lease_id=NULL, recovery_lease_id=NULL WHERE account_scope=?', scope);
     await tx.runAsync('DELETE FROM persisted_query_clients WHERE account_scope=?', scope);
   });
 }

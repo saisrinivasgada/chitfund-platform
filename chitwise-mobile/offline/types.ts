@@ -39,6 +39,7 @@ export interface QueuedOperation<TPayload = unknown> {
   serverReceiptId?: string | null;
   serverReviewId?: string | null;
   serverReceipt?: any;
+  deliveryLeaseId?: string | null;
 }
 
 export interface SyncCounts {

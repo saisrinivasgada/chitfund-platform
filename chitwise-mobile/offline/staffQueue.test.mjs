@@ -20,7 +20,7 @@ async function phone({saved=true,storageFails=false,enabled=false,reachable=true
     './accountScope':{requireOrganizationScope:()=>({scope:'scope',actorId:'staff',tenantId:'org'})},
     './database':{offlineRecordingEpoch:async()=>'',hasOfflineDatabase:async()=>true,getOperation:async()=>row,
       insertOperation:async(op)=>{if(storageFails)throw new Error('Storage full');row=op;},
-      claimOperation:async()=>true,updateOperation:async(_,scope,status,values)=>{assert.equal(scope,'scope');row={...row,...values,status};},
+      withDeliveryClaim:async(_,work)=>{row.attempts++;return work(structuredClone(row),async(status,values)=>{row={...row,...values,status};});},isDeliveryClaimLost:e=>e?.code==='OFFLINE_CLAIM_LOST',
       getSyncCounts:async()=>({pending:row?.status==='SUCCEEDED'?0:1,conflicts:0,failed:0,paused:0}),setLastSyncedAt:async()=>{}},
     '../store/syncStore':{useSyncStore:store({setStateForScope(){}})},
     './accountClient':{accountForScope:()=>({sessionValid:true,userId:'staff',tenantId:'org'}),requestAsAccount:async(scope,request)=>{
@@ -58,7 +58,7 @@ for (const mode of ['signed','unsigned','corrupt']) test(`${mode} older pickups 
     '../../shared/offline/legacyStaffEvidence':{legacyStaffEvidence},
     axios:{default:{isAxiosError:e=>!!e?.isAxiosError}},'expo-crypto':{},'@react-native-community/netinfo':{default:{}},
     '../store/authStore':{useAuthStore:{}},'./accountScope':{requireOrganizationScope(){}},
-    './database':{claimOperation:async()=>true,getOperation(){},getSyncCounts(){},hasOfflineDatabase(){},insertOperation(){},setLastSyncedAt(){},offlineRecordingEpoch(){},
+    './database':{withDeliveryClaim:async(_,work)=>{operation.attempts++;return work(structuredClone(operation),async(status,values)=>{operation={...operation,status,...values};});},isDeliveryClaimLost:e=>e?.code==='OFFLINE_CLAIM_LOST',getOperation(){},getSyncCounts(){},hasOfflineDatabase(){},insertOperation(){},setLastSyncedAt(){},offlineRecordingEpoch(){},
       updateOperation:async(_,scope,status,values)=>{assert.equal(scope,'scope');operation={...operation,status,...values};}},
     '../store/syncStore':{useSyncStore:{}},
     './accountClient':{accountForScope:()=>({sessionValid:true,userId:'staff',tenantId:'org'}),requestAsAccount:async(scope,request)=>{
