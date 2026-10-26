@@ -1,13 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useReviewNavigationStore } from '../store/reviewNavigationStore';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { getMember, getChit } from '../services/api';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { C } from './ui';
 import { getAccountScope } from '../offline/accountScope';
-import { getCompletedOperationCount, getOperation, getVisibleOperations, requestPaymentCancellation } from '../offline/database';
+import { getCompletedOperationCount, getOperation, getVisibleOperations } from '../offline/database';
+import { cancelSavedPayment } from '../offline/cancelSavedPayment';
 import { refreshSyncState, synchronizeAccount } from '../offline/syncEngine';
 import type { QueuedOperation } from '../offline/types';
 import { useAuthStore } from '../store/authStore';
@@ -50,6 +51,7 @@ export function PendingPaymentQueueCard({ memberNames = {}, chitNames = {}, hist
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const cancelAttempt = useRef(0);
   const scope = getAccountScope(user);
   const selectedMemberQuery = useQuery({ queryKey: ['saved-payment-member', scope, selected?.payload.memberId],
     queryFn: () => getMember(selected!.payload.memberId), enabled: open && selected?.accountScope === scope && !!selected?.payload.memberId, retry: false, staleTime: 60_000 });
@@ -58,7 +60,11 @@ export function PendingPaymentQueueCard({ memberNames = {}, chitNames = {}, hist
     queryKey: ['saved-payment-chit', scope, allocation.chitId], queryFn: () => getChit(allocation.chitId),
     enabled: open && selected?.accountScope === scope && !!allocation.chitId, retry: false, staleTime: 60_000,
   })) });
-  useEffect(() => { setOpen(false); setSelected(null); setLimit(25); }, [scope]);
+  useEffect(() => {
+    cancelAttempt.current++;
+    setOpen(false); setSelected(null); setLimit(25); setBusy(false); setError('');
+  }, [scope]);
+  useEffect(() => () => { cancelAttempt.current++; }, []);
   useEffect(() => {
     let active = true;
     if (!showSync || !scope || !['ADMIN', 'STAFF', 'MANAGER'].includes(user?.role ?? '')) {
@@ -98,18 +104,24 @@ export function PendingPaymentQueueCard({ memberNames = {}, chitNames = {}, hist
   async function cancel() {
     if (!scope || !selected || !user || !confirmed || busy) return;
     const selectedScope = scope;
+    const attempt = ++cancelAttempt.current;
+    const stillCurrent = () => attempt === cancelAttempt.current && getAccountScope(useAuthStore.getState().user) === selectedScope;
     setBusy(true); setError('');
     try {
-      await requestPaymentCancellation(selectedScope, selected.operationId, reason, user.id);
+      const result = await cancelSavedPayment(selectedScope, selected.operationId, reason, user.id, stillCurrent);
       await refreshSyncState(selectedScope);
-      const after = await getOperation(selected.operationId, selectedScope);
-      if (after?.status !== 'CANCELLED') synchronizeAccount(selectedScope, queryClient).catch(() => {});
-      if (getAccountScope(useAuthStore.getState().user) !== selectedScope) return;
-      setSelected(await getOperation(selected.operationId, selectedScope));
-      setOperations(await getVisibleOperations(selectedScope, limit, history));
+      if (result.serverReceipt?.cancellationRequest && result.status !== 'CANCELLED') synchronizeAccount(selectedScope, queryClient).catch(() => {});
+      const [after, rows] = await Promise.all([getOperation(selected.operationId, selectedScope), getVisibleOperations(selectedScope, limit, history)]);
+      if (!stillCurrent()) return;
+      setSelected(after); setOperations(rows);
       await queryClient.invalidateQueries({ refetchType: 'none' });
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not cancel this payment. Its saved record is preserved.'); }
-    finally { setBusy(false); }
+    } catch (failure) {
+      const after = await getOperation(selected.operationId, selectedScope).catch(() => null);
+      if (!stillCurrent()) return;
+      setSelected(after);
+      setError(failure instanceof Error ? failure.message : 'Could not cancel this payment. Its saved record is preserved.');
+    }
+    finally { if (stillCurrent()) setBusy(false); }
   }
 
   return <>
@@ -127,7 +139,7 @@ export function PendingPaymentQueueCard({ memberNames = {}, chitNames = {}, hist
       <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', padding: 20, gap: 12 }}>
           {selected && <TouchableOpacity accessibilityLabel="Back to saved payments" disabled={busy} onPress={() => setSelected(null)}><Ionicons name="chevron-back" size={24} color={C.navy} /></TouchableOpacity>}
-          <View style={{ flex: 1 }}><Text style={{ color: C.navy, fontSize: 21, fontWeight: '800' }}>{selected ? 'Saved payment details' : title}</Text><Text style={{ color: C.gray500, fontSize: 12, marginTop: 4 }}>{selected ? labelOf(selected) : subtitle}</Text></View>
+          <View style={{ flex: 1 }}><Text style={{ color: C.navy, fontSize: 21, fontWeight: '800' }}>{selected ? 'Saved payment details' : title}</Text><Text style={{ color: C.gray500, fontSize: 12, marginTop: 4 }}>{busy ? 'Checking sync before cancellation…' : selected ? labelOf(selected) : subtitle}</Text></View>
           <TouchableOpacity accessibilityRole="button" disabled={busy} accessibilityLabel="Close saved payments" onPress={() => setOpen(false)} style={{ padding: 10 }}><Ionicons name="close" size={24} color={C.navy} /></TouchableOpacity>
         </View>
         <ScrollView keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingTop: 0, paddingBottom: 40 }}>
@@ -146,11 +158,11 @@ export function PendingPaymentQueueCard({ memberNames = {}, chitNames = {}, hist
             {selected.serverReviewId && selected.status === 'CONFLICT' && user?.role === 'ADMIN' && <TouchableOpacity accessibilityRole="button" onPress={() => { setOpen(false); useReviewNavigationStore.getState().openReview(scope!, selected.serverReviewId!, selected.action === 'RECORD_PAYMENT' ? 'payment' : 'staff'); }} style={{ backgroundColor: C.navy, borderRadius: 14, padding: 16, marginTop: 24 }}>
               <Text style={{ color: C.white, textAlign: 'center', fontWeight: '700' }}>Review transaction</Text>
             </TouchableOpacity>}
-            {canCancel && <View style={{ marginTop: 26, padding: 16, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.gray200 }}>
+            {(canCancel || busy) && <View style={{ marginTop: 26, padding: 16, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ color: C.navy, fontWeight: '700', fontSize: 15 }}>Cancel mistaken entry</Text>
               <Text style={{ color: C.gray500, fontSize: 12, lineHeight: 19, marginTop: 8 }}>Only cancel if no money was collected. Received payments use Void in History. A completed refund needs a refund record.</Text>
-              <TextInput accessibilityLabel="Cancellation reason" placeholder="Why is this entry being cancelled?" value={reason} onChangeText={setReason} maxLength={500} multiline returnKeyType="done" blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, padding: 12, minHeight: 75, marginTop: 14, color: C.navy }} />
-              <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{ checked: confirmed }} accessibilityLabel="I confirm no money was collected" onPress={() => setConfirmed(!confirmed)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 16 }}>
+              <TextInput editable={!busy} accessibilityLabel="Cancellation reason" placeholder="Why is this entry being cancelled?" value={reason} onChangeText={setReason} maxLength={500} multiline returnKeyType="done" blurOnSubmit onSubmitEditing={() => Keyboard.dismiss()} style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, padding: 12, minHeight: 75, marginTop: 14, color: C.navy }} />
+              <TouchableOpacity disabled={busy} accessibilityRole="checkbox" accessibilityState={{ checked: confirmed, disabled: busy }} accessibilityLabel="I confirm no money was collected" onPress={() => setConfirmed(!confirmed)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 16 }}>
                 <Ionicons name={confirmed ? 'checkbox' : 'square-outline'} size={23} color={C.navy} /><Text style={{ color: C.gray600, fontSize: 12, flex: 1 }}>I confirm no money was collected</Text>
               </TouchableOpacity>
               <TouchableOpacity accessibilityRole="button" disabled={busy || !confirmed || reason.trim().length < 5} onPress={cancel} style={{ backgroundColor: '#B91C1C', opacity: busy || !confirmed || reason.trim().length < 5 ? 0.4 : 1, padding: 14, borderRadius: 10 }}><Text style={{ color: C.white, fontWeight: '700', textAlign: 'center' }}>{busy ? 'Checking payment…' : 'Cancel payment'}</Text></TouchableOpacity>

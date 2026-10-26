@@ -108,5 +108,37 @@ test('native upgrade preserves unknown outcomes for review and confirmed sign-ou
     const failedLease=await db.claimRecoveryOperation(failedRecovery);await db.releaseRecoveryOperation(failedRecovery,failedLease);
     const released=await db.getOperation(failedRecovery.operationId,'a:ADMIN');assert.equal(released.status,'QUEUED');assert.equal(released.attempts,1);
     assert.equal(JSON.stringify(released.payload),JSON.stringify(failedRecovery.payload));
+
+    // Exercise the UI orchestration against the actual SQLite claims, rather
+    // than weakening the SQL exclusion when a sender wins a cancellation race.
+    let releaseClaim;
+    context.setTimeout = (resolve) => { Promise.resolve().then(() => releaseClaim()).then(resolve); };
+    const cancelSource=ts.transpileModule(await readFile(new URL('./cancelSavedPayment.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+    const cancelModule=new vm.SourceTextModule(cancelSource,{context});
+    await cancelModule.link(async name=>{
+      assert.equal(name,'./database');
+      return new vm.SyntheticModule(['getOperation','requestPaymentCancellation'],function(){
+        this.setExport('getOperation',db.getOperation);this.setExport('requestPaymentCancellation',db.requestPaymentCancellation);
+      },{context});
+    });
+    await cancelModule.evaluate();
+    for(const outcome of ['failed-send','receipt','review']){
+      const entry={...operation(`wait-${outcome}`),payload:multi.payload};await db.insertOperation(entry);
+      const recoveryLease=outcome==='review'?await db.claimRecoveryOperation(entry):null;
+      if(!recoveryLease)assert.equal(await db.claimOperation(entry),true);
+      releaseClaim=async()=>{
+        if(outcome==='review')assert.equal(await db.completeRecoveryOperation(entry,recoveryLease,'review-after-wait'),true);
+        else await db.updateOperation(entry.operationId,'a:ADMIN',outcome==='receipt'?'SUCCEEDED':'RETRYABLE_FAILURE',outcome==='receipt'?{serverReceiptId:'receipt-after-wait'}:{});
+      };
+      const result=await cancelModule.namespace.cancelSavedPayment('a:ADMIN',entry.operationId,'Mistaken entry; no money collected','actor',()=>true);
+      assert.equal(JSON.stringify(result.payload),JSON.stringify(multi.payload));
+      if(outcome==='failed-send'){
+        assert.equal(result.status,'QUEUED');assert.equal(result.serverReceipt.cancellationRequest.noMoneyCollected,true);
+        assert.equal(await db.claimRecoveryOperation(entry),null);
+      }else{
+        assert.equal(result.serverReceipt?.cancellationRequest,undefined);
+        assert.equal(outcome==='receipt'?result.serverReceiptId:result.serverReviewId,`${outcome}-after-wait`);
+      }
+    }
   } finally { for (const db of connections) db.close(); await rm(directory,{ recursive:true,force:true }); }
 });
