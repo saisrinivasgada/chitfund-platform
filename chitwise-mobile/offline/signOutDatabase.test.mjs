@@ -221,5 +221,56 @@ test('native upgrade preserves unknown outcomes for review and confirmed sign-ou
       assert.equal(JSON.stringify(await upgraded.getOperation(v8Entry.operationId,v8Scope)),before,'Version-eight upgrade preserves original saved evidence');
       assert.ok(await upgraded.claimOperation(v8Entry),'An upgraded queue can acquire a new delivery lease');
     });
+    await t.test('a current admin reconciles retained signed-out reviews with exact-review CAS',async()=>{
+      let response,receipt,accounts=[],requests=0,published=0,changeReview;
+      const deps={
+        '../../shared/offline/legacyStaffEvidence':{legacyStaffEvidence(){}},
+        './financialRefresh':{refreshPostedCollection:async()=>{published++;}},
+        '../store/authStore':{useAuthStore:{getState:()=>({accounts})}},
+        './accountScope':{getStoredAccountScope:a=>a.scope},
+        './accountClient':{accountForScope:scope=>({sessionValid:true,role:'ADMIN',tenantId:scope==='other-admin'?'other-tenant':'tenant'}),requestAsAccount:async(_,request)=>{
+          requests++;if(changeReview){const change=changeReview;changeReview=null;await change();}
+          return{data:{data:request.url.startsWith('/payments/batches/')?receipt:response}};
+        }},'./database':db,
+      };
+      const code=ts.transpileModule(await readFile(new URL('./paymentReviews.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+      const reviews=new vm.SourceTextModule(code,{context});await reviews.link(async name=>{const values=deps[name];assert.ok(values,name);return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v);},{context});});await reviews.evaluate();
+      let sequence=0;
+      for(const[action,statuses]of [['RECORD_PAYMENT',['CANCELLED','REFUNDED','APPLIED','DUPLICATE']],['PARTIAL_COLLECT',['CANCELLED','REFUNDED','RECORDED','LINKED']]])for(const status of statuses){
+        const scope=`retained-${sequence++}:${action==='RECORD_PAYMENT'?'ADMIN':'STAFF'}`;
+        const entry={...operation(`review-${sequence}`,scope),action,entityId:'original-pickup'};
+        await db.insertOperation(entry);await db.updateOperation(entry.operationId,scope,'CONFLICT',{serverReviewId:'confirmed-review'});
+        await db.discardUnsentOperationsForSignOut(scope);
+        const saved=await db.getOperation(entry.operationId,scope);assert.equal(saved.serverReviewId,'confirmed-review');
+        assert.equal(await db.claimOperation(saved),null);
+        response={id:'confirmed-review',status,receiptId:'confirmed-receipt',refund:status==='REFUNDED'?{amount:1000}:undefined,result:{outcome:{id:'original-pickup'}}};receipt={id:'confirmed-receipt'};
+        const beforeRequests=requests;
+        assert.equal(await reviews.namespace.refreshReviewedPayments(scope,true,Infinity,'other-admin'),0);assert.equal(requests,beforeRequests,'Another tenant cannot reconcile this retained review');
+        const beforePublished=published;
+        assert.equal(await reviews.namespace.refreshReviewedPayments(scope,true,Infinity,'current-admin'),1);
+        const completed=await db.getOperation(entry.operationId,scope);assert.equal(completed.status,'SUCCEEDED');assert.equal(completed.serverReceipt.offlineReviewResolution,status);
+        assert.equal(published-beforePublished,['APPLIED','DUPLICATE'].includes(status)?1:0);
+        assert.equal(await db.completeReviewedOperation(saved,{serverReceipt:{id:'stale-overwrite'}}),false,'A second stale review callback cannot replace the terminal decision');
+        assert.equal(await db.getUnsentOperationCount(scope),0);
+        if(['CANCELLED','REFUNDED'].includes(status))assert.ok((await db.getVisibleOperations(scope,25,true)).some(r=>r.operationId===entry.operationId));
+      }
+      // Prove the retained-scope iterator uses the signed-in admin, without
+      // reactivating the original staff account's delivery permissions.
+      const scope='iterator:STAFF',entry={...operation('iterator-review',scope),action:'PARTIAL_COLLECT'};
+      await db.insertOperation(entry);await db.updateOperation(entry.operationId,scope,'CONFLICT',{serverReviewId:'confirmed-review'});await db.discardUnsentOperationsForSignOut(scope);
+      accounts=[{scope,tenantId:'tenant'}];response={id:'confirmed-review',status:'CANCELLED'};
+      await reviews.namespace.refreshRecoveredReviews('current-admin',Infinity);
+      assert.equal((await db.getOperation(entry.operationId,scope)).status,'SUCCEEDED');
+      const staleScope='stale-review:ADMIN',stale=operation('stale-review',staleScope);
+      await db.insertOperation(stale);await db.updateOperation(stale.operationId,staleScope,'CONFLICT',{serverReviewId:'old-review'});await db.discardUnsentOperationsForSignOut(staleScope);
+      const raw=await db.getOfflineDatabase(staleScope);
+      changeReview=async()=>{await raw.runAsync('UPDATE sync_operations SET server_review_id=? WHERE operation_id=?','new-review',stale.operationId);};
+      response={id:'old-review',status:'APPLIED',receiptId:'old-receipt'};receipt={id:'old-receipt'};
+      const beforePublished=published;
+      assert.equal(await reviews.namespace.refreshReviewedPayments(staleScope,true,Infinity,'current-admin'),0);
+      const unchanged=await db.getOperation(stale.operationId,staleScope);assert.equal(unchanged.status,'CONFLICT');assert.equal(unchanged.serverReviewId,'new-review');assert.equal(unchanged.nextAttemptAt,0);assert.equal(published,beforePublished);
+      assert.equal(await db.completeReviewedOperation({...unchanged,actorId:'wrong'},{}),false);
+      assert.equal(await db.completeReviewedOperation({...unchanged,tenantId:'wrong'},{}),false);
+    });
   } finally { for (const db of connections) db.close(); await rm(directory,{ recursive:true,force:true }); }
 });

@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { getStoredAccountScope } from './accountScope';
 import { accountForScope } from './accountClient';
 import { requestAsAccount } from './accountClient';
-import { claimRecoveryOperation, completeRecoveryOperation, releaseRecoveryOperation, deferReviewPoll, getOperationsAwaitingReview, getRecoverablePayments, getRecoverableStaffCollections, hasOfflineDatabase, updateOperation } from './database';
+import { claimRecoveryOperation, completeRecoveryOperation, completeReviewedOperation, releaseRecoveryOperation, deferReviewPoll, getOperationsAwaitingReview, getRecoverablePayments, getRecoverableStaffCollections, hasOfflineDatabase, updateOperation } from './database';
 import type { QueuedOperation } from './types';
 
 async function recoverClaimed(operation: QueuedOperation, send: () => Promise<{ reviewId?: string }>) {
@@ -49,26 +49,28 @@ export async function refreshReviewedPayments(scope: string, force = false, dead
       if (operation.action !== 'RECORD_PAYMENT') {
         const review = (await requestAsAccount(deliveryScope, { method: 'GET', url: `/payments/offline/staff-actions/reviews/${operation.serverReviewId}` })).data.data;
         if (['RECORDED', 'LINKED', 'CANCELLED', 'REFUNDED'].includes(review.status)) {
-          await updateOperation(operation.operationId, scope, 'SUCCEEDED', { serverReceiptId: ['RECORDED','LINKED'].includes(review.status) ? operation.entityId : undefined,
+          const applied = await completeReviewedOperation(operation, { serverReceiptId: ['RECORDED','LINKED'].includes(review.status) ? operation.entityId : undefined,
             serverReceipt: { ...(review.result?.outcome ?? review.result ?? {}), offlineReviewResolution: review.status,
               reviewId: review.id, reason: review.resolutionReason } });
-          confirmed++;
+          if (applied) confirmed++;
         }
         continue;
       }
       const review = await getOfflinePaymentReview(deliveryScope, operation.serverReviewId!);
       if ((review.status === 'REFUNDED' && review.refund) || review.status === 'CANCELLED') {
-        await updateOperation(operation.operationId, scope, 'SUCCEEDED', { serverReceipt: {
+        const applied = await completeReviewedOperation(operation, { serverReceipt: {
           offlineReviewResolution: review.status, reviewId: review.id, refund: review.refund, reason: review.resolutionReason,
         } });
-        confirmed++;
+        if (applied) confirmed++;
       } else if (['APPLIED', 'DUPLICATE'].includes(review.status) && review.receiptId) {
         const receipt = (await requestAsAccount(deliveryScope, { method: 'GET', url: `/payments/batches/${review.receiptId}` })).data.data;
         if (!receipt?.id) throw new Error('Reviewed receipt is not available yet');
-        await updateOperation(operation.operationId, scope, 'SUCCEEDED', { serverReceiptId: receipt.id,
+        const applied = await completeReviewedOperation(operation, { serverReceiptId: receipt.id,
           serverReceipt: { ...receipt, offlineReviewResolution: review.status } });
-        try { await refreshPostedCollection(deliveryScope, operation.payload, receipt); } catch {}
-        confirmed++;
+        if (applied) {
+          try { await refreshPostedCollection(deliveryScope, operation.payload, receipt); } catch {}
+          confirmed++;
+        }
       }
     } catch (error: any) {
       const status = error?.response?.status;

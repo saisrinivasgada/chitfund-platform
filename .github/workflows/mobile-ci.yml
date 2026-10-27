@@ -70,9 +70,9 @@ jobs:
   ios-offline:
     name: iOS release offline journeys
     runs-on: macos-15
-    # Includes the added manager recovery, first-download and member-ledger
-    # journeys after the previous complete ~52-minute iOS build and suite.
-    timeout-minutes: 90
+    # A successful complete build and native suite took nearly 88 minutes.
+    # Allow runner variation; individual business assertion deadlines stay fixed.
+    timeout-minutes: 120
     env:
       EXPO_PUBLIC_API_URL: http://127.0.0.1:3112/api
       CHITWISE_NATIVE_QA: '1'

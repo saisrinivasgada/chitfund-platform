@@ -477,8 +477,8 @@ export async function getOperationsAwaitingReview(accountScope: string, force = 
 
 export async function deferReviewPoll(operation: QueuedOperation) {
   const db = await getOfflineDatabase(operation.accountScope);
-  await db.runAsync("UPDATE sync_operations SET next_attempt_at=? WHERE operation_id=? AND status='CONFLICT'",
-    Date.now() + 60_000, operation.operationId);
+  await db.runAsync("UPDATE sync_operations SET next_attempt_at=? WHERE operation_id=? AND account_scope=? AND server_review_id=? AND status='CONFLICT'",
+    Date.now() + 60_000, operation.operationId, operation.accountScope, operation.serverReviewId ?? null);
 }
 
 export interface OperationUpdate {
@@ -499,6 +499,12 @@ export async function updateOperation(operationId: string, accountScope: string,
 export async function completeClaimedOperation(operationId: string, accountScope: string, lease: string, status: SyncOperationStatus, values: OperationUpdate = {}): Promise<boolean> {
   if (!lease) return false;
   return writeOperation(operationId, accountScope, status, values, lease);
+}
+
+/** A server-confirmed review may be reconciled by another same-tenant admin. */
+export async function completeReviewedOperation(operation: QueuedOperation, values: OperationUpdate): Promise<boolean> {
+  if (!operation.serverReviewId) return false;
+  return writeOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', values, null, operation);
 }
 
 class DeliveryClaimLost extends Error { readonly code = 'OFFLINE_CLAIM_LOST'; }
@@ -530,8 +536,15 @@ async function writeOperation(
   status: SyncOperationStatus,
   values: OperationUpdate,
   lease: string | null = null,
+  review?: QueuedOperation,
 ): Promise<boolean> {
   const db = await getOfflineDatabase(accountScope);
+  const condition = review
+    ? "status='CONFLICT' AND server_review_id=? AND tenant_id=? AND actor_id=? AND delivery_lease_id IS NULL AND recovery_lease_id IS NULL"
+    : lease
+      ? "status='SYNCING' AND delivery_lease_id=? AND NOT EXISTS(SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)"
+      : "status!='SYNCING' AND delivery_lease_id IS NULL AND NOT EXISTS(SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)";
+  const conditionArgs = review ? [review.serverReviewId!, review.tenantId, review.actorId] : lease ? [lease, accountScope] : [accountScope];
   const result = await db.runAsync(
     `UPDATE sync_operations SET
        status = ?,
@@ -545,9 +558,7 @@ async function writeOperation(
        delivery_lease_id = NULL,
        updated_at = ?
      WHERE operation_id = ? AND account_scope = ?
-       AND ((? IS NULL AND status!='SYNCING' AND delivery_lease_id IS NULL)
-         OR (? IS NOT NULL AND status='SYNCING' AND delivery_lease_id=?))
-       AND NOT EXISTS(SELECT 1 FROM offline_session_guard WHERE account_scope=? AND signed_out=1)`,
+       AND ${condition}`,
     status,
     values.attempts ?? null,
     values.nextAttemptAt ?? null,
@@ -558,7 +569,7 @@ async function writeOperation(
     values.serverReceipt ? JSON.stringify(values.serverReceipt) : null,
     Date.now(),
     operationId,
-    accountScope, lease, lease, lease, accountScope,
+    accountScope, ...conditionArgs,
   );
   return result.changes === 1;
 }

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import ts from 'typescript';
 const source=ts.transpileModule(await readFile(new URL('./paymentReviews.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
-async function recovery({status='PENDING',otherTenant=false,networkFails=false}={}){
+async function recovery({status='PENDING',otherTenant=false,networkFails=false,claimLost=false}={}){
   const operation={operationId:'saved',action:'PARTIAL_COLLECT',accountScope:'staff-scope',tenantId:'org-a',entityId:'original-request',serverReviewId:'review-id',payload:{offlineAuthorization:'immutable-proof'}};
   const requests=[],updates=[];let ledgerRefreshes=0,deferred=0;
   const deps={
@@ -15,7 +15,7 @@ async function recovery({status='PENDING',otherTenant=false,networkFails=false}=
     './accountScope':{getStoredAccountScope:a=>a.scope},
     './accountClient':{accountForScope:()=>({role:'ADMIN',tenantId:otherTenant?'org-b':'org-a'}),requestAsAccount:async(scope,request)=>{
       requests.push({scope,request});if(networkFails)throw new Error('Connection lost');return{data:{data:{id:'review-id',status,result:{outcome:{id:'original-request'}},resolutionReason:'Verified outcome'}}};}},
-    './database':{claimRecoveryOperation:async()=>null,completeRecoveryOperation:async()=>false,releaseRecoveryOperation:async()=>{},getOperationsAwaitingReview:async()=>[operation],deferReviewPoll:async()=>{deferred++;},updateOperation:async(...args)=>updates.push(args),
+    './database':{completeReviewedOperation:async(op,values)=>{if(claimLost)return false;updates.push([op.operationId,op.accountScope,'SUCCEEDED',values]);return true;},claimRecoveryOperation:async()=>null,completeRecoveryOperation:async()=>false,releaseRecoveryOperation:async()=>{},getOperationsAwaitingReview:async()=>[operation],deferReviewPoll:async()=>{deferred++;},updateOperation:async(...args)=>updates.push(args),
       getRecoverablePayments:async()=>[],getRecoverableStaffCollections:async()=>[],hasOfflineDatabase:async()=>false},
   };
   const context=vm.createContext({});const m=new vm.SourceTextModule(source,{context});
@@ -41,6 +41,9 @@ test('an admin from another tenant cannot read or acknowledge retained staff wor
 test('a lost review response preserves the device record for later polling',async()=>{
   const r=await recovery({status:'CANCELLED',networkFails:true});assert.equal(r.count,0);assert.equal(r.updates.length,0);assert.equal(r.deferred,1);
 });
+test('a stale review completion is not counted as an acknowledged collection',async()=>{
+  const r=await recovery({status:'RECORDED',claimLost:true});assert.equal(r.count,0);assert.equal(r.updates.length,0);assert.equal(r.ledgerRefreshes,0);
+});
 
 for(const oldRole of ['STAFF','ADMIN']) test(`current admin quarantines unchanged unsigned ${oldRole} collections retained after a role change, excluding other tenants`,async()=>{
  const payload={requestId:'original-request',collectedAmount:100};const {createHash}=await import('node:crypto');
@@ -53,7 +56,7 @@ for(const oldRole of ['STAFF','ADMIN']) test(`current admin quarantines unchange
   '../store/authStore':{useAuthStore:{getState:()=>({accounts:[{scope:'admin-scope:ADMIN',tenantId:'org-a',retainedOfflineScopes:[originalScope]},{scope:'other-scope:STAFF',tenantId:'org-b'}]})}},
   './accountScope':{getStoredAccountScope:a=>a.scope},
   './accountClient':{accountForScope:()=>({sessionValid:true,role:'ADMIN',tenantId:'org-a'}),requestAsAccount:async(scope,request)=>{requests.push({scope,request});return{data:{data:{reviewId:'preserved-review'}}};}},
-  './database':{claimRecoveryOperation:async()=> 'lease',completeRecoveryOperation:async(op,lease,reviewId)=>{updates.push([op.operationId,op.accountScope,'CONFLICT',{serverReviewId:reviewId}]);return true;},releaseRecoveryOperation:async()=>{},hasOfflineDatabase:async scope=>{opened.push(scope);return true;},getRecoverablePayments:async scope=>oldRole==='ADMIN'&&scope===originalScope?[operation]:[],getRecoverableStaffCollections:async scope=>oldRole==='STAFF'&&scope===originalScope?[{...operation,operationId:'corrupt-old',payloadHash:'invalid'},operation]:[],getOperationsAwaitingReview:async()=>[],deferReviewPoll(){},updateOperation:async(...args)=>updates.push(args)},
+  './database':{completeReviewedOperation:async()=>false,claimRecoveryOperation:async()=> 'lease',completeRecoveryOperation:async(op,lease,reviewId)=>{updates.push([op.operationId,op.accountScope,'CONFLICT',{serverReviewId:reviewId}]);return true;},releaseRecoveryOperation:async()=>{},hasOfflineDatabase:async scope=>{opened.push(scope);return true;},getRecoverablePayments:async scope=>oldRole==='ADMIN'&&scope===originalScope?[operation]:[],getRecoverableStaffCollections:async scope=>oldRole==='STAFF'&&scope===originalScope?[{...operation,operationId:'corrupt-old',payloadHash:'invalid'},operation]:[],getOperationsAwaitingReview:async()=>[],deferReviewPoll(){},updateOperation:async(...args)=>updates.push(args)},
  };
  const context=vm.createContext({});const m=new vm.SourceTextModule(source,{context});await m.link(async name=>{const values=deps[name];if(!values)throw new Error(name);return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v);},{context});});await m.evaluate();
  assert.equal(await m.namespace.recoverSavedCollections('admin-scope:ADMIN'),1);assert.equal(requests.length,1);assert.ok(!opened.includes('other-scope:STAFF'));
