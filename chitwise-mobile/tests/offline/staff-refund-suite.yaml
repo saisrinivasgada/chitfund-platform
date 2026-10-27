@@ -52,7 +52,10 @@ env:
       text: '.*full original collection has already been returned.*'
     direction: DOWN
     centerElement: true
+- waitForAnimationToEnd
 - tapOn: '.*full original collection has already been returned.*'
+- assertVisible:
+    text: '☑ .*full original collection has already been returned.*'
 - scrollUntilVisible:
     element:
       text: "Confirm pickup decision"
