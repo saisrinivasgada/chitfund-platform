@@ -21,23 +21,22 @@ appId: com.chitwise.mobile
 - tapOn:
     id: "payment-chit-40000000-0000-0000-0000-000000000001"
 - assertVisible: "Allocate ₹"
+# The exact amount identifies the submit control. Maestro iOS can reject an
+# additional Dashboard spatial relation even when both controls are visible.
 - runFlow:
     when:
       notVisible:
         text: "Record ₹1,000 Payment"
-        above: ".*Dashboard.*"
     commands:
       - scrollUntilVisible:
           element:
             text: "Record ₹1,000 Payment"
-            above: ".*Dashboard.*"
           direction: DOWN
           centerElement: false
           visibilityPercentage: 90
 - waitForAnimationToEnd
 - tapOn:
     text: "Record ₹1,000 Payment"
-    above: ".*Dashboard.*"
 - extendedWaitUntil:
     visible: "Confirm Payment"
     timeout: 10000

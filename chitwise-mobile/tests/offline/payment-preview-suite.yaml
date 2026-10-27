@@ -22,13 +22,11 @@ env:
 - scrollUntilVisible:
     element:
       text: "Record ₹500 Payment"
-      above: ".*Dashboard.*"
     centerElement: false
     visibilityPercentage: 90
 - waitForAnimationToEnd
 - tapOn:
     text: "Record ₹500 Payment"
-    above: ".*Dashboard.*"
 - extendedWaitUntil:
     visible: "Confirm Payment"
     timeout: 15000
