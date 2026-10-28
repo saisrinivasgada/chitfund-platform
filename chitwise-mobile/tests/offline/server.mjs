@@ -44,6 +44,10 @@ const page = (records, number, size) => ({ content: records.slice(number * size,
   pageNumber: number, page: number, size, pageSize: size, totalElements: records.length, totalPages: Math.ceil(records.length / size),
   last: (number + 1) * size >= records.length, hasMore: (number + 1) * size < records.length });
 
+let lastLinkObservation = null;
+const tracePath = (value) => typeof value === 'string' ? value.split(/[?#]/, 1)[0].slice(0, 200) : null;
+const linkTrace = (phase, values) => console.log('[NATIVE_LINK_QA]', JSON.stringify({ phase, serverAt: Date.now(), ...values }));
+
 http.createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost'); let raw = '';
   for await (const chunk of request) raw += chunk;
@@ -53,8 +57,28 @@ http.createServer(async (request, response) => {
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     response.end(JSON.stringify({ success: status < 400, data, message: status < 400 ? undefined : data.message, errorCode: data.errorCode }));
   };
+  if (url.pathname === '/__qa/link-trace' && request.method === 'POST') {
+    const phases = ['route-snapshot', 'observers-attached', 'rn-url-event', 'expo-url-event', 'app-state', 'native-registry-value'];
+    if (!phases.includes(body.phase)) return send({ message: 'Unknown diagnostic phase' }, 400);
+    lastLinkObservation = { boot: /^\d+$/.test(body.boot ?? '') ? body.boot : null,
+      at: Number.isFinite(body.at) ? body.at : null, linkPath: tracePath(body.linkPath),
+      nativeValue: tracePath(body.nativeValue), segments: tracePath(body.segments),
+      rootRoutes: tracePath(body.rootRoutes), authLoading: body.authLoading === true,
+      rootReady: body.rootReady === true, role: ['ADMIN', 'MANAGER', 'STAFF', 'MEMBER'].includes(body.role) ? body.role : null,
+      appState: ['active', 'background', 'inactive'].includes(body.appState) ? body.appState : null };
+    linkTrace(body.phase, lastLinkObservation);
+    return send({ recorded: true });
+  }
   if (url.pathname === '/__qa/open-link' && request.method === 'POST') {
-    try { await openSimulatorLink(process.env.CHITWISE_QA_DEVICE, body.link); return send({ opened: true }); }
+    const commandId = randomUUID();
+    let requestedPath = null;
+    try { requestedPath = new URL(body.link).pathname; } catch {}
+    linkTrace('command-requested', { commandId, requestedPath: tracePath(requestedPath), baseline: lastLinkObservation });
+    try {
+      await openSimulatorLink(process.env.CHITWISE_QA_DEVICE, body.link);
+      linkTrace('command-accepted', { commandId });
+      return send({ opened: true });
+    }
     catch (error) { return send({ message: error.message }, 400); }
   }
   if (url.pathname === '/__qa/state') {
