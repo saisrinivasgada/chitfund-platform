@@ -51,6 +51,19 @@ x-test-common: &test-common
 
 services:
 
+  password-breach-test:
+    image: python:3.12-alpine
+    container_name: chitwise-test-password-breach
+    command: ["python3", "/fixtures/password_breach_server.py"]
+    volumes:
+      - ./tests/fixtures/password_breach_server.py:/fixtures/password_breach_server.py:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [chitwise-test]
+
   mysql-test:
     image: mysql:8.0
     container_name: chitwise-test-mysql
@@ -93,10 +106,15 @@ services:
       OFFLINE_SIGNING_KEY_ID: test-offline-v1
       MEMBER_SERVICE_URL: http://member-service:8083
       APP_DEV_OTP_EXPOSURE_ENABLED: "true"
+      # Keep identity/financial tests independent of the public HIBP network,
+      # while still executing the real HTTP parser and breached-password gate.
+      PASSWORD_BREACH_CHECK_BASE_URL: http://password-breach-test:8080/range/
     ports:
       - "127.0.0.1:9081:8081"
     depends_on:
       mysql-test:
+        condition: service_healthy
+      password-breach-test:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]

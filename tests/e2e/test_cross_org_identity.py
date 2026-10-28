@@ -121,6 +121,27 @@ def _select_tenant(api, login_token: str, tenant_id: str):
         json={"loginToken": login_token, "tenantId": tenant_id}))
 
 
+def test_compromised_password_is_rejected_before_staff_creation(api, db, token):
+    """The disposable HTTP provider still exercises the real breach gate."""
+    unique = uuid.uuid4().hex[:10]
+    tenant_id = str(uuid.uuid4())
+    creator_id = _seed_tenant_and_admin(db, tenant_id, f"Breach-{unique}")
+    creator = token("ADMIN", tenant=tenant_id, user_id=creator_id)
+    username = f"breached_{unique}"
+    response = api.as_role("POST", f"{api.user}/api/users/staff", creator, json={
+        "username": username,
+        "email": f"breached-{unique}@example.test",
+        "password": "KnownBreachFixture@123",
+        "fullName": "Breach Gate Fixture",
+        "phone": "6" + unique.translate(str.maketrans("abcdef", "123456"))[:9],
+        "phoneCountryCode": "+91",
+        "role": "STAFF",
+    })
+    assert response.status_code == 400, response.text[:500]
+    assert "known data breach" in response.json()["message"].lower()
+    assert db.scalar("chitfund_user", "SELECT COUNT(*) FROM users WHERE username=%s", (username,)) == 0
+
+
 def test_staff_and_admin_require_verified_email_before_login(api, db, token):
     """Mandatory staff email is verified before any tenant/access token is issued."""
     unique = uuid.uuid4().hex[:10]
