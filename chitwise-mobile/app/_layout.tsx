@@ -1,4 +1,5 @@
 import { DeviceUnlockGate } from '../components/DeviceUnlockGate';
+import { NativeLinkDiagnostics } from '../components/NativeLinkDiagnostics';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { useSyncStore } from '../store/syncStore';
 import { useOfflinePresentation } from '../offline/useOfflinePresentation';
@@ -198,6 +199,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <NativeLinkDiagnostics />
       <DeviceUnlockGate>
       <ScopedQueryProvider>
         <RealtimeUpdater />

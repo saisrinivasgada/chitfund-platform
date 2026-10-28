@@ -3,6 +3,14 @@ env:
   QA_URL: http://127.0.0.1:3112
 ---
 - runFlow: offline-suite.yaml
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - repeat:
+          times: 5
+          commands:
+            - runFlow: non-addon-link-delivery.yaml
 - runFlow: non-addon-suite.yaml
 - runFlow: multi-chit-cancellation-suite.yaml
 - runFlow: signout-suite.yaml

@@ -75,6 +75,7 @@ jobs:
     timeout-minutes: 120
     env:
       EXPO_PUBLIC_API_URL: http://127.0.0.1:3112/api
+      EXPO_PUBLIC_LINK_QA_TRACE: '1'
       CHITWISE_NATIVE_QA: '1'
       MAESTRO_VERSION: 2.11.0
       # Xcode may still be starting the first XCTest runner after the release

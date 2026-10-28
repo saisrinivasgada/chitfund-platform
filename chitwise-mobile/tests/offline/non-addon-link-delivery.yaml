@@ -1,0 +1,23 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+# Reproduce the intermittent first-link miss after cold restoration. Each
+# iteration must reach the original exact destination; no retry can mask it.
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","enabled":false}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- assertVisible: 'Good (morning|afternoon|evening), QA.*'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/payments'
+- extendedWaitUntil:
+    visible: "Select Member"
+    timeout: 60000
+- assertNotVisible:
+    id: "sync-status-button"
