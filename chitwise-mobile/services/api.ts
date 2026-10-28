@@ -3,16 +3,44 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { accountStorageId, useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
+import { useSyncStore } from '../store/syncStore';
+import { getAccountScope } from '../offline/accountScope';
+import { accountForScope, refreshAccountSession } from '../offline/accountClient';
+import { onlineManager } from '@tanstack/react-query';
+import { cachedHttpResponse, saveHttpResponse, forgetHttpResponse } from '../offline/httpCache';
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 const hubApi = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
+async function diskResponse(scope: string, config: any) {
+  const saved = await cachedHttpResponse(scope, config);
+  return saved ? { config, data: saved.data, status: 200, statusText: 'Saved on device',
+    headers: { 'x-chitwise-cached-at': String(saved.savedAt) } } : null;
+}
+
 api.interceptors.request.use(async (config) => {
   config.headers['X-Client-Source'] = 'MOBILE';
-  const token = await SecureStore.getItemAsync('chitwise_token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  if ((config.url ?? '').startsWith('/auth/')) return config;
+  const pinned = config as typeof config & { _accountScope?: string };
+  const scope = pinned._accountScope ?? getAccountScope(useAuthStore.getState().user);
+  if (scope) {
+    pinned._accountScope = scope;
+    const disconnected = !onlineManager.isOnline();
+    if (disconnected || ((config.method ?? 'get').toLowerCase() === 'get' && useSyncStore.getState().accountScope === scope && useSyncStore.getState().serverReachable === false)) {
+      try {
+        const cached = await diskResponse(scope, config);
+        if (cached) { config.adapter = async () => cached; return config; }
+      } catch { /* Keep local records intact if a snapshot cannot be read. */ }
+      if (disconnected) throw Object.assign(new Error((config.method ?? 'get').toLowerCase() === 'get'
+        ? 'This data has not been downloaded on this device. Connect to refresh it.'
+        : 'This action needs an internet connection. Saved payments remain on this device.'), { config, offlineMissing: true });
+    }
+    const account = accountForScope(scope);
+    if (!account?.sessionValid) throw Object.assign(new Error('Sign in again to continue'), { requiresLogin: true });
+    config.headers.Authorization = `Bearer ${account.token}`;
+  }
   return config;
 });
 
@@ -64,77 +92,47 @@ hubApi.interceptors.response.use((response) => response, async (error) => {
   return Promise.reject(error);
 });
 
-let isRefreshing = false;
-let failedQueue: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
-
-function processQueue(error: any, token: string | null) {
-  failedQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token)));
-  failedQueue = [];
-}
-
 api.interceptors.response.use(
-  (res) => res,
+  async (res) => {
+    const scope = (res.config as any)?._accountScope;
+    if (scope && !res.headers?.['x-chitwise-cached-at']) {
+      useSyncStore.getState().setStateForScope(scope, { serverReachable: true });
+      try { await saveHttpResponse(scope, res.config, res.data); } catch { /* Online flow remains available. */ }
+    }
+    return res;
+  },
   async (err) => {
     const original = err.config;
-    if (err.response?.status === 401 && !original._retry && !(original.url ?? '').startsWith('/auth/')) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
-          return api(original);
-        });
-      }
+    const scope = original?._accountScope as string | undefined;
+    if (scope && !err.offlineMissing && !err.requiresLogin) useSyncStore.getState().setStateForScope(scope, {
+      serverReachable: !!err.response && err.response.status < 500 && err.response.status !== 408,
+    });
+    if (scope && [403, 404, 410].includes(err.response?.status)) {
+      try { await forgetHttpResponse(scope, original); } catch {}
+    }
+    if (scope && !err.requiresLogin && (!err.response || err.response.status >= 500 || [408, 429].includes(err.response.status))) {
+      try { const cached = await diskResponse(scope, original); if (cached) return cached; } catch {}
+    }
+    if (err.response?.status === 401 && original && !original._retry
+        && !(original.url ?? '').startsWith('/auth/') && scope) {
       original._retry = true;
-      isRefreshing = true;
-      try {
-        const currentUser = useAuthStore.getState().user;
-        if (currentUser?.authSource === 'HUB') {
-          const hubData = await refreshHubSession();
-          if (!hubData.saasToken) throw new Error('hub_role_has_no_saas_access');
-          processQueue(null, hubData.saasToken);
-          original.headers.Authorization = `Bearer ${hubData.saasToken}`;
-          return api(original);
-        }
-        const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
-        if (!refreshToken) throw new Error('no_refresh');
-        const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-        const authData = resp.data?.data ?? resp.data;
-        const { accessToken, refreshToken: newRefresh } = authData;
-        await SecureStore.setItemAsync('chitwise_token', accessToken);
-        if (newRefresh) await SecureStore.setItemAsync('chitwise_refresh_token', newRefresh);
-        const { user } = useAuthStore.getState();
-        if (user) {
-          const refreshed = parseAuthResponse(authData);
-          await useAuthStore.getState().setUser({
-            ...user,
-            token: accessToken,
-            refreshToken: newRefresh ?? user.refreshToken,
-            tenantId: refreshed.tenantId ?? user.tenantId,
-            tenantName: refreshed.tenantName ?? user.tenantName,
-            analyticsEnabled: refreshed.analyticsEnabled,
-            chatEnabled: refreshed.chatEnabled,
-            settlementEnabled: refreshed.settlementEnabled,
-          });
-        }
-        processQueue(null, accessToken);
-        original.headers.Authorization = `Bearer ${accessToken}`;
-        return api(original);
-      } catch (refreshErr) {
-        processQueue(refreshErr, null);
-        const { user } = useAuthStore.getState();
-        if (user) await useAuthStore.getState().markSessionInvalid(accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION'));
-        return Promise.reject(refreshErr);
-      } finally {
-        isRefreshing = false;
+      const owner = accountForScope(scope);
+      if (owner?.authSource === 'HUB') {
+        // Hub refresh is foreground-only; never refresh it using another account.
+        if (getAccountScope(useAuthStore.getState().user) !== scope) return Promise.reject(err);
+        const data = await refreshHubSession();
+        original.headers.Authorization = `Bearer ${data.saasToken}`;
+      } else {
+        await refreshAccountSession(scope);
       }
+      return api(original);
     }
-    if (err.response?.data?.errorCode === 'PLAN_002') {
-      useUIStore.getState().showPlanExpired();
-    }
-    if (err.response?.data?.errorCode === 'ADD_ON_REQUIRED') {
-      const key = err.response?.data?.addOnKey ?? err.response?.data?.data?.addOnKey;
-      if (key) useUIStore.getState().showAddOnGate(key);
+    if (!scope || scope === getAccountScope(useAuthStore.getState().user)) {
+      if (err.response?.data?.errorCode === 'PLAN_002') useUIStore.getState().showPlanExpired();
+      if (err.response?.data?.errorCode === 'ADD_ON_REQUIRED') {
+        const key = err.response?.data?.addOnKey ?? err.response?.data?.data?.addOnKey;
+        if (key) useUIStore.getState().showAddOnGate(key);
+      }
     }
     return Promise.reject(err);
   }
@@ -171,6 +169,7 @@ export interface LoginResponse {
   analyticsEnabled?: boolean;
   chatEnabled?: boolean;
   settlementEnabled?: boolean;
+  offlineEnabled?: boolean;
   // set when requiresTenantSelection = true
   requiresTenantSelection?: boolean;
   loginToken?: string;
@@ -290,7 +289,7 @@ function decodeJwtClaims(token: string): Record<string, any> | null {
 
 function parseAuthResponse(auth: any): LoginResponse {
   // UserResponse on the server has no tenantId field — extract it from the JWT claims instead.
-  const tenantId: string | undefined = auth.user?.tenantId
+  const tenantId: string | undefined = auth.tenant?.tenantId ?? auth.user?.tenantId
     ?? decodeJwtClaims(auth.accessToken ?? '')?.tenantId;
   return {
     token: auth.accessToken,
@@ -298,13 +297,14 @@ function parseAuthResponse(auth: any): LoginResponse {
     userId: auth.user.id,
     username: auth.user.username,
     fullName: auth.user.fullName,
-    role: auth.user.role,
+    role: auth.tenant?.role ?? auth.user.role,
     mustChangePassword: auth.user.mustChangePassword ?? false,
     tenantId,
     tenantName: auth.tenant?.name,
     analyticsEnabled: auth.tenant?.analyticsEnabled === true,
     chatEnabled: auth.tenant?.chatEnabled === true,
     settlementEnabled: auth.tenant?.settlementEnabled === true,
+    offlineEnabled: typeof auth.tenant?.offlineEnabled === 'boolean' ? auth.tenant.offlineEnabled : undefined,
   };
 }
 
@@ -424,8 +424,10 @@ export const sendWhatsAppReminder = async (memberId: string) =>
   (await api.post(`/notifications/whatsapp/${memberId}`)).data;
 
 // ── Members ───────────────────────────────────────────────────────────────────
-export const getMembers = async (params: any = {}) =>
-  unwrapList(await api.get('/members', { params: { size: 200, ...params } }));
+// Direct query callbacks also receive client/signal/queryKey metadata. Keep
+// only server filters in both the URL and the encrypted offline request key.
+export const getMembers = async ({ page, size = 200, search, status, sort }: any = {}) =>
+  unwrapList(await api.get('/members', { params: { page, size, search, status, sort } }));
 
 export interface MembersPage {
   content: any[];
@@ -498,8 +500,8 @@ export const getMemberCredit = async (memberId: string) =>
   (await api.get(`/payments/credits/${memberId}`)).data?.data ?? { balance: 0 };
 
 // ── Chits ──────────────────────────────────────────────────────────────────────
-export const getChits = async (params: any = {}) =>
-  unwrapList(await api.get('/chits', { params: { size: 200, ...params } }));
+export const getChits = async ({ page, size = 200, search, status, sort, type, chitType }: any = {}) =>
+  unwrapList(await api.get('/chits', { params: { page, size, search, status, sort, type, chitType } }));
 export const getChit = async (id: string) => unwrapObj(await api.get(`/chits/${id}`));
 export const createChit = async (body: any) => unwrapObj(await api.post('/chits', body));
 export const updateChitStatus = async (id: string, status: string, startDate?: string) =>
@@ -533,9 +535,11 @@ export const recordWinner = async (chitId: string, body: any) =>
 // ── Draws ──────────────────────────────────────────────────────────────────────
 export const getDraws = async (chitId: string) =>
   unwrapList(await api.get(`/admin/draws/chit/${chitId}`));
+export const getMyDraws = async (chitId: string) =>
+  unwrapList(await api.get(`/admin/draws/member/chit/${chitId}`));
 export const openDraw = async (body: any) => unwrapObj(await api.post('/admin/draws/open', body));
 export const closeDraw = async (drawId: string) => unwrapObj(await api.post(`/admin/draws/${drawId}/close`));
-export const skipDraw = async (body: any) => unwrapObj(await api.post('/admin/draws/skip', body));
+export const skipDraw = async (body: any) => unwrapObj(await api.post(`/chits/${body.chitId}/skip-draw`, body));
 export const deleteDraw = async (drawId: string) => unwrapObj(await api.delete(`/admin/draws/${drawId}`));
 export const getDrawPayments = async (drawId: string) => unwrapList(await api.get(`/admin/draws/${drawId}/payments`));
 
@@ -554,8 +558,8 @@ export const removeReservationSlot = async (chitId: string, reservationId: strin
   unwrapObj(await api.delete(`/chits/${chitId}/reservations/${reservationId}`, { params: reason ? { reason } : {} }));
 export const swapReservationSlots = async (chitId: string, slotAId: string, slotBId: string) =>
   unwrapObj(await api.post(`/chits/${chitId}/reservations/swap`, { slotAId, slotBId }));
-export const shiftReservations = async (chitId: string, fromMonth: number) =>
-  unwrapObj(await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth } }));
+export const shiftReservations = async (chitId: string, fromMonth: number, requestId: string) =>
+  unwrapObj(await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth }, headers: { 'Idempotency-Key': requestId } }));
 export const markSlotProcessed = async (chitId: string, reservationId: string) =>
   unwrapObj(await api.patch(`/chits/${chitId}/reservations/${reservationId}/process`));
 export const updateReservationSlot = async (chitId: string, reservationId: string, body: any) =>
@@ -588,6 +592,8 @@ export const getPaymentBatchById = async (batchId: string) =>
   unwrapObj(await api.get(`/payments/batches/${batchId}`));
 export const getAllPaymentBatches = async (params: any = {}) =>
   unwrapList(await api.get('/payments/batches/all', { params }));
+export const getAllPaymentBatchesPage = async (params: any = {}) =>
+  unwrapObj(await api.get('/payments/batches/all', { params }));
 export const voidPaymentBatch = async (batchId: string, reason: string) =>
   unwrapObj(await api.post(`/payments/${batchId}/void`, { reason }));
 export const remitPayment = async (batchId: string) =>

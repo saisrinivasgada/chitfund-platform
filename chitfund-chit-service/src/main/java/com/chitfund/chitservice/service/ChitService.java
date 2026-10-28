@@ -146,6 +146,11 @@ public class ChitService {
         return pagedResponse(page, enrichPage(page.toList()));
     }
 
+    public PagedResponse<ChitResponse> listChitsForMemberPaged(UUID memberId, Pageable pageable) {
+        var page = chitRepository.findMemberChits(TenantContext.get(), memberId, pageable);
+        return pagedResponse(page, enrichPage(page.toList()));
+    }
+
     public List<ChitResponse> listChitsForMember(UUID memberId, ChitStatus status) {
         List<UUID> chitIds = enrollmentRepository.findDistinctChitIdsByMemberId(memberId);
         if (chitIds.isEmpty()) return List.of();
@@ -212,7 +217,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse updateStatus(UUID id, UpdateChitStatusRequest request, String actorRole) {
-        Chit chit = findByIdScoped(id);
+        Chit chit = findByIdForUpdate(id);
         Map<String, Object> before = chitAuditState(chit);
         boolean activatingFromDraft = request.getStatus() == ChitStatus.ACTIVE
                 && chit.getStatus() == ChitStatus.DRAFT;
@@ -244,6 +249,28 @@ public class ChitService {
         chit.transitionTo(request.getStatus());
         chit.setUpdatedBy(request.getUpdatedBy());
         if (activatingFromDraft && request.getStartDate() != null) {
+            if (chit.getStartDate() != null) {
+                long offset = java.time.temporal.ChronoUnit.MONTHS.between(
+                        chit.getStartDate().withDayOfMonth(1), request.getStartDate().withDayOfMonth(1));
+                if (offset != 0) {
+                    List<MonthReservation> slots = reservationRepository.findShiftableFromMonth(id, 1,
+                            List.of(ReservationStatus.RESERVED, ReservationStatus.UNALLOCATED));
+                    List<Map<String, Object>> oldDates = scheduleDates(slots);
+                    int snapshotIndex = 0;
+                    for (MonthReservation slot : slots) {
+                        if (slot.getReservationMonth() != null) slot.setReservationMonth(slot.getReservationMonth().plusMonths(offset));
+                        slot.setUpdatedBy(request.getUpdatedBy());
+                        auditClient.log("RESERVATION_SLOT", slot.getId().toString(), id.toString(), "SLOT_DATE_CHANGED",
+                                request.getUpdatedBy() != null ? request.getUpdatedBy().toString() : null, actorRole,
+                                oldDates.get(snapshotIndex++), scheduleDates(List.of(slot)).get(0), chit.getTenantId());
+                    }
+                    reservationRepository.saveAll(slots);
+                    auditClient.log("RESERVATION_SCHEDULE", id.toString(), id.toString(),
+                            "SCHEDULE_START_DATE_CHANGED", request.getUpdatedBy() != null ? request.getUpdatedBy().toString() : null,
+                            actorRole, Map.of("startDate", chit.getStartDate()),
+                            Map.of("startDate", request.getStartDate(), "monthsShifted", offset, "slotCount", slots.size()), chit.getTenantId());
+                }
+            }
             chit.setStartDate(request.getStartDate());
             chit.setEndDate(request.getStartDate().plusMonths(chit.getDurationMonths()));
         }
@@ -367,7 +394,7 @@ public class ChitService {
     @Transactional
     public ChitResponse updateName(UUID id, UpdateChitNameRequest request,
                                    UUID actorId, String actorRole) {
-        Chit chit = findByIdScoped(id);
+        Chit chit = findByIdForUpdate(id);
         Map<String, Object> before = chitAuditState(chit);
         chit.setName(request.getName().trim());
         if (request.getDescription() != null) {
@@ -384,7 +411,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse updateDetails(UUID id, UpdateChitDetailsRequest req, UUID updatedBy) {
-        Chit chit = findByIdScoped(id);
+        Chit chit = findByIdForUpdate(id);
         Map<String, Object> before = chitAuditState(chit);
         ChitStatus status = chit.getStatus();
         if (status == ChitStatus.COMPLETED || status == ChitStatus.CANCELLED || status == ChitStatus.DELETED) {
@@ -440,7 +467,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse pauseChit(UUID id, UUID adminId, String actorRole) {
-        Chit chit = findByIdScoped(id);
+        Chit chit = findByIdForUpdate(id);
         Map<String, Object> before = chitAuditState(chit);
         chit.transitionTo(ChitStatus.PAUSED);
         chit.setPausedAt(LocalDateTime.now());
@@ -460,7 +487,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse resumeChit(UUID id, UUID adminId, String actorRole) {
-        Chit chit = findByIdScoped(id);
+        Chit chit = findByIdForUpdate(id);
         Map<String, Object> before = chitAuditState(chit);
         if (chit.getStatus() != ChitStatus.PAUSED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -487,7 +514,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse softDeleteChit(UUID id, UUID adminId) {
-        Chit chit = findByIdScoped(id);
+        Chit chit = findByIdForUpdate(id);
         Map<String, Object> before = chitAuditState(chit);
         chit.transitionTo(ChitStatus.DELETED);
         chit.setDeletedAt(LocalDateTime.now());
@@ -503,8 +530,9 @@ public class ChitService {
     /** Internal payout callback. Service authentication does not replace tenant isolation. */
     @Transactional
     public ChitResponse completeAfterFinalDisbursement(UUID id, String tenantId) {
-        Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
+        Chit chit = chitRepository.findByIdAndTenantIdForUpdate(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+        assertScheduleReady(chit);
         if (chit.getStatus() == ChitStatus.COMPLETED) {
             lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
             return enrich(chit);
@@ -536,8 +564,9 @@ public class ChitService {
                 || "PROCESSING".equals(c.getStatus())).count();
         String status = commands.isEmpty() ? "NOT_SCHEDULED"
                 : failed > 0 ? "FAILED"
-                : completed == commands.size() ? "COMPLETED"
-                : retrying > 0 ? "RETRYING" : "PENDING";
+                : retrying > 0 ? "RETRYING"
+                : pending > 0 ? "PENDING"
+                : "REJECTED".equals(commands.get(commands.size() - 1).getStatus()) ? "REJECTED" : "COMPLETED";
         String lastError = commands.stream()
                 .map(ChitLifecycleCommand::getLastErrorCode)
                 .filter(java.util.Objects::nonNull)
@@ -591,7 +620,9 @@ public class ChitService {
                     .createdBy(createdBy)
                     .build();
         }).toList();
-        return reservationRepository.saveAll(entities);
+        List<MonthReservation> saved = reservationRepository.saveAll(entities);
+        auditCreatedSlots(chit, saved, createdBy);
+        return saved;
     }
 
     // Pre-populate every month with an UNALLOCATED slot so the Schedule tab
@@ -609,6 +640,19 @@ public class ChitService {
                     .build());
         }
         reservationRepository.saveAll(slots);
+        auditCreatedSlots(chit, slots, createdBy);
+    }
+
+    private void auditCreatedSlots(Chit chit, List<MonthReservation> slots, UUID actor) {
+        for (MonthReservation slot : slots) {
+            Map<String, Object> state = new java.util.LinkedHashMap<>();
+            state.put("memberId", slot.getMemberId()); state.put("orgHeld", slot.isOrgHeld());
+            state.put("monthNumber", slot.getMonthNumber()); state.put("reservationMonth", slot.getReservationMonth());
+            state.put("payoutAmount", slot.getPayoutAmount()); state.put("postPayoutContribution", slot.getPostPayoutContribution());
+            state.put("status", slot.getStatus());
+            auditClient.log("RESERVATION_SLOT", slot.getId().toString(), chit.getId().toString(),
+                    "SLOT_CREATED", actor != null ? actor.toString() : null, null, null, state, chit.getTenantId());
+        }
     }
 
     // Used by internal cross-service calls (no tenant context available)
@@ -621,8 +665,24 @@ public class ChitService {
     // writes for the same chit must serialize (e.g. winner assignment) rather than
     // both reading stale state and racing past each other.
     public Chit findByIdForUpdate(UUID id) {
-        return chitRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
-                .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+        return assertScheduleReady(chitRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", id)));
+    }
+
+    // Resolve the aggregate with a locking query, without first loading an invitation
+    // into the persistence context or creating a repeatable-read snapshot.
+    public Chit findByInvitationForUpdate(UUID invitationId) {
+        return assertScheduleReady(chitRepository.findByInvitationForUpdate(invitationId, TenantContext.get())
+                .orElseThrow(() -> new ResourceNotFoundException("Invitation", invitationId)));
+    }
+
+    public static Chit assertScheduleReady(Chit chit) {
+        if (chit.getScheduleSyncCommandId() != null) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "This chit's skipped draw and schedule are still syncing. Wait for sync or retry it before making another change.",
+                    org.springframework.http.HttpStatus.CONFLICT);
+        }
+        return chit;
     }
 
     // Used by all admin-facing operations — enforces tenant ownership
@@ -648,9 +708,25 @@ public class ChitService {
         return response;
     }
 
+    private List<Map<String, Object>> scheduleDates(List<MonthReservation> slots) {
+        return slots.stream().map(slot -> {
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("id", slot.getId()); row.put("monthNumber", slot.getMonthNumber());
+            row.put("reservationMonth", slot.getReservationMonth()); return row;
+        }).toList();
+    }
+
     private Map<String, Object> chitAuditState(Chit chit) {
         Map<String, Object> state = new java.util.LinkedHashMap<>();
         state.put("name", chit.getName());
+        state.put("description", chit.getDescription());
+        state.put("monthlyDueDate", chit.getMonthlyDueDate());
+        state.put("auctionMode", chit.getAuctionMode());
+        state.put("orgHeldSpotsCount", chit.getOrgHeldSpotsCount());
+        state.put("postPayoutContributionEnabled", chit.isPostPayoutContributionEnabled());
+        state.put("defaultPostPayoutContribution", chit.getDefaultPostPayoutContribution());
+        state.put("totalPausedMonths", chit.getTotalPausedMonths());
+        state.put("pausedAt", chit.getPausedAt());
         state.put("status", chit.getStatus() != null ? chit.getStatus().name() : null);
         state.put("chitType", chit.getChitType() != null ? chit.getChitType().name() : null);
         state.put("winnerSelectionMode", chit.getWinnerSelectionMode() != null

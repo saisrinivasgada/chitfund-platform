@@ -98,6 +98,21 @@ class AuthServiceTest {
     }
 
     @Test
+    void concurrentAccountChangeIsNotCountedAsAnIncorrectPassword() {
+        User user = User.builder().id(UUID.randomUUID()).username("staff.concurrent")
+                .passwordHash("hash").role(Role.STAFF).build();
+        LoginRequest request = new LoginRequest(); request.setUsername(user.getUsername()); request.setPassword("Correct@123");
+        when(userRepository.findByUsername(user.getUsername())).thenReturn(Optional.of(user));
+        when(authenticationManager.authenticate(any())).thenReturn(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
+        when(userRepository.save(user)).thenThrow(
+                new org.springframework.orm.ObjectOptimisticLockingFailureException(User.class, user.getId()));
+        assertThatThrownBy(() -> authService.login(request, null))
+                .isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+        verify(authenticationSecurityService, never()).recordFailedLoginAttempt(any());
+    }
+
+    @Test
     void revokedRefreshTokenReplayRevokesSessionsOutsideRejectedTransaction() {
         User user = User.builder().id(UUID.randomUUID()).username("member.replay")
                 .role(Role.MEMBER).build();

@@ -14,8 +14,8 @@ expo-env.d.ts
 .expo/
 
 # Generated native dirs (EAS builds use managed workflow)
-ios/
-android/
+/ios/
+/android/
 dist/
 .expo/prebuild/
 .expo/web/

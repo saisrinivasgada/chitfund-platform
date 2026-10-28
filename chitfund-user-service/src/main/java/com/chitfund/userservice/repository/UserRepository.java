@@ -29,6 +29,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u FROM User u WHERE u.id = :id")
     Optional<User> findByIdForUpdate(UUID id);
 
+    // A current locking read is required even if a caller performed username/email
+    // checks before acquiring the tenant quota mutex under REPEATABLE_READ.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.tenantId=:tenantId AND u.role IN :roles " +
+            "AND u.deletedAt IS NULL AND u.enabled=true ORDER BY u.id")
+    java.util.List<User> findActiveStaffForUpdate(String tenantId, java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
+
     Optional<User> findByEmail(String email);
 
     boolean existsByUsername(String username);

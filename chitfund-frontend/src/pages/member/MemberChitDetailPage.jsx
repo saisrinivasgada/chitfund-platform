@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
-  getChit, getPaymentHistory, getMemberBalance, getDraws, getWinners, getMyMemberProfile,
+  getChit, getPaymentHistory, getMemberBalance, getMyDraws, getWinners, getMyMemberProfile,
   getPayoutsForMember, getPayoutById, getMyReservations,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
@@ -248,7 +248,7 @@ export default function MemberChitDetailPage() {
 
   const { data: draws = [] } = useQuery({
     queryKey: ['draws', chitId],
-    queryFn: () => getDraws(chitId),
+    queryFn: () => getMyDraws(chitId),
     enabled: !!chitId,
     refetchOnWindowFocus: true,
     refetchInterval: 60_000,
@@ -575,7 +575,7 @@ export default function MemberChitDetailPage() {
                           {ha(r.amountPaid)}
                           <span className="text-xs text-gray-400 font-normal"> / {ha(r.amountDue)}</span>
                         </p>
-                        {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID') && (
+                        {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID' || r.status === 'PARTIAL_CREDIT') && (
                           <p className="text-xs text-red-500">{ha(cycleOutstanding)} due</p>
                         )}
                       </div>

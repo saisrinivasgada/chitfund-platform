@@ -1,0 +1,130 @@
+appId: com.chitwise.mobile
+---
+# Runs after the complete financial suite, on a disposable emulator with a PIN.
+# The app uses the real Android credential prompt; there is no QA auth bypass.
+- tapOn: "Profile Menu"
+- tapOn: "Security"
+- scrollUntilVisible:
+    element:
+      id: "device-unlock-setting"
+- tapOn:
+    id: "device-unlock-setting"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: "Protects app opening and account switching"
+    timeout: 15000
+- tapOn:
+    id: "close-account-settings"
+# A wrong OS PIN must not grant access; Back cancels without logging out.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "com.android.systemui:id/lockPassword"
+    timeout: 15000
+- inputText: "000000"
+- pressKey: Enter
+- waitForAnimationToEnd
+- assertVisible:
+    id: "com.android.systemui:id/auth_credential_input"
+- runFlow: cancel-pin.yaml
+- extendedWaitUntil:
+    visible: "ChitWise is locked"
+    timeout: 15000
+- tapOn:
+    id: "unlock-chitwise"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    notVisible: "ChitWise is locked"
+    timeout: 15000
+# Cancelling a switch keeps A selected; the next switch uses another OS proof.
+# Stay inside the app. An external intent genuinely backgrounds Android and
+# correctly requires another opening proof, unrelated to account selection.
+- tapOn: "Profile Menu"
+- scrollUntilVisible:
+    element: "Switch Account"
+- tapOn: "Switch Account"
+- scrollUntilVisible:
+    element:
+      id: "switch-account-offline-b"
+- tapOn:
+    id: "switch-account-offline-b"
+- extendedWaitUntil:
+    visible:
+      id: "com.android.systemui:id/lockPassword"
+    timeout: 15000
+- runFlow: cancel-pin.yaml
+- assertVisible:
+    id: "switch-account-offline-b"
+- assertNotVisible:
+    id: "switch-account-offline-a"
+- tapOn:
+    id: "switch-account-offline-b"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 30000
+# Stay inside the app. An external intent genuinely backgrounds Android and
+# correctly requires another opening proof, unrelated to account selection.
+- tapOn: "Profile Menu"
+- scrollUntilVisible:
+    element: "Switch Account"
+- tapOn: "Switch Account"
+- extendedWaitUntil:
+    visible:
+      id: "switch-account-offline-a"
+    timeout: 30000
+- assertNotVisible:
+    id: "switch-account-offline-b"
+# Returning from the background must also work without internet.
+- runScript:
+    file: ../offline/fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- pressKey: Home
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible:
+      id: "com.android.systemui:id/lockPassword"
+    timeout: 15000
+- runFlow: cancel-pin.yaml
+- assertVisible: "ChitWise is locked"
+- tapOn:
+    id: "unlock-chitwise"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    notVisible: "ChitWise is locked"
+    timeout: 15000
+- runScript:
+    file: ../offline/fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'
+- tapOn:
+    id: "switch-account-offline-a"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 30000
+# Disabling also requires phone proof and is persisted across a cold launch.
+- tapOn: "Profile Menu"
+- tapOn: "Security"
+- scrollUntilVisible:
+    element:
+      id: "device-unlock-setting"
+- tapOn:
+    id: "device-unlock-setting"
+- tapOn: "Disable"
+- runFlow: enter-pin.yaml
+- extendedWaitUntil:
+    visible: "Use your phone’s unlock method"
+    timeout: 15000
+- tapOn:
+    id: "close-account-settings"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 30000
+- assertNotVisible: "ChitWise is locked"
+- assertNotVisible: ".*Enter.*PIN.*"

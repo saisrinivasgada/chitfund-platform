@@ -1,0 +1,6 @@
+{
+  "name": "@chitwise/device-lock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ChitWise iOS window protection during device authentication"
+}

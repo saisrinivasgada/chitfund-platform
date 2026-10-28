@@ -1,0 +1,11 @@
+appId: com.chitwise.mobile
+---
+# The first Back can dismiss the PIN keyboard. Cancel the remaining OS
+# credential prompt only while that exact System UI window is still present.
+- back
+- runFlow:
+    when:
+      visible:
+        id: "com.android.systemui:id/auth_credential_input"
+    commands:
+      - back

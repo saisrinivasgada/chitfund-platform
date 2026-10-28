@@ -18,6 +18,7 @@ public class ReservationSlotRequest {
     // Optional: if set, the slot is created at this exact ordinal position
     // (used when filling a voided slot at its original monthNumber).
     // If omitted, the backend assigns max(monthNumber)+1 automatically.
+    @jakarta.validation.constraints.Min(1)
     private Integer monthNumber;
 
     // null = unallocated; admin assigns later
@@ -32,6 +33,9 @@ public class ReservationSlotRequest {
 
     // Overrides chit's defaultPostPayoutContribution for this slot only
     private BigDecimal postPayoutContribution;
+
+    // Version of the schedule row the operator actually viewed.
+    private Long expectedVersion;
 
     private String notes;
 }

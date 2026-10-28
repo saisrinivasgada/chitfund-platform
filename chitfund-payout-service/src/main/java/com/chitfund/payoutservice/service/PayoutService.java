@@ -83,6 +83,7 @@ public class PayoutService {
             return toResponse(prior);
         }
 
+        chitServiceClient.assertScheduleReady(request.getChitId(), currentTenant);
         ChitServiceClient.WinnerDto winner = chitServiceClient.getWinnerForPayout(
                 request.getChitId(), request.getMonthNumber(), request.getMemberId(), currentTenant);
         if (winner.getWinnerCount() == 0) {
@@ -234,6 +235,8 @@ public class PayoutService {
                     payoutId, idempotencyKey);
             return toResponse(payout);
         }
+
+        chitServiceClient.assertScheduleReady(payout.getChitId(), payout.getTenantId());
 
         // A payout with withheld dues must not move cash until payment-service
         // has durably acknowledged every earlier deduction command. This keeps

@@ -1,0 +1,148 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+# This member belongs to organisation A and reads A's actual posted ledger.
+# Its separate READ-only grant must never grant collection permissions.
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/login?addAccount=1&username=offline-member-a'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your password"
+    timeout: 60000
+- waitForAnimationToEnd
+- tapOn: "Enter your password"
+- waitForAnimationToEnd
+- inputText: "local-qa-only"
+- pressKey: Enter
+- waitForAnimationToEnd
+- runFlow: dismiss-password-prompt.yaml
+- extendedWaitUntil:
+    visible: ".*My Chits.*|Welcome to ChitWise|.*OUTSTANDING BALANCE.*"
+    timeout: 60000
+- tapOn:
+    text: "No thanks"
+    optional: true
+- tapOn:
+    text: "Skip for now"
+    optional: true
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chits'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: '.*Owes ₹500\b.*'
+    timeout: 60000
+- assertVisible: '.*Paid up\b.*'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=50000000-0000-0000-0000-000000000001'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Owes ₹500"
+    timeout: 60000
+- assertNotVisible: "Paid up"
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=40000000-0000-0000-0000-000000000001'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Paid up"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Total Paid"
+    centerElement: false
+- assertVisible: "₹1,000"
+- assertNotVisible: "Owes ₹1,000"
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/payments'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "₹1,000"
+    timeout: 60000
+- assertNotVisible: "Offline collection reviews.*"
+- assertNotVisible: "Cancelled locally"
+- tapOn:
+    id: "member-payment-.*"
+- extendedWaitUntil:
+    visible: "AMOUNT PAID"
+    timeout: 15000
+- assertVisible: "₹1,000"
+- tapOn: "Close payment receipt"
+- waitForAnimationToEnd
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ".*My Chits.*"
+    timeout: 60000
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=50000000-0000-0000-0000-000000000001'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Owes ₹500"
+    timeout: 60000
+- assertNotVisible: "Paid up"
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(member)/chit-detail?chitId=40000000-0000-0000-0000-000000000001'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Paid up"
+    timeout: 60000
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- scrollUntilVisible:
+    element:
+      id: "switch-account-offline-a"
+    centerElement: false
+- tapOn:
+    id: "switch-account-offline-a"
+- extendedWaitUntil:
+    visible: ".*Dashboard.*"
+    timeout: 60000

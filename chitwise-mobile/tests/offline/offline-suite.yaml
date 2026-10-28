@@ -1,0 +1,19 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow: empty-reviews.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- stopApp
+- runFlow: save-collection.yaml
+- stopApp
+- runFlow: reopen-saved-collection.yaml
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","due":0}'
+- stopApp
+- runFlow: cancel-mistaken-entry.yaml

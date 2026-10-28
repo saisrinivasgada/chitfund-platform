@@ -1,0 +1,12 @@
+appId: com.chitwise.mobile
+---
+# Android protects screenshots; wait for its actual credential input, not a
+# guessed PIN label, before typing into the native OS prompt.
+# The caller asserts the resulting protected app state after native PIN entry.
+- extendedWaitUntil:
+    visible:
+      id: "com.android.systemui:id/lockPassword"
+    timeout: 15000
+- inputText: "246810"
+- pressKey: Enter
+- waitForAnimationToEnd

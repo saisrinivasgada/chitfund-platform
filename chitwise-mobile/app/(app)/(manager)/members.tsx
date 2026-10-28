@@ -1,3 +1,4 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState, useEffect } from 'react';
 import { View, Text, FlatList, RefreshControl, TextInput, Modal, ScrollView, TouchableOpacity, Linking, ActivityIndicator, Alert } from 'react-native';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
@@ -12,12 +13,12 @@ function MemberBalance({ memberId }: { memberId: string }) {
     queryFn: () => getMemberTotalBalance(memberId),
     staleTime: 120_000,
   });
-  if (bal == null) return null;
+  if (bal == null) return <ReadDataBoundary label="Balance" queryKeys={[['m-member-total-balance', memberId]]} compact>{null}</ReadDataBoundary>;
   const num = Number(bal);
   return (
-    <Text style={{ fontSize: 12, fontWeight: '600', color: num > 0 ? C.red : C.green, marginTop: 2 }}>
+    <ReadDataBoundary label="Balance" queryKeys={[['m-member-total-balance', memberId]]} compact><Text style={{ fontSize: 12, fontWeight: '600', color: num > 0 ? C.red : C.green, marginTop: 2 }}>
       {num > 0 ? `Owes ₹${num.toLocaleString('en-IN')}` : 'Paid up'}
-    </Text>
+    </Text></ReadDataBoundary>
   );
 }
 
@@ -29,12 +30,12 @@ function ChitBalanceBadge({ memberId, chitId }: { memberId: string; chitId: stri
   });
   const outstanding = Number(balance?.totalOutstanding ?? 0);
   if (outstanding > 0) {
-    return <Text style={{ fontSize: 11, fontWeight: '700', color: C.red }}>₹{outstanding.toLocaleString('en-IN')} due</Text>;
+    return <ReadDataBoundary label="Balance" queryKeys={[['m-chit-balance', memberId, chitId]]} compact><Text style={{ fontSize: 11, fontWeight: '700', color: C.red }}>₹{outstanding.toLocaleString('en-IN')} due</Text></ReadDataBoundary>;
   }
   if (balance !== undefined) {
-    return <Text style={{ fontSize: 11, fontWeight: '700', color: C.green }}>Clear ✓</Text>;
+    return <ReadDataBoundary label="Balance" queryKeys={[['m-chit-balance', memberId, chitId]]} compact><Text style={{ fontSize: 11, fontWeight: '700', color: C.green }}>Clear ✓</Text></ReadDataBoundary>;
   }
-  return null;
+  return <ReadDataBoundary label="Balance" queryKeys={[['m-chit-balance', memberId, chitId]]} compact>{null}</ReadDataBoundary>;
 }
 
 function MemberDetailModal({ member, onClose }: { member: any; onClose: () => void }) {
@@ -183,6 +184,8 @@ export default function ManagerMembersScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Members" queryKeys={[['mgr-members-page', debouncedSearch]]}>
+
       <FlatList
         data={members}
         keyExtractor={(m: any) => m.id}
@@ -233,6 +236,7 @@ export default function ManagerMembersScreen() {
       />
 
       {selected && <MemberDetailModal member={selected} onClose={() => setSelected(null)} />}
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

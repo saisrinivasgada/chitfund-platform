@@ -1,0 +1,27 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - runScript: open-app-route.js
+      # iOS may present the confirmation late, or remember an earlier approval
+      # and navigate directly. Each optional tap has Maestro's bounded element
+      # wait; repeat to catch a late prompt without requiring one on every link.
+      # Callers still assert the exact destination before touching any data.
+      - repeat:
+          times: 3
+          commands:
+            - tapOn:
+                text: "Open"
+                optional: true
+      - extendedWaitUntil:
+          notVisible: 'Open in .*ChitWise.*'
+          timeout: 15000
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - openLink: ${APP_LINK}

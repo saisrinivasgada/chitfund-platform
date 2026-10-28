@@ -34,6 +34,7 @@ public class AdminWalletService {
     private final AdminWalletRepository walletRepository;
     private final PlanExpiryChecker planExpiryChecker;
     private final MemberCreditService memberCreditService;
+    private final com.chitfund.paymentservice.client.AuditClient auditClient;
 
     @Transactional
     public AdminWalletEntryResponse addEntry(AdminWalletEntryRequest req, UUID createdBy, String tenantId) {
@@ -52,7 +53,9 @@ public class AdminWalletService {
                 .createdAt(LocalDateTime.now())
                 .createdBy(createdBy)
                 .build();
-        return toResponse(walletRepository.save(entry));
+        AdminWalletEntry saved = walletRepository.save(entry);
+        auditEntry(saved);
+        return toResponse(saved);
     }
 
     /** Records an already-authorized payout fact. Plan expiry must not suppress
@@ -75,7 +78,7 @@ public class AdminWalletService {
                 .createdAt(LocalDateTime.now())
                 .createdBy(actorId)
                 .build();
-        walletRepository.save(entry);
+        auditEntry(walletRepository.save(entry));
     }
 
     public AdminWalletBalanceResponse getBalance(String tenantId) {
@@ -150,8 +153,11 @@ public class AdminWalletService {
                 .createdBy(createdBy)
                 .build();
 
-        return List.of(toResponse(walletRepository.save(outEntry)),
-                       toResponse(walletRepository.save(inEntry)));
+        AdminWalletEntry savedOut = walletRepository.save(outEntry);
+        AdminWalletEntry savedIn = walletRepository.save(inEntry);
+        auditEntry(savedOut);
+        auditEntry(savedIn);
+        return List.of(toResponse(savedOut), toResponse(savedIn));
     }
 
     @Transactional
@@ -187,7 +193,22 @@ public class AdminWalletService {
                 .createdAt(java.time.LocalDateTime.now())
                 .createdBy(adminId)
                 .build();
-        return toResponse(walletRepository.save(entry));
+        AdminWalletEntry saved = walletRepository.save(entry);
+        auditEntry(saved);
+        return toResponse(saved);
+    }
+
+    private void auditEntry(AdminWalletEntry entry) {
+        var after = new java.util.LinkedHashMap<String, Object>();
+        after.put("accountType", entry.getAccountType());
+        after.put("entryType", entry.getEntryType());
+        after.put("amount", entry.getAmount());
+        after.put("category", entry.getCategory());
+        after.put("referenceId", entry.getReferenceId());
+        after.put("reversalOfEntryId", entry.getReversalOfEntryId());
+        auditClient.log("TREASURY_ENTRY", entry.getId().toString(), null, "TREASURY_ENTRY_RECORDED",
+                entry.getCreatedBy() != null ? entry.getCreatedBy().toString() : null, null,
+                null, after, entry.getTenantId());
     }
 
     private AdminWalletEntryResponse toResponse(AdminWalletEntry e) {

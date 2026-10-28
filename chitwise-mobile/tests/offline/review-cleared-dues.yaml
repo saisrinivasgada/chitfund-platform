@@ -1,0 +1,27 @@
+# Local QA only: reconnect the fixture and set organisation a dues to zero after saving the collection.
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- tapOn: "Finance(, tab,.*)?"
+- waitForAnimationToEnd
+- tapOn:
+    id: "sync-status-button"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Sync now"
+    timeout: 10000
+- tapOn: "Sync now"
+- runFlow: close-sync-details.yaml
+- extendedWaitUntil:
+    visible: "Review needed|Sync needs attention.*"
+    timeout: 60000
+- assertVisible: "Saved payment activity"
+- tapOn: "Offline collection reviews.*"
+- extendedWaitUntil:
+    visible: ".*Collection exceeds current dues.*"
+    timeout: 30000
+- tapOn: ".*QA Member A.*"
+- extendedWaitUntil:
+    visible: ".*₹1,000 collected.*₹0 due in this chit.*"
+    timeout: 30000

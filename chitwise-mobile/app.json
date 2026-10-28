@@ -2,7 +2,7 @@
   "expo": {
     "name": "ChitWise",
     "slug": "chitwise-mobile",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "chitwise",
@@ -13,6 +13,7 @@
       "backgroundColor": "#1E3A5F"
     },
     "ios": {
+      "buildNumber": "6",
       "supportsTablet": true,
       "bundleIdentifier": "com.chitwise.mobile",
       "infoPlist": {
@@ -25,7 +26,7 @@
         "backgroundColor": "#1E3A5F"
       },
       "package": "com.chitwise.mobile",
-      "versionCode": 4
+      "versionCode": 6
     },
     "web": {
       "bundler": "metro",
@@ -50,6 +51,12 @@
           "color": "#1E3A5F",
           "defaultChannel": "default",
           "sounds": []
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow ChitWise to use Face ID when opening the app and switching accounts."
         }
       ]
     ],

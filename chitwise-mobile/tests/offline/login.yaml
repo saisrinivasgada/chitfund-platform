@@ -1,0 +1,41 @@
+# Local dummy account only; no production credentials or OTP shortcuts.
+appId: com.chitwise.mobile
+---
+- launchApp
+# Recover only a named system launcher ANR. A ChitWise app ANR still fails.
+- repeat:
+    times: 3
+    commands:
+      - extendedWaitUntil:
+          visible: "Enter your username|Quickstep isn't responding|Pixel Launcher isn't responding"
+          timeout: 60000
+      - runFlow:
+          when:
+            platform: Android
+            visible: "Quickstep isn't responding|Pixel Launcher isn't responding"
+          commands:
+            - tapOn: "Close app"
+            - launchApp
+- assertVisible: "Enter your username"
+- waitForAnimationToEnd
+- tapOn: "Enter your username"
+- waitForAnimationToEnd
+- inputText: "offline-a"
+- assertVisible: "offline-a"
+- tapOn: "Enter your password"
+- waitForAnimationToEnd
+- inputText: "local-qa-only"
+- pressKey: Enter
+- waitForAnimationToEnd
+- runFlow: dismiss-password-prompt.yaml
+- extendedWaitUntil:
+    visible: ".*Dashboard.*|Welcome to ChitWise"
+    timeout: 60000
+- waitForAnimationToEnd
+- tapOn:
+    text: "No thanks"
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    text: "Skip for now"
+    optional: true

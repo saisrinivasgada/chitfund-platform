@@ -21,6 +21,7 @@ public class PayoutFinancialCommandService {
     private final InternalFinancialOperationRepository receiptRepository;
     private final PaymentService paymentService;
     private final AdminWalletService walletService;
+    private final com.chitfund.paymentservice.client.AuditClient auditClient;
 
     @Transactional
     public void execute(PayoutFinancialCommandRequest request, String authenticatedTenantId) {
@@ -85,6 +86,14 @@ public class PayoutFinancialCommandService {
                 default -> throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Unknown payout financial command", HttpStatus.BAD_REQUEST);
             }
+            var details = new java.util.LinkedHashMap<String, Object>();
+            details.put("commandId", request.commandId()); details.put("commandType", request.commandType());
+            details.put("payoutId", request.payoutId()); details.put("memberId", request.memberId());
+            details.put("monthNumber", request.monthNumber()); details.put("amount", request.amount());
+            auditClient.log("PAYOUT", request.payoutId().toString(),
+                    request.chitId() != null ? request.chitId().toString() : null,
+                    "PAYOUT_FINANCIAL_COMMAND_APPLIED", request.actorId().toString(), null,
+                    null, details, request.tenantId());
         } finally {
             if (previousTenant == null || previousTenant.isBlank()) TenantContext.clear();
             else TenantContext.set(previousTenant);

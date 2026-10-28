@@ -13,6 +13,7 @@ import {
 import { C, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, Divider } from '../../../components/ui';
 import EditProfileModal from '../../../components/EditProfileModal';
 import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
+import { OfflineSnapshotLabel } from '../../../components/OfflineSnapshotLabel';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
 import RoleLogo from '../../../components/RoleLogo';
@@ -100,7 +101,7 @@ export default function ManagerDashboardScreen() {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Manager Dashboard</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>{user?.tenantName ?? 'Your organization'}</Text>
-              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
+
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -113,6 +114,8 @@ export default function ManagerDashboardScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        <SyncStatusCard compact />
 
         <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
           <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
@@ -191,6 +194,7 @@ export default function ManagerDashboardScreen() {
             <Card style={{ alignItems: 'center' }}>
               <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingRemit as any[]).length > 0 ? C.amber : C.gray400 }}>{(pendingRemit as any[]).length}</Text>
               <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Pending Remittance</Text>
+              <OfflineSnapshotLabel queryKey={['pending-remit']} />
             </Card>
           </TouchableOpacity>
           <TouchableOpacity activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)} style={{ width: '48%' }}>
@@ -203,6 +207,7 @@ export default function ManagerDashboardScreen() {
             <Card style={{ alignItems: 'center' }}>
               <Text style={{ fontSize: 26, fontWeight: '800', color: pendingPickups > 0 ? C.red : C.gray400 }}>{pendingPickups}</Text>
               <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1}>Unassigned Pickups</Text>
+              <OfflineSnapshotLabel queryKey={['cash-requests']} />
             </Card>
           </TouchableOpacity>
         </View>
@@ -294,6 +299,7 @@ export default function ManagerDashboardScreen() {
         {assignedPickups > 0 && (
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Cash Pickups In Progress (${assignedPickups})`} />
+            <OfflineSnapshotLabel queryKey={['cash-requests']} />
             {(cashRequests as any[]).filter((r: any) => r.status === 'ASSIGNED').map((r: any) => (
               <TouchableOpacity key={r.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/pickups' as any)}>
                 <Card style={{ marginBottom: 8 }}>
@@ -314,6 +320,7 @@ export default function ManagerDashboardScreen() {
         {(pendingRemit as any[]).length > 0 && (
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Pending Remittance (${(pendingRemit as any[]).length})`} />
+            <OfflineSnapshotLabel queryKey={['pending-remit']} />
             {(pendingRemit as any[]).slice(0, 5).map((b: any) => (
               <TouchableOpacity key={b.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)}>
                 <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>

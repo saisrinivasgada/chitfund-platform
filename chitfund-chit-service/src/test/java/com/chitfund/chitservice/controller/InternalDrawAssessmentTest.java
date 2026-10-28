@@ -153,6 +153,7 @@ class InternalDrawAssessmentTest {
         UUID chitId = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
         Chit chit = Chit.builder().id(chitId).tenantId(TENANT).name("Gold").build();
+        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, TENANT)).thenReturn(Optional.of(chit));
         MonthlyWinner winner = MonthlyWinner.builder()
                 .id(UUID.randomUUID()).chit(chit).memberId(memberId).monthNumber(3)
                 .winningAmount(new BigDecimal("45000.00"))
@@ -177,6 +178,7 @@ class InternalDrawAssessmentTest {
     void missingOrForeignWinnerReturnsNoFinancialDetails() {
         UUID chitId = UUID.randomUUID();
         UUID memberId = UUID.randomUUID();
+        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, TENANT)).thenReturn(Optional.of(Chit.builder().id(chitId).tenantId(TENANT).build()));
         when(winnerRepository.findForPayoutValidation(chitId, 1, memberId, TENANT))
                 .thenReturn(List.of());
 
@@ -188,4 +190,14 @@ class InternalDrawAssessmentTest {
         assertThat(body.getData()).containsOnlyKeys("winnerCount")
                 .containsEntry("winnerCount", 0);
     }
+    @Test
+    void payoutWinnerValidationPausesWhileScheduleSyncIsUnresolved() {
+        UUID chitId = UUID.randomUUID();
+        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, TENANT)).thenReturn(Optional.of(
+                Chit.builder().id(chitId).tenantId(TENANT).scheduleSyncCommandId(UUID.randomUUID()).build()));
+        assertThatThrownBy(() -> controller.getWinnerForPayout(chitId, 1, UUID.randomUUID(), TENANT, KEY))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class).hasMessageContaining("still syncing");
+        org.mockito.Mockito.verifyNoInteractions(winnerRepository);
+    }
+
 }

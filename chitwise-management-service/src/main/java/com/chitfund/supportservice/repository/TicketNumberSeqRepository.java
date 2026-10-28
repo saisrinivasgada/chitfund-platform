@@ -18,6 +18,11 @@ public interface TicketNumberSeqRepository extends JpaRepository<TicketNumberSeq
     Optional<TicketNumberSeq> findByYearForUpdate(@Param("year") int year);
 
     @Modifying
+    @Query(value = "INSERT INTO ticket_number_seq (year, last_val) VALUES (:year, 0) " +
+            "ON DUPLICATE KEY UPDATE last_val = ticket_number_seq.last_val", nativeQuery = true)
+    void initializeYear(@Param("year") int year);
+
+    @Modifying
     @Query("UPDATE TicketNumberSeq s SET s.lastVal = s.lastVal + 1 WHERE s.year = :year")
     int incrementByYear(@Param("year") int year);
 }

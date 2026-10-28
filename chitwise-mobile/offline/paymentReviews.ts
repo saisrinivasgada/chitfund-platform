@@ -1,0 +1,137 @@
+import { refreshPostedCollection } from './financialRefresh';
+import { legacyStaffEvidence } from '../../shared/offline/legacyStaffEvidence';
+import { useAuthStore } from '../store/authStore';
+import { getStoredAccountScope } from './accountScope';
+import { accountForScope } from './accountClient';
+import { requestAsAccount } from './accountClient';
+import { claimRecoveryOperation, completeRecoveryOperation, completeReviewedOperation, releaseRecoveryOperation, deferReviewPoll, getOperationsAwaitingReview, getRecoverablePayments, getRecoverableStaffCollections, hasOfflineDatabase, updateOperation } from './database';
+import type { QueuedOperation } from './types';
+
+async function recoverClaimed(operation: QueuedOperation, send: () => Promise<{ reviewId?: string }>) {
+  const lease = await claimRecoveryOperation(operation);
+  if (!lease) return false;
+  let completed = false;
+  try {
+    const result = await send();
+    if (!result?.reviewId) throw new Error('Server did not confirm recovery; the original collection remains on this device');
+    completed = await completeRecoveryOperation(operation, lease, result.reviewId);
+    return completed;
+  } finally { if (!completed) await releaseRecoveryOperation(operation, lease); }
+}
+
+export async function loadOfflinePaymentReviews(scope: string, page = 0) {
+  return (await requestAsAccount(scope, { method: 'GET', url: '/payments/offline/reviews', params: { page, size: 20 } })).data.data;
+}
+export async function getOfflinePaymentReview(scope: string, id: string) {
+  return (await requestAsAccount(scope, { method: 'GET', url: `/payments/offline/reviews/${id}` })).data.data;
+}
+export async function getOfflinePaymentReviewMatches(scope: string, id: string, page: number) {
+  return (await requestAsAccount(scope, { method: 'GET', url: `/payments/offline/reviews/${id}/matches`, params: { page, size: 10 } })).data.data;
+}
+export async function resolveOfflinePaymentReview(scope: string, id: string, decision: {
+  decision: string; expectedBalanceVersion: string; reason: string; existingReceiptId?: string;
+}) {
+  return (await requestAsAccount(scope, { method: 'POST', url: `/payments/offline/reviews/${id}/resolve`, data: decision })).data.data;
+}
+export async function recordOfflineCollectionRefund(scope: string, id: string, refund: {
+  amount: number; paymentMode: string; reference: string; refundedAt: string; reason: string; moneyReturned: boolean;
+}) {
+  return (await requestAsAccount(scope, { method: 'POST', url: `/payments/offline/reviews/${id}/refund`, data: refund })).data.data;
+}
+export async function refreshReviewedPayments(scope: string, force = false, deadline = Infinity, deliveryScope = scope) {
+  let confirmed = 0;
+  for (const operation of await getOperationsAwaitingReview(scope, force)) {
+    if (Date.now() >= deadline) break;
+    let unavailable = false;
+    try {
+      const owner = accountForScope(deliveryScope);
+      if (deliveryScope !== scope && (owner?.role !== 'ADMIN' || owner.tenantId !== operation.tenantId)) throw new Error('Review belongs to another organisation');
+      if (operation.action !== 'RECORD_PAYMENT') {
+        const review = (await requestAsAccount(deliveryScope, { method: 'GET', url: `/payments/offline/staff-actions/reviews/${operation.serverReviewId}` })).data.data;
+        if (['RECORDED', 'LINKED', 'CANCELLED', 'REFUNDED'].includes(review.status)) {
+          const applied = await completeReviewedOperation(operation, { serverReceiptId: ['RECORDED','LINKED'].includes(review.status) ? operation.entityId : undefined,
+            serverReceipt: { ...(review.result?.outcome ?? review.result ?? {}), offlineReviewResolution: review.status,
+              reviewId: review.id, reason: review.resolutionReason } });
+          if (applied) confirmed++;
+        }
+        continue;
+      }
+      const review = await getOfflinePaymentReview(deliveryScope, operation.serverReviewId!);
+      if ((review.status === 'REFUNDED' && review.refund) || review.status === 'CANCELLED') {
+        const applied = await completeReviewedOperation(operation, { serverReceipt: {
+          offlineReviewResolution: review.status, reviewId: review.id, refund: review.refund, reason: review.resolutionReason,
+        } });
+        if (applied) confirmed++;
+      } else if (['APPLIED', 'DUPLICATE'].includes(review.status) && review.receiptId) {
+        const receipt = (await requestAsAccount(deliveryScope, { method: 'GET', url: `/payments/batches/${review.receiptId}` })).data.data;
+        if (!receipt?.id) throw new Error('Reviewed receipt is not available yet');
+        const applied = await completeReviewedOperation(operation, { serverReceiptId: receipt.id,
+          serverReceipt: { ...receipt, offlineReviewResolution: review.status } });
+        if (applied) {
+          try { await refreshPostedCollection(deliveryScope, operation.payload, receipt); } catch {}
+          confirmed++;
+        }
+      }
+    } catch (error: any) {
+      const status = error?.response?.status;
+      unavailable = !status || status === 401 || status >= 500 || [408, 429].includes(status);
+    }
+    finally { await deferReviewPoll(operation); }
+    if (unavailable) break;
+  }
+  return confirmed;
+}
+
+export async function cancelOfflineCollection(scope: string, id: string, reason: string, noMoneyCollected: boolean) {
+  return (await requestAsAccount(scope, { method: 'POST', url: `/payments/offline/reviews/${id}/cancel`, data: { reason, noMoneyCollected } })).data.data;
+}
+
+/** Current same-tenant admin may quarantine historical evidence, never silently post it. */
+export async function recoverSavedCollections(adminScope: string) {
+  const admin = accountForScope(adminScope);
+  if (!admin?.sessionValid || admin.role !== 'ADMIN' || !admin.tenantId) throw new Error('An organisation admin must sign in to recover saved collections');
+  let count = 0;
+  for (const account of useAuthStore.getState().accounts.filter((a) => a.tenantId === admin.tenantId && a.authSource !== 'HUB')) {
+    for (const scope of [...new Set([getStoredAccountScope(account), ...(account.retainedOfflineScopes ?? [])])]) {
+      if (!await hasOfflineDatabase(scope)) continue;
+      for (const operation of await getRecoverablePayments(scope)) {
+        if (operation.tenantId !== admin.tenantId || operation.serverReceipt || operation.payload.localRecoveryRequired || (!operation.payload.offlineAuthorization && !scope.endsWith(':ADMIN'))) continue;
+        if (await recoverClaimed(operation, async () => (await requestAsAccount(adminScope, { method: 'POST', url: operation.payload.offlineAuthorization ? '/payments/offline/reviews/recover' : '/payments/offline/reviews/recover-legacy',
+          headers: { 'X-Idempotency-Key': operation.operationId }, data: { originalActorId: operation.actorId, original: operation.payload } })).data.data)) count++;
+      }
+      const originalRole = scope.slice(scope.lastIndexOf(':') + 1);
+      if (['STAFF','MANAGER'].includes(originalRole)) for (const operation of await getRecoverableStaffCollections(scope)) {
+        if (operation.tenantId !== admin.tenantId || operation.serverReceipt || operation.payload.localRecoveryRequired) continue;
+        const snapshot = operation.payload.collectionSnapshot;
+        const original = { ...operation.payload, operationId: operation.operationId, action: operation.action,
+          collectionSnapshot: snapshot ? { memberId: snapshot.memberId, chitId: snapshot.chitId, requestedAmount: snapshot.requestedAmount } : undefined };
+        const signed = !!operation.payload.offlineAuthorization;
+        let legacy: ReturnType<typeof legacyStaffEvidence> | undefined;
+        if (!signed) {
+          try { legacy = legacyStaffEvidence(operation); }
+          catch (error: any) {
+            await updateOperation(operation.operationId, scope, 'PERMANENT_FAILURE', {
+              errorCode: 'LOCAL_RECOVERY_REQUIRED', errorMessage: error.message,
+            });
+            continue; // One damaged record must not prevent other collections reaching review.
+          }
+        }
+        if (await recoverClaimed(operation, async () => (await requestAsAccount(adminScope, { method: 'POST', url: signed ? '/payments/offline/staff-actions/reviews/recover' : '/payments/offline/staff-actions/reviews/recover-legacy',
+          data: { originalActorId: operation.actorId, originalRole, original: signed ? original : legacy } })).data.data)) count++;
+      }
+      await refreshReviewedPayments(scope, true, Date.now() + 20_000, adminScope);
+    }
+  }
+  return count;
+}
+
+export async function refreshRecoveredReviews(adminScope: string, deadline: number) {
+  const admin = accountForScope(adminScope);
+  if (admin?.role !== 'ADMIN' || !admin.sessionValid) return;
+  for (const account of useAuthStore.getState().accounts.filter((a) => a.tenantId === admin.tenantId && a.authSource !== 'HUB')) {
+    for (const scope of [...new Set([getStoredAccountScope(account), ...(account.retainedOfflineScopes ?? [])])]) {
+      if (Date.now() >= deadline) return;
+      if (scope !== adminScope && await hasOfflineDatabase(scope)) await refreshReviewedPayments(scope, false, deadline, adminScope);
+    }
+  }
+}

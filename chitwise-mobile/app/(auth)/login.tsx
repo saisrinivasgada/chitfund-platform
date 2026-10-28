@@ -1,12 +1,14 @@
+import { authorizeAccountLogin } from '../../utils/authorizeAccountLogin';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { authorizeDeviceSession } from '../../utils/deviceUnlockSession';
+import { roleHomePath } from '../../utils/roleRoutes';
 import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, Linking, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { accountStorageId, useAuthStore } from '../../store/authStore';
-import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, refreshAuthToken, getMe } from '../../services/api';
+import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, getMe } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 import OtpCodeInput from '../../components/OtpCodeInput';
-import * as LocalAuthentication from 'expo-local-authentication';
 import {
   isBiometricAvailable,
   isBiometricEnabled,
@@ -14,6 +16,7 @@ import {
   disableBiometric,
   promptBiometric,
   biometricTypeName,
+  rememberUnlockAccount,
 } from '../../utils/biometrics';
 
 const OTP_LOCKOUT_SECS = 300;
@@ -329,7 +332,7 @@ export default function LoginScreen() {
   const [biometricOn, setBiometricOn]       = useState(false);
   const [biometricLabel, setBiometricLabel] = useState('Biometric');
   const [showEnablePrompt, setShowEnablePrompt] = useState(false);
-  const [pendingCreds, setPendingCreds] = useState<{ username: string; refreshToken: string } | null>(null);
+  const [pendingCreds, setPendingCreds] = useState<{ data: any; tenantName?: string } | null>(null);
   const [tenantPicker, setTenantPicker] = useState<{ loginToken: string; tenants: TenantOption[] } | null>(null);
   const [showForgot, setShowForgot] = useState(false);
   const [loginOtpState, setLoginOtpState] = useState<{ otpToken: string; maskedPhone: string } | null>(null);
@@ -364,18 +367,20 @@ export default function LoginScreen() {
   }, []);
 
   useEffect(() => {
-    checkBiometric();
+    checkBiometric().catch(() => setError('Device unlock settings could not be read. Please try again.'));
   }, [checkBiometric]);
 
-  // Auto-trigger biometric on mount (skip in add-account mode)
-  useEffect(() => {
-    if (biometricOn && !isAddAccountMode) {
-      handleBiometricLogin();
+  async function applyAuth(data: any, offerBiometric = false, tenantName?: string, deviceAlreadyApproved = false) {
+    if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword && data.refreshToken) {
+      setPendingCreds({ data, tenantName });
+      setShowEnablePrompt(true);
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [biometricOn]);
-
-  async function applyAuth(data: any, offerBiometric = false, tenantName?: string) {
+    const unlockedAccountId = accountStorageId(data.userId, data.tenantId, 'ORGANIZATION');
+    if (!await authorizeAccountLogin(unlockedAccountId, deviceAlreadyApproved)) {
+      setError('Phone unlock was cancelled. Your current account and saved payments are unchanged.');
+      return;
+    }
     // Wait until SecureStore contains this account's tokens before AuthGuard
     // mounts its role dashboard and dashboard queries begin.
     await setUser({
@@ -391,19 +396,22 @@ export default function LoginScreen() {
       analyticsEnabled:   data.analyticsEnabled === true,
       chatEnabled:        data.chatEnabled === true,
       settlementEnabled:  data.settlementEnabled === true,
+      offlineEnabled: data.offlineEnabled,
+      offlineSubscriptionCheckedAt: typeof data.offlineEnabled === 'boolean' ? Date.now() : undefined,
       adminPhone:         data.adminPhone ?? undefined,
       adminEmail:         data.adminEmail ?? undefined,
     });
+    // Changing account replaces its query provider and remounts the route guard.
+    // Complete login explicitly so the new guard cannot mistake it for the
+    // still-open "add another account" form of the previous session.
+    router.replace((data.mustChangePassword?'/(auth)/force-change-password':roleHomePath(data.role)) as any);
     // Backfill the account's own phone in the background so it can be shown
     // on the Instagram-style account switcher card.
     const accountId = accountStorageId(data.userId, data.tenantId, 'ORGANIZATION');
     getMe().then((me: any) => {
       if (me?.phone) useAuthStore.getState().updateAccountPhone(accountId, me.phone, me.phoneCountryCode);
     }).catch(() => {});
-    if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword && data.refreshToken) {
-      setPendingCreds({ username: username.trim(), refreshToken: data.refreshToken });
-      setShowEnablePrompt(true);
-    }
+    await rememberUnlockAccount(unlockedAccountId).catch(() => {});
   }
 
   async function handleTenantSelect(loginToken: string, tenantId: string, tenantStatus?: string, tenantName?: string) {
@@ -426,19 +434,18 @@ export default function LoginScreen() {
 
   async function handleBiometricLogin() {
     setError('');
-    const creds = await promptBiometric();
-    if (!creds) return;
     setLoading(true);
     try {
-      const data = await refreshAuthToken(creds.refreshToken);
-      await applyAuth(data);
+      const accountId = await promptBiometric(useAuthStore.getState().accounts);
+      if (!accountId) { setError('Unlock cancelled or saved session unavailable. Choose an account or sign in with your password.'); return; }
+      authorizeDeviceSession(accountId);
+      const result = await useAuthStore.getState().switchToAccount(accountId);
+      const user = useAuthStore.getState().user;
+      if (result === true && user) router.replace(roleHomePath(user.role) as any);
+      else setError('Please sign in with your password for this account.');
     } catch {
-      await disableBiometric();
-      setBiometricOn(false);
-      setError('Biometric session expired. Please sign in with your password.');
-    } finally {
-      setLoading(false);
-    }
+      setError('Could not unlock the saved account. Your saved payments are unchanged. Please try again.');
+    } finally { setLoading(false); }
   }
 
   async function handleLogin() {
@@ -557,18 +564,22 @@ export default function LoginScreen() {
     } finally { setLoading(false); }
   }
 
-  async function handleEnableBiometric() {
-    if (!pendingCreds) return;
-    setShowEnablePrompt(false);
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Verify your identity to enable ' + biometricLabel,
-      cancelLabel: 'Cancel',
-      disableDeviceFallback: false,
-    });
-    if (!result.success) { setPendingCreds(null); return; }
-    await enableBiometric(pendingCreds.username, pendingCreds.refreshToken);
-    setBiometricOn(true);
-    setPendingCreds(null);
+  async function finishUnlockOffer(enable: boolean) {
+    const pending = pendingCreds;
+    if (!pending || loading) return;
+    setLoading(true);
+    try {
+      let deviceApproved = false;
+      if (enable) {
+        const id = accountStorageId(pending.data.userId, pending.data.tenantId, 'ORGANIZATION');
+        deviceApproved = await enableBiometric(id);
+      }
+      setShowEnablePrompt(false);
+      setPendingCreds(null);
+      await applyAuth(pending.data, false, pending.tenantName, deviceApproved);
+    } catch {
+      setError('Could not save device unlock settings. Please try again.');
+    } finally { setLoading(false); }
   }
 
   return (
@@ -677,7 +688,7 @@ export default function LoginScreen() {
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      onPress={async () => { await disableBiometric(); setBiometricOn(false); }}
+                      onPress={async () => { try { if (await disableBiometric()) setBiometricOn(false); } catch { setError('Could not change device unlock settings.'); } }}
                       style={{ marginTop: 10, alignItems: 'center', paddingVertical: 4 }}
                     >
                       <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Disable {biometricLabel} login</Text>
@@ -808,16 +819,19 @@ export default function LoginScreen() {
               Enable {biometricLabel}?
             </Text>
             <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 28, lineHeight: 20 }}>
-              Sign in faster next time using {biometricLabel} — no password needed.
+              Use your phone’s unlock method when opening ChitWise and switching accounts.
             </Text>
+            {!!error && <Text style={{ color: '#DC2626', textAlign: 'center', marginBottom: 14 }}>{error}</Text>}
             <Button
               label={`Enable ${biometricLabel}`}
-              onPress={handleEnableBiometric}
+              onPress={() => finishUnlockOffer(true)}
+              loading={loading}
               fullWidth
               size="lg"
             />
             <TouchableOpacity
-              onPress={() => { setShowEnablePrompt(false); setPendingCreds(null); }}
+              onPress={() => finishUnlockOffer(false)}
+              disabled={loading}
               style={{ marginTop: 14, alignItems: 'center', paddingVertical: 8 }}
             >
               <Text style={{ fontSize: 14, color: '#9CA3AF' }}>Not now</Text>

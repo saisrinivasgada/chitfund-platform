@@ -12,9 +12,20 @@ import java.util.Optional;
 
 public interface ConversationRepository extends JpaRepository<Conversation, String> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("SELECT c FROM Conversation c WHERE c.id=:id" + " AND c.tenantId=:tenantId")
+    java.util.Optional<Conversation> findForUpdate(@org.springframework.data.repository.query.Param("id") String id, @org.springframework.data.repository.query.Param("tenantId") String tenantId);
+
     Optional<Conversation> findByTenantIdAndMemberId(String tenantId, String memberId);
 
     List<Conversation> findByTenantIdOrderByLastMessageAtDesc(String tenantId, Pageable pageable);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("UPDATE Conversation c SET c.lastMessageAt=:at, c.lastMessagePreview=:preview, " +
+            "c.lastMessageIsAdmin=:isAdmin, c.memberUnread=c.memberUnread + CASE WHEN :isAdmin=true THEN 1 ELSE 0 END, " +
+            "c.adminUnread=c.adminUnread + CASE WHEN :isAdmin=true THEN 0 ELSE 1 END WHERE c.id=:id")
+    void recordMessage(@Param("id") String id, @Param("at") java.time.Instant at,
+                       @Param("preview") String preview, @Param("isAdmin") boolean isAdmin);
 
     @Modifying
     @Query("UPDATE Conversation c SET c.adminUnread = 0 WHERE c.id = :id")

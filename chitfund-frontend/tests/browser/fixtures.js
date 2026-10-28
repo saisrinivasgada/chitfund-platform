@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
 
 export const TEST_TENANT = '10000000-0000-0000-0000-000000000001';
 
@@ -22,11 +23,14 @@ function json(data, status = 200) {
 export async function installAuthenticatedApp(page, {
   analyticsEnabled = false,
   settlementEnabled = false,
+  offlineEnabled = false,
   user = defaultUser,
+  tenantRole = user.role,
   resolveApi,
 } = {}) {
   const tenant = {
     tenantId: TEST_TENANT,
+    role: tenantRole,
     slug: 'acceptance-org',
     name: 'Acceptance Chit Fund',
     plan: 'BASIC',
@@ -35,9 +39,11 @@ export async function installAuthenticatedApp(page, {
     analyticsEnabled,
     chatEnabled: false,
     settlementEnabled,
+    offlineEnabled,
     adminPhone: '9000000000',
     adminEmail: 'admin@example.test',
   };
+  const browserAccountId = createHash('sha256').update(`WEB:${user.id}:${TEST_TENANT}:${tenantRole}`).digest('hex').slice(0, 32);
 
   await page.addInitScript(({ storedUser, storedTenant }) => {
     localStorage.setItem('user', JSON.stringify(storedUser));
@@ -63,10 +69,10 @@ export async function installAuthenticatedApp(page, {
       return;
     }
 
-    if (url.pathname === '/api/auth/refresh') {
+    if (url.pathname === '/api/auth/refresh' || url.pathname === `/api/auth/accounts/${browserAccountId}/refresh`) {
       await route.fulfill(json({
         success: true,
-        data: { accessToken: 'browser-acceptance-token', user, tenant },
+        data: { accessToken: 'browser-acceptance-token', browserAccountId, user, tenant },
       }));
       return;
     }

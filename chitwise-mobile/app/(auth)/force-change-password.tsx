@@ -1,3 +1,4 @@
+import { requestSignOut } from '../../offline/signOut';
 import { useState } from 'react';
 import { View, Text, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -160,7 +161,7 @@ export default function ForceChangePasswordScreen() {
               variant="ghost"
               onPress={() => Alert.alert('Sign Out', 'Sign out and return to login?', [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Sign Out', onPress: logout },
+                { text: 'Sign Out', onPress: () => requestSignOut() },
               ])}
               fullWidth
             />

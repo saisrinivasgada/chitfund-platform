@@ -87,4 +87,22 @@ class ChitServiceClientTest {
                         assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
         server.verify();
     }
+    @Test
+    void unresolvedScheduleBlocksPayoutWhileVerifiedClearScheduleAllowsIt() {
+        UUID chit = UUID.randomUUID();
+        server.expect(requestTo("http://chit.test/internal/chits/" + chit)).andExpect(header("X-Tenant-ID", "tenant-a"))
+                .andRespond(withSuccess("{\"data\":{\"id\":\"" + chit + "\",\"scheduleSyncCommandId\":\"pending\"}}", MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> client.assertScheduleReady(chit, "tenant-a")).isInstanceOf(BusinessException.class).hasMessageContaining("still syncing");
+        server.verify(); server.reset();
+        server.expect(requestTo("http://chit.test/internal/chits/" + chit)).andRespond(withSuccess("{\"data\":{\"id\":\"" + chit + "\"}}", MediaType.APPLICATION_JSON));
+        client.assertScheduleReady(chit, "tenant-a"); server.verify();
+    }
+    @Test
+    void unavailableScheduleCannotAuthorizeANewDisbursement() {
+        UUID chit = UUID.randomUUID();
+        server.expect(requestTo("http://chit.test/internal/chits/" + chit)).andRespond(withServerError());
+        assertThatThrownBy(() -> client.assertScheduleReady(chit, "tenant-a")).isInstanceOf(BusinessException.class).hasMessageContaining("could not be verified");
+        server.verify();
+    }
+
 }

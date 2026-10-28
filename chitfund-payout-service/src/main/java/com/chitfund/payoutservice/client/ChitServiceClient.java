@@ -87,6 +87,21 @@ public class ChitServiceClient {
         }
     }
 
+    public void assertScheduleReady(UUID chitId, String tenantId) {
+        HttpHeaders headers = new HttpHeaders(); headers.set("X-Internal-Key", internalKey); headers.set("X-Tenant-ID", tenantId);
+        try {
+            Map<?, ?> body = restTemplate.exchange(chitServiceUrl + "/internal/chits/" + chitId,
+                    HttpMethod.GET, new HttpEntity<>(headers), Map.class).getBody();
+            if (body == null || !(body.get("data") instanceof Map<?, ?> data) || !chitId.toString().equals(String.valueOf(data.get("id"))))
+                throw unavailable("Chit schedule could not be verified. Please try again.", null);
+            if (data.get("scheduleSyncCommandId") != null)
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "This chit's skipped draw and schedule are still syncing. Retry after sync completes.", HttpStatus.CONFLICT);
+        } catch (RestClientException error) {
+            throw unavailable("Chit schedule could not be verified. Please try again.", error);
+        }
+    }
+
     /**
      * Returns the chit's durationMonths so payout-service can check if all draws are done.
      * Returns -1 on error so the caller can skip the completion check safely.

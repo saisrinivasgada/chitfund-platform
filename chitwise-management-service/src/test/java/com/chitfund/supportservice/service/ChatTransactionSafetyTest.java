@@ -177,7 +177,6 @@ class ChatTransactionSafetyTest {
             message.setCreatedAt(Instant.parse("2026-09-30T12:00:00Z"));
             return message;
         });
-        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     private Conversation conversation() {
@@ -194,7 +193,7 @@ class ChatTransactionSafetyTest {
     private void stubGroupSend() {
         ChatGroup group = ChatGroup.builder().id("group-1").tenantId("tenant-1")
                 .name("Operations").createdBy("admin-1").createdByName("Admin").build();
-        when(chatGroupRepository.findByIdAndTenantId("group-1", "tenant-1"))
+        when(chatGroupRepository.findForUpdate("group-1", "tenant-1"))
                 .thenReturn(Optional.of(group));
         when(chatGroupMemberRepository.existsByGroupIdAndUserId("group-1", "admin-1"))
                 .thenReturn(true);
@@ -203,7 +202,6 @@ class ChatTransactionSafetyTest {
             message.setCreatedAt(Instant.parse("2026-09-30T12:00:00Z"));
             return message;
         });
-        when(chatGroupRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     private SendGroupMessageRequest groupRequest() {

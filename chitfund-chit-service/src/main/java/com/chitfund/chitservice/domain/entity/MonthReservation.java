@@ -26,10 +26,8 @@ import java.util.UUID;
  * "Jan 2027" from month_number + chit start_date is fragile when pauses shift months.
  * An actual date is unambiguous regardless of pause history.
  *
- * WHY removed @Version (optimistic locking)?
- * The old model had ONE slot per month → two threads racing = conflict.
- * The new model appends rows (INSERT, not UPDATE) → no race condition on a single row.
- * Conflicts on the same row are now rare; normal transaction isolation handles them.
+ * Same-row edits use optimistic versions; capacity and cross-row changes also
+ * acquire the parent chit lock. Multiple payouts in one calendar month remain valid.
  */
 @Entity
 @Table(name = "month_reservations",
@@ -52,6 +50,10 @@ public class MonthReservation {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "chit_id", nullable = false)
     private Chit chit;
+
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     // null = unallocated slot
     @Column(columnDefinition = "varchar(36)")

@@ -1,142 +1,159 @@
-import { useEffect, useRef } from 'react';
-import { Alert, Animated, Text, TouchableOpacity, View } from 'react-native';
+import { useReviewNavigationStore } from '../store/reviewNavigationStore';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { C } from './ui';
 import { syncCurrentAccount } from '../offline/syncEngine';
+import { prepareOfflineData, usePreparationStore } from '../offline/preparation';
+import { useOfflineAccessStore } from '../offline/access';
+import { useAuthStore } from '../store/authStore';
+import { useOfflinePresentation } from '../offline/useOfflinePresentation';
 import { useSyncStore } from '../store/syncStore';
 
-function relativeTime(value: number | null): string {
-  if (!value) return 'Not synced on this device yet';
-  const seconds = Math.max(0, Math.round((Date.now() - value) / 1000));
-  if (seconds < 10) return 'Synced just now';
-  if (seconds < 60) return `Synced ${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `Synced ${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Synced ${hours}h ago`;
-  return `Last synced ${new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`;
-}
-
-function syncedClock(value: number | null): string {
-  if (!value) return 'Not synced yet';
-  return `Synced at ${new Date(value).toLocaleTimeString('en-IN', {
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  })}`;
+function savedTime(value: number | null | undefined) {
+  return value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Waiting for the first sync';
 }
 
 export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
+  const { showSync } = useOfflinePresentation();
   const queryClient = useQueryClient();
   const router = useRouter();
   const state = useSyncStore();
+  const role = useAuthStore((store) => store.user?.role);
+  const preparation = usePreparationStore((store) => state.accountScope ? store.byScope[state.accountScope] : undefined);
+  const access = useOfflineAccessStore((store) => state.accountScope ? store.accounts[state.accountScope] : undefined);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const pulse = useRef(new Animated.Value(1)).current;
+  const attention = state.conflictCount + state.failedCount;
+  const preparing = preparation?.status === 'preparing' && state.isOnline;
+  const syncing = state.isOnline && state.serverReachable !== false && (busy || state.status === 'syncing' || preparing);
+  const accessNeeded = state.status === 'auth-required' || state.status === 'access-required';
+  const title = attention || state.status === 'error' ? 'Needs attention'
+    : accessNeeded ? 'Sign-in needed'
+    : !state.isOnline ? (preparation?.lastCompleteAt ? 'Offline · data saved' : 'Offline')
+    : state.serverReachable === false ? 'Connection interrupted · saved safely'
+    : syncing ? 'Syncing your data'
+    : state.pendingCount ? `${state.pendingCount} saved · waiting to sync`
+    : preparation?.status === 'paused' ? 'Saved data · refresh paused'
+    : access?.enabled ? 'Up to date' : 'Connected';
+  const color = attention || state.status === 'error' ? '#B45309'
+    : accessNeeded || !state.isOnline || state.serverReachable === false ? '#A16207'
+    : syncing ? '#2563EB'
+    : state.pendingCount || preparation?.status === 'paused' ? '#A16207' : '#16805D';
 
+  const paused = !state.isOnline || state.serverReachable === false || accessNeeded || preparation?.status === 'paused';
+  const cloud = !state.isOnline ? 'cloud-offline-outline'
+    : syncing ? 'cloud-upload-outline'
+    : paused || attention || state.status === 'error' || state.pendingCount ? 'cloud-outline'
+    : 'cloud-done-outline';
+  const badge = attention || state.status === 'error' || accessNeeded ? 'alert' : paused ? 'pause' : null;
+
+  useEffect(() => { setOpen(false); setError(''); setBusy(false); }, [state.accountScope]);
   useEffect(() => {
-    if (state.status !== 'syncing') {
-      pulse.stopAnimation();
-      pulse.setValue(1);
-      return;
-    }
+    if (!syncing) { pulse.stopAnimation(); pulse.setValue(1); return; }
     const animation = Animated.loop(Animated.sequence([
-      Animated.timing(pulse, { toValue: 0.45, duration: 650, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0.35, duration: 650, useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: true }),
     ]));
-    animation.start();
-    return () => animation.stop();
-  }, [pulse, state.status]);
+    animation.start(); return () => animation.stop();
+  }, [pulse, syncing]);
 
-  const visual = (() => {
-    if (state.status === 'syncing') return { mark: '↻', title: 'Syncing…', color: '#2563EB', background: '#EFF6FF' };
-    if (state.status === 'offline') return { mark: 'Ⅱ', title: 'Sync paused', color: '#B45309', background: '#FFFBEB' };
-    if (state.status === 'conflict' || state.status === 'error') return { mark: '!', title: 'Sync needs attention', color: '#B91C1C', background: '#FEF2F2' };
-    if (state.status === 'auth-required') return { mark: '!', title: 'Login required to sync', color: '#B91C1C', background: '#FEF2F2' };
-    if (state.pendingCount > 0 || state.status === 'pending') return { mark: '↑', title: `${state.pendingCount} payment${state.pendingCount === 1 ? '' : 's'} waiting`, color: '#B45309', background: '#FFFBEB' };
-    return { mark: '✓', title: syncedClock(state.lastSyncedAt), color: C.green, background: '#F0FDF4' };
-  })();
-
-  const detail = state.status === 'offline' && state.pendingCount > 0
-    ? `${state.pendingCount} change${state.pendingCount === 1 ? '' : 's'} safely stored on this device`
-    : state.conflictCount + state.failedCount > 0
-      ? `${state.conflictCount + state.failedCount} operation${state.conflictCount + state.failedCount === 1 ? '' : 's'} require review`
-      : state.message ?? relativeTime(state.lastSyncedAt);
-
-  if (compact) {
-    const subtitle = state.status === 'syncing'
-      ? 'Sending saved changes securely'
-      : state.status === 'offline'
-        ? (state.pendingCount > 0 ? `${state.pendingCount} saved safely on this device` : 'Changes will resume when connected')
-        : state.status === 'auth-required'
-          ? `${state.pendingCount > 0 ? `${state.pendingCount} payment${state.pendingCount === 1 ? '' : 's'} waiting — ` : ''}Tap to sign in and sync`
-          : state.pendingCount > 0 || state.status === 'pending'
-            ? 'Saved safely on this device'
-            : state.status === 'synced'
-              ? 'Everything is up to date'
-              : detail;
-    return (
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel={`${visual.title}. ${subtitle}. Tap to sync now.`}
-        activeOpacity={0.72}
-        onPress={handlePress}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, alignSelf: 'flex-start' }}
-      >
-        <Animated.View style={{
-          opacity: pulse, width: 24, height: 20, borderRadius: 10,
-          backgroundColor: visual.background, alignItems: 'center', justifyContent: 'center',
-          shadowColor: visual.color, shadowOffset: { width: 2, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 2,
-        }}>
-          <Text style={{ fontSize: 12, color: visual.color }}>☁</Text>
-          <View style={{ position: 'absolute', right: -2, bottom: -1, width: 10, height: 10, borderRadius: 5, backgroundColor: visual.color, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: '#fff', fontSize: 6, fontWeight: '900' }}>{visual.mark}</Text>
-          </View>
-        </Animated.View>
-        <View>
-          <Text style={{ color: visual.color, fontSize: 10, fontWeight: '700' }}>{visual.title}</Text>
-          <Text style={{ color: C.gray500, fontSize: 9, marginTop: 0 }}>{subtitle}</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  }
-
-  async function handlePress() {
-    if (state.status === 'auth-required') {
-      router.push('/(auth)/login');
-      return;
-    }
-    if (!state.isOnline) {
-      Alert.alert('Offline', `${relativeTime(state.lastSyncedAt)}. Saved changes will sync automatically when internet returns.`);
-      return;
-    }
+  async function synchronize() {
+    if (accessNeeded) { setOpen(false); router.push('/(auth)/login'); return; }
+    const scope = state.accountScope;
+    if (!scope || !state.isOnline || busy) return;
+    setBusy(true); setError('');
     try {
       await syncCurrentAccount(queryClient);
-    } catch (error) {
-      Alert.alert('Sync failed', error instanceof Error ? error.message : 'Please try again');
-    }
+      await prepareOfflineData(scope, { force: true, deadline: Date.now() + 25_000 });
+    } catch {
+      if (useSyncStore.getState().accountScope === scope) setError('Connection interrupted. Saved collections are safe; syncing will resume automatically.');
+    } finally { if (useSyncStore.getState().accountScope === scope) setBusy(false); }
   }
 
-  return (
-    <TouchableOpacity
-      accessibilityRole="button"
-      accessibilityLabel={`${visual.title}. ${detail}. Tap to sync now.`}
-      activeOpacity={0.82}
-      onPress={handlePress}
-      style={{
-        flexDirection: 'row', alignItems: 'center', gap: 10,
-        backgroundColor: visual.background, borderRadius: 12,
-        paddingHorizontal: 12, paddingVertical: compact ? 9 : 12,
-        marginBottom: compact ? 10 : 16,
-        borderWidth: 1, borderColor: `${visual.color}33`,
-        shadowColor: visual.color, shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.16, shadowRadius: 8, elevation: 3,
-      }}
-    >
-      <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: `${visual.color}18`, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: visual.color, fontSize: 15, fontWeight: '900' }}>{visual.mark}</Text>
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={{ color: visual.color, fontSize: 13, fontWeight: '800' }} numberOfLines={1}>{visual.title}</Text>
-        <Text style={{ color: C.gray500, fontSize: 11, marginTop: 1 }} numberOfLines={2}>{detail}</Text>
-      </View>
-      {state.isOnline && state.status !== 'syncing' && <Text style={{ color: visual.color, fontSize: 11, fontWeight: '700' }}>Sync now</Text>}
+  const dataTitle = !access?.enabled ? 'Offline access' : preparation?.status === 'ready' ? 'Available offline'
+    : preparation?.lastCompleteAt ? 'Saved copy available'
+    : preparing ? 'Downloading for offline use' : 'Download will resume';
+  const progress = preparation?.total ? Math.min(1, (preparation.detailsDone ?? 0) / preparation.total) : 0;
+
+  if (!showSync) return null;
+
+  return <>
+    <TouchableOpacity testID="sync-status-button" accessibilityRole="button" accessibilityLabel={`Sync status: ${title}. Open sync details.`}
+      accessibilityHint="Shows saved collections, offline downloads and a sync button"
+      activeOpacity={0.7} onPress={() => setOpen(true)}
+      style={{ flexDirection: 'row', alignItems: 'center', minHeight: compact ? 38 : 48, paddingHorizontal: 13,
+        backgroundColor: 'rgba(255,255,255,0.5)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.8)',
+        marginBottom: 16, gap: 9 }}>
+      <Animated.View style={{ opacity: pulse, width: 25, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={cloud} size={23} color={color} />
+        {badge && <View style={{ position: 'absolute', right: -2, bottom: -1, width: 12, height: 12, borderRadius: 6,
+          backgroundColor: color, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#F1F5F9' }}>
+          <Ionicons name={badge} size={8} color="#FFFFFF" />
+        </View>}
+      </Animated.View>
+      <Text style={{ flex: 1, minWidth: 0, color, fontSize: 12, fontWeight: '600' }} numberOfLines={1}>{title}</Text>
+      <Text style={{ color: '#718096', fontSize: 11 }}>Details</Text>
+      <Text style={{ color: '#94A3B8', fontSize: 18 }}>›</Text>
     </TouchableOpacity>
-  );
+
+    <Modal visible={open && showSync} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable accessibilityLabel="Dismiss sync details" onPress={() => setOpen(false)} style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(15,23,42,0.35)' }} />
+        <View style={{ backgroundColor: '#F8FAFC', borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 24, paddingBottom: 38, maxHeight: '86%' }}>
+          <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: '#CBD5E1', marginBottom: 22 }} />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: C.navy, flex: 1, marginRight: 12 }}>Sync & offline data</Text>
+            <TouchableOpacity testID="close-sync-details" accessibilityRole="button" accessibilityLabel="Close sync details" onPress={() => setOpen(false)} style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#64748B' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 14 }}>
+            <View style={{ padding: 18, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', gap: 9 }}>
+              <Text style={{ color: C.navy, fontSize: 15, fontWeight: '700' }}>Saved collections</Text>
+              <Text style={{ color: '#475569', fontSize: 13, lineHeight: 20 }}>{state.pendingCount
+                ? `${state.pendingCount} collection${state.pendingCount === 1 ? ' is' : 's are'} saved on this device and waiting to sync.`
+                : 'No collections waiting to upload.'}</Text>
+              {!!attention && <TouchableOpacity onPress={() => { setOpen(false); router.push((role === 'STAFF' ? '/(app)/(staff)' : role === 'MANAGER' ? '/(app)/(manager)/pickups' : '/(app)/(admin)/payments?tab=Record%20Payment') as any); }}>
+                <Text style={{ color: '#B45309', fontSize: 13, fontWeight: '600' }}>{attention} saved collection{attention === 1 ? '' : 's'} need review →</Text>
+              </TouchableOpacity>}
+              <Text style={{ color: '#64748B', fontSize: 12, lineHeight: 18 }}>Saved collections stay protected until the server confirms them, even after your offline recording access expires.</Text>
+              <Text style={{ color: '#94A3B8', fontSize: 11 }}>Last collection sync · {savedTime(state.lastSyncedAt)}</Text>
+            </View>
+            <View style={{ padding: 18, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0', gap: 10 }}>
+              <Text style={{ color: C.navy, fontSize: 15, fontWeight: '700' }}>{dataTitle}</Text>
+              <Text style={{ color: '#475569', fontSize: 13, lineHeight: 20 }}>{!access?.enabled ? (access ? 'Offline access is not enabled for this organisation. You can use the app while connected. Previously saved collections remain protected.' : 'Checking offline availability for this account.') : preparation?.status === 'ready'
+                ? 'Your downloaded chits, members and payment records are available when the connection drops.'
+                : preparation?.lastCompleteAt ? 'You can use your saved data while the refresh waits. Remaining downloads resume automatically.'
+                : 'Keep the app connected for the first download. Interrupted downloads continue from where they stopped.'}</Text>
+              {!!preparation && <Text style={{ color: '#64748B', fontSize: 12 }}>{preparation.membersCount ?? 0} members · {preparation.chitsCount ?? 0} chits · {preparation.batchesCount ?? 0} payments downloaded</Text>}
+              {preparation?.status !== 'ready' && !!preparation?.total && <View>
+                <View style={{ height: 5, borderRadius: 3, backgroundColor: '#E2E8F0', overflow: 'hidden' }}>
+                  <View style={{ height: 5, width: `${progress * 100}%`, borderRadius: 3, backgroundColor: '#53779C' }} />
+                </View>
+                <Text style={{ color: '#94A3B8', fontSize: 11, marginTop: 6 }}>{preparation.detailsDone ?? 0} of {preparation.total} related records saved</Text>
+              </View>}
+              <Text style={{ color: '#94A3B8', fontSize: 11 }}>Last complete download · {savedTime(preparation?.lastCompleteAt)}</Text>
+            </View>
+            {role === 'ADMIN' && <TouchableOpacity accessibilityRole="button" onPress={() => {
+              setOpen(false); router.push('/(app)/(admin)/payments?tab=Record%20Payment');
+              useReviewNavigationStore.getState().openReview(state.accountScope!);
+            }}><Text style={{ color: C.navy, fontSize: 13 }}>Recover saved collections on this device →</Text></TouchableOpacity>}
+            {!state.isOnline && <Text style={{ color: '#A16207', fontSize: 13 }}>You’re offline. Syncing resumes when a connection is available.</Text>}
+            {!!error && <Text accessibilityRole="alert" style={{ color: '#B45309', fontSize: 13 }}>{error}</Text>}
+            <TouchableOpacity accessibilityRole="button" disabled={busy || (!state.isOnline && !accessNeeded)} onPress={synchronize}
+              style={{ backgroundColor: busy || (!state.isOnline && !accessNeeded) ? '#CBD5E1' : C.navy, borderRadius: 14,
+                padding: 16, alignItems: 'center', marginTop: 4, flexDirection: 'row', justifyContent: 'center', gap: 9 }}>
+              {busy && <ActivityIndicator color="#FFFFFF" size="small" />}
+              <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '700' }}>{accessNeeded ? 'Sign in to sync' : busy ? 'Syncing…' : 'Sync now'}</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  </>;
 }

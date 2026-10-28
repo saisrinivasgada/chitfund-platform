@@ -15,6 +15,10 @@ import java.util.Set;
 @Builder
 public class HubCustomRole {
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Id
     private String id;
 

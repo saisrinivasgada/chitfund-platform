@@ -1,8 +1,9 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState, useMemo } from 'react';
 import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
-import { getMyPaymentBatches, getPaymentBatchById, getChit, getDraws } from '../../../services/api';
+import { getMyPaymentBatches, getPaymentBatchById, getChit, getMyDraws } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -63,7 +64,7 @@ function PaymentReceiptModal({ batchId, onClose }: { batchId: string; onClose: (
   });
   const { data: draws = [] } = useQuery({
     queryKey: ['draws', batch?.chitId],
-    queryFn: () => getDraws(batch.chitId),
+    queryFn: () => getMyDraws(batch.chitId),
     enabled: !!batch?.chitId,
   });
 
@@ -100,11 +101,12 @@ function PaymentReceiptModal({ batchId, onClose }: { batchId: string; onClose: (
         <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Payment Receipt</Text>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity accessibilityLabel="Close payment receipt" onPress={onClose}>
               <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
             </TouchableOpacity>
           </View>
 
+          <ReadDataBoundary label="Receipt" queryKeys={[['batch', batchId]]}>
           {isLoading ? (
             <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>Loading…</Text>
           ) : !batch ? (
@@ -142,6 +144,7 @@ function PaymentReceiptModal({ batchId, onClose }: { batchId: string; onClose: (
               <View style={{ height: 16 }} />
             </ScrollView>
           )}
+          </ReadDataBoundary>
         </View>
       </View>
     </Modal>
@@ -179,7 +182,7 @@ export default function MemberPaymentsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-      <FlatList
+      <ReadDataBoundary label="Payment history" queryKeys={[['my-payment-batches']]}><FlatList
         data={filtered}
         keyExtractor={(b: any) => b.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
@@ -247,7 +250,7 @@ export default function MemberPaymentsScreen() {
           const status = BATCH_STATUS[b.status];
           const draws = drawLabel(b);
           return (
-            <TouchableOpacity activeOpacity={0.85} onPress={() => setReceiptId(b.id)}>
+            <TouchableOpacity testID={`member-payment-${b.id}`} activeOpacity={0.85} onPress={() => setReceiptId(b.id)}>
               <Card style={{ marginBottom: 10, opacity: isVoided ? 0.55 : 1, borderLeftWidth: 4, borderLeftColor: isVoided ? C.gray300 : C.navy }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                   <View style={{ flex: 1 }}>
@@ -301,6 +304,7 @@ export default function MemberPaymentsScreen() {
       />
 
       {receiptId && <PaymentReceiptModal batchId={receiptId} onClose={() => setReceiptId(null)} />}
+      </ReadDataBoundary>
     </SafeAreaView>
   );
 }

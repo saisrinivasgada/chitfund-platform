@@ -1,0 +1,37 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+# Check the resized toolbar against a real remaining due, without saving cash.
+- runFlow:
+    file: open-finance.yaml
+    env:
+      FINANCE_TAB: 'Record Payment'
+- extendedWaitUntil:
+    visible:
+      id: "member-row-QA Member A"
+    timeout: 60000
+- tapOn:
+    id: "member-row-QA Member A"
+- scrollUntilVisible:
+    element:
+      id: "payment-chit-50000000-0000-0000-0000-000000000001"
+    centerElement: false
+- tapOn:
+    id: "payment-chit-50000000-0000-0000-0000-000000000001"
+- scrollUntilVisible:
+    element:
+      text: "Record ₹500 Payment"
+    centerElement: false
+    visibilityPercentage: 90
+- waitForAnimationToEnd
+- tapOn:
+    text: "Record ₹500 Payment"
+- extendedWaitUntil:
+    visible: "Confirm Payment"
+    timeout: 15000
+- tapOn: "Cancel|CANCEL"
+- waitForAnimationToEnd
+- assertNotVisible: "Confirm Payment"
+- assertNotVisible:
+    id: "saved-payments-summary"

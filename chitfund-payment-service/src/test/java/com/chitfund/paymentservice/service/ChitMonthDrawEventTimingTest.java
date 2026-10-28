@@ -55,6 +55,9 @@ class ChitMonthDrawEventTimingTest {
     @Mock private com.chitfund.paymentservice.client.ChitServiceClient chitServiceClient;
     @Mock private com.chitfund.paymentservice.client.PayoutServiceClient payoutServiceClient;
 
+    @Mock private FinancialCommandLock commandLocks;
+    @Mock private DrawReconciliationQueue reconciliationQueue;
+
     private ChitMonthDrawService service;
 
     @BeforeEach
@@ -62,7 +65,7 @@ class ChitMonthDrawEventTimingTest {
         TenantContext.set(TENANT);
         service = new ChitMonthDrawService(
                 drawRepository, paymentRecordRepository, allocationRepository,
-                eventPublisher, auditClient, planExpiryChecker, memberCreditService,
+                eventPublisher, auditClient, planExpiryChecker, commandLocks, reconciliationQueue, memberCreditService,
                 chitServiceClient, payoutServiceClient);
 
         lenient().when(drawRepository.countByTenantIdAndChitIdAndStatusNot(anyString(), any(), any()))

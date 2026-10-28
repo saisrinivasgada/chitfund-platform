@@ -1,3 +1,4 @@
+import { useOfflinePresentation } from '../../../offline/useOfflinePresentation';
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, FlatList, Switch,
@@ -6,12 +7,12 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
   getCashRequestAuditLog, assignStaffToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
-  getMembers, getChits, getChitsForMember,
+  getMembers, getMembersPage, getChits, getChitsForMember,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
   getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
@@ -28,8 +29,9 @@ import { getAccountScope } from '../../../offline/accountScope';
 import { useAuthStore } from '../../../store/authStore';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
+import { OfflineCollectionReviews } from '../../../components/OfflineCollectionReviews';
 
-const ALL_TABS = ['Cash Requests', 'Intimations', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
+const ALL_TABS = ['Record Payment', 'Cash Requests', 'Intimations', 'Settlement', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
 type Tab = typeof ALL_TABS[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -794,6 +796,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 // RECORD PAYMENT TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function RecordPaymentTab() {
+  const { showSync } = useOfflinePresentation();
   const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const scrollRef = useRef<ScrollView>(null);
@@ -808,10 +811,19 @@ function RecordPaymentTab() {
   const [voidBatchId, setVoidBatchId] = useState('');
   const [voidReason, setVoidReason] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
+  const [memberSearchTerm, setMemberSearchTerm] = useState('');
+  const [selectedMember, setSelectedMember] = useState<any>(null);
+  useEffect(() => { const timer = setTimeout(() => setMemberSearchTerm(memberSearch.trim()), 250); return () => clearTimeout(timer); }, [memberSearch]);
   const [memberInfoId, setMemberInfoId] = useState('');
   const [idempotencyKey, setIdempotencyKey] = useState(() => Crypto.randomUUID());
 
-  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const memberPages = useInfiniteQuery({
+    queryKey: ['record-payment-members', memberSearchTerm],
+    queryFn: ({ pageParam }) => getMembersPage({ search: memberSearchTerm, page: pageParam, size: 25 }),
+    initialPageParam: 0,
+    getNextPageParam: (page) => page.last ? undefined : page.number + 1,
+  });
+  const members = memberPages.data?.pages.flatMap((page) => page.content) ?? [];
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: memberChits = [] } = useQuery({
     queryKey: ['m-member-chits-pay', memberId],
@@ -838,12 +850,10 @@ function RecordPaymentTab() {
     queryKey: ['m-pay-multi-balances', memberId, payableChits.map((c: any) => c.id).join(',')],
     queryFn: async () => {
       const entries = await Promise.all(payableChits.map(async (c: any) => {
-        try {
-          const result: any = await getMemberBalance(memberId, c.id);
-          return [String(c.id), Number(result?.totalOutstanding ?? result?.outstanding ?? result?.balance ?? 0)];
-        } catch {
-          return [String(c.id), 0];
-        }
+        const result: any = await getMemberBalance(memberId, c.id);
+        const value = result?.totalOutstanding ?? result?.outstanding ?? result?.balance;
+        if (value == null || !Number.isFinite(Number(value))) throw new Error('Balance is not available for this chit');
+        return [String(c.id), Number(value)];
       }));
       return Object.fromEntries(entries);
     },
@@ -851,7 +861,7 @@ function RecordPaymentTab() {
     staleTime: 30_000,
   });
   const selectedChit = payableChits.find((c: any) => c.id === chitId);
-  const bal = (balance as any)?.totalOutstanding ?? (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
+  const primaryBalance = (balance as any)?.totalOutstanding ?? (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
   const isCash = mode === 'CASH';
   const isCredit = mode === 'CREDIT';
   const workerCollect = isCash && collectedBy !== 'SELF';
@@ -860,6 +870,10 @@ function RecordPaymentTab() {
     .map(([selectedChitId, selectedAmount]) => ({ chitId: selectedChitId, amount: Number(selectedAmount || 0) }))
     .filter((entry) => entry.amount > 0);
   const allocationTotal = allocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const allSelectedBalancesKnown = allocationEntries.every((entry) => (multiBalances as any)[entry.chitId] != null);
+  const bal = isExplicitMode && allocationEntries.length > 1
+    ? allSelectedBalancesKnown ? allocationEntries.reduce((sum, entry) => sum + Number((multiBalances as any)[entry.chitId]), 0) : null
+    : primaryBalance;
   const amtNum = isCredit ? 0 : (Number(amount) || 0);
   const isOverpay = amtNum > 0 && bal != null && bal > 0 && amtNum > bal;
 
@@ -902,6 +916,7 @@ function RecordPaymentTab() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const recordMut = useMutation({
+    networkMode: 'always',
     // Staff/manager collection creates a Cash Pickup Request instead of recording
     // a payment directly — nobody's balance changes until that staff member
     // confirms they collected the cash and admin confirms receipt. See the
@@ -1004,11 +1019,10 @@ function RecordPaymentTab() {
 
   const filteredMembers = (members as any[]).filter((m: any) => {
     if (m.status === 'INACTIVE') return false;
-    const q = memberSearch.toLowerCase();
-    return !q || (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q);
+    return true;
   });
   const paymentMemberNames = Object.fromEntries(
-    (members as any[]).map((member: any) => [member.id, member.fullName ?? member.name ?? 'Member']),
+    [...members, ...(selectedMember ? [selectedMember] : [])].map((member: any) => [member.id, member.fullName ?? member.name ?? 'Member']),
   );
 
   const submitLabel = isCredit
@@ -1022,7 +1036,8 @@ function RecordPaymentTab() {
     <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
 
       <SyncStatusCard compact />
-      <PendingPaymentQueueCard memberNames={paymentMemberNames} />
+      <PendingPaymentQueueCard memberNames={paymentMemberNames} chitNames={Object.fromEntries((memberChits as any[]).map((chit: any) => [chit.id, chit.name]))} />
+      <OfflineCollectionReviews memberNames={paymentMemberNames} />
 
       {/* ── Member picker ──────────────────────────────────────────────────── */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>
@@ -1042,7 +1057,7 @@ function RecordPaymentTab() {
           <TouchableOpacity key={m.id}
             testID={`member-row-${m.fullName ?? m.name}`}
             accessibilityLabel={m.fullName ?? m.name}
-            onPress={() => { setMemberId(m.id); setChitId(''); setSelectedAllocations({}); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
+            onPress={() => { setSelectedMember(m); setMemberId(m.id); setChitId(''); setSelectedAllocations({}); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
             style={{ padding: 12, backgroundColor: memberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? C.navy : C.gray900 }}>
               {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
@@ -1050,7 +1065,11 @@ function RecordPaymentTab() {
             {m.phone && <Text style={{ fontSize: 11, color: C.gray400 }}>{m.phone}</Text>}
           </TouchableOpacity>
         ))}
-        {filteredMembers.length === 0 && (
+        {memberPages.hasNextPage && <TouchableOpacity accessibilityRole="button" disabled={memberPages.isFetchingNextPage} onPress={() => memberPages.fetchNextPage()} style={{ padding: 13 }}>
+          <Text style={{ color: C.navy, fontWeight: '600' }}>{memberPages.isFetchingNextPage ? 'Loading members…' : 'Show more members'}</Text>
+        </TouchableOpacity>}
+        {memberPages.isError && <Text accessibilityRole="alert" style={{ padding: 16, color: '#B45309' }}>Member search is unavailable. Connect or finish downloading this organisation’s data.</Text>}
+        {!memberPages.isLoading && !memberPages.isError && filteredMembers.length === 0 && (
           <Text style={{ padding: 16, color: C.gray400 }}>No members found</Text>
         )}
       </ScrollView>
@@ -1060,7 +1079,7 @@ function RecordPaymentTab() {
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             {(() => {
-              const mi = (members as any[]).find((m: any) => m.id === memberInfoId);
+              const mi = (members as any[]).find((m: any) => m.id === memberInfoId) ?? (selectedMember?.id === memberInfoId ? selectedMember : null);
               if (!mi) return null;
               return (
                 <>
@@ -1097,7 +1116,7 @@ function RecordPaymentTab() {
                 const due = (multiBalances as any)[c.id];
                 return (
                   <View key={c.id} style={{ borderWidth: 1.5, borderColor: checked ? C.navy : C.gray300, borderRadius: 12, padding: 11, backgroundColor: checked ? C.navy50 : C.white }}>
-                    <TouchableOpacity onPress={() => toggleChitAllocation(c)} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                    <TouchableOpacity testID={`payment-chit-${c.id}`} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => toggleChitAllocation(c)} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
                       <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: checked ? C.navy : C.gray300, backgroundColor: checked ? C.navy : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                         {checked && <Text style={{ color: C.white, fontSize: 12, fontWeight: '800' }}>✓</Text>}
                       </View>
@@ -1330,10 +1349,8 @@ function RecordPaymentTab() {
               // Guard rail: never silently apply an overpayment as credit — the
               // person recording the payment must explicitly acknowledge it.
               const totalPay = isExplicitMode ? allocationTotal : amtNum;
-              const totalDue = isExplicitMode
-                ? allocationEntries.reduce((sum, e) => sum + Number((multiBalances as any)[e.chitId] ?? 0), 0)
-                : (outstanding ?? 0);
-              const isOverpayNow = !isCredit && totalPay > 0 && totalDue > 0 && totalPay > totalDue;
+              const totalDue = outstanding;
+              const isOverpayNow = !isCredit && totalPay > 0 && totalDue != null && totalDue >= 0 && totalPay > totalDue;
               const breakdown = isExplicitMode && allocationEntries.length > 1
                 ? '\n\n' + allocationEntries
                     .map((e) => `${payableChits.find((c: any) => c.id === e.chitId)?.name ?? 'Chit'}: ₹${e.amount.toLocaleString('en-IN')}`)
@@ -1344,8 +1361,10 @@ function RecordPaymentTab() {
 
               const confirmMsg = isCredit
                 ? `Apply ₹${creditBalance.toLocaleString('en-IN')} credit balance to settle ₹${(outstanding ?? 0).toLocaleString('en-IN')} outstanding for ${selectedChit?.name}?`
+                : isOverpayNow && showSync && !workerCollect
+                ? `Record ₹${totalPay.toLocaleString('en-IN')} against last known dues of ₹${totalDue!.toLocaleString('en-IN')}? The server will verify current dues. Any excess or changed collection will pause for admin review before it is applied.${breakdown}`
                 : isOverpayNow
-                ? `This exceeds the amount owed (₹${totalDue.toLocaleString('en-IN')}). ${actionVerb} ₹${totalPay.toLocaleString('en-IN')} — the extra ₹${(totalPay - totalDue).toLocaleString('en-IN')} will be added to credit balance and can be applied to future dues.${breakdown}\n\nContinue?`
+                ? `This exceeds the amount owed (₹${totalDue!.toLocaleString('en-IN')}). ${actionVerb} ₹${totalPay.toLocaleString('en-IN')} — the extra ₹${(totalPay - totalDue!).toLocaleString('en-IN')} will be added to credit balance and can be applied to future dues.${breakdown}\n\nContinue?`
                 : workerCollect
                 ? `${actionVerb} ₹${amtNum.toLocaleString('en-IN')} to ${workerName} for ${selectedChit?.name}?${breakdown}\n\nThey'll need to confirm they collected it before it's credited.`
                 : isExplicitMode && allocationEntries.length > 1
@@ -3661,6 +3680,7 @@ function drawLabel(allocations: any[]): string {
 }
 
 function HistoryTab() {
+  const { showSync } = useOfflinePresentation();
   const [memberSearch, setMemberSearch] = useState('');
   const [memberId, setMemberId] = useState('');
   const [chitId, setChitId] = useState('');
@@ -3743,6 +3763,7 @@ function HistoryTab() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+      <PendingPaymentQueueCard history memberNames={memberMap} chitNames={chitMap} />
 
       {/* ── Batch detail modal ── */}
       <Modal visible={!!selectedBatch} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelectedBatch(null)}>
@@ -3782,7 +3803,7 @@ function HistoryTab() {
                     { label: 'Draw(s)', value: b.allocations?.length ? drawLabel(b.allocations) : '—' },
                     { label: 'Collected By', value: b.collectedBy ? (staffMap[b.collectedBy] ?? b.collectedBy.slice(0, 8)) : '—' },
                     { label: 'Recorded', value: fmtDateTime(b.collectedAt ?? b.recordedAt ?? b.createdAt) },
-                    ...(b.syncedAt && b.recordedAt && b.syncedAt !== b.recordedAt
+                    ...(showSync && b.syncedAt && b.recordedAt && b.syncedAt !== b.recordedAt
                       ? [{ label: 'Synced', value: fmtDateTime(b.syncedAt) }]
                       : []),
                     { label: 'Ref / Notes', value: b.referenceNumber ?? b.notes ?? '—' },
@@ -4307,12 +4328,12 @@ export default function AdminPaymentsScreen() {
   const tabs: readonly Tab[] = settlementEnabled
     ? ALL_TABS
     : ALL_TABS.filter((tab) => tab !== 'Settlement');
-  const [activeTab, setActiveTab] = useState<Tab>('Cash Requests');
+  const [activeTab, setActiveTab] = useState<Tab>('Record Payment');
 
   useEffect(() => {
     const t = params.tab === 'settlement' ? 'Settlement' : params.tab as Tab;
     if (t && tabs.includes(t)) setActiveTab(t);
-    else if (activeTab === 'Settlement' && !settlementEnabled) setActiveTab('Cash Requests');
+    else if (activeTab === 'Settlement' && !settlementEnabled) setActiveTab('Record Payment');
   }, [params.tab, settlementEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -4327,11 +4348,11 @@ export default function AdminPaymentsScreen() {
       </View>
 
       {/* Tab bar */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      <ScrollView testID="finance-tabs" horizontal showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
         contentContainerStyle={{ paddingHorizontal: 16 }}>
         {tabs.map((tab) => (
-          <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)}
+          <TouchableOpacity key={tab} testID={`finance-tab-${tab}`} accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab }} onPress={() => setActiveTab(tab)}
             style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: activeTab === tab ? C.navy : 'transparent', marginRight: 4 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: activeTab === tab ? C.navy : C.gray400 }}>
               {tab}

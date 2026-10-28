@@ -22,7 +22,7 @@ class ChitLifecycleCommandStoreTest {
         ChitLifecycleCommand command = ChitLifecycleCommand.builder()
                 .id(UUID.randomUUID()).status("PROCESSING").attempts(9)
                 .claimToken(UUID.randomUUID()).build();
-        when(repository.findById(command.getId())).thenReturn(Optional.of(command));
+        when(repository.findByIdForUpdate(command.getId())).thenReturn(Optional.of(command));
 
         new ChitLifecycleCommandStore(repository, mock(JdbcTemplate.class))
                 .fail(command.getId(), command.getClaimToken(), new IllegalStateException());

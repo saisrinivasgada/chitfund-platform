@@ -1,6 +1,15 @@
 import { BlurView } from 'expo-blur';
+import { PlatformPressable } from '@react-navigation/elements';
+import type { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { C } from './ui';
+import { useMemo } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { tabBarMetrics } from './tabBarMetrics';
+
+export function RoundedTabButton(props: BottomTabBarButtonProps) {
+  return <PlatformPressable {...props} style={[props.style, { borderRadius: 25, overflow: 'hidden' }]} />;
+}
 
 export function NeumorphicTabIcon({
   glyph,
@@ -12,7 +21,7 @@ export function NeumorphicTabIcon({
   size?: number;
 }) {
   return (
-    <View style={[styles.icon, focused && styles.iconActive]}>
+    <View style={styles.icon}>
       <Text style={{ fontSize: size, lineHeight: 22, fontWeight: '800', color: focused ? C.white : C.gray400 }}>
         {glyph}
       </Text>
@@ -45,7 +54,7 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
   label: { fontSize: 10, fontWeight: '700', marginTop: 1 },
-  item: { borderRadius: 18 },
+  item: { borderRadius: 25, marginHorizontal: 3, paddingVertical: 3 },
   background: {
     backgroundColor: Platform.OS === 'ios' ? 'rgba(232,237,243,0.90)' : '#E8EDF3',
     borderTopLeftRadius: 26,
@@ -62,18 +71,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconActive: {
-    backgroundColor: C.navy,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.45)',
-    shadowColor: C.navy,
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.28,
-    shadowRadius: 8,
-    elevation: 6,
-  },
 });
 
-export const neumorphicTabBarStyle = styles.bar;
+export function useNeumorphicTabBarStyle() {
+  const { bottom } = useSafeAreaInsets();
+  return useMemo(() => [styles.bar, tabBarMetrics(Platform.OS, bottom)], [bottom]);
+}
 export const neumorphicTabLabelStyle = styles.label;
 export const neumorphicTabItemStyle = styles.item;
+export const selectedTabBackgroundColor = C.navy;

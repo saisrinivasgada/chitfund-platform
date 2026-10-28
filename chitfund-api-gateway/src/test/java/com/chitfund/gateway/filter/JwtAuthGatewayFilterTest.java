@@ -361,6 +361,38 @@ class JwtAuthGatewayFilterTest {
         verify(chain).filter(any());
     }
 
+    @Test
+    void expiryPermitsOnlyDedicatedSavedWorkRoutesWhileOrdinaryPaymentsStayBlocked() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1")).thenReturn(Mono.just(
+                new TenantEntitlementClient.TenantEntitlement("ACTIVE", LocalDateTime.now().minusDays(1).toString())));
+        String id = "10000000-0000-0000-0000-000000000001";
+        for (String path : java.util.List.of("/api/users/me/offline-access", "/api/payments/offline/record",
+                "/api/payments/offline/staff-actions", "/api/payments/offline/reviews/legacy", "/api/payments/offline/reviews/recover", "/api/payments/offline/reviews/recover-legacy", "/api/payments/offline/reviews/cancel-unsynced",
+                "/api/payments/offline/staff-actions/reviews/legacy", "/api/payments/offline/staff-actions/reviews/recover",
+                "/api/payments/offline/staff-actions/reviews/recover-legacy", "/api/payments/offline/staff-actions/reviews/" + id + "/resolve",
+                "/api/payments/offline/reviews/" + id + "/resolve", "/api/payments/offline/reviews/" + id + "/refund",
+                "/api/payments/offline/reviews/" + id + "/cancel", "/api/payments/requests/" + id + "/collect")) {
+            var chain = mock(GatewayFilterChain.class); when(chain.filter(any())).thenReturn(Mono.empty());
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest.post(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+            factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block(); verify(chain).filter(any());
+        }
+        var ordinary = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/payments").header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, ordinary).block();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN); verify(ordinary, never()).filter(any());
+    }
+    @Test
+    void savedWorkStillFailsClosedForSuspendedOrganisations() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1")).thenReturn(Mono.just(
+                new TenantEntitlementClient.TenantEntitlement("SUSPENDED", LocalDateTime.now().minusDays(1).toString())));
+        var chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/api/payments/offline/record").header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN); verify(chain, never()).filter(any());
+    }
+
     private String memberToken(String subject, String tenantId) {
         return Jwts.builder()
                 .subject(subject)

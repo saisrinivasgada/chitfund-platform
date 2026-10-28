@@ -31,6 +31,7 @@ import java.util.UUID;
 public class InternalMemberController {
 
     private final MemberRepository memberRepository;
+    private final com.chitfund.memberservice.client.AuditClient auditClient;
 
     @Value("${app.internal-key}")
     private String internalKey;
@@ -134,6 +135,7 @@ public class InternalMemberController {
      * Marks the member INACTIVE so they no longer appear as eligible for new chits.
      */
     @PatchMapping("/{memberId}/deactivate")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<Map<String, Object>> deactivateMember(
             @PathVariable UUID memberId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key,
@@ -147,14 +149,19 @@ public class InternalMemberController {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.<String, Object>of("success", false, "reason", "member is blacklisted"));
             }
+            MemberStatus previous = m.getStatus();
+            if (previous == MemberStatus.INACTIVE) return ResponseEntity.ok(Map.<String, Object>of("success", true));
             m.setStatus(MemberStatus.INACTIVE);
             memberRepository.save(m);
+            auditClient.log("MEMBER", m.getId().toString(), "STATUS_CHANGED_BY_SETTLEMENT", null, "SYSTEM",
+                    Map.of("status", previous), Map.of("status", m.getStatus()), tenantId);
             return ResponseEntity.ok(Map.<String, Object>of("success", true));
         }).orElse(ResponseEntity.ok(Map.of("success", false, "reason", "not found")));
     }
 
     /** Called by payment-service after an audited settlement void. Idempotent. */
     @PatchMapping("/{memberId}/activate")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<Map<String, Object>> activateMember(
             @PathVariable UUID memberId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key,
@@ -168,8 +175,12 @@ public class InternalMemberController {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.<String, Object>of("success", false, "reason", "member is blacklisted"));
             }
+            MemberStatus previous = m.getStatus();
+            if (previous == MemberStatus.ACTIVE) return ResponseEntity.ok(Map.<String, Object>of("success", true));
             m.setStatus(MemberStatus.ACTIVE);
             memberRepository.save(m);
+            auditClient.log("MEMBER", m.getId().toString(), "STATUS_CHANGED_BY_SETTLEMENT", null, "SYSTEM",
+                    Map.of("status", previous), Map.of("status", m.getStatus()), tenantId);
             return ResponseEntity.ok(Map.<String, Object>of("success", true));
         }).orElse(ResponseEntity.ok(Map.of("success", false, "reason", "not found")));
     }
@@ -199,6 +210,7 @@ public class InternalMemberController {
     }
 
     @PutMapping("/{memberId}/app-access")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<Map<String, Object>> activateAppAccess(
             @PathVariable UUID memberId,
             @RequestBody Map<String, String> body,
@@ -229,8 +241,15 @@ public class InternalMemberController {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.<String, Object>of("success", false, "reason", "user is linked to another member"));
             }
+            UUID previousUserId = member.getUserId();
+            MemberStatus previousStatus = member.getStatus();
             member.setUserId(requestedUserId);
             memberRepository.save(member);
+            if (!requestedUserId.equals(previousUserId) || previousStatus != member.getStatus()) {
+                var before = new java.util.LinkedHashMap<String, Object>(); before.put("userId", previousUserId); before.put("status", previousStatus);
+                auditClient.log("MEMBER", memberId.toString(), "APP_ACCESS_ACTIVATED", null, "SYSTEM", before,
+                        Map.of("userId", requestedUserId, "status", member.getStatus()), tenantId);
+            }
             return ResponseEntity.ok(Map.<String, Object>of("success", true));
         }).orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(Map.of("success", false, "reason", "member not found in organization")));

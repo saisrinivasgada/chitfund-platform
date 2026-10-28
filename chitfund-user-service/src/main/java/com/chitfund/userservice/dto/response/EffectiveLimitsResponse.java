@@ -20,6 +20,7 @@ public class EffectiveLimitsResponse {
     private boolean analyticsEnabled;  // derived: enabledAddOns.contains("full_analytics")
     private boolean prioritySupport;   // derived: enabledAddOns.contains("priority_support")
     private boolean chatEnabled;       // derived: enabledAddOns.contains("live_chat")
+    private boolean offlineEnabled;
     private boolean settlementEnabled; // derived: enabledAddOns.contains("settlement")
     private String notes;
     private String planExpiresAt;   // ISO string, null = never expires

@@ -27,6 +27,15 @@ public interface ChitRepository extends JpaRepository<Chit, UUID> {
     @Query("SELECT c FROM Chit c WHERE c.id = :id AND c.tenantId = :tenantId AND c.deletedAt IS NULL")
     java.util.Optional<Chit> findByIdAndTenantIdForUpdate(UUID id, String tenantId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Chit c WHERE c.tenantId = :tenantId AND c.deletedAt IS NULL " +
+            "AND c.id = (SELECT i.chit.id FROM ChitInvitation i WHERE i.id = :invitationId AND i.tenantId = :tenantId)")
+    java.util.Optional<Chit> findByInvitationForUpdate(UUID invitationId, String tenantId);
+
+    @Query("SELECT c FROM Chit c WHERE c.tenantId=:tenantId AND c.deletedAt IS NULL AND EXISTS " +
+           "(SELECT e.id FROM ChitEnrollment e WHERE e.chit=c AND e.memberId=:memberId)")
+    Page<Chit> findMemberChits(String tenantId, UUID memberId, Pageable pageable);
+
     // ── Tenant-scoped list queries ─────────────────────────────────────────────
     Page<Chit> findByTenantIdAndDeletedAtIsNull(String tenantId, Pageable pageable);
     Page<Chit> findByTenantIdAndStatusAndDeletedAtIsNull(String tenantId, ChitStatus status, Pageable pageable);

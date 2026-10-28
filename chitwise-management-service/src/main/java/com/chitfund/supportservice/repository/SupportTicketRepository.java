@@ -13,6 +13,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface SupportTicketRepository extends JpaRepository<SupportTicket, String> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM SupportTicket t WHERE t.id=:id")
+    java.util.Optional<SupportTicket> findByIdForUpdate(@Param("id") String id);
+
     Page<SupportTicket> findByTenantIdOrderByCreatedAtDesc(String tenantId, Pageable pageable);
 
     Page<SupportTicket> findByTenantIdAndStatusOrderByCreatedAtDesc(String tenantId, TicketStatus status, Pageable pageable);

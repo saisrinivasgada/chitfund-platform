@@ -136,7 +136,7 @@ class AuctionCloseCalculationTest {
         when(auctionSessionRepository.findByIdAndChitIdAndTenantId(auctionId, chitId, TENANT))
                 .thenReturn(Optional.of(session));
         when(auctionSessionRepository.findById(auctionId)).thenReturn(Optional.of(session));
-        when(chitService.findByIdScoped(chitId)).thenReturn(chit);
+        when(chitService.findByIdForUpdate(chitId)).thenReturn(chit);
         when(enrollmentRepository.findActiveMemberIdsByChitId(chitId)).thenReturn(spots(totalSpots));
         when(auctionSessionRepository.save(any(AuctionSession.class)))
                 .thenAnswer(inv -> inv.getArgument(0));

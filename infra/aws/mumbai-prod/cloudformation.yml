@@ -40,10 +40,26 @@ Parameters:
     Type: String
     Default: saisrinivasgada/chitfund-platform
   LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Type: AWS::EC2::Image::Id
+    Description: Explicitly reviewed AMI ID. Keep the deployed value for ordinary updates.
 
 Resources:
+  OfflineSigningSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub '${ProductionSecretName}/offline-signing'
+      Description: Durable offline grant evidence; retain old keys when rotating.
+      GenerateSecretString:
+        SecretStringTemplate: '{"OFFLINE_SIGNING_KEY_ID":"offline-v1","OFFLINE_PREVIOUS_SIGNING_KEYS":"{}"}'
+        GenerateStringKey: OFFLINE_SIGNING_SECRET
+        PasswordLength: 64
+        ExcludePunctuation: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Production}
+
   Vpc:
     Type: AWS::EC2::VPC
     Properties:
@@ -216,6 +232,7 @@ Resources:
                 Action: [secretsmanager:GetSecretValue, secretsmanager:DescribeSecret]
                 Resource:
                   - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProductionSecretName}-*'
+                  - !Ref OfflineSigningSecret
                   - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${CertbotSecretName}-*'
               - Effect: Allow
                 Action: [sqs:SendMessage, sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:GetQueueUrl, sqs:ChangeMessageVisibility]

@@ -67,6 +67,7 @@ public class TenantService {
     private final PromotionService promotionService;
     private final NotificationEventPublisher notificationEventPublisher;
     private final AuditClient auditClient;
+    private final PlanService planService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final TenantCreditAdjustmentRepository creditAdjustmentRepository;
 
@@ -198,6 +199,7 @@ public class TenantService {
                 .memberId(memberId)
                 .analyticsEnabled(addOns.contains("full_analytics"))
                 .chatEnabled(addOns.contains("live_chat"))
+                .offlineEnabled(addOns.contains("offline_support"))
                 .settlementEnabled(addOns.contains("settlement"))
                 .adminPhone(t.getContactPhone())
                 .adminEmail(t.getContactEmail())
@@ -617,13 +619,15 @@ public class TenantService {
     }
 
     public OrgUserResponse addOrgUser(UUID tenantId, AddOrgUserRequest req, String actorId) {
-        tenantRepository.findById(tenantId)
+        tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         Role role = Role.valueOf(req.getRole().toUpperCase());
         if (role != Role.ADMIN && role != Role.MANAGER && role != Role.STAFF) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Role must be ADMIN, MANAGER, or STAFF");
         }
+
+        if (role == Role.STAFF || role == Role.MANAGER) planService.checkStaffLimit(tenantId.toString());
 
         // Generate a temp password if not provided
         String rawPassword = (req.getPassword() != null && !req.getPassword().isBlank())
@@ -914,6 +918,7 @@ public class TenantService {
                 .analyticsEnabled(addOns.contains("full_analytics"))
                 .prioritySupport(addOns.contains("priority_support"))
                 .chatEnabled(addOns.contains("live_chat"))
+                .offlineEnabled(addOns.contains("offline_support"))
                 .settlementEnabled(addOns.contains("settlement"))
                 .allowedChitTypes(c.getAllowedChitTypes())
                 .priceMonthlyInr(c.getPriceMonthlyInr())

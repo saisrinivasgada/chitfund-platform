@@ -15,6 +15,10 @@ import java.util.UUID;
 @AllArgsConstructor
 public class Member {
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;

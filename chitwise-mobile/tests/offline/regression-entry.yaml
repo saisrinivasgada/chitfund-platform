@@ -1,0 +1,6 @@
+appId: com.chitwise.mobile
+---
+# Keep the native driver and ADB transport alive across sign-in and the suite.
+# CI uses a fresh install; local signed-in regression keeps its separate entry.
+- runFlow: login.yaml
+- runFlow: regression-with-member-suite.yaml

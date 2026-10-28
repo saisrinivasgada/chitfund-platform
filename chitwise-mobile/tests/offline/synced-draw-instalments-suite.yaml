@@ -1,0 +1,88 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+# Read the same confirmed ledger online and after a cold offline restart.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: '.*Dashboard.*'
+    timeout: 60000
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(app)/(admin)/chits'
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: '.*QA Monthly Chit A.*'
+    timeout: 60000
+- tapOn: '.*QA Monthly Chit A.*'
+- waitForAnimationToEnd
+- tapOn: 'Draws'
+- waitForAnimationToEnd
+- tapOn: 'Draw #1\b.*'
+- extendedWaitUntil:
+    visible: 'Member Payments \(1/1 cleared\)'
+    timeout: 30000
+- assertVisible: 'Settled'
+- assertVisible: 'Clear ✓'
+- assertVisible: 'Transactions \(1\)'
+- assertNotVisible: '₹1,000 due'
+- tapOn: 'Close chit details'
+- waitForAnimationToEnd
+- tapOn: '.*QA Second Chit A.*'
+- waitForAnimationToEnd
+- tapOn: 'Draws'
+- waitForAnimationToEnd
+- tapOn: 'Draw #1\b.*'
+- extendedWaitUntil:
+    visible: 'Member Payments \(0/1 cleared\)'
+    timeout: 30000
+- assertVisible: 'Pending'
+- assertVisible: '₹500 due'
+- assertNotVisible: 'Transactions \(1\)'
+- tapOn: 'Close chit details'
+- waitForAnimationToEnd
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":false}'
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: '.*Dashboard.*'
+    timeout: 60000
+- tapOn:
+    id: 'admin-tab-chits'
+- extendedWaitUntil:
+    visible: '.*QA Monthly Chit A.*'
+    timeout: 30000
+- tapOn: '.*QA Monthly Chit A.*'
+- waitForAnimationToEnd
+- tapOn: 'Draws'
+- waitForAnimationToEnd
+- tapOn: 'Draw #1\b.*'
+- extendedWaitUntil:
+    visible: 'Member Payments \(1/1 cleared\)'
+    timeout: 30000
+- assertVisible: 'Settled'
+- assertVisible: 'Clear ✓'
+- assertVisible: 'Transactions \(1\)'
+- tapOn: 'Close chit details'
+- waitForAnimationToEnd
+- tapOn: '.*QA Second Chit A.*'
+- waitForAnimationToEnd
+- tapOn: 'Draws'
+- waitForAnimationToEnd
+- tapOn: 'Draw #1\b.*'
+- extendedWaitUntil:
+    visible: 'Member Payments \(0/1 cleared\)'
+    timeout: 30000
+- assertVisible: '₹500 due'
+- assertNotVisible: 'Transactions \(1\)'
+- tapOn: 'Close chit details'
+- waitForAnimationToEnd
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true}'

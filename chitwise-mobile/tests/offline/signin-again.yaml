@@ -1,0 +1,43 @@
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/login?addAccount=1&username=offline-a'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "Enter your password"
+    timeout: 60000
+- tapOn: "Enter your password"
+- inputText: "local-qa-only"
+- pressKey: Enter
+- waitForAnimationToEnd
+- runFlow: dismiss-password-prompt.yaml
+- extendedWaitUntil:
+    visible: ".*Dashboard.*|Welcome to ChitWise"
+    timeout: 60000
+- waitForAnimationToEnd
+- tapOn:
+    text: "No thanks"
+    optional: true
+- waitForAnimationToEnd
+- tapOn:
+    text: "Skip for now"
+    optional: true
+- runFlow:
+    file: open-app-route.yaml
+    env:
+      APP_LINK: 'chitwise:///(auth)/accounts'
+- waitForAnimationToEnd
+- tapOn:
+    text: "Open"
+    optional: true
+- extendedWaitUntil:
+    visible: "No collections waiting to sync"
+    timeout: 60000
+- assertNotVisible: ".*1 saved.*waiting to sync.*"

@@ -1,0 +1,39 @@
+appId: com.chitwise.mobile
+---
+# Callers pass FINANCE_TAB explicitly. A config env default overrides runFlow
+# arguments in Maestro 2.11 and silently selected Record Payment for History.
+- tapOn: "Finance(, tab,.*)?"
+- waitForAnimationToEnd
+# The tab strip occupies only the header. Scroll inside it, never through the
+# payment list in the screen centre; both loops are bounded navigation only.
+- repeat:
+    times: 5
+    commands:
+      - runFlow:
+          when:
+            notVisible:
+              id: "finance-tab-Record Payment"
+          commands:
+            - swipe:
+                from:
+                  id: "finance-tabs"
+                  point: "15%, 50%"
+                direction: RIGHT
+- repeat:
+    times: 5
+    commands:
+      - runFlow:
+          when:
+            notVisible:
+              id: "finance-tab-${FINANCE_TAB}"
+          commands:
+            - swipe:
+                from:
+                  id: "finance-tabs"
+                  point: "85%, 50%"
+                direction: LEFT
+- assertVisible:
+    id: "finance-tab-${FINANCE_TAB}"
+- tapOn:
+    id: "finance-tab-${FINANCE_TAB}"
+- waitForAnimationToEnd

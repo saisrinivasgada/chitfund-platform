@@ -1,3 +1,5 @@
+import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
+import { outstandingValue } from '../../../../shared/offline/balanceValue';
 import { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,
@@ -7,7 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMyChits, getMyMemberProfile, getMemberBalance,
-  getPaymentHistory, getDraws, getWinners, getPayoutsForMember,
+  getPaymentHistory, getMyDraws, getWinners, getPayoutsForMember,
   listAuctions, getAuction, placeBid, getMyReservations,
 } from '../../../services/api';
 import { C, fmtDate } from '../../../components/ui';
@@ -76,7 +78,7 @@ export default function ChitDetailScreen() {
 
   const { data: draws = [] } = useQuery({
     queryKey: ['member-chit-draws', chitId],
-    queryFn: () => getDraws(chitId!),
+    queryFn: () => getMyDraws(chitId!),
     enabled: !!chitId,
   });
 
@@ -182,36 +184,41 @@ export default function ChitDetailScreen() {
   const winnerByMonth = Object.fromEntries((winners as any[]).map((w: any) => [w.monthNumber, w]));
   const myPayout = (allPayouts as any[]).find((p: any) => p.chitId === chitId);
   const histArr = history as any[];
-  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED', 'PARTIAL_CREDIT'].includes(r.status)).length;
+  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED'].includes(r.status)).length;
   const totalPaid = histArr.reduce((s, r: any) => s + Number(r.amountPaid ?? 0), 0);
   const outstanding = histArr.reduce((s, r: any) => s + Math.max(0, Number(r.amountDue ?? 0) - Number(r.amountPaid ?? 0)), 0);
 
-  const balOwing = bal?.outstandingBalance ?? bal?.balance ?? bal ?? null;
-  const balNum = balOwing != null ? Number(balOwing) : null;
+  const balNum = outstandingValue(bal);
+
+  const readKeys = [
+    ['member-chits'], ['member-profile-me'], ['member-chit-history', memberId, chitId],
+    ['member-chit-draws', chitId], ['member-chit-balance', memberId, chitId],
+    ['member-chit-reservations', chitId], ['member-chit-winners', chitId], ['member-payouts', memberId],
+  ];
 
   if (chitsLoading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50, alignItems: 'center', justifyContent: 'center' }}>
+      <ReadDataBoundary label="Chit details" queryKeys={readKeys}><SafeAreaView style={{ flex: 1, backgroundColor: C.gray50, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={C.navy} />
-      </SafeAreaView>
+      </SafeAreaView></ReadDataBoundary>
     );
   }
 
   if (!chit) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <ReadDataBoundary label="Chit details" queryKeys={readKeys}><SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
         <View style={{ padding: 20 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ marginBottom: 16 }}>
             <Text style={{ fontSize: 16, color: C.navy }}>← Back</Text>
           </TouchableOpacity>
           <Text style={{ fontSize: 16, color: C.gray500 }}>Chit not found.</Text>
         </View>
-      </SafeAreaView>
+      </SafeAreaView></ReadDataBoundary>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top']}>
+    <ReadDataBoundary label="Chit details" queryKeys={readKeys}><SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top']}>
       {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
         <TouchableOpacity
@@ -768,6 +775,6 @@ export default function ChitDetailScreen() {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </SafeAreaView></ReadDataBoundary>
   );
 }

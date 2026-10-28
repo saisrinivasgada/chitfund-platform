@@ -1,0 +1,31 @@
+appId: com.chitwise.mobile
+---
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+# Start through the visible toolbar, including a newly installed app. Opening
+# Finance must not depend on the OS accepting its first external URL request.
+- tapOn: 'Finance(, tab,.*)?'
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: "member-row-QA Member A"
+    timeout: 60000
+- assertNotVisible: "Offline collection reviews.*"
+- tapOn:
+    id: "sync-status-button"
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Sync now"
+    timeout: 10000
+- tapOn: "Sync now"
+- extendedWaitUntil:
+    visible: "Available offline"
+    timeout: 60000
+- runFlow: close-sync-details.yaml
+- waitForAnimationToEnd
+- tapOn:
+    id: "chitwise-tools-button"
+- assertVisible: "CHITWISE TOOLS"
+- tapOn: "Open calculator"
+- assertVisible: "AC"
+- tapOn: "Close calculator"

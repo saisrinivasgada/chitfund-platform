@@ -20,6 +20,12 @@ import java.util.Map;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(OfflineReviewRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleOfflineReview(OfflineReviewRequiredException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(ex.getErrorCode().getCode(),
+                ex.getMessage(), Map.of("reviewId", ex.getReviewId(), "status", "NEEDS_REVIEW")));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex) {
         return ResponseEntity.status(ex.getHttpStatus())
@@ -54,6 +60,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
                         "The request conflicts with a concurrent or duplicate operation"));
+    }
+
+    // A deadlock/lock timeout rolls back this attempt. Offline clients must retry
+    // the same operation identity, rather than sending valid money for review.
+    @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleContention(org.springframework.dao.PessimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header("Retry-After", "1")
+                .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
+                        "Another action is in progress. Please try again shortly."));
+    }
+
+    @ExceptionHandler(org.springframework.dao.ConcurrencyFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConcurrency(org.springframework.dao.ConcurrencyFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
+                        "Another request changed this information. Refresh and try again."));
     }
 
     @ExceptionHandler(Exception.class)

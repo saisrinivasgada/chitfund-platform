@@ -1,4 +1,8 @@
 import axios from 'axios';
+import { accessTokenForAccount, activeAccountScope, refreshAccount } from '../offline/accountClient';
+import { cachedResponse, saveCachedResponse, forgetCachedResponse } from '../offline/cache';
+import { readRow } from '../offline/storage';
+import { queuePayment, canRecordOffline, syncSavedPayments } from '../offline/outbox';
 
 const api = axios.create({ baseURL: '/api' });
 
@@ -13,14 +17,59 @@ export const clearHubSaasToken = () => { _hubSaasToken = null; };
 
 // Attach auth token on every request except auth endpoints (login, etc.)
 // Proxy sessions (super-admin impersonating) use sessionStorage; real sessions use memory.
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   config.headers['X-Client-Source'] = 'WEB';
   const isAuthEndpoint = config.url?.includes('/auth/');
-  if (!isAuthEndpoint) {
-    const token = sessionStorage.getItem('token') ?? _authToken ?? _hubSaasToken;
+  if (isAuthEndpoint) return config;
+  const proxyToken = config._proxyToken ?? sessionStorage.getItem('token');
+  const scope = config._accountScope ?? (!proxyToken && !_hubSaasToken ? activeAccountScope() : null);
+  if (scope) {
+    config._accountScope = scope;
+    if (!navigator.onLine) {
+      try {
+        const cached = await cachedResponse(scope, config);
+        if (cached) { config.adapter = async () => cached; return config; }
+      } catch { /* A cache failure must not erase the original data. */ }
+      throw Object.assign(new Error((config.method ?? 'get').toLowerCase() === 'get'
+        ? 'This data has not been downloaded on this browser. Connect to refresh it.'
+        : 'This action needs an internet connection.'), { config, status: 503, offlineMissing: true });
+    }
+    try { config.headers.Authorization = `Bearer ${await accessTokenForAccount(scope)}`; }
+    catch (error) {
+      // Refresh errors may be shared by many requests. Do not mutate that
+      // shared Error with one endpoint's config and accidentally serve its data to another.
+      throw Object.assign(new Error(error.message, { cause: error }), {
+        config, status: error.status, errorCode: error.errorCode,
+      });
+    }
+  } else {
+    if (proxyToken) config._proxyToken = proxyToken;
+    const token = proxyToken ?? _authToken ?? _hubSaasToken;
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
+});
+
+// Transport failures can serve a scoped saved response; a server access denial cannot.
+api.interceptors.response.use(async (response) => {
+  if (!response.headers?.['x-chitwise-cached-at']) {
+    try { await saveCachedResponse(response.config._accountScope, response.config, response.data); }
+    catch { /* Online reads remain available if local storage is full/unavailable. */ }
+  }
+  return response;
+}, async (error) => {
+  if ([403, 404, 410].includes(error.response?.status)) {
+    try { await forgetCachedResponse(error.config?._accountScope, error.config ?? {}); }
+    catch { /* Access denial still reaches the caller when storage is unavailable. */ }
+  }
+  const responseStatus = error.response?.status ?? error.status;
+  if ((!error.response && !error.status) || responseStatus >= 500 || [408, 429].includes(responseStatus)) {
+    try {
+      const cached = await cachedResponse(error.config?._accountScope, error.config ?? {});
+      if (cached) return cached;
+    } catch { /* Keep the original error visible if no saved response can be read. */ }
+  }
+  return Promise.reject(error);
 });
 
 // Handle 401 + plan-expiry globally
@@ -47,10 +96,23 @@ api.interceptors.response.use(
     const originalRequest = err.config;
     const isAuthEndpoint  = originalRequest?.url?.includes('/auth/');
 
-    if (err.response?.data?.errorCode === 'PLAN_002') {
+    if (err.response?.data?.errorCode === 'PLAN_002'
+        && (!originalRequest?._accountScope || originalRequest._accountScope === activeAccountScope())) {
       window.dispatchEvent(new CustomEvent('plan-expired'));
     }
 
+    if (err.response?.status === 401 && !isAuthEndpoint && originalRequest?._accountScope && !originalRequest._retry) {
+      originalRequest._retry = true;
+      const scope = originalRequest._accountScope;
+      const auth = await refreshAccount(scope);
+      if (scope === activeAccountScope() && !sessionStorage.getItem('token')) {
+        setAuthToken(auth.accessToken);
+        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: { token: auth.accessToken, auth } }));
+      }
+      originalRequest.headers.Authorization = `Bearer ${auth.accessToken}`;
+      return api(originalRequest);
+    }
+    if (originalRequest?._proxyToken && originalRequest._proxyToken !== sessionStorage.getItem('token')) return Promise.reject(err);
     if (err.response?.status === 401 && !isAuthEndpoint && !originalRequest._retry) {
       // Hub SUPER_ADMIN sessions are short-lived and deliberately have no
       // user-service refresh token. Return to the single Hub login when they expire.
@@ -116,6 +178,11 @@ api.interceptors.response.use(
 
 // Restores session using HttpOnly refresh token cookie (called on page load)
 export const refreshSession = async () => {
+  const scope = activeAccountScope();
+  if (scope) {
+    const account = await readRow('accounts', scope);
+    if (account?.sessionValid) return refreshAccount(scope);
+  }
   const res = await api.post('/auth/refresh', {});
   return res.data.data; // AuthResponse { accessToken, refreshToken, user }
 };
@@ -587,8 +654,10 @@ export const linkMemberUser = async ({ memberId, userId }) => {
   return res.data.data;
 };
 
-export const getMembers = async (params = {}) => {
-  const res = await api.get('/members', { params: { size: 200, ...params } });
+export const getMembers = async ({ page, size = 200, search, status, sort } = {}) => {
+  // These helpers are also passed directly as query functions. Only server
+  // parameters belong in the URL and in its durable offline request identity.
+  const res = await api.get('/members', { params: { page, size, search, status, sort } });
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
@@ -658,8 +727,8 @@ export const getDeletedMembers = async ({ search, page = 0, size = 20 } = {}) =>
 };
 
 // ─── Chits (chit-service, no strip) ───────────────────────────────────────
-export const getChits = async (params = {}) => {
-  const res = await api.get('/chits', { params });
+export const getChits = async ({ page, size, status, tenantFilter } = {}) => {
+  const res = await api.get('/chits', { params: { page, size, status, tenantFilter } });
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
@@ -791,8 +860,8 @@ export const swapSlots = async ({ chitId, slotAId, slotBId }) => {
 };
 
 // Shifts all future RESERVED/UNALLOCATED slots forward by 1 month, called after a skip
-export const shiftReservations = async ({ chitId, fromMonth }) => {
-  const res = await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth } });
+export const shiftReservations = async ({ chitId, fromMonth, requestId }) => {
+  const res = await api.post(`/chits/${chitId}/reservations/shift`, null, { params: { fromMonth }, headers: { 'Idempotency-Key': requestId } });
   return res.data.data;
 };
 
@@ -850,6 +919,8 @@ export const getDraws = async (chitId) => {
   const res = await api.get(`/admin/draws/chit/${chitId}`);
   return res.data.data ?? [];
 };
+export const getMyDraws = async (chitId) => (await api.get(`/admin/draws/member/chit/${chitId}`)).data.data ?? [];
+
 
 export const getDrawPayments = async (drawId) => {
   const res = await api.get(`/admin/draws/${drawId}/payments`);
@@ -861,9 +932,20 @@ export const updatePromisedDate = async ({ recordId, promisedPaymentDate }) => {
   return res.data.data;
 };
 
-export const recordPayment = async ({ chitId, memberId, amount, paymentMode, notes, idempotencyKey }) => {
+export const recordPayment = async (input) => {
+  const { idempotencyKey, ...payload } = input;
+  const scope = !sessionStorage.getItem('token') ? activeAccountScope() : null;
+  if (scope && payload.paymentMode !== 'CREDIT') {
+    const account = await readRow('accounts', scope);
+    const existing = idempotencyKey ? await readRow('outbox', `${scope}:${idempotencyKey}`) : null;
+    if (account?.user.role === 'ADMIN' && (existing || canRecordOffline(account.offlineAccess, 'RECORD_PAYMENT') || !navigator.onLine)) {
+      const result = await queuePayment(scope, input);
+      syncSavedPayments().catch(() => {});
+      return result;
+    }
+  }
   const headers = idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {};
-  const res = await api.post('/payments', { chitId, memberId, amount, paymentMode, notes }, { headers });
+  const res = await api.post('/payments', payload, { headers, _accountScope: scope || undefined });
   return res.data.data;
 };
 
@@ -877,7 +959,7 @@ export const deleteDraw = async (drawId) => {
 };
 
 export const skipDraw = async (body) => {
-  const res = await api.post('/admin/draws/skip', body);
+  const res = await api.post(`/chits/${body.chitId}/skip-draw`, body);
   return res.data.data;
 };
 
@@ -1214,6 +1296,11 @@ export const getUnreadCount = async () => {
 };
 
 // Full chronological audit trail for a chit (draws, payments, payouts, reservations)
+export const getChitAuditPage = async (chitId, page = 0, size = 50) => {
+  const res = await api.get(`/audit/logs/chit/${chitId}`, { params: { page, size } });
+  return res.data.data;
+};
+
 export const getChitAuditLogs = async (chitId, page = 0, size = 100) => {
   const res = await api.get(`/audit/logs/chit/${chitId}`, {
     params: { page, size, sort: 'createdAt,desc' },

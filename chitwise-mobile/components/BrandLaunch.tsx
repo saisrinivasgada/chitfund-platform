@@ -28,6 +28,7 @@ export function BrandLaunch({ onFinish }: BrandLaunchProps) {
   useEffect(() => {
     let stopped = false;
     let animation: Animated.CompositeAnimation | undefined;
+    const deadline = setTimeout(() => { if (!stopped) onFinish(); }, 3000);
 
     AccessibilityInfo.isReduceMotionEnabled()
       .catch(() => false)
@@ -93,6 +94,7 @@ export function BrandLaunch({ onFinish }: BrandLaunchProps) {
 
     return () => {
       stopped = true;
+      clearTimeout(deadline);
       animation?.stop();
     };
   }, [logoOpacity, logoScale, onFinish, screenOpacity, wordmarkOffset, wordmarkOpacity]);
@@ -101,7 +103,7 @@ export function BrandLaunch({ onFinish }: BrandLaunchProps) {
     <Animated.View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      pointerEvents="auto"
+      pointerEvents="none"
       testID="brand-launch"
       style={[styles.screen, { opacity: screenOpacity }]}
     >

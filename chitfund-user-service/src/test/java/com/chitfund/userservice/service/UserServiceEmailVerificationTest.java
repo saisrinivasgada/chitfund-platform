@@ -34,7 +34,7 @@ class UserServiceEmailVerificationTest {
 
     @BeforeEach
     void setUp() {
-        service = new UserService(userRepository, userMapper,
+        service = new UserService(userRepository, org.mockito.Mockito.mock(com.chitfund.userservice.client.AuditClient.class), org.mockito.Mockito.mock(PlanService.class), userMapper,
                 refreshTokenRepository, trustedDeviceRepository);
     }
 
@@ -53,7 +53,7 @@ class UserServiceEmailVerificationTest {
         request.setEmail("new@example.com");
         UserResponse mapped = UserResponse.builder().id(id).email("new@example.com").build();
 
-        when(userRepository.findById(id)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(id)).thenReturn(Optional.of(user));
         when(userRepository.existsByEmail("new@example.com")).thenReturn(false);
         when(userRepository.save(user)).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(mapped);
@@ -79,7 +79,7 @@ class UserServiceEmailVerificationTest {
                 .build();
         UpdateUserProfileRequest request = new UpdateUserProfileRequest();
         request.setEmail("new@example.com");
-        when(userRepository.findById(id)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(id)).thenReturn(Optional.of(user));
 
         assertThrows(BusinessException.class, () -> service.updateMyProfile(id, request));
         verify(userRepository, never()).save(any());

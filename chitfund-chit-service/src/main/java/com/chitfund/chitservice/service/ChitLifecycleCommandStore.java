@@ -46,7 +46,7 @@ public class ChitLifecycleCommandStore {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void complete(UUID id, UUID claimToken) {
-        repository.findById(id).ifPresent(command -> {
+        repository.findByIdForUpdate(id).ifPresent(command -> {
             if (!"PROCESSING".equals(command.getStatus())
                     || !claimToken.equals(command.getClaimToken())) return;
             command.setStatus("COMPLETED");
@@ -59,7 +59,7 @@ public class ChitLifecycleCommandStore {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void fail(UUID id, UUID claimToken, Exception error) {
-        repository.findById(id).ifPresent(command -> {
+        repository.findByIdForUpdate(id).ifPresent(command -> {
             if (!"PROCESSING".equals(command.getStatus())
                     || !claimToken.equals(command.getClaimToken())) return;
             int attempts = command.getAttempts() + 1;

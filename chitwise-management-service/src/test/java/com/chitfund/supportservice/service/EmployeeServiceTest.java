@@ -299,7 +299,8 @@ class EmployeeServiceTest {
     void assigningCustomRoleRevokesExistingSessionsAndTokens() {
         Employee employee = activeEmployee("SUPPORT_AGENT");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
-        when(hubCustomRoleRepository.existsById("role-1")).thenReturn(true);
+        when(hubCustomRoleRepository.findByIdForUpdate("role-1")).thenReturn(Optional.of(
+                com.chitfund.supportservice.domain.entity.HubCustomRole.builder().id("role-1").build()));
         when(repository.save(employee)).thenReturn(employee);
 
         service().assignCustomRole(employee.getId(), "super-admin", "role-1",

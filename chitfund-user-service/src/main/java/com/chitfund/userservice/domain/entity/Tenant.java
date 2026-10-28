@@ -15,6 +15,10 @@ import java.util.UUID;
 @Builder
 public class Tenant {
 
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;

@@ -57,6 +57,19 @@ public class GlobalExceptionHandler {
                 .body(Map.of("success", false, "message", "A duplicate entry was detected. Please try again."));
     }
 
+    @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
+    public ResponseEntity<?> handleContention(org.springframework.dao.PessimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).header("Retry-After", "1")
+                .body(Map.of("success", false, "message", "Another action is in progress. Please try again shortly."));
+    }
+
+    @ExceptionHandler(org.springframework.dao.ConcurrencyFailureException.class)
+    public ResponseEntity<?> handleConcurrency(org.springframework.dao.ConcurrencyFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("success", false, "message",
+                        "Another request changed this information. Refresh and try again."));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<?> handleGeneral(Exception ex) {
         log.error("Unhandled exception", ex);

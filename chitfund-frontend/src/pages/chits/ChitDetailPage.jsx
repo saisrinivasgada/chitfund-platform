@@ -1,3 +1,4 @@
+import ReadDataBoundary from '../../offline/ReadDataBoundary';
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -6,7 +7,7 @@ import {
   getChitLifecycleSync, retryChitLifecycleSync,
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
-  getDraws, closeDraw, skipDraw, deleteDraw, shiftReservations,
+  getDraws, closeDraw, skipDraw, deleteDraw,
   getWinners, recordWinner,
   getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
@@ -15,7 +16,7 @@ import {
   getPayoutsByChit, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   listStaff, getUserById, getWalletBalance,
-  getChitAuditLogs, listAuctions,
+  getChitAuditPage, listAuctions,
   sendChitInvitation, getChitInvitations, getChitInvitationDetail, closeChitInvitation, overrideInvitationResponse, approveInvitationResponse, rejectInvitationResponse,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -462,7 +463,7 @@ function MembersTab({ chitId, chit }) {
   const canEnrollNow   = canEdit && !spotsAreFull && (!isDraft || isLottery || isAuction);
 
   return (
-    <div className="space-y-4">
+    <ReadDataBoundary label="Enrolments" queryKeys={[['enrollments', chitId]]}><div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">
           {totalSpots2} spots filled · {(chit?.capacity ?? 0) - totalSpots2} remaining
@@ -564,7 +565,7 @@ function MembersTab({ chitId, chit }) {
           onClose={() => setPendingRemove(null)}
         />
       )}
-    </div>
+    </div></ReadDataBoundary>
   );
 }
 
@@ -1409,6 +1410,7 @@ function ReservationScheduleTab({ chitId, chit }) {
     setEdits((prev) => ({
       ...prev,
       [slot.id]: {
+        expectedVersion: slot.version,
         memberId:     slot.orgHeld ? 'ORG' : String(slot.memberId ?? ''),
         payoutAmount: String(slot.payoutAmount ?? ''),
         ...(prev[slot.id] ?? {}),
@@ -1421,6 +1423,7 @@ function ReservationScheduleTab({ chitId, chit }) {
     mutationFn: ({ slot, edit }) => updateReservationSlot({
       chitId,
       reservationId: slot.id,
+      expectedVersion: edit.expectedVersion ?? slot.version,
       reservationMonth: slot.reservationMonth,
       memberId: isLottery ? (slot.memberId || null) : (edit.memberId === 'ORG' ? null : (edit.memberId || null)),
       orgHeld: isLottery ? false : (edit.memberId === 'ORG'),
@@ -1447,7 +1450,8 @@ function ReservationScheduleTab({ chitId, chit }) {
   // replaceAt === 'same' → replacement pins to the voided slot's monthNumber + reservationMonth
   // replaceAt === 'end'  → replacement goes after the last existing slot
   const voidMutation = useMutation({
-    mutationFn: ({ slot, reason }) => removeReservationSlot({ chitId, reservationId: slot.id, reason }),
+    mutationFn: ({ slot, reason }) => removeReservationSlot({ chitId, reservationId: slot.id,
+      expectedVersion: slot.version, reason }),
     onSuccess: async (_, { slot, replaceAt }) => {
       console.log('[voidMutation] replaceAt:', replaceAt, '| slot.monthNumber:', slot?.monthNumber, '| slot.reservationMonth:', slot?.reservationMonth);
       let replacementMonth;
@@ -1502,6 +1506,7 @@ function ReservationScheduleTab({ chitId, chit }) {
     mutationFn: (slot) => updateReservationSlot({
       chitId,
       reservationId: slot.id,
+      expectedVersion: slot.version,
       reservationMonth: slot.reservationMonth,
       memberId: slot.memberId || null,
       payoutAmount: slot.payoutAmount ? Number(slot.payoutAmount) : null,
@@ -1537,7 +1542,7 @@ function ReservationScheduleTab({ chitId, chit }) {
 
   if (isAuction) {
     return (
-      <div className="space-y-4">
+      <ReadDataBoundary label="Schedule" queryKeys={[['reservations', chitId]]}><div className="space-y-4">
         <p className="text-sm text-gray-500">{active.length} draw slots · Scheduled pot amounts per draw</p>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           {isLoading ? <PageSpinner /> : active.length === 0 ? (
@@ -1582,13 +1587,13 @@ function ReservationScheduleTab({ chitId, chit }) {
             </div>
           )}
         </div>
-      </div>
+      </div></ReadDataBoundary>
     );
   }
 
   if (isLottery) {
     return (
-      <div className="space-y-4">
+      <ReadDataBoundary label="Schedule" queryKeys={[['reservations', chitId]]}><div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-gray-500">{active.length} draw slots</p>
@@ -1677,12 +1682,12 @@ function ReservationScheduleTab({ chitId, chit }) {
             </div>
           )}
         </div>
-      </div>
+      </div></ReadDataBoundary>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <ReadDataBoundary label="Schedule" queryKeys={[['reservations', chitId]]}><div className="space-y-4">
       {extraSlotCount > 0 && (
         <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
           <AlertTriangle size={13} className="flex-shrink-0" />
@@ -1936,7 +1941,7 @@ function ReservationScheduleTab({ chitId, chit }) {
           onClose={() => setPickerSlot(null)}
         />
       )}
-    </div>
+    </div></ReadDataBoundary>
   );
 }
 
@@ -1974,6 +1979,7 @@ function PayoutPlanTab({ chitId, chit }) {
   const isAuction = chit?.chitType === 'AUCTION' || chit?.winnerSelectionMode === 'AUCTION';
 
   const [edits, setEdits] = useState({});
+  const [editVersions, setEditVersions] = useState({});
   const [hoveredDrawNum, setHoveredDrawNum] = useState(null);
 
   const { data: slots = [], isLoading: slotsLoading } = useQuery({
@@ -2017,6 +2023,7 @@ function PayoutPlanTab({ chitId, chit }) {
     mutationFn: ({ slot, payoutAmount }) => updateReservationSlot({
       chitId,
       reservationId: slot.id,
+      expectedVersion: editVersions[slot.id] ?? slot.version,
       reservationMonth: slot.reservationMonth,
       memberId: slot.memberId || null,
       orgHeld: false,
@@ -2031,15 +2038,16 @@ function PayoutPlanTab({ chitId, chit }) {
       }
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
       setEdits((prev) => { const n = { ...prev }; delete n[slot.id]; return n; });
+      setEditVersions((prev) => { const n = { ...prev }; delete n[slot.id]; return n; });
       toast.success('Payout amount saved');
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to save'),
   });
 
-  if (slotsLoading) return <PageSpinner />;
+  if (slotsLoading) return <ReadDataBoundary label="Payout plan" queryKeys={[['reservations', chitId], ['winners', chitId]]}><PageSpinner /></ReadDataBoundary>;
 
   return (
-    <div className="space-y-4">
+    <ReadDataBoundary label="Payout plan" queryKeys={[['reservations', chitId], ['winners', chitId]]}><div className="space-y-4">
       <div>
         <p className="text-sm text-gray-500">{activeSlots.length} draws</p>
         {totalPayout > 0 && (
@@ -2100,7 +2108,10 @@ function PayoutPlanTab({ chitId, chit }) {
                             <Input
                               type="number" min="0"
                               value={payoutEdit}
-                              onChange={(e) => setEdits((prev) => ({ ...prev, [slot.id]: e.target.value }))}
+                              onChange={(e) => {
+                                setEditVersions((prev) => ({ ...prev, [slot.id]: prev[slot.id] ?? slot.version }));
+                                setEdits((prev) => ({ ...prev, [slot.id]: e.target.value }));
+                              }}
                               style={{ width: 120 }}
                             />
                           </div>
@@ -2149,7 +2160,7 @@ function PayoutPlanTab({ chitId, chit }) {
           </div>
         )}
       </div>
-    </div>
+    </div></ReadDataBoundary>
   );
 }
 
@@ -2163,6 +2174,7 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
     : 1;
 
   const [form, setForm] = useState({
+    attemptId: crypto.randomUUID(),
     monthNumber: String(nextCycleNum),
     dueDate: computeDefaultDueDate(chit?.startDate, nextCycleNum, chit?.monthlyDueDate),
     skipReason: '',
@@ -2174,22 +2186,24 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
   const mutation = useMutation({
     mutationFn: async () => {
       const monthNum = Number(form.monthNumber);
-      await skipDraw({
+      return skipDraw({
         chitId,
+        attemptId: form.attemptId,
         monthNumber: monthNum,
         dueDate: form.dueDate,
         installmentAmount: baseInstallment,
         memberIds: uniqueMemberIds,
         skipReason: form.skipReason,
       });
-      // Shift all future schedule slots forward by 1 — the skipped month is a moratorium,
-      // so the member who was due in this month moves to the next real cycle.
-      await shiftReservations({ chitId, fromMonth: monthNum }).catch(() => {});
+
     },
-    onSuccess: () => {
+    onSuccess: (command) => {
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
-      toast.success('Draw skipped — schedule shifted forward by 1 month');
+      qc.invalidateQueries({ queryKey: ['chit', chitId] });
+      qc.invalidateQueries({ queryKey: ['chit-lifecycle-sync', chitId] });
+      if (command.status === 'REJECTED') toast.error('Skip was not applied: a draw already exists at or after this number.');
+      else toast.success('Skip requested — draw and schedule are syncing');
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to skip draw'),
@@ -2526,17 +2540,17 @@ function DrawPaymentRows({ draw, chit, reservations, memberMap, onCollect, onVie
   });
 
   if (isLoading) return (
-    <div className="px-5 py-4 border-t border-gray-100">
+    <ReadDataBoundary label="Instalments" queryKeys={[['drawPayments', draw.id]]}><div className="px-5 py-4 border-t border-gray-100">
       <p className="text-xs text-gray-400 animate-pulse">Loading members…</p>
-    </div>
+    </div></ReadDataBoundary>
   );
   if (payments.length === 0) return (
-    <div className="px-5 py-4 border-t border-gray-100">
+    <ReadDataBoundary label="Instalments" queryKeys={[['drawPayments', draw.id]]}><div className="px-5 py-4 border-t border-gray-100">
       <p className="text-xs text-gray-400 italic">No payment records found.</p>
-    </div>
+    </div></ReadDataBoundary>
   );
 
-  return (<>
+  return (<ReadDataBoundary label="Instalments" queryKeys={[['drawPayments', draw.id]]}><>
     <div className="border-t border-gray-100 overflow-auto max-h-80" style={{ WebkitOverflowScrolling: 'touch' }}>
       <table className="w-full text-sm min-w-[560px]">
         <thead className="bg-gray-50">
@@ -2692,7 +2706,7 @@ function DrawPaymentRows({ draw, chit, reservations, memberMap, onCollect, onVie
         <div className="absolute -bottom-1 right-3 w-2 h-2 bg-gray-900 rotate-45" />
       </div>
     )}
-  </>
+  </></ReadDataBoundary>
   );
 }
 
@@ -2708,6 +2722,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const [paymentMode, setPaymentMode]  = useState(isWorker ? 'CASH' : 'UPI');
   const [collectedBy, setCollectedBy]  = useState('SELF');
   const [notes, setNotes]             = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
   const [usingCredit, setUsingCredit]  = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
@@ -2730,9 +2745,6 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const amtNum    = usingCredit ? 0 : Number(amount || 0);
   const isOverpay = !usingCredit && amtNum > balance && balance > 0;
   const canSubmit = usingCredit ? creditCoversAll : (amtNum > 0);
-  const totalOverpayAmt = !usingCredit && !viaTeam && amtNum > 0 && memberTotalBalance > 0
-    ? Math.max(0, amtNum - memberTotalBalance)
-    : 0;
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
@@ -2744,6 +2756,10 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
     staleTime: 30_000,
   });
 
+  const totalOverpayAmt = !usingCredit && !viaTeam && amtNum > 0 && memberTotalBalance > 0
+    ? Math.max(0, amtNum - memberTotalBalance)
+    : 0;
+
   function invalidate() {
     qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
     qc.invalidateQueries({ queryKey: ['draws', chitId] });
@@ -2752,6 +2768,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   }
 
   const mutation = useMutation({
+    networkMode: 'always',
     mutationFn: async () => {
       if (usingCredit) {
         return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || undefined, idempotencyKey });
@@ -2765,19 +2782,19 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           notes: notes || null,
         });
       }
-      return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey });
+      return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, paymentReference: paymentReference || undefined, notes: notes || undefined, idempotencyKey });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setIdempotencyKey(crypto.randomUUID());
       invalidate();
       toast.success(
         usingCredit ? 'Credits applied — draw settled' :
         viaTeam ? 'Cash pickup assigned — visible in Cash Requests' :
-        'Payment recorded and settled'
+        data?.offlineQueued ? 'Payment saved on this browser — waiting to sync' : 'Payment recorded and settled'
       );
       onClose();
     },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
+    onError: (err) => toast.error(err.response?.data?.message ?? err.message ?? 'Failed to record payment'),
   });
 
   return (
@@ -2889,6 +2906,10 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           <Input placeholder="UPI ref, cheque no., remarks…" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </FormField>
 
+        {!usingCredit && ['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(paymentMode) && <FormField label="Payment reference" required>
+          <Input value={paymentReference} maxLength={100} onChange={(event) => setPaymentReference(event.target.value)}
+            placeholder="UPI UTR, bank reference or cheque number" />
+        </FormField>}
         <div className="flex gap-3 pt-1">
           <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
           <Button
@@ -3001,7 +3022,7 @@ function DrawsTab({ chitId, chit }) {
   const allSlotsUsed   = totalSlots > 0 && realCycles >= totalSlots;
 
   return (
-    <div className="space-y-4">
+    <ReadDataBoundary label="Draws" queryKeys={[['draws', chitId], ['enrollments', chitId], ['reservations', chitId], ['winners', chitId], ['payouts', chitId]]}><div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-0.5">
           <p className="text-sm text-gray-700 font-medium">
@@ -3273,7 +3294,7 @@ function DrawsTab({ chitId, chit }) {
           onClose={() => setPendingDelete(null)}
         />
       )}
-    </div>
+    </div></ReadDataBoundary>
   );
 }
 
@@ -3383,7 +3404,7 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
   };
 
   return (
-    <div className="space-y-4">
+    <ReadDataBoundary label="Winners" queryKeys={[['winners', chitId], ['payouts', chitId]]}><div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">{winners.length} winner{winners.length !== 1 ? 's' : ''} recorded</p>
         {!isManager && (
@@ -3467,7 +3488,7 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
           onClose={() => setDisburseTarget(null)}
         />
       )}
-    </div>
+    </div></ReadDataBoundary>
   );
 }
 
@@ -4260,32 +4281,7 @@ function HeaderActions({ chitId, chit }) {
 
   const statusMutation = useMutation({
     mutationFn: async ({ status, startDate }) => {
-      // When activating with a start date that differs from the anticipated date,
-      // shift all RESERVED/UNALLOCATED reservation months to match the actual start date.
-      if (status === 'ACTIVE' && startDate && chit.startDate && startDate !== chit.startDate) {
-        const [ay, am] = chit.startDate.split('-').map(Number);
-        const [by, bm] = startDate.split('-').map(Number);
-        const offsetMonths = (by - ay) * 12 + (bm - am);
-        if (offsetMonths !== 0) {
-          const shiftable = reservations.filter((r) => r.status === 'RESERVED' || r.status === 'UNALLOCATED');
-          await Promise.all(shiftable.map((r) => {
-            const parts = r.reservationMonth.split('-').map(Number);
-            const totalMonths = (parts[0] - 1) * 12 + parts[1] + offsetMonths;
-            const newYear = Math.floor((totalMonths - 1) / 12) + 1;
-            const newMonth = ((totalMonths - 1) % 12) + 1;
-            const newDate = `${newYear}-${String(newMonth).padStart(2, '0')}-01`;
-            return updateReservationSlot({
-              chitId,
-              reservationId: r.id,
-              reservationMonth: newDate,
-              memberId: r.orgHeld ? null : (r.memberId || null),
-              orgHeld: r.orgHeld ?? false,
-              payoutAmount: r.payoutAmount,
-              postPayoutContribution: r.postPayoutContribution || null,
-            }).catch(() => {});
-          }));
-        }
-      }
+      // The server moves the schedule and activates the chit in one transaction.
       return updateChitStatus({ id: chitId, status, startDate: startDate || null });
     },
     onSuccess: () => { invalidate(); toast.success('Status updated'); setPendingStatus(null); setPendingStartDate(''); setShowStatusMenu(false); },
@@ -4624,11 +4620,11 @@ function buildSummary(action, after, before, memberMap) {
 function AuditTab({ chitId }) {
   const [, setSearchParams] = useSearchParams();
   const [filter,  setFilter]  = useState('all');
-  const [sortAsc, setSortAsc] = useState(false);
 
-  const { data: rawLogs = [], isLoading, isError } = useQuery({
-    queryKey: ['chit-audit', chitId],
-    queryFn: () => getChitAuditLogs(chitId, 0, 200),
+  const [auditPage, setAuditPage] = useState(0);
+  const { data: auditHistory, isLoading, isError } = useQuery({
+    queryKey: ['chit-audit', chitId, auditPage],
+    queryFn: () => getChitAuditPage(chitId, auditPage, 50),
     retry: 1,
   });
   const { data: staffList  = [] } = useQuery({ queryKey: ['staff'],   queryFn: listStaff });
@@ -4641,15 +4637,21 @@ function AuditTab({ chitId }) {
     allMembers.map((m) => [String(m.id), m.fullName ?? m.name ?? 'Member'])
   );
 
-  const NOISE_ACTIONS = new Set(['PAYMENT_COMPLETED', 'CASH_COLLECTED']);
-  const logs = rawLogs.filter((l) => !NOISE_ACTIONS.has(l.action));
+  const logs = auditHistory?.content ?? [];
+  const readableField = (field) => field.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+  const readableValue = (value) => {
+    if (value == null) return '—';
+    if (Array.isArray(value)) return value.map(readableValue).join('; ');
+    if (typeof value === 'object') return Object.entries(value).map(([key, val]) => `${readableField(key)}: ${readableValue(val)}`).join(' · ');
+    return memberMap[String(value)] ?? String(value);
+  };
 
   const filtered = (filter === 'all'
     ? logs
     : logs.filter((l) => (ACTION_META[l.action]?.group ?? 'other') === filter)
   ).slice().sort((a, b) => {
     const diff = new Date(a.createdAt) - new Date(b.createdAt);
-    return sortAsc ? diff : -diff;
+    return -diff;
   });
 
   // Collapse multiple PAYOUT_DISBURSED events for the same payout into one grouped row
@@ -4690,6 +4692,7 @@ function AuditTab({ chitId }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-gray-400 text-center">Newest events first · filters below apply to this page</p>
       {/* Filter pills — centered */}
       <div className="flex items-center justify-center gap-2 flex-wrap">
         {AUDIT_FILTERS.map((f) => {
@@ -4727,12 +4730,7 @@ function AuditTab({ chitId }) {
             <span>Event</span>
             <span>Detail</span>
             <span>By</span>
-            <button
-              onClick={() => setSortAsc((p) => !p)}
-              className="flex items-center gap-1 cursor-pointer hover:text-gray-600 transition-colors justify-end"
-            >
-              When {sortAsc ? '↑' : '↓'}
-            </button>
+            <span className="text-right">When</span>
           </div>
 
           {/* Rows */}
@@ -4768,7 +4766,7 @@ function AuditTab({ chitId }) {
               displayTime = formatTime(log.createdAt);
             }
 
-            const actor   = log.actorId ? (actorNameMap[String(log.actorId)] ?? '—') : 'System';
+            const actor   = log.actorId ? (actorNameMap[String(log.actorId)] ?? `Account ${String(log.actorId).slice(0, 8)}`) : 'System';
             const rawRole = log.actorRole?.replace('ROLE_', '') ?? '';
             return (
               <div
@@ -4782,6 +4780,19 @@ function AuditTab({ chitId }) {
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <p className="text-sm text-gray-700 leading-snug">{summary}</p>
+                  {(before || after) && (
+                    <details className="mt-1 text-xs text-gray-600">
+                      <summary className="cursor-pointer text-blue-800">View recorded changes</summary>
+                      <dl className="mt-2 space-y-2">
+                        {[...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])]
+                          .filter((key) => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
+                          .map((key) => <div key={key} className="break-words">
+                            <dt className="capitalize font-semibold">{readableField(key)}</dt>
+                            <dd>{readableValue(before?.[key])} → {readableValue(after?.[key])}</dd>
+                          </div>)}
+                      </dl>
+                    </details>
+                  )}
                   {(log.action === 'ENROLLMENT_FROM_INVITATION' || log.action === 'INVITATION_SENT' || log.action === 'INVITATION_RESPONDED' || log.action === 'INVITATION_CLOSED') && after?.invitationId && (
                     <button
                       onClick={() => setSearchParams(p => { const n = new URLSearchParams(p); n.set('tab', 'Invitations'); n.set('inv', after.invitationId); return n; })}
@@ -4802,6 +4813,11 @@ function AuditTab({ chitId }) {
           })}
         </div>
       )}
+      <div className="flex items-center justify-between gap-3 text-sm text-gray-500">
+        <button disabled={auditPage === 0} onClick={() => setAuditPage(p => p - 1)} className="disabled:opacity-40">Previous</button>
+        <span>Page {auditPage + 1} of {Math.max(1, auditHistory?.totalPages ?? 1)} · {auditHistory?.totalElements ?? 0} events</span>
+        <button disabled={auditHistory?.last ?? true} onClick={() => setAuditPage(p => p + 1)} className="disabled:opacity-40">Next</button>
+      </div>
     </div>
   );
 }
@@ -5390,7 +5406,7 @@ export default function ChitDetailPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editActiveConfirmed, setEditActiveConfirmed] = useState(false);
 
-  const { data: chit, isLoading } = useQuery({
+  const { data: chit, isLoading, isPending: chitPending, error: chitError } = useQuery({
     queryKey: ['chit', id],
     queryFn: () => getChit(id),
   });
@@ -5399,12 +5415,16 @@ export default function ChitDetailPage() {
   const { data: lifecycleSync } = useQuery({
     queryKey: ['chit-lifecycle-sync', id],
     queryFn: () => getChitLifecycleSync(id),
-    enabled: !!id && chit?.status === 'COMPLETED',
+    enabled: !!id && (chit?.status === 'COMPLETED' || !!chit?.scheduleSyncCommandId),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+      return status && ['PENDING', 'RETRYING'].includes(status) ? 3000 : false;
     },
   });
+  useEffect(() => {
+    if (!['COMPLETED', 'REJECTED'].includes(lifecycleSync?.status) || !chit?.scheduleSyncCommandId) return;
+    for (const key of ['chit', 'draws', 'reservations']) qc.invalidateQueries({ queryKey: [key, id] });
+  }, [lifecycleSync?.status, chit?.scheduleSyncCommandId, id, qc]);
   const retryLifecycle = useMutation({
     mutationFn: () => retryChitLifecycleSync(id),
     onSuccess: () => {
@@ -5438,6 +5458,7 @@ export default function ChitDetailPage() {
   const pendingAuctionHeader = !liveAuction && headerAuctions.find((a) => a.status === 'PENDING');
 
   if (isLoading) return <PageSpinner />;
+  if (!chit && (chitPending || chitError) && (chitError?.status ?? chitError?.response?.status) !== 404) return <ReadDataBoundary label="Chit details" queryKeys={[[ 'chit', id ]]} />;
   if (!chit) return (
     <div className="text-center py-24">
       <p className="text-gray-400">Chit fund not found.</p>
@@ -5466,6 +5487,7 @@ export default function ChitDetailPage() {
     ?? (chit.chitValue && chit.capacity ? chit.chitValue / chit.capacity : null);
 
   return (
+    <ReadDataBoundary label="Chit details" queryKeys={[[ 'chit', id ]]}>
     <div className="space-y-6">
       {/* Back */}
       <button onClick={() => navigate(-1)}
@@ -5489,14 +5511,20 @@ export default function ChitDetailPage() {
         </div>
       )}
 
-      {chit.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+      {lifecycleSync?.status === 'REJECTED' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+          <p className="text-sm font-semibold text-amber-800">Schedule change was not applied</p>
+          <p className="text-xs text-amber-700 mt-1">A draw already exists at or after that number. Your draw, payments and schedule are unchanged. Refresh the draw list before continuing.</p>
+        </div>
+      )}
+      {lifecycleSync?.status === 'FAILED' && (
         <div className="flex items-start justify-between gap-4 bg-red-50 border border-red-200 rounded-xl px-5 py-4">
           <div className="flex items-start gap-3">
             <AlertTriangle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-semibold text-red-800">Completion needs attention</p>
+              <p className="text-sm font-semibold text-red-800">Chit sync needs attention</p>
               <p className="text-xs text-red-600 mt-0.5">
-                The chit is completed, but its payment draws could not be closed automatically.
+                A chit change could not finish syncing. Its schedule remains protected until sync completes.
                 No financial history was removed. Retry after the dependent service recovers.
               </p>
             </div>
@@ -5510,12 +5538,12 @@ export default function ChitDetailPage() {
         </div>
       )}
 
-      {chit.status === 'COMPLETED' && lifecycleSync
+      {lifecycleSync
         && ['PENDING', 'RETRYING'].includes(lifecycleSync.status) && (
         <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
           <RotateCcw size={16} className="text-amber-600 animate-spin" />
           <p className="text-sm text-amber-800">
-            Finalizing completion — closing remaining open payment draws.
+            Syncing chit changes and schedule. Related changes will be available when this finishes.
           </p>
         </div>
       )}
@@ -5651,5 +5679,6 @@ export default function ChitDetailPage() {
         {activeTab === 'Audit'     && isAdmin && <AuditTab chitId={id} />}
       </div>
     </div>
+    </ReadDataBoundary>
   );
 }

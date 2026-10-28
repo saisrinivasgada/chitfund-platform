@@ -1,0 +1,107 @@
+appId: com.chitwise.mobile
+env:
+  QA_URL: http://127.0.0.1:3112
+---
+- runScript:
+    file: fixture-control.js
+    env:
+      QA_STATE: '{"online":true,"org":"a","enabled":true,"seedStaffReview":"UNKNOWN"}'
+- stopApp
+- launchApp
+- runFlow: wait-for-restored-screen.yaml
+- runFlow:
+    file: open-finance.yaml
+    env:
+      FINANCE_TAB: 'Record Payment'
+- extendedWaitUntil:
+    visible: 'Offline collection reviews \(1\).*'
+    timeout: 60000
+- tapOn: 'Offline collection reviews \(1\).*'
+- waitForAnimationToEnd
+- tapOn: 'Staff pickups \(1\)'
+- tapOn: '.*Amount needs verification.*Staff.*pickup.*'
+- extendedWaitUntil:
+    visible: "Original collector: QA Collector A"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: '.*full held cash has already been returned.*'
+    direction: DOWN
+    centerElement: false
+- tapOn: '.*full held cash has already been returned.*'
+- scrollUntilVisible:
+    element:
+      text: "Pickup refund reference"
+    direction: DOWN
+    centerElement: false
+- tapOn: "Pickup refund reference"
+- inputText: "RETURN-QA150"
+- pressKey: Enter
+- scrollUntilVisible:
+    element:
+      text: ".*Pickup review reason.*"
+    direction: DOWN
+    centerElement: false
+- tapOn: ".*Pickup review reason.*"
+- inputText: "Original held cash returned with witness"
+- pressKey: Enter
+# Keyboard dismissal can restore a viewport ending at the reason field. Bring
+# the separate refund confirmation below it into view before tapping it.
+- scrollUntilVisible:
+    element:
+      text: '.*full original collection has already been returned.*'
+    direction: DOWN
+    centerElement: true
+- waitForAnimationToEnd
+- tapOn: '.*full original collection has already been returned.*'
+- assertVisible:
+    text: '☑ .*full original collection has already been returned.*'
+- scrollUntilVisible:
+    element:
+      text: "Confirm pickup decision"
+    direction: DOWN
+    centerElement: false
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: false
+- scrollUntilVisible:
+    element:
+      text: "Actual original collected amount"
+    direction: UP
+    centerElement: false
+- tapOn: "Actual original collected amount"
+- inputText: "150"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Done entering pickup amount"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - hideKeyboard
+- scrollUntilVisible:
+    element:
+      text: '.*full original collection has already been returned.*'
+    direction: DOWN
+    centerElement: false
+- assertVisible:
+    text: '☑ .*full original collection has already been returned.*'
+# The accessibility tree can expose a clipped button's top edge as visible.
+# Bring the control below it into view so the confirmation is fully tappable.
+- scrollUntilVisible:
+    element:
+      text: "Back to pickup reviews"
+    direction: DOWN
+    centerElement: true
+- assertVisible:
+    text: "Confirm pickup decision"
+    enabled: true
+- tapOn: "Confirm pickup decision"
+- extendedWaitUntil:
+    visible: "No staff pickups waiting for review."
+    timeout: 15000
+- tapOn: "Close"
+- waitForAnimationToEnd
+- assertNotVisible: 'Offline collection reviews.*'

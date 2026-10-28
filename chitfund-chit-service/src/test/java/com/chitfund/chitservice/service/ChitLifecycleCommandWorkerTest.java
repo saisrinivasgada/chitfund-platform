@@ -35,7 +35,7 @@ class ChitLifecycleCommandWorkerTest {
                 .thenReturn(List.of(id));
         when(store.claim(id)).thenReturn(Optional.of(command));
 
-        new ChitLifecycleCommandWorker(repository, store, client, new SimpleMeterRegistry())
+        new ChitLifecycleCommandWorker(repository, store, client, new SimpleMeterRegistry(), mock(DrawSkipCoordinator.class))
                 .processReady();
 
         verify(client).closeDrawsForChit(command.getChitId(), command.getTenantId());
@@ -55,12 +55,29 @@ class ChitLifecycleCommandWorkerTest {
         doThrow(new IllegalStateException("payment unavailable"))
                 .when(client).closeDrawsForChit(command.getChitId(), command.getTenantId());
 
-        new ChitLifecycleCommandWorker(repository, store, client, new SimpleMeterRegistry())
+        new ChitLifecycleCommandWorker(repository, store, client, new SimpleMeterRegistry(), mock(DrawSkipCoordinator.class))
                 .processReady();
 
         ArgumentCaptor<Exception> error = ArgumentCaptor.forClass(Exception.class);
         verify(store).fail(eq(id), eq(command.getClaimToken()), error.capture());
         assertThat(error.getValue()).hasMessageContaining("payment unavailable");
+    }
+
+    @Test
+    void lostPaymentResponseRetriesTheSameDurableEnvelopeBeforeShifting() {
+        var repository = mock(ChitLifecycleCommandRepository.class); var store = mock(ChitLifecycleCommandStore.class);
+        var client = mock(NotificationClient.class); var skips = mock(DrawSkipCoordinator.class);
+        var command = command(UUID.randomUUID(), UUID.randomUUID()); command.setCommandType(DrawSkipCoordinator.SKIP_DRAW);
+        var envelope = new com.chitfund.common.dto.DrawSkipCommand(command.getId(), UUID.randomUUID(), "ADMIN", new com.chitfund.common.dto.DrawSkipRequest());
+        when(repository.findReadyIds(any(), any())).thenReturn(List.of(command.getId()));
+        when(store.claim(command.getId())).thenReturn(Optional.of(command)); when(skips.decode(command)).thenReturn(envelope);
+        var result = new com.chitfund.common.dto.DrawSkipResult(command.getId(), "hash", "APPLIED", null);
+        when(client.skipDraw(envelope, command.getTenantId())).thenThrow(new IllegalStateException("response lost")).thenReturn(result);
+        var worker = new ChitLifecycleCommandWorker(repository, store, client, new SimpleMeterRegistry(), skips);
+        worker.processReady(); org.mockito.Mockito.verify(skips, org.mockito.Mockito.never()).complete(any(), any());
+        worker.processReady(); org.mockito.Mockito.verify(client, org.mockito.Mockito.times(2)).skipDraw(envelope, command.getTenantId());
+        org.mockito.Mockito.verify(skips).complete(command, result);
+        org.mockito.Mockito.verify(store).fail(eq(command.getId()), eq(command.getClaimToken()), any());
     }
 
     private ChitLifecycleCommand command(UUID id, UUID token) {
