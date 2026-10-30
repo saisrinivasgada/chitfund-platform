@@ -280,6 +280,13 @@ public class NotificationEventConsumer {
                     : "Account is fully settled for this chit.";
             String amtFormatted = "₹" + event.amount().toPlainString();
 
+            // Detect whether this payment originated from an admin-approved intimation
+            // (idempotencyKey is "INTIM:<intimationId>" when set by PaymentIntimationService)
+            String intimationId = null;
+            if (event.idempotencyKey() != null && event.idempotencyKey().startsWith("INTIM:")) {
+                intimationId = event.idempotencyKey().substring("INTIM:".length());
+            }
+
             NotifyRequest req = buildRequest(
                     UUID.fromString(event.memberId()),
                     null, null,
@@ -294,17 +301,29 @@ public class NotificationEventConsumer {
             notificationService.send(deliveryEventId(), event.tenantId(), req);
 
             String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
-            if (userId != null) {
+            if (userId == null) {
+                log.warn("onPaymentCompleted: no user account found for member {} in tenant {} — in-app and push skipped",
+                        event.memberId(), event.tenantId());
+            } else {
                 String title = "Payment Received";
-                String body  = amtFormatted + " payment recorded. " + remaining;
+                String body  = intimationId != null
+                        ? amtFormatted + " payment approved and recorded. " + remaining
+                        : amtFormatted + " payment recorded. " + remaining;
+                Map<String, String> metadata = intimationId != null
+                        ? Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
+                                 "monthsSettled", String.valueOf(event.monthsSettled()),
+                                 "intimationId", intimationId)
+                        : Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
+                                 "monthsSettled", String.valueOf(event.monthsSettled()));
                 inAppService.create(
                     event.tenantId(), UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
-                    Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                           "monthsSettled", String.valueOf(event.monthsSettled())),
-                    "/member/chits/" + event.chitId()
+                    metadata, "/member/chits/" + event.chitId()
                 );
+                Map<String, String> pushData = intimationId != null
+                        ? Map.of("screen", "payments", "chitId", event.chitId(), "intimationId", intimationId)
+                        : Map.of("screen", "payments", "chitId", event.chitId());
                 deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
-                        Map.of("screen", "payments", "chitId", event.chitId()));
+                        pushData);
             }
             broadcaster.broadcast(event.tenantId(), "PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
             broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
@@ -660,21 +679,6 @@ public class NotificationEventConsumer {
                         Map.of("intimationId", event.intimationId()),
                         "/payments"
                     );
-                }
-                case "APPROVED" -> {
-                    String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
-                    if (userId != null) {
-                        String title = "Payment Intimation Approved";
-                        String body  = "Your payment intimation" + amtStr + " has been approved.";
-                        inAppService.create(
-                            event.tenantId(),
-                            UUID.fromString(userId), title, body, "PAYMENT_INTIMATION_APPROVED",
-                            Map.of("intimationId", event.intimationId()),
-                            "/member"
-                        );
-                        deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId),
-                                title, body, Map.of("screen", "payments"));
-                    }
                 }
                 case "REJECTED" -> {
                     String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
