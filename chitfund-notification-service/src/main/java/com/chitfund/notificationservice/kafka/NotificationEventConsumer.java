@@ -661,6 +661,21 @@ public class NotificationEventConsumer {
                         "/payments"
                     );
                 }
+                case "APPROVED" -> {
+                    String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
+                    if (userId != null) {
+                        String title = "Payment Intimation Approved";
+                        String body  = "Your payment intimation" + amtStr + " has been approved.";
+                        inAppService.create(
+                            event.tenantId(),
+                            UUID.fromString(userId), title, body, "PAYMENT_INTIMATION_APPROVED",
+                            Map.of("intimationId", event.intimationId()),
+                            "/member"
+                        );
+                        deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId),
+                                title, body, Map.of("screen", "payments"));
+                    }
+                }
                 case "REJECTED" -> {
                     String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
                     if (userId != null) {
