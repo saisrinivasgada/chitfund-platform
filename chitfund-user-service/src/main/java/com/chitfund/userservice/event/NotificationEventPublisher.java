@@ -25,9 +25,10 @@ public class NotificationEventPublisher {
                 new InAppNotificationEvent(tenantId, recipientId.toString(), title, message, type, metadata, link));
     }
 
-    public void publishPush(UUID userId, String title, String body, Map<String, String> data) {
+    public void publishPush(String tenantId, UUID userId, String title, String body,
+                            Map<String, String> data) {
         publish(SqsQueues.EVT_PUSH_NOTIFICATION,
-                new PushNotificationEvent(userId.toString(), title, body, data));
+                new PushNotificationEvent(tenantId, userId.toString(), title, body, data));
     }
 
     public void publishEmail(String toEmail, String subject, String htmlBody, String textBody) {

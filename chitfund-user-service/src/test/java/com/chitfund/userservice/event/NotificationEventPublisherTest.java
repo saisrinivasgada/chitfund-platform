@@ -23,11 +23,13 @@ class NotificationEventPublisherTest {
 
     @Test
     void pushIsPersistedForDurableDelivery() {
-        publisher.publishPush(UUID.randomUUID(), "Title", "Body", Map.of("screen", "home"));
+        var payload = org.mockito.ArgumentCaptor.forClass(String.class);
+        publisher.publishPush("tenant-a", UUID.randomUUID(), "Title", "Body", Map.of("screen", "home"));
 
         verify(outbox).enqueue(anyString(),
                 org.mockito.ArgumentMatchers.eq(SqsQueues.EVT_PUSH_NOTIFICATION),
-                anyString(), org.mockito.ArgumentMatchers.eq(SqsQueues.NOTIFICATION_EVENTS));
+                payload.capture(), org.mockito.ArgumentMatchers.eq(SqsQueues.NOTIFICATION_EVENTS));
+        assertThat(payload.getValue()).contains("\"tenantId\":\"tenant-a\"");
     }
 
     @Test

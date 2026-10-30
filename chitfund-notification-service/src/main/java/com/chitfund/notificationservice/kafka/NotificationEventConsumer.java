@@ -343,7 +343,8 @@ public class NotificationEventConsumer {
                     "/member/chits/" + event.chitId()
                 );
                 deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(),
-                        UUID.fromString(winnerUserId), title, body, Map.of());
+                        UUID.fromString(winnerUserId), title, body,
+                        Map.of("screen", "payouts", "chitId", event.chitId()));
             }
 
             List<String> allMemberIds = chitServiceClient.getActiveMemberIds(event.chitId(), event.tenantId());
@@ -361,7 +362,8 @@ public class NotificationEventConsumer {
                         "/member/chits/" + event.chitId()
                     );
                     deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(),
-                            UUID.fromString(userId), title, body, Map.of());
+                            UUID.fromString(userId), title, body,
+                            Map.of("screen", "chits", "chitId", event.chitId()));
                 }
             }
 
@@ -756,7 +758,7 @@ public class NotificationEventConsumer {
 
     private void onPushNotification(PushNotificationEvent event) {
         try {
-            deliveryQueue.enqueuePush(deliveryEventId(), null, UUID.fromString(event.userId()),
+            deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(event.userId()),
                     event.title(), event.body(),
                     event.data() == null ? Map.of() : event.data());
         } catch (Exception e) {

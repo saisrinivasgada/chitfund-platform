@@ -91,7 +91,8 @@ public class ReminderService {
         if (req.getReminderTime() != null && !req.getReminderTime().isBlank()) {
             pushData.put("reminderTime", req.getReminderTime()); // HH:MM
         }
-        notificationEventPublisher.publishPush(member.getId(), pushTitle, pushBody, pushData);
+        notificationEventPublisher.publishPush(sender.getTenantId(), member.getId(),
+                pushTitle, pushBody, pushData);
 
         // In-app notification for web members (and as fallback for mobile)
         notificationEventPublisher.publishInApp(sender.getTenantId(), member.getId(), pushTitle, pushBody,

@@ -30,7 +30,8 @@ public class IdentityNotificationListener {
                 eventPublisher.publishInApp(event.tenantId().toString(), event.recipientUserId(), "New Chitfund Request",
                         org + " asked to connect a member profile to your ChitWise account.",
                         "CHITFUND_REQUEST", null, "/member/chitfund-requests");
-                eventPublisher.publishPush(event.recipientUserId(), "New Chitfund Request",
+                eventPublisher.publishPush(event.tenantId().toString(), event.recipientUserId(),
+                        "New Chitfund Request",
                         org + " sent an app-access request.",
                         Map.of("type", "CHITFUND_REQUEST", "requestId", event.requestId().toString()));
             }

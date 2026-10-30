@@ -1328,7 +1328,8 @@ public class PaymentService {
                 batch.getIdempotencyKey(),
                 offlineSync ? "OFFLINE_SYNC" : "UNKNOWN",
                 synchronizedAt,
-                TenantContext.get()
+                TenantContext.get(),
+                "ADMIN"
         );
     }
 

@@ -35,7 +35,7 @@ class AuditEventConsumerTest {
                 java.time.LocalDate.of(2026, 9, 27), "admin-1",
                 java.time.Instant.parse("2026-09-27T05:00:00Z"),
                 "offline-key-1", "OFFLINE_SYNC",
-                java.time.Instant.parse("2026-09-27T07:00:00Z"), "tenant-1");
+                java.time.Instant.parse("2026-09-27T07:00:00Z"), "tenant-1", "MANAGER");
 
         consumer.onEvent(mapper.writeValueAsString(new SqsEventEnvelope(
                 "55555555-5555-5555-5555-555555555555",
@@ -46,6 +46,7 @@ class AuditEventConsumerTest {
         verify(auditService).record(request.capture());
         org.assertj.core.api.Assertions.assertThat(request.getValue().source()).isEqualTo("OFFLINE_SYNC");
         org.assertj.core.api.Assertions.assertThat(request.getValue().idempotencyKey()).isEqualTo("offline-key-1");
+        org.assertj.core.api.Assertions.assertThat(request.getValue().actorRole()).isEqualTo("MANAGER");
         org.assertj.core.api.Assertions.assertThat(request.getValue().occurredAt())
                 .isEqualTo("2026-09-27T05:00:00Z");
         org.assertj.core.api.Assertions.assertThat(request.getValue().originalOfflineAt())

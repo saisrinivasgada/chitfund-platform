@@ -35,9 +35,38 @@ public record PaymentCompletedEvent(
         String idempotencyKey,
         String source,
         Instant synchronizedAt,
-        String tenantId
+        String tenantId,
+        String completedByRole
 ) {
-    /** Backward-compatible shape for already-published events and older producers. */
+    /** Backward-compatible full-context shape for producers without actor role. */
+    public PaymentCompletedEvent(
+            String batchId,
+            String chitId,
+            String memberId,
+            BigDecimal amount,
+            String paymentMode,
+            BigDecimal totalDue,
+            BigDecimal totalPaid,
+            BigDecimal totalOutstanding,
+            Integer monthsSettled,
+            Integer monthsPartiallyPaid,
+            Integer monthsOutstanding,
+            Integer monthsWaived,
+            LocalDate lastPaymentDate,
+            String completedByUserId,
+            Instant occurredAt,
+            String idempotencyKey,
+            String source,
+            Instant synchronizedAt,
+            String tenantId) {
+        this(batchId, chitId, memberId, amount, paymentMode,
+                totalDue, totalPaid, totalOutstanding,
+                monthsSettled, monthsPartiallyPaid, monthsOutstanding, monthsWaived,
+                lastPaymentDate, completedByUserId, occurredAt,
+                idempotencyKey, source, synchronizedAt, tenantId, null);
+    }
+
+    /** Legacy shape for already-published events and older producers. */
     public PaymentCompletedEvent(
             String batchId,
             String chitId,
@@ -59,6 +88,6 @@ public record PaymentCompletedEvent(
                 totalDue, totalPaid, totalOutstanding,
                 monthsSettled, monthsPartiallyPaid, monthsOutstanding, monthsWaived,
                 lastPaymentDate, completedByUserId, occurredAt,
-                null, null, null, tenantId);
+                null, null, null, tenantId, null);
     }
 }

@@ -65,10 +65,12 @@ public class AuditEventConsumer {
                     after.put("totalOutstanding", event.totalOutstanding());
                     String source = event.source() == null || event.source().isBlank()
                             ? "UNKNOWN" : event.source();
+                    String actorRole = event.completedByRole() == null || event.completedByRole().isBlank()
+                            ? "ADMIN" : event.completedByRole();
                     auditService.record(new AuditLogRequest(
                             "payment-service", "PAYMENT_BATCH", event.batchId(),
                             event.chitId(), "PAYMENT_COMPLETED",
-                            event.completedByUserId(), "ADMIN", null,
+                            event.completedByUserId(), actorRole, null,
                             null, objectMapper.writeValueAsString(after), null,
                             event.tenantId(), envelope.eventId(),
                             envelope.eventId(), event.idempotencyKey(), source, "SUCCESS", null,
