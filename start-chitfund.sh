@@ -1,13 +1,19 @@
 #!/bin/bash
 # ChitFund Platform — start all services + frontend
 
-BASE=/Users/saisrinivas/Projects/learning
-MVN=$HOME/.m2/wrapper/dists/apache-maven-3.9.14-bin/1cb7fhup6b5n3bed6kckbrnspv/apache-maven-3.9.14/bin/mvn
+BASE="$(cd "$(dirname "$0")" && pwd)"
+MVN=${MVN:-mvn}
 KAFKA_HOME=/Users/saisrinivas/Downloads/kafka_2.12-3.9.1
 LOG_DIR=$BASE/logs
 FRONTEND_PORT=3000
 
 mkdir -p "$LOG_DIR"
+
+# Local development overrides only. Production secrets must never be loaded by
+# a developer startup script.
+set -a
+[ -f "$BASE/.env.local" ] && source "$BASE/.env.local"
+set +a
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -40,17 +46,21 @@ wait_for_port() {
 }
 
 # ── Backend services (order matters: gateway last) ────────────────────────
-declare -A SERVICES=(
-  ["chitfund-user-service"]=8081
-  ["chitfund-chit-service"]=8082
-  ["chitfund-member-service"]=8083
-  ["chitfund-payment-service"]=8084
-  ["chitfund-payout-service"]=8085
-  ["chitfund-notification-service"]=8086
-  ["chitfund-reporting-service"]=8087
-  ["chitfund-audit-service"]=8088
-  ["chitfund-api-gateway"]=8080
-)
+# macOS ships Bash 3.2, which does not support associative arrays.
+svc_port() {
+  case "$1" in
+    chitfund-user-service)         echo 8081 ;;
+    chitfund-chit-service)         echo 8082 ;;
+    chitfund-member-service)       echo 8083 ;;
+    chitfund-payment-service)      echo 8084 ;;
+    chitfund-payout-service)       echo 8085 ;;
+    chitfund-notification-service) echo 8086 ;;
+    chitfund-reporting-service)    echo 8087 ;;
+    chitfund-audit-service)        echo 8088 ;;
+    chitfund-api-gateway)          echo 8080 ;;
+    *) return 1 ;;
+  esac
+}
 
 declare -a SERVICE_ORDER=(
   "chitfund-user-service"
@@ -100,7 +110,7 @@ fi
 echo ""
 
 for svc in "${SERVICE_ORDER[@]}"; do
-  port=${SERVICES[$svc]}
+  port=$(svc_port "$svc")
   if check_port_free $port "$svc"; then
     log "Building $svc..."
     if ! bash -c "cd $BASE/$svc && $MVN package -DskipTests -q >> $LOG_DIR/$svc.log 2>&1"; then
@@ -109,7 +119,7 @@ for svc in "${SERVICE_ORDER[@]}"; do
     fi
     JAR=$(ls "$BASE/$svc"/target/*.jar 2>/dev/null | grep -v original | head -1)
     log "Starting $svc on port $port..."
-    nohup java -jar "$JAR" >> "$LOG_DIR/$svc.log" 2>&1 &
+    nohup java -jar "$JAR" --spring.profiles.active=local >> "$LOG_DIR/$svc.log" 2>&1 &
     wait_for_port $port "$svc"
   fi
 done
@@ -130,7 +140,5 @@ echo ""
 echo "  Frontend  → http://localhost:3000"
 echo "  Gateway   → http://localhost:8080"
 echo "  Logs      → $LOG_DIR/"
-echo ""
-echo "  Login: admin / admin123"
 echo ""
 echo "To stop everything: $BASE/stop-chitfund.sh"
