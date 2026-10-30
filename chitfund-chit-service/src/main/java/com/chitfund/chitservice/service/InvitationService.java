@@ -80,11 +80,17 @@ public class InvitationService {
             }
         }
 
+        if (req.getExpiresAt() != null && !req.getExpiresAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Invitation expiry must be in the future");
+        }
+
         ChitInvitation invitation = ChitInvitation.builder()
                 .chit(chit)
                 .tenantId(TenantContext.get())
                 .message(req.getMessage())
                 .createdBy(createdBy)
+                .expiresAt(req.getExpiresAt())
                 .recipientMemberIds(new ArrayList<>(req.getMemberIds()))
                 .build();
         invitation = invitationRepository.save(invitation);
@@ -155,6 +161,7 @@ public class InvitationService {
                 .status(inv.getStatus())
                 .createdAt(inv.getCreatedAt())
                 .closedAt(inv.getClosedAt())
+                .expiresAt(inv.getExpiresAt())
                 .recipientCount(raw.size())
                 .responseCount(respondedCount)
                 .responses(dtos)
@@ -287,6 +294,7 @@ public class InvitationService {
                     .id(inv.getId())
                     .status(inv.getStatus())
                     .message(inv.getMessage())
+                    .expiresAt(inv.getExpiresAt())
                     .chit(toChitSummary(chit))
                     .myResponse(enrichResponseDTO(r, chit))
                     .slots(slots)
@@ -304,6 +312,11 @@ public class InvitationService {
         if (r.getInvitation().getStatus() == InvitationStatus.CLOSED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "This invitation has been closed — responses are no longer accepted");
+        }
+        LocalDateTime expiresAt = r.getInvitation().getExpiresAt();
+        if (expiresAt != null && !LocalDateTime.now().isBefore(expiresAt)) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "This invitation has expired — responses are no longer accepted");
         }
         if (r.isApproved()) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -519,6 +532,7 @@ public class InvitationService {
                 .status(inv.getStatus())
                 .createdAt(inv.getCreatedAt())
                 .closedAt(inv.getClosedAt())
+                .expiresAt(inv.getExpiresAt())
                 .recipientCount(recipientCount)
                 .responseCount(responseCount)
                 .build();

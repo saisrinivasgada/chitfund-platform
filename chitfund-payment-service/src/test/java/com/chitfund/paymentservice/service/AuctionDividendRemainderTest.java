@@ -282,11 +282,14 @@ class AuctionDividendRemainderTest {
         when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3))
                 .thenReturn(List.of());
 
-        service.reverseAuctionDividend(chitId, 3, TENANT, actorId);
+        service.reverseAuctionDividend(chitId, 3, TENANT, actorId, "MANAGER");
 
         verify(memberCreditService).reverseCreditForAuctionDraw(draw.getId(), actorId);
         verify(paymentRecordRepository)
                 .deleteByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 3);
+        verify(auditClient).log(eq("CHIT_DRAW"), eq(chitId + "-3"), eq(chitId.toString()),
+                eq("DRAW_AUCTION_REVERSED"), eq(actorId.toString()), eq("MANAGER"),
+                anyMap(), anyMap(), eq(TENANT));
         assertThat(draw.getStatus()).isEqualTo(DrawStatus.AWAITING_AUCTION);
     }
 

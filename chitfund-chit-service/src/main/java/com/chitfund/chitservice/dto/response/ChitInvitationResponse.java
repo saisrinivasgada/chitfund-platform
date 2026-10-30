@@ -20,6 +20,7 @@ public class ChitInvitationResponse {
     private InvitationStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime closedAt;
+    private LocalDateTime expiresAt;
     private int recipientCount;
     private int responseCount;
     // null in list view, populated in detail view

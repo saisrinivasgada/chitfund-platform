@@ -100,10 +100,15 @@ public class PaymentServiceClient {
      * Fails if any member has already paid (admin must void those batches first).
      */
     public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId) {
-        reverseAuctionDividend(chitId, monthNumber, tenantId, null);
+        reverseAuctionDividend(chitId, monthNumber, tenantId, null, "SYSTEM");
     }
 
     public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId, UUID actorId) {
+        reverseAuctionDividend(chitId, monthNumber, tenantId, actorId, "UNKNOWN");
+    }
+
+    public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId,
+                                       UUID actorId, String actorRole) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -115,6 +120,9 @@ public class PaymentServiceClient {
             body.put("monthNumber", monthNumber);
             if (actorId != null) {
                 body.put("actorId", actorId.toString());
+            }
+            if (actorRole != null) {
+                body.put("actorRole", actorRole);
             }
 
             restTemplate.exchange(

@@ -45,7 +45,8 @@ public class WinnerService {
     private final PlanLimitChecker planLimitChecker;
 
     @Transactional
-    public MonthlyWinnerResponse assignWinner(UUID chitId, AssignWinnerRequest request, UUID assignedBy) {
+    public MonthlyWinnerResponse assignWinner(UUID chitId, AssignWinnerRequest request, UUID assignedBy,
+                                                String actorRole) {
         planLimitChecker.checkNotExpired();
         // Lock the chit row for this transaction so two truly concurrent
         // assign-winner requests for the same chit serialize instead of both
@@ -115,7 +116,6 @@ public class WinnerService {
                 chit.getWinnerSelectionMode(), winningAmount,
                 saved.getDiscountAmount(), assignedBy);
 
-        String actorRole = null; // actorRole not passed into service yet — will show in audit without role
         auditClient.log("WINNER_ASSIGNMENT", saved.getId().toString(), chitId.toString(),
                 "WINNER_ASSIGNED", assignedBy != null ? assignedBy.toString() : null, actorRole,
                 null,

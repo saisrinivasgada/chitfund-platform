@@ -6,6 +6,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -16,6 +17,7 @@ public class MyInvitationDTO {
     private UUID id;
     private InvitationStatus status;
     private String message;
+    private LocalDateTime expiresAt;
     private ChitSummary chit;
     private InvitationResponseDTO myResponse;
     // Only populated for RESERVATION chits

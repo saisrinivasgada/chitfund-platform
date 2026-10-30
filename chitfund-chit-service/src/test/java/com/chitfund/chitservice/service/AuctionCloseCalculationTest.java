@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -178,7 +179,7 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession("120000", "PERCENTAGE", "10");
         arrange(s, chit("1000"), 12);
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID(), "ADMIN");
 
         assertThat(s.getDiscountAmount()).isEqualByComparingTo("20000");
         assertThat(s.getCommissionAmount()).isEqualByComparingTo("2000");
@@ -190,7 +191,7 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession("120000", "FIXED", "30000");
         arrange(s, chit("1000"), 12);
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID(), "ADMIN");
 
         // Uncapped this would make the distributable amount negative and members'
         // dues would rise instead of fall.
@@ -204,11 +205,24 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession("120000", null, null);
         arrange(s, chit("1000"), 10);
 
-        service.closeAuction(chitId, auctionId, offlineClose("110000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("110000"), UUID.randomUUID(), "ADMIN");
 
         assertThat(s.getCommissionAmount()).isEqualByComparingTo("0");
         // 10,000 / 10 spots = 1,000.00
         assertThat(capturedDividendPerSpot()).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    @DisplayName("offline won amount cannot exceed the scheduled payout")
+    void offlineWonAmountCannotExceedScheduledPayout() {
+        AuctionSession session = openSession("120000", null, null);
+        arrange(session, chit("1000"), 12);
+
+        assertThatThrownBy(() -> service.closeAuction(
+                chitId, auctionId, offlineClose("120000.01"), UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("cannot exceed");
+        verify(winnerService, never()).assignWinner(any(), any(), any(), any());
     }
 
     // ── dividend ─────────────────────────────────────────────────────────────
@@ -219,7 +233,7 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession("120000", "PERCENTAGE", "10");
         arrange(s, chit("1000"), 12);
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID(), "ADMIN");
 
         assertThat(s.getDividendPerSpot()).isEqualByComparingTo("1500.00");
         assertThat(capturedDividendPerSpot()).isEqualByComparingTo("1500.00");
@@ -245,7 +259,7 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession(pot, "PERCENTAGE", commPct);
         arrange(s, chit("1000"), spots);
 
-        service.closeAuction(chitId, auctionId, offlineClose(bid), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose(bid), UUID.randomUUID(), "ADMIN");
 
         assertThat(s.getDividendPerSpot()).isEqualByComparingTo(expected);
     }
@@ -268,7 +282,7 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession("110000", null, null);   // discount 10,000
         arrange(s, chit("1000"), 3);
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID(), "ADMIN");
 
         BigDecimal perSpot = s.getDividendPerSpot();                       // 3333.33
         BigDecimal distributed = perSpot.multiply(BigDecimal.valueOf(3));  // 9999.99
@@ -289,7 +303,7 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession("120000", "PERCENTAGE", "10");
         arrange(s, chit("1000"), 12);
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID(), "ADMIN");
 
         BigDecimal distributed = s.getDividendPerSpot().multiply(BigDecimal.valueOf(12));
         assertThat(capturedDistributable()).isEqualByComparingTo(distributed);
@@ -302,7 +316,7 @@ class AuctionCloseCalculationTest {
         arrange(s, chit("1000"), 0);
         when(enrollmentRepository.findActiveMemberIdsByChitId(chitId)).thenReturn(List.of());
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID(), "ADMIN");
 
         assertThat(s.getDividendPerSpot()).isEqualByComparingTo("0");
     }
@@ -315,11 +329,11 @@ class AuctionCloseCalculationTest {
         AuctionSession s = openSession("120000", "PERCENTAGE", "10");
         arrange(s, chit("1000"), 12);
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID(), "ADMIN");
 
         var captor = ArgumentCaptor.forClass(
                 com.chitfund.chitservice.dto.request.AssignWinnerRequest.class);
-        verify(winnerService).assignWinner(eq(chitId), captor.capture(), any());
+        verify(winnerService).assignWinner(eq(chitId), captor.capture(), any(), eq("ADMIN"));
 
         // The payout is derived from these downstream, so a mismatch between what
         // the session stored and what the winner row got would surface as a wrong
@@ -336,7 +350,7 @@ class AuctionCloseCalculationTest {
         arrange(s, chit("1000"), 12);
         UUID actorId = UUID.randomUUID();
 
-        service.closeAuction(chitId, auctionId, offlineClose("100000"), actorId);
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), actorId, "MANAGER");
 
         assertThat(s.getStatus()).isEqualTo(AuctionStatus.CLOSED);
         assertThat(s.getWinnerId()).isEqualTo(winnerId);

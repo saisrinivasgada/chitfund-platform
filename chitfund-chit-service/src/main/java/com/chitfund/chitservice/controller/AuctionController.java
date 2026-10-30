@@ -90,8 +90,9 @@ public class AuctionController {
             @Valid @RequestBody ExtendAuctionRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String actorRole = actorRole(auth);
         return ResponseEntity.ok(ApiResponse.success(
-                auctionService.extendAuction(chitId, auctionId, request.getAdditionalMinutes(), adminId),
+                auctionService.extendAuction(chitId, auctionId, request.getAdditionalMinutes(), adminId, actorRole),
                 "Auction timer extended"));
     }
 
@@ -103,8 +104,9 @@ public class AuctionController {
             @PathVariable UUID auctionId,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String actorRole = actorRole(auth);
         return ResponseEntity.ok(ApiResponse.success(
-                auctionService.voidAuction(chitId, auctionId, adminId),
+                auctionService.voidAuction(chitId, auctionId, adminId, actorRole),
                 "Auction voided — you can now open a fresh auction for this draw"));
     }
 
@@ -117,8 +119,17 @@ public class AuctionController {
             @RequestBody(required = false) CloseAuctionRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String actorRole = actorRole(auth);
         CloseAuctionRequest req = request != null ? request : new CloseAuctionRequest();
         return ResponseEntity.ok(
-                ApiResponse.success(auctionService.closeAuction(chitId, auctionId, req, adminId), "Auction closed"));
+                ApiResponse.success(auctionService.closeAuction(chitId, auctionId, req, adminId, actorRole),
+                        "Auction closed"));
+    }
+
+    private String actorRole(Authentication auth) {
+        return auth.getAuthorities().stream()
+                .map(a -> a.getAuthority().replace("ROLE_", ""))
+                .findFirst()
+                .orElse("UNKNOWN");
     }
 }

@@ -13,6 +13,7 @@ import com.chitfund.chitservice.repository.AuctionSessionRepository;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
 import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.exception.BusinessException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,7 +29,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -75,6 +78,8 @@ class AuctionServiceConcurrencyTest {
                 .thenReturn(Optional.of(session));
         when(enrollmentRepository.existsByChitIdAndMemberIdAndActiveTrue(chitId, memberId))
                 .thenReturn(true);
+        when(enrollmentRepository.countByChitIdAndMemberIdAndActiveTrue(chitId, memberId))
+                .thenReturn(1L);
         when(winnerRepository.findWinnerMemberIdsByChitId(chitId)).thenReturn(List.of());
         when(bidRepository.findTopByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
                 auctionId, tenantId)).thenReturn(Optional.empty());
@@ -92,6 +97,69 @@ class AuctionServiceConcurrencyTest {
         ArgumentCaptor<AuctionBid> captor = ArgumentCaptor.forClass(AuctionBid.class);
         verify(bidRepository).save(captor.capture());
         assertThat(captor.getValue().getTenantId()).isEqualTo(tenantId);
+    }
+
+    @Test
+    void multiSpotMemberMayBidUntilEverySpotHasWon() {
+        String tenantId = "tenant-a";
+        TenantContext.set(tenantId);
+        UUID chitId = UUID.randomUUID();
+        UUID auctionId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        AuctionSession session = AuctionSession.builder()
+                .id(auctionId).tenantId(tenantId).chitId(chitId)
+                .auctionMode(AuctionMode.ONLINE).status(AuctionStatus.OPEN)
+                .scheduledPayoutAmount(new BigDecimal("100000"))
+                .closesAt(LocalDateTime.now().plusMinutes(5)).build();
+        PlaceBidRequest request = new PlaceBidRequest();
+        request.setBidAmount(new BigDecimal("90000"));
+
+        when(sessionRepository.findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, tenantId))
+                .thenReturn(Optional.of(session));
+        when(enrollmentRepository.existsByChitIdAndMemberIdAndActiveTrue(chitId, memberId)).thenReturn(true);
+        when(enrollmentRepository.countByChitIdAndMemberIdAndActiveTrue(chitId, memberId)).thenReturn(2L);
+        when(winnerRepository.findWinnerMemberIdsByChitId(chitId)).thenReturn(List.of(memberId));
+        when(bidRepository.findTopByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
+                auctionId, tenantId)).thenReturn(Optional.empty());
+        when(bidRepository.findByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
+                auctionId, tenantId)).thenReturn(List.of());
+        when(bidRepository.save(any(AuctionBid.class))).thenAnswer(invocation -> {
+            AuctionBid bid = invocation.getArgument(0);
+            bid.setId(UUID.randomUUID());
+            return bid;
+        });
+
+        service().placeBid(chitId, auctionId, request, memberId, memberId, "MEMBER");
+
+        verify(bidRepository).save(any(AuctionBid.class));
+    }
+
+    @Test
+    void memberCannotBidAfterWinningEveryActiveSpot() {
+        String tenantId = "tenant-a";
+        TenantContext.set(tenantId);
+        UUID chitId = UUID.randomUUID();
+        UUID auctionId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        AuctionSession session = AuctionSession.builder()
+                .id(auctionId).tenantId(tenantId).chitId(chitId)
+                .auctionMode(AuctionMode.ONLINE).status(AuctionStatus.OPEN)
+                .scheduledPayoutAmount(new BigDecimal("100000"))
+                .closesAt(LocalDateTime.now().plusMinutes(5)).build();
+        PlaceBidRequest request = new PlaceBidRequest();
+        request.setBidAmount(new BigDecimal("90000"));
+
+        when(sessionRepository.findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, tenantId))
+                .thenReturn(Optional.of(session));
+        when(enrollmentRepository.existsByChitIdAndMemberIdAndActiveTrue(chitId, memberId)).thenReturn(true);
+        when(enrollmentRepository.countByChitIdAndMemberIdAndActiveTrue(chitId, memberId)).thenReturn(1L);
+        when(winnerRepository.findWinnerMemberIdsByChitId(chitId)).thenReturn(List.of(memberId));
+
+        assertThatThrownBy(() -> service().placeBid(
+                chitId, auctionId, request, memberId, memberId, "MEMBER"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("every active spot");
+        verify(bidRepository, never()).save(any());
     }
 
     private AuctionService service() {

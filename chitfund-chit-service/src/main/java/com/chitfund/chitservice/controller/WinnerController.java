@@ -29,9 +29,13 @@ public class WinnerController {
             @Valid @RequestBody AssignWinnerRequest request,
             Authentication auth) {
         UUID assignedBy = (UUID) auth.getPrincipal();
+        String actorRole = auth.getAuthorities().stream()
+                .map(a -> a.getAuthority().replace("ROLE_", ""))
+                .findFirst()
+                .orElse("UNKNOWN");
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(
-                        winnerService.assignWinner(chitId, request, assignedBy), "Winner assigned"));
+                        winnerService.assignWinner(chitId, request, assignedBy, actorRole), "Winner assigned"));
     }
 
     @GetMapping("/winners")

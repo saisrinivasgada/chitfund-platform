@@ -53,6 +53,9 @@ public class ChitInvitation {
     @Column
     private LocalDateTime closedAt;
 
+    @Column
+    private LocalDateTime expiresAt;
+
     @ElementCollection
     @CollectionTable(name = "chit_invitation_recipients",
             joinColumns = @JoinColumn(name = "invitation_id"))

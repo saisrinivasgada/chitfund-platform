@@ -208,7 +208,8 @@ public class AdminDrawController {
         UUID chitId = UUID.fromString((String) body.get("chitId"));
         Integer monthNumber = (Integer) body.get("monthNumber");
         UUID actorId = body.get("actorId") == null ? null : UUID.fromString((String) body.get("actorId"));
-        drawService.reverseAuctionDividend(chitId, monthNumber, tenantId, actorId);
+        String actorRole = body.get("actorRole") == null ? null : body.get("actorRole").toString();
+        drawService.reverseAuctionDividend(chitId, monthNumber, tenantId, actorId, actorRole);
         return ResponseEntity.ok().build();
     }
 

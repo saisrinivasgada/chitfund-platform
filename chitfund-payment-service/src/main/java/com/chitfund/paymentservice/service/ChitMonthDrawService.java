@@ -388,11 +388,17 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId) {
-        reverseAuctionDividend(chitId, monthNumber, tenantId, null);
+        reverseAuctionDividend(chitId, monthNumber, tenantId, null, "SYSTEM");
     }
 
     @Transactional
     public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId, UUID actorId) {
+        reverseAuctionDividend(chitId, monthNumber, tenantId, actorId, "UNKNOWN");
+    }
+
+    @Transactional
+    public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId,
+                                       UUID actorId, String actorRole) {
         requireTenant(tenantId);
         ChitMonthDraw draw = drawRepository.findAuctionDrawForUpdate(tenantId, chitId, monthNumber)
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
@@ -434,6 +440,19 @@ public class ChitMonthDrawService {
         paymentRecordRepository.deleteByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
         draw.setStatus(DrawStatus.AWAITING_AUCTION);
         drawRepository.save(draw);
+
+        UUID effectiveActor = actorId != null
+                ? actorId
+                : UUID.fromString("00000000-0000-0000-0000-000000000001");
+        auditClient.log("CHIT_DRAW",
+                chitId + "-" + monthNumber,
+                chitId.toString(),
+                "DRAW_AUCTION_REVERSED",
+                effectiveActor.toString(),
+                actorId != null && actorRole != null ? actorRole : "SYSTEM",
+                Map.of("status", "OPEN"),
+                Map.of("status", "AWAITING_AUCTION", "deletedRecords", records.size()),
+                tenantId);
 
         log.info("Auction dividend reversed: drawId={} chit={} month={} records deleted={}",
                 draw.getId(), chitId, monthNumber, records.size());

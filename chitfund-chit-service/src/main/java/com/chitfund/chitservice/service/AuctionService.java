@@ -131,10 +131,15 @@ public class AuctionService {
             throw new BusinessException(ErrorCode.MEMBER_NOT_ENROLLED, "You are not enrolled in this chit");
         }
 
-        // Members who already won cannot bid
+        // A multi-spot member may win once per active spot. Blocking after the
+        // first win incorrectly discards the member's remaining paid spots.
+        long memberSpotCount = enrollmentRepository
+                .countByChitIdAndMemberIdAndActiveTrue(chitId, memberId);
         List<UUID> pastWinners = winnerRepository.findWinnerMemberIdsByChitId(chitId);
-        if (pastWinners.contains(memberId)) {
-            throw new BusinessException(ErrorCode.MEMBER_ALREADY_WON, "You have already won in this chit");
+        long memberWinCount = pastWinners.stream().filter(memberId::equals).count();
+        if (memberWinCount >= memberSpotCount) {
+            throw new BusinessException(ErrorCode.MEMBER_ALREADY_WON,
+                    "You have already won for every active spot in this chit");
         }
 
         BigDecimal discount = session.getScheduledPayoutAmount().subtract(request.getBidAmount());
@@ -237,7 +242,8 @@ public class AuctionService {
 
     @Transactional
     public AuctionSessionResponse closeAuction(UUID chitId, UUID auctionId,
-                                               CloseAuctionRequest request, UUID closedBy) {
+                                               CloseAuctionRequest request, UUID closedBy,
+                                               String actorRole) {
         chitService.findByIdForUpdate(chitId);
         AuctionSession session = getOpenSessionForUpdate(auctionId, chitId);
         String auctionTenantId = session.getTenantId();
@@ -251,6 +257,11 @@ public class AuctionService {
             if (request.getWinnerId() == null || request.getWonAmount() == null) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "winnerId and wonAmount are required to close an offline auction");
+            }
+            if (request.getWonAmount().compareTo(session.getScheduledPayoutAmount()) > 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "wonAmount cannot exceed the scheduled payout of ₹"
+                                + session.getScheduledPayoutAmount());
             }
             winnerId = request.getWinnerId();
             wonAmount = request.getWonAmount();
@@ -306,7 +317,7 @@ public class AuctionService {
         winnerRequest.setMonthNumber(session.getMonthNumber());
         winnerRequest.setDiscountAmount(discount);
         winnerRequest.setWinningAmount(wonAmount);
-        winnerService.assignWinner(chitId, winnerRequest, closedBy);
+        winnerService.assignWinner(chitId, winnerRequest, closedBy, actorRole);
 
         // Build member-spot map for payment-service: distinct members with their spot counts
         Map<UUID, Long> spotCounts = allSpots.stream()
@@ -379,7 +390,8 @@ public class AuctionService {
     }
 
     @Transactional
-    public AuctionSessionResponse extendAuction(UUID chitId, UUID auctionId, int additionalMinutes, UUID adminId) {
+    public AuctionSessionResponse extendAuction(UUID chitId, UUID auctionId, int additionalMinutes,
+                                                UUID adminId, String actorRole) {
         chitService.findByIdForUpdate(chitId);
         AuctionSession session = auctionSessionRepository
                 .findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, TenantContext.get())
@@ -396,7 +408,7 @@ public class AuctionService {
 
         // If session was auto-closed by timer, reopen it (reverse the close effects)
         if (session.getStatus() == AuctionStatus.CLOSED) {
-            reopenClosedSession(chitId, session, adminId);
+            reopenClosedSession(chitId, session, adminId, actorRole);
         }
 
         LocalDateTime newClosesAt = LocalDateTime.now().plusMinutes(additionalMinutes);
@@ -404,7 +416,7 @@ public class AuctionService {
         auctionSessionRepository.save(session);
         log.info("Auction timer extended: id={} chit={} newClosesAt={} by={}", auctionId, chitId, newClosesAt, adminId);
         auditClient.log("AUCTION_SESSION", auctionId.toString(), chitId.toString(),
-                "AUCTION_EXTENDED", adminId != null ? adminId.toString() : null, null,
+                "AUCTION_EXTENDED", adminId != null ? adminId.toString() : null, actorRole,
                 before, auctionSnapshot(session), TenantContext.get());
         AuctionSessionResponse response = buildResponse(session);
         afterCommit(() -> messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response));
@@ -412,7 +424,7 @@ public class AuctionService {
     }
 
     @Transactional
-    public AuctionSessionResponse voidAuction(UUID chitId, UUID auctionId, UUID adminId) {
+    public AuctionSessionResponse voidAuction(UUID chitId, UUID auctionId, UUID adminId, String actorRole) {
         chitService.findByIdForUpdate(chitId);
         AuctionSession session = auctionSessionRepository
                 .findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, TenantContext.get())
@@ -426,14 +438,14 @@ public class AuctionService {
         }
 
         Map<String, Object> before = auctionSnapshot(session);
-        reopenClosedSession(chitId, session, adminId);
+        reopenClosedSession(chitId, session, adminId, actorRole);
         session.setStatus(AuctionStatus.VOIDED);
         auctionSessionRepository.save(session);
 
         log.info("Auction voided: id={} chit={} month={} by={}", auctionId, chitId, session.getMonthNumber(), adminId);
 
         auditClient.log("AUCTION_SESSION", auctionId.toString(), chitId.toString(),
-                "AUCTION_VOIDED", adminId != null ? adminId.toString() : null, null,
+                "AUCTION_VOIDED", adminId != null ? adminId.toString() : null, actorRole,
                 before,
                 auctionSnapshot(session),
                 TenantContext.get());
@@ -441,12 +453,12 @@ public class AuctionService {
         return buildResponse(session);
     }
 
-    private void reopenClosedSession(UUID chitId, AuctionSession session, UUID adminId) {
+    private void reopenClosedSession(UUID chitId, AuctionSession session, UUID adminId, String actorRole) {
         // Reverse winner record
         winnerService.deleteWinnerForDraw(chitId, session.getMonthNumber());
         // Reverse payment records in payment service
         paymentServiceClient.reverseAuctionDividend(
-                chitId, session.getMonthNumber(), TenantContext.get(), adminId);
+                chitId, session.getMonthNumber(), TenantContext.get(), adminId, actorRole);
         // Clear close-related fields and reopen
         session.setStatus(AuctionStatus.OPEN);
         session.setWinnerId(null);
