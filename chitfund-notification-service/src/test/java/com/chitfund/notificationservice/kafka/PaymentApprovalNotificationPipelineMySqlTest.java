@@ -246,14 +246,12 @@ class PaymentApprovalNotificationPipelineMySqlTest {
         String eventId = UUID.randomUUID().toString();
         String chitId  = UUID.randomUUID().toString();
 
-        // Simulate the consumer being called inside a transaction that rolls back.
-        // JPA setRollbackOnly() rolls back silently (no exception on local tx) — don't assertThatThrownBy.
-        try {
-            new TransactionTemplate(txManager).executeWithoutResult(status -> {
-                deliverPaymentCompleted(eventId, chitId, memberId, tenantA, null);
-                status.setRollbackOnly();
-            });
-        } catch (Exception ignored) {}
+        // Consumer runs inside a transaction that is then rolled back.
+        // setRollbackOnly() completes normally; any unexpected exception must fail the test.
+        new TransactionTemplate(txManager).executeWithoutResult(status -> {
+            deliverPaymentCompleted(eventId, chitId, memberId, tenantA, null);
+            status.setRollbackOnly();
+        });
 
         assertThat(inboxRepo.findById(eventId)).isEmpty();
         assertThat(inAppRepo.findAll().stream()

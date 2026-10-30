@@ -3,9 +3,9 @@ package com.chitfund.paymentservice.kafka;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -14,21 +14,24 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Verifies that the payment-service transactional outbox behaves correctly for the
- * intimation approval pipeline. This test covers the payment side of:
+ * MySQL 8 integration tests for {@link PaymentOutboxStore}.
  *
- *   PaymentIntimationService.approveIntimation()
- *   → recordPayment() with idempotencyKey = "INTIM:<intimationId>"
- *   → PaymentEventPublisher.publish() via PaymentOutboxStore.enqueue()
- *   → event_outbox row (PENDING, unique per event_id + destination)
+ * These tests exercise PaymentOutboxStore.enqueue() directly against a real InnoDB
+ * instance with Flyway-applied migrations. They do NOT invoke PaymentIntimationService,
+ * PaymentService, or PaymentEventPublisher. In the live approval path, PaymentEventPublisher
+ * generates a fresh random UUID as the event_id — it is not derived from the idempotency key.
  *
- * The notification side is covered by PaymentApprovalNotificationPipelineMySqlTest in
- * chitfund-notification-service. Together the two test classes cover the full pipeline.
+ * What these tests prove:
+ *  - enqueue() inserts one row per destination, status PENDING, with the correct tenant_id
+ *  - the unique constraint uq_outbox_event_destination(event_id, destination) prevents any
+ *    caller from inserting the same (event_id, destination) pair twice at the DB level
+ *  - a rolled-back transaction leaves no outbox rows
  */
 @Testcontainers(disabledWithoutDocker = true)
-class PaymentIntimationOutboxMySqlTest {
+class PaymentOutboxStoreMySqlTest {
 
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
@@ -37,13 +40,13 @@ class PaymentIntimationOutboxMySqlTest {
             .withUsername("chitfund")
             .withPassword("testpassword");
 
-    // ── Scenario 1: approval enqueues exactly one outbox row per destination ──
+    // ── enqueue writes one PENDING row per destination ────────────────────────
 
     @Test
-    void approvalPublishesExactlyOneOutboxRowPerDestination() {
+    void enqueueWritesOnePendingRowPerDestination() {
         JdbcTemplate jdbc = migrated();
         PaymentOutboxStore store = new PaymentOutboxStore(jdbc);
-        String eventId = UUID.randomUUID().toString();
+        String eventId  = UUID.randomUUID().toString();
         String tenantId = UUID.randomUUID().toString();
         List<String> destinations = List.of("NOTIFICATION_EVENTS", "AUDIT_EVENTS");
 
@@ -61,13 +64,13 @@ class PaymentIntimationOutboxMySqlTest {
                 String.class, eventId, "NOTIFICATION_EVENTS")).isEqualTo("PENDING");
     }
 
-    // ── Scenario 2: retrying the same approval cannot create a second outbox row ──
+    // ── unique constraint blocks duplicate (event_id, destination) at the DB level ──
 
     @Test
-    void retryingApprovalWithSameEventIdDoesNotCreateDuplicateOutboxRow() {
+    void duplicateEventIdAndDestinationIsRejectedByUniqueConstraint() {
         JdbcTemplate jdbc = migrated();
         PaymentOutboxStore store = new PaymentOutboxStore(jdbc);
-        String eventId = UUID.randomUUID().toString();
+        String eventId  = UUID.randomUUID().toString();
         String tenantId = UUID.randomUUID().toString();
         List<String> destinations = List.of("NOTIFICATION_EVENTS");
 
@@ -75,11 +78,9 @@ class PaymentIntimationOutboxMySqlTest {
                 store.enqueue(eventId, tenantId, "PAYMENT_BATCH", UUID.randomUUID().toString(),
                         "PAYMENT_COMPLETED", "{}", destinations));
 
-        // A second enqueue with the same (event_id, destination) must fail at the DB level.
-        // PaymentIntimationService uses "INTIM:<id>" as the idempotency key; PaymentService
-        // maps that to the event_id. The unique constraint (uq_outbox_event_destination)
-        // prevents a second outbox row even if the business layer misses the idempotency guard.
-        org.assertj.core.api.Assertions.assertThatCode(() ->
+        // A second enqueue for the same (event_id, destination) violates the unique constraint
+        // uq_outbox_event_destination regardless of how the event_id was originally generated.
+        assertThatThrownBy(() ->
                 tx(jdbc).executeWithoutResult(status ->
                         store.enqueue(eventId, tenantId, "PAYMENT_BATCH",
                                 UUID.randomUUID().toString(), "PAYMENT_COMPLETED", "{}",
@@ -91,36 +92,35 @@ class PaymentIntimationOutboxMySqlTest {
                 Integer.class, eventId, "NOTIFICATION_EVENTS")).isEqualTo(1);
     }
 
-    // ── Scenario 3: rolled-back payment transaction leaves no outbox row ──
+    // ── rolled-back transaction leaves no outbox row ──────────────────────────
 
     @Test
-    void rolledBackPaymentTransactionLeavesNoOutboxRow() {
+    void rolledBackTransactionLeavesNoOutboxRow() {
         JdbcTemplate jdbc = migrated();
         PaymentOutboxStore store = new PaymentOutboxStore(jdbc);
-        String eventId = UUID.randomUUID().toString();
+        String eventId  = UUID.randomUUID().toString();
         String tenantId = UUID.randomUUID().toString();
 
-        try {
-            tx(jdbc).executeWithoutResult(status -> {
-                store.enqueue(eventId, tenantId, "PAYMENT_BATCH",
-                        UUID.randomUUID().toString(), "PAYMENT_COMPLETED", "{}",
-                        List.of("NOTIFICATION_EVENTS"));
-                status.setRollbackOnly();
-            });
-        } catch (Exception ignored) {}
+        // setRollbackOnly() completes normally; any unexpected exception must fail the test.
+        tx(jdbc).executeWithoutResult(status -> {
+            store.enqueue(eventId, tenantId, "PAYMENT_BATCH",
+                    UUID.randomUUID().toString(), "PAYMENT_COMPLETED", "{}",
+                    List.of("NOTIFICATION_EVENTS"));
+            status.setRollbackOnly();
+        });
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM event_outbox WHERE event_id=?",
                 Integer.class, eventId)).isZero();
     }
 
-    // ── Scenario 4: outbox row carries the tenant so the relay can set TenantContext ──
+    // ── outbox row preserves tenant_id for relay delivery ─────────────────────
 
     @Test
     void outboxRowPreservesTenantIdForRelayDelivery() {
         JdbcTemplate jdbc = migrated();
         PaymentOutboxStore store = new PaymentOutboxStore(jdbc);
-        String eventId = UUID.randomUUID().toString();
+        String eventId  = UUID.randomUUID().toString();
         String tenantId = UUID.randomUUID().toString();
 
         tx(jdbc).executeWithoutResult(status ->
@@ -132,7 +132,7 @@ class PaymentIntimationOutboxMySqlTest {
                 String.class, eventId)).isEqualTo(tenantId);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private JdbcTemplate migrated() {
         DriverManagerDataSource ds = new DriverManagerDataSource(
