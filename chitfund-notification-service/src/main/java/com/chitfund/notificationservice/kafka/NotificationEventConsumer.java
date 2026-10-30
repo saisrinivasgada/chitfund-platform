@@ -280,13 +280,6 @@ public class NotificationEventConsumer {
                     : "Account is fully settled for this chit.";
             String amtFormatted = "₹" + event.amount().toPlainString();
 
-            // Detect whether this payment originated from an admin-approved intimation
-            // (idempotencyKey is "INTIM:<intimationId>" when set by PaymentIntimationService)
-            String intimationId = null;
-            if (event.idempotencyKey() != null && event.idempotencyKey().startsWith("INTIM:")) {
-                intimationId = event.idempotencyKey().substring("INTIM:".length());
-            }
-
             NotifyRequest req = buildRequest(
                     UUID.fromString(event.memberId()),
                     null, null,
@@ -306,24 +299,17 @@ public class NotificationEventConsumer {
                         event.memberId(), event.tenantId());
             } else {
                 String title = "Payment Received";
-                String body  = intimationId != null
-                        ? amtFormatted + " payment approved and recorded. " + remaining
-                        : amtFormatted + " payment recorded. " + remaining;
-                Map<String, String> metadata = intimationId != null
-                        ? Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                                 "monthsSettled", String.valueOf(event.monthsSettled()),
-                                 "intimationId", intimationId)
-                        : Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                                 "monthsSettled", String.valueOf(event.monthsSettled()));
+                String body  = amtFormatted + " payment recorded. " + remaining;
+                Map<String, String> metadata = Map.of(
+                        "chitId",        event.chitId(),
+                        "amount",        event.amount().toPlainString(),
+                        "monthsSettled", String.valueOf(event.monthsSettled()));
                 inAppService.create(
                     event.tenantId(), UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
                     metadata, "/member/chits/" + event.chitId()
                 );
-                Map<String, String> pushData = intimationId != null
-                        ? Map.of("screen", "payments", "chitId", event.chitId(), "intimationId", intimationId)
-                        : Map.of("screen", "payments", "chitId", event.chitId());
                 deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
-                        pushData);
+                        Map.of("screen", "payments", "chitId", event.chitId()));
             }
             broadcaster.broadcast(event.tenantId(), "PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
             broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");

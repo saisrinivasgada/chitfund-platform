@@ -196,7 +196,7 @@ class NotificationEventConsumerTest {
     // ── Payment intimation approval notification tests ────────────────────────
 
     @Test
-    void intimationApprovalCreatesExactlyOneInAppAndOnePushWithIntimationMetadata() throws Exception {
+    void intimationApprovalProducesExactlyOneGenericPaymentReceivedNotification() throws Exception {
         EventInboxRepository inbox = mock(EventInboxRepository.class);
         InAppNotificationService inApp = mock(InAppNotificationService.class);
         NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
@@ -216,6 +216,7 @@ class NotificationEventConsumerTest {
                 mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
                 mock(ChitServiceClient.class), inbox);
 
+        // idempotencyKey carries "INTIM:<id>" as set by PaymentIntimationService.approveIntimation()
         PaymentCompletedEvent event = new PaymentCompletedEvent(
                 UUID.randomUUID().toString(), chitId, memberId,
                 new BigDecimal("1000.00"), "UPI",
@@ -227,7 +228,8 @@ class NotificationEventConsumerTest {
                 new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
                         mapper.writeValueAsString(event))));
 
-        // Exactly one in-app notification with the intimation-specific body and metadata
+        // One in-app with generic "Payment Received" title — idempotency key is not trusted
+        // business metadata and must not alter the notification wording or inject intimationId
         ArgumentCaptor<Map> metaCaptor = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
         verify(inApp, times(1)).create(
@@ -235,15 +237,64 @@ class NotificationEventConsumerTest {
                 eq("Payment Received"), bodyCaptor.capture(),
                 eq("PAYMENT_RECEIVED"), metaCaptor.capture(),
                 eq("/member/chits/" + chitId));
-        assertThat(bodyCaptor.getValue()).contains("approved and recorded");
-        assertThat(metaCaptor.getValue()).containsKey("intimationId");
-        assertThat(metaCaptor.getValue().get("intimationId")).isEqualTo(intimationId);
+        assertThat(bodyCaptor.getValue()).doesNotContain("approved and recorded");
+        assertThat(metaCaptor.getValue()).doesNotContainKey("intimationId");
 
-        // Exactly one push with intimationId in data
+        // One push — no intimationId in push data
         verify(deliveryQueue, times(1)).enqueuePush(
                 eq(eventId), eq("tenant-a"), eq(UUID.fromString(userId)),
                 eq("Payment Received"), anyString(),
-                argThat(data -> intimationId.equals(((Map<?, ?>) data).get("intimationId"))));
+                argThat(data -> !((Map<?, ?>) data).containsKey("intimationId")));
+    }
+
+    @Test
+    void ordinaryPaymentWithINTIMPrefixKeyCannotAlterNotificationSemanticsOrInjectIntimationId()
+            throws Exception {
+        // Security: X-Idempotency-Key is client-controlled. A caller on the ordinary admin
+        // payment endpoint could set idempotencyKey = "INTIM:fake-id". The consumer must not
+        // trust this prefix as business metadata.
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
+        MemberServiceClient members = mock(MemberServiceClient.class);
+        String eventId = "00000000-0000-0000-0000-000000000001";
+        String memberId = UUID.randomUUID().toString();
+        String userId = UUID.randomUUID().toString();
+        String chitId = UUID.randomUUID().toString();
+        String fabricatedId = "fabricated-intimation-id";
+
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_COMPLETED), any())).thenReturn(1);
+        when(members.getUserId("tenant-a", memberId)).thenReturn(userId);
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, deliveryQueue, mapper,
+                mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        // Ordinary payment where a malicious/mistaken client set the idempotency key to "INTIM:..."
+        PaymentCompletedEvent event = new PaymentCompletedEvent(
+                UUID.randomUUID().toString(), chitId, memberId,
+                new BigDecimal("500.00"), "UPI",
+                new BigDecimal("500.00"), new BigDecimal("500.00"), BigDecimal.ZERO,
+                1, 0, 0, 0, LocalDate.now(), UUID.randomUUID().toString(), Instant.now(),
+                "INTIM:" + fabricatedId, "UNKNOWN", Instant.now(), "tenant-a", "ADMIN");
+
+        consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
+                        mapper.writeValueAsString(event))));
+
+        ArgumentCaptor<Map> metaCaptor = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(inApp, times(1)).create(
+                eq("tenant-a"), eq(UUID.fromString(userId)),
+                eq("Payment Received"), bodyCaptor.capture(),
+                eq("PAYMENT_RECEIVED"), metaCaptor.capture(), anyString());
+        assertThat(bodyCaptor.getValue()).doesNotContain("approved and recorded");
+        assertThat(metaCaptor.getValue()).doesNotContainKey("intimationId");
+        verify(deliveryQueue, times(1)).enqueuePush(
+                any(), any(), any(), any(), any(),
+                argThat(data -> !((Map<?, ?>) data).containsKey("intimationId")));
     }
 
     @Test
