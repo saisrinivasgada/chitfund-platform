@@ -294,14 +294,19 @@ public class NotificationEventConsumer {
             notificationService.send(deliveryEventId(), event.tenantId(), req);
 
             String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
-            if (userId != null) {
+            if (userId == null) {
+                log.warn("onPaymentCompleted: no user account found for member {} in tenant {} — in-app and push skipped",
+                        event.memberId(), event.tenantId());
+            } else {
                 String title = "Payment Received";
                 String body  = amtFormatted + " payment recorded. " + remaining;
+                Map<String, String> metadata = Map.of(
+                        "chitId",        event.chitId(),
+                        "amount",        event.amount().toPlainString(),
+                        "monthsSettled", String.valueOf(event.monthsSettled()));
                 inAppService.create(
                     event.tenantId(), UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
-                    Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                           "monthsSettled", String.valueOf(event.monthsSettled())),
-                    "/member/chits/" + event.chitId()
+                    metadata, "/member/chits/" + event.chitId()
                 );
                 deliveryQueue.enqueuePush(deliveryEventId(), event.tenantId(), UUID.fromString(userId), title, body,
                         Map.of("screen", "payments", "chitId", event.chitId()));

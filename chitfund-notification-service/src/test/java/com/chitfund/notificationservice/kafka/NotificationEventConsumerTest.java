@@ -8,24 +8,33 @@ import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.repository.EventInboxRepository;
 import com.chitfund.notificationservice.outbox.NotificationDeliveryQueue;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
+import com.chitfund.common.event.PaymentCompletedEvent;
+import com.chitfund.common.event.PaymentIntimationNotificationEvent;
 import com.chitfund.common.event.PayoutCreatedEvent;
 import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.math.BigDecimal;
-import java.time.Instant;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -182,5 +191,287 @@ class NotificationEventConsumerTest {
         verify(deliveryQueue).enqueuePush(eventId, "tenant-a", UUID.fromString(otherUser),
                 "Draw Result — Draw 3", "Draw 3 is complete. Payout approved.",
                 Map.of("screen", "chits", "chitId", "chit-a"));
+    }
+
+    // ── Payment intimation approval notification tests ────────────────────────
+
+    @Test
+    void intimationApprovalProducesExactlyOneGenericPaymentReceivedNotification() throws Exception {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
+        MemberServiceClient members = mock(MemberServiceClient.class);
+        String eventId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        String memberId = UUID.randomUUID().toString();
+        String userId = UUID.randomUUID().toString();
+        String chitId = UUID.randomUUID().toString();
+        String intimationId = UUID.randomUUID().toString();
+
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_COMPLETED), any())).thenReturn(1);
+        when(members.getUserId("tenant-a", memberId)).thenReturn(userId);
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, deliveryQueue, mapper,
+                mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        // idempotencyKey carries "INTIM:<id>" as set by PaymentIntimationService.approveIntimation()
+        PaymentCompletedEvent event = new PaymentCompletedEvent(
+                UUID.randomUUID().toString(), chitId, memberId,
+                new BigDecimal("1000.00"), "UPI",
+                new BigDecimal("5000.00"), new BigDecimal("3000.00"), new BigDecimal("2000.00"),
+                1, 0, 2, 0, LocalDate.now(), UUID.randomUUID().toString(), Instant.now(),
+                "INTIM:" + intimationId, "UNKNOWN", Instant.now(), "tenant-a", "ADMIN");
+
+        consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
+                        mapper.writeValueAsString(event))));
+
+        // One in-app with generic "Payment Received" title — idempotency key is not trusted
+        // business metadata and must not alter the notification wording or inject intimationId
+        ArgumentCaptor<Map> metaCaptor = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(inApp, times(1)).create(
+                eq("tenant-a"), eq(UUID.fromString(userId)),
+                eq("Payment Received"), bodyCaptor.capture(),
+                eq("PAYMENT_RECEIVED"), metaCaptor.capture(),
+                eq("/member/chits/" + chitId));
+        assertThat(bodyCaptor.getValue()).doesNotContain("approved and recorded");
+        assertThat(metaCaptor.getValue()).doesNotContainKey("intimationId");
+
+        // One push — no intimationId in push data
+        verify(deliveryQueue, times(1)).enqueuePush(
+                eq(eventId), eq("tenant-a"), eq(UUID.fromString(userId)),
+                eq("Payment Received"), anyString(),
+                argThat(data -> !((Map<?, ?>) data).containsKey("intimationId")));
+    }
+
+    @Test
+    void ordinaryPaymentWithINTIMPrefixKeyCannotAlterNotificationSemanticsOrInjectIntimationId()
+            throws Exception {
+        // Security: X-Idempotency-Key is client-controlled. A caller on the ordinary admin
+        // payment endpoint could set idempotencyKey = "INTIM:fake-id". The consumer must not
+        // trust this prefix as business metadata.
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
+        MemberServiceClient members = mock(MemberServiceClient.class);
+        String eventId = "00000000-0000-0000-0000-000000000001";
+        String memberId = UUID.randomUUID().toString();
+        String userId = UUID.randomUUID().toString();
+        String chitId = UUID.randomUUID().toString();
+        String fabricatedId = "fabricated-intimation-id";
+
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_COMPLETED), any())).thenReturn(1);
+        when(members.getUserId("tenant-a", memberId)).thenReturn(userId);
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, deliveryQueue, mapper,
+                mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        // Ordinary payment where a malicious/mistaken client set the idempotency key to "INTIM:..."
+        PaymentCompletedEvent event = new PaymentCompletedEvent(
+                UUID.randomUUID().toString(), chitId, memberId,
+                new BigDecimal("500.00"), "UPI",
+                new BigDecimal("500.00"), new BigDecimal("500.00"), BigDecimal.ZERO,
+                1, 0, 0, 0, LocalDate.now(), UUID.randomUUID().toString(), Instant.now(),
+                "INTIM:" + fabricatedId, "UNKNOWN", Instant.now(), "tenant-a", "ADMIN");
+
+        consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
+                        mapper.writeValueAsString(event))));
+
+        ArgumentCaptor<Map> metaCaptor = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(inApp, times(1)).create(
+                eq("tenant-a"), eq(UUID.fromString(userId)),
+                eq("Payment Received"), bodyCaptor.capture(),
+                eq("PAYMENT_RECEIVED"), metaCaptor.capture(), anyString());
+        assertThat(bodyCaptor.getValue()).doesNotContain("approved and recorded");
+        assertThat(metaCaptor.getValue()).doesNotContainKey("intimationId");
+        verify(deliveryQueue, times(1)).enqueuePush(
+                any(), any(), any(), any(), any(),
+                argThat(data -> !((Map<?, ?>) data).containsKey("intimationId")));
+    }
+
+    @Test
+    void intimationApprovalIsIdempotentViaSqsInboxClaim() throws Exception {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        String eventId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        // inbox already claimed → returns 0
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_COMPLETED), any())).thenReturn(0);
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, mock(NotificationDeliveryQueue.class),
+                mapper, mock(WebSocketBroadcaster.class), mock(MemberServiceClient.class),
+                mock(UserServiceClient.class), mock(ChitServiceClient.class), inbox);
+
+        String memberId = UUID.randomUUID().toString();
+        String intimationId = UUID.randomUUID().toString();
+        PaymentCompletedEvent event = new PaymentCompletedEvent(
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), memberId,
+                new BigDecimal("500.00"), "UPI",
+                new BigDecimal("1000.00"), new BigDecimal("500.00"), new BigDecimal("500.00"),
+                1, 0, 1, 0, LocalDate.now(), UUID.randomUUID().toString(), Instant.now(),
+                "INTIM:" + intimationId, "UNKNOWN", Instant.now(), "tenant-a", "ADMIN");
+
+        consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
+                        mapper.writeValueAsString(event))));
+
+        // Duplicate: no in-app notification created
+        verify(inApp, never()).create(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void missingUserAccountHandledSafelyWithNoExceptionAndNoInAppOrPush() throws Exception {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
+        MemberServiceClient members = mock(MemberServiceClient.class);
+        String eventId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_COMPLETED), any())).thenReturn(1);
+        // member-service returns null (member has no user account or service is unreachable)
+        when(members.getUserId(any(), any())).thenReturn(null);
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, deliveryQueue, mapper,
+                mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        PaymentCompletedEvent event = new PaymentCompletedEvent(
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                new BigDecimal("200.00"), "CASH",
+                new BigDecimal("200.00"), new BigDecimal("200.00"), BigDecimal.ZERO,
+                1, 0, 0, 0, LocalDate.now(), UUID.randomUUID().toString(), Instant.now(),
+                "INTIM:" + UUID.randomUUID(), "UNKNOWN", Instant.now(), "tenant-a", "ADMIN");
+
+        // Must not throw — SQS must not retry endlessly for a missing user account
+        consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
+                        mapper.writeValueAsString(event))));
+
+        verify(inApp, never()).create(any(), any(), any(), any(), any(), any(), any());
+        verify(deliveryQueue, never()).enqueuePush(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void intimationRejectionSendsExactlyOneRejectionNotification() throws Exception {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
+        MemberServiceClient members = mock(MemberServiceClient.class);
+        String eventId = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+        String memberId = UUID.randomUUID().toString();
+        String userId = UUID.randomUUID().toString();
+        String intimationId = UUID.randomUUID().toString();
+
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_INTIMATION), any())).thenReturn(1);
+        when(members.getUserId("tenant-b", memberId)).thenReturn(userId);
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, deliveryQueue, mapper,
+                mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        PaymentIntimationNotificationEvent event = new PaymentIntimationNotificationEvent(
+                intimationId, memberId, null, new BigDecimal("750.00"),
+                "REJECTED", "Payment reference not found", "tenant-b");
+
+        consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_INTIMATION,
+                        mapper.writeValueAsString(event))));
+
+        verify(inApp, times(1)).create(
+                eq("tenant-b"), eq(UUID.fromString(userId)),
+                eq("Payment Intimation Rejected"), contains("rejected"),
+                eq("PAYMENT_INTIMATION_REJECTED"), any(), eq("/member"));
+        verify(deliveryQueue, times(1)).enqueuePush(
+                any(), eq("tenant-b"), eq(UUID.fromString(userId)),
+                eq("Payment Intimation Rejected"), anyString(), any());
+        // No separate APPROVED notification — APPROVED sub-type has no producer
+        verify(inApp, never()).create(any(), any(), contains("Approved"), any(), any(), any(), any());
+    }
+
+    @Test
+    void anotherTenantsPaymentCompletedEventCarriesItsOwnTenantAndDoesNotCrossContaminate()
+            throws Exception {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        MemberServiceClient members = mock(MemberServiceClient.class);
+        String eventId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+        String memberId = UUID.randomUUID().toString();
+        String userIdTenantX = UUID.randomUUID().toString();
+
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_COMPLETED), any())).thenReturn(1);
+        when(members.getUserId("tenant-x", memberId)).thenReturn(userIdTenantX);
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, mock(NotificationDeliveryQueue.class),
+                mapper, mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        PaymentCompletedEvent event = new PaymentCompletedEvent(
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), memberId,
+                new BigDecimal("300.00"), "UPI",
+                new BigDecimal("600.00"), new BigDecimal("300.00"), new BigDecimal("300.00"),
+                1, 0, 1, 0, LocalDate.now(), UUID.randomUUID().toString(), Instant.now(),
+                null, "UNKNOWN", Instant.now(), "tenant-x", "ADMIN");
+
+        consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
+                        mapper.writeValueAsString(event))));
+
+        // In-app notification stored under tenant-x only — not tenant-y or any other tenant
+        verify(inApp).create(eq("tenant-x"), eq(UUID.fromString(userIdTenantX)),
+                any(), any(), any(), any(), any());
+        verify(members).getUserId(eq("tenant-x"), eq(memberId));
+        verify(members, never()).getUserId(eq("tenant-y"), any());
+    }
+
+    @Test
+    void transactionRollbackSignaledByExceptionSoSqsWillRetry() throws Exception {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        MemberServiceClient members = mock(MemberServiceClient.class);
+        String eventId = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+        String memberId = UUID.randomUUID().toString();
+        String userId = UUID.randomUUID().toString();
+
+        when(inbox.claimIfAbsent(eq(eventId), eq(SqsQueues.EVT_PAYMENT_COMPLETED), any())).thenReturn(1);
+        when(members.getUserId("tenant-a", memberId)).thenReturn(userId);
+        // Simulates a transient DB failure writing the in-app notification
+        org.mockito.Mockito.doThrow(new IllegalStateException("DB write failed"))
+                .when(inApp).create(any(), any(), any(), any(), any(), any(), any());
+
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, mock(NotificationDeliveryQueue.class),
+                mapper, mock(WebSocketBroadcaster.class), members, mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        PaymentCompletedEvent event = new PaymentCompletedEvent(
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), memberId,
+                new BigDecimal("400.00"), "UPI",
+                new BigDecimal("400.00"), new BigDecimal("400.00"), BigDecimal.ZERO,
+                1, 0, 0, 0, LocalDate.now(), UUID.randomUUID().toString(), Instant.now(),
+                null, "UNKNOWN", Instant.now(), "tenant-a", "ADMIN");
+
+        // Exception propagates so the @Transactional rolls back the inbox claim
+        // and SQS will redeliver the message for retry
+        assertThatThrownBy(() -> consumer.onEvent(mapper.writeValueAsString(
+                new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_COMPLETED,
+                        mapper.writeValueAsString(event)))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("processing failed");
     }
 }
