@@ -76,7 +76,6 @@ class PaymentApprovalNotificationPipelineMySqlTest {
             .withUsername("chitfund")
             .withPassword("testpassword");
 
-    @Autowired NotificationEventConsumer consumer;
     @Autowired InAppNotificationRepository inAppRepo;
     @Autowired EventInboxRepository inboxRepo;
     @Autowired MemberServiceClient memberServiceClient;
@@ -204,7 +203,7 @@ class PaymentApprovalNotificationPipelineMySqlTest {
                 PaymentIntimationNotificationEvent event = new PaymentIntimationNotificationEvent(
                         intimationId, memberId, null, new BigDecimal("500.00"),
                         "REJECTED", "UTR not found", tenantA);
-                consumer.onEvent(mapper.writeValueAsString(
+                consumerWithRepo(inAppRepo).onEvent(mapper.writeValueAsString(
                         new SqsEventEnvelope(eventId, SqsQueues.EVT_PAYMENT_INTIMATION,
                                 mapper.writeValueAsString(event))));
             } catch (Exception e) { throw new RuntimeException(e); }
