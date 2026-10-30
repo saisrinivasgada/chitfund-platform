@@ -88,7 +88,7 @@ class PaymentApprovalNotificationPipelineMySqlTest {
 
     @BeforeEach
     void setUp() {
-        tenantA  = "tenant-" + UUID.randomUUID();
+        tenantA  = UUID.randomUUID().toString(); // must fit VARCHAR(36)
         memberId = UUID.randomUUID().toString();
         userId   = UUID.randomUUID().toString();
         reset(memberServiceClient);
@@ -222,7 +222,7 @@ class PaymentApprovalNotificationPipelineMySqlTest {
 
     @Test
     void tenantAEventCannotCreateNotificationForTenantBMember() throws Exception {
-        String tenantB    = "tenant-" + UUID.randomUUID();
+        String tenantB    = UUID.randomUUID().toString(); // must fit VARCHAR(36)
         String eventId    = UUID.randomUUID().toString();
         String chitId     = UUID.randomUUID().toString();
         String tenantBUserId = UUID.randomUUID().toString();
@@ -246,13 +246,14 @@ class PaymentApprovalNotificationPipelineMySqlTest {
         String eventId = UUID.randomUUID().toString();
         String chitId  = UUID.randomUUID().toString();
 
-        // Simulate the consumer being called inside a transaction that rolls back
-        assertThatThrownBy(() ->
-                new TransactionTemplate(txManager).executeWithoutResult(status -> {
-                    deliverPaymentCompleted(eventId, chitId, memberId, tenantA, null);
-                    status.setRollbackOnly(); // force rollback after the consumer runs
-                }))
-                .isInstanceOf(Exception.class);
+        // Simulate the consumer being called inside a transaction that rolls back.
+        // JPA setRollbackOnly() rolls back silently (no exception on local tx) — don't assertThatThrownBy.
+        try {
+            new TransactionTemplate(txManager).executeWithoutResult(status -> {
+                deliverPaymentCompleted(eventId, chitId, memberId, tenantA, null);
+                status.setRollbackOnly();
+            });
+        } catch (Exception ignored) {}
 
         assertThat(inboxRepo.findById(eventId)).isEmpty();
         assertThat(inAppRepo.findAll().stream()
