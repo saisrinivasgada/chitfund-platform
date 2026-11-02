@@ -30,7 +30,7 @@ test('shows org name, role, username and masked email from token details', async
   await expect(page.getByText('Sunrise Chit Fund')).toBeVisible();
   await expect(page.getByText('ADMIN')).toBeVisible();
   await expect(page.getByText('rahulk')).toBeVisible();
-  await expect(page.getByText('r***@example.com')).toBeVisible();
+  await expect(page.getByText('r***@example.com').first()).toBeVisible();
   await expect(page.getByRole('button', { name: /send verification code/i })).toBeVisible();
 });
 
@@ -90,8 +90,8 @@ test('golden path: OTP send, OTP entry, password, submit, success screen', async
   await page.getByRole('button', { name: /send verification code/i }).click();
   await expect(page.locator('input[aria-label]').first()).toBeVisible({ timeout: 3000 });
 
-  // Enter 6-digit OTP into digit boxes
-  const otpBoxes = page.locator('input[maxlength="1"]');
+  // Enter 6-digit OTP into digit boxes (OtpCodeInput renders maxLength={length} = 6)
+  const otpBoxes = page.locator('input[maxlength="6"]');
   for (let i = 0; i < 6; i++) {
     await otpBoxes.nth(i).fill(String(i + 1));
   }
