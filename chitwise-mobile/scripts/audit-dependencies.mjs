@@ -218,7 +218,7 @@ if (blockers.length > 0) {
 }
 
 if (accepted.size > 0) {
-  console.warn(`Accepted Expo build-tool advisories (review by ${REVIEW_BY}):`);
+  console.warn(`Accepted Expo vendor exceptions (review by ${REVIEW_BY}):`);
   for (const [url, approval] of accepted) {
     console.warn(`- ${approval.packageName}@${approval.version}: ${approval.exposure} (${url})`);
   }
@@ -228,5 +228,5 @@ const counts = report.metadata?.vulnerabilities ?? {};
 console.log(
   `Dependency audit passed: ${counts.critical ?? 0} Critical, `
   + `${counts.high ?? 0} High roll-ups, ${counts.moderate ?? 0} Moderate; `
-  + 'all High findings resolve only to the reviewed Expo build-tool exceptions.',
+  + 'all High findings resolve only to reviewed and documented vendor exceptions.',
 );
