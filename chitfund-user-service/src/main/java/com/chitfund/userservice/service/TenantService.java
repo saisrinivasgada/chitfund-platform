@@ -282,17 +282,17 @@ public class TenantService {
                     .build();
         }
 
-        // Auto-create admin account
+        // Auto-create admin account — use a setup link, not a plaintext password
         if (t.getContactEmail() == null || t.getContactEmail().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "An organization email is required before an admin can be created");
         }
-        String rawPassword = generateTempPassword();
         String username = t.getSlug() + ".admin";
         int s = 1;
         while (userRepository.existsByUsername(username)) {
             username = t.getSlug() + ".admin" + s++;
         }
+        String placeholder = UUID.randomUUID().toString(); // never emailed; must be changed via setup link
 
         User admin = User.builder()
                 .username(username)
@@ -300,8 +300,7 @@ public class TenantService {
                 .email(t.getContactEmail())
                 .phone(t.getContactPhone())
                 .phoneCountryCode("+91")
-                .passwordHash(passwordEncoder.encode(rawPassword))
-                .tempPasswordHash(passwordEncoder.encode(rawPassword))
+                .passwordHash(passwordEncoder.encode(placeholder))
                 .mustChangePassword(true)
                 .emailVerificationRequired(true)
                 .role(Role.ADMIN)
@@ -309,23 +308,40 @@ public class TenantService {
                 .build();
         userRepository.save(admin);
 
+        // Generate ORG_USER_INVITE setup token and email the setup link
+        String rawToken = UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", "");
+        String tokenHash = sha256Hex(rawToken);
+        com.chitfund.userservice.domain.entity.AccountSetupToken setupToken =
+                com.chitfund.userservice.domain.entity.AccountSetupToken.builder()
+                        .userId(admin.getId())
+                        .purpose(com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE)
+                        .tokenHash(tokenHash)
+                        .expiresAt(java.time.LocalDateTime.now().plusHours(setupTokenExpiryHours))
+                        .build();
+        setupTokenRepository.save(setupToken);
+
+        String setupUrl = frontendUrl + "/org-user-setup?token=" + rawToken;
         try {
             String html = EmailService.buildApprovalEmailHtml(
-                    admin.getFullName(), t.getName(), t.getSlug(), username, rawPassword, planLimits);
+                    admin.getFullName(), t.getName(), t.getSlug(), username, null, planLimits);
             String text = EmailService.buildApprovalEmailText(
-                    admin.getFullName(), t.getName(), t.getSlug(), username, rawPassword, planLimits);
+                    admin.getFullName(), t.getName(), t.getSlug(), username, null, planLimits);
             notificationEventPublisher.publishEmail(
                     t.getContactEmail(),
-                    "Your ChitWise account is approved — login credentials inside",
-                    html, text);
+                    "Your ChitWise account is approved — set up your account",
+                    html + "\n\n<p>Set up your account: <a href=\"" + EmailService.sanitizeUrl(setupUrl)
+                            + "\">Click here</a></p>",
+                    text + "\n\nSet up your account: " + setupUrl);
         } catch (Exception e) {
-            log.warn("Approval email with credentials could not be queued for tenant {}: {}", tenantId, e.getMessage());
+            log.warn("Approval email could not be queued for tenant {}: {}", tenantId, e.getMessage());
         }
 
+        // adminTempPassword is intentionally null — plaintext passwords are never returned
         return ActivationResponse.builder()
                 .tenant(toResponse(t))
                 .adminUsername(username)
-                .adminTempPassword(rawPassword)
+                .adminTempPassword(null)
                 .adminUserId(admin.getId().toString())
                 .adminAlreadyExisted(false)
                 .build();
@@ -671,20 +687,23 @@ public class TenantService {
         boolean emailQueued = false;
         if (req.getEmail() != null && !req.getEmail().isBlank()) {
             try {
-                // Revoke any prior active tokens for this user
-                setupTokenRepository.findTopByUserIdAndUsedAtIsNullOrderByCreatedAtDesc(user.getId())
-                        .ifPresent(t -> { t.setUsedAt(java.time.LocalDateTime.now()); setupTokenRepository.save(t); });
+                // Revoke ALL prior active ORG_USER_INVITE tokens for this user
+                setupTokenRepository
+                        .findAllByUserIdAndPurposeAndUsedAtIsNull(
+                                user.getId(), com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE)
+                        .forEach(t -> { t.setUsedAt(java.time.LocalDateTime.now()); setupTokenRepository.save(t); });
                 String rawToken = UUID.randomUUID().toString().replace("-", "")
                         + UUID.randomUUID().toString().replace("-", "");
                 String tokenHash = sha256Hex(rawToken);
                 AccountSetupToken token = AccountSetupToken.builder()
                         .userId(user.getId())
+                        .purpose(com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE)
                         .tokenHash(tokenHash)
                         .expiresAt(java.time.LocalDateTime.now().plusHours(setupTokenExpiryHours))
                         .build();
                 setupTokenRepository.save(token);
 
-                String setupUrl = frontendUrl + "/setup-account?token=" + rawToken;
+                String setupUrl = frontendUrl + "/org-user-setup?token=" + rawToken;
                 String html = EmailService.buildOrgUserSetupHtml(
                         req.getFullName(), tenant.getName(), role.name(), candidate, setupUrl, setupTokenExpiryHours);
                 String text = EmailService.buildOrgUserSetupText(
@@ -1389,5 +1408,56 @@ public class TenantService {
             candidate = base + suffix++;
         }
         return candidate;
+    }
+
+    // ── Resend org-user setup email (SUPER_ADMIN action) ─────────────────────
+
+    @Transactional
+    public void resendOrgUserSetup(UUID tenantId, UUID userId, String actorId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "User not found", HttpStatus.NOT_FOUND));
+        if (!tenantId.toString().equals(user.getTenantId())) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                    "User not found", HttpStatus.NOT_FOUND);
+        }
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "No email address on record for this user", HttpStatus.BAD_REQUEST);
+        }
+        Tenant tenant = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+
+        // Revoke ALL prior ORG_USER_INVITE tokens
+        setupTokenRepository
+                .findAllByUserIdAndPurposeAndUsedAtIsNull(
+                        userId, com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE)
+                .forEach(t -> { t.setUsedAt(java.time.LocalDateTime.now()); setupTokenRepository.save(t); });
+
+        String rawToken = UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", "");
+        String tokenHash = sha256Hex(rawToken);
+        AccountSetupToken token = AccountSetupToken.builder()
+                .userId(userId)
+                .purpose(com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE)
+                .tokenHash(tokenHash)
+                .expiresAt(java.time.LocalDateTime.now().plusHours(setupTokenExpiryHours))
+                .build();
+        setupTokenRepository.save(token);
+
+        String setupUrl = frontendUrl + "/org-user-setup?token=" + rawToken;
+        String html = EmailService.buildOrgUserSetupHtml(
+                user.getFullName(), tenant.getName(), user.getRole().name(),
+                user.getUsername(), setupUrl, setupTokenExpiryHours);
+        String text = EmailService.buildOrgUserSetupText(
+                user.getFullName(), tenant.getName(), user.getRole().name(),
+                user.getUsername(), setupUrl, setupTokenExpiryHours);
+        notificationEventPublisher.publishEmail(
+                user.getEmail(),
+                "Set up your ChitWise account — " + tenant.getName(),
+                html, text);
+
+        auditClient.log("USER", userId.toString(), "ORG_USER_SETUP_RESENT",
+                actorId, "ROLE_SUPER_ADMIN", null, null, tenantId.toString());
     }
 }
