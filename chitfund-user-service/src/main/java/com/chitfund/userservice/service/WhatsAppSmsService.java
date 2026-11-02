@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -39,6 +40,7 @@ public class WhatsAppSmsService implements SmsService {
     private final String accessToken;
     private final String templateName;
     private final String templateLang;
+    private final boolean hasUrlButton;
 
     public WhatsAppSmsService(
             RestTemplate restTemplate,
@@ -47,7 +49,8 @@ public class WhatsAppSmsService implements SmsService {
             @Value("${whatsapp.phone-number-id:NOT_CONFIGURED}") String phoneNumberId,
             @Value("${whatsapp.access-token:NOT_CONFIGURED}") String accessToken,
             @Value("${whatsapp.otp-template-name:otp_verification}") String templateName,
-            @Value("${whatsapp.otp-template-lang:en_US}") String templateLang) {
+            @Value("${whatsapp.otp-template-lang:en_US}") String templateLang,
+            @Value("${whatsapp.otp-template-has-url-button:true}") boolean hasUrlButton) {
         this.restTemplate = restTemplate;
         this.graphApiBaseUrl = validateGraphApiBaseUrl(graphApiBaseUrl);
         this.apiVersion = requireMatch(apiVersion, API_VERSION, "WHATSAPP_API_VERSION");
@@ -61,12 +64,23 @@ public class WhatsAppSmsService implements SmsService {
                 templateName, TEMPLATE_NAME, "WHATSAPP_OTP_TEMPLATE_NAME");
         this.templateLang = requireMatch(
                 templateLang, TEMPLATE_LANGUAGE, "WHATSAPP_OTP_TEMPLATE_LANG");
+        this.hasUrlButton = hasUrlButton;
     }
 
     @Override
     public SmsDeliveryStatus sendOtp(String phone, String countryCode, String otp) {
         String to = normalizeRecipient(phone, countryCode);
         String url = "%s/%s/%s/messages".formatted(graphApiBaseUrl, apiVersion, phoneNumberId);
+
+        List<Map<String, Object>> components = new ArrayList<>();
+        components.add(Map.of("type", "body", "parameters",
+                List.of(Map.of("type", "text", "text", otp))));
+        if (hasUrlButton) {
+            // Authentication templates with a "Copy code" / URL button require the button
+            // component at index 0 with the OTP as the URL parameter.
+            components.add(Map.of("type", "button", "sub_type", "url", "index", "0",
+                    "parameters", List.of(Map.of("type", "text", "text", otp))));
+        }
 
         Map<String, Object> body = Map.of(
                 "messaging_product", "whatsapp",
@@ -75,10 +89,7 @@ public class WhatsAppSmsService implements SmsService {
                 "template", Map.of(
                         "name", templateName,
                         "language", Map.of("code", templateLang),
-                        "components", List.of(
-                                Map.of("type", "body", "parameters",
-                                        List.of(Map.of("type", "text", "text", otp)))
-                        )
+                        "components", components
                 ));
 
         HttpHeaders headers = new HttpHeaders();
@@ -90,8 +101,9 @@ public class WhatsAppSmsService implements SmsService {
             log.info("WhatsApp OTP sent, phone ending {}", maskedSuffix(phone));
             return SmsDeliveryStatus.DELIVERED;
         } catch (HttpStatusCodeException exception) {
-            log.error("WhatsApp OTP provider rejected phone ending {} with status {}",
-                    maskedSuffix(phone), exception.getStatusCode().value());
+            log.error("WhatsApp OTP provider rejected phone ending {} with status {} body={}",
+                    maskedSuffix(phone), exception.getStatusCode().value(),
+                    exception.getResponseBodyAsString());
             return SmsDeliveryStatus.DELIVERY_FAILED;
         } catch (RestClientException e) {
             log.error("WhatsApp OTP provider unavailable for phone ending {} ({})",
