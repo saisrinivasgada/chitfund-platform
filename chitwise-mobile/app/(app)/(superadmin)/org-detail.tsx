@@ -33,8 +33,8 @@ import {
   superAdminRemoveDiscount,
   superAdminRemoveCustomLimits,
   resetMemberPassword,
-  lockUser,
-  unlockUser,
+  superAdminLockOrgUser,
+  superAdminUnlockOrgUser,
   superAdminAddTenantCredit,
   superAdminDeductTenantCredit,
 } from '../../../services/api';
@@ -236,7 +236,7 @@ export default function OrgDetailPage() {
   });
   const lockMut = useMutation({
     mutationFn: ({ userId, locked }: { userId: string; locked: boolean }) =>
-      locked ? unlockUser(userId) : lockUser(userId),
+      locked ? superAdminUnlockOrgUser(tenantId, userId) : superAdminLockOrgUser(tenantId, userId),
     onSuccess: (_d, v) => { refetchUsers(); toast.saved(v.locked ? 'Account unlocked' : 'Account locked'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
     onSettled: () => setBusyUserId(null),
@@ -1375,6 +1375,10 @@ function RecordPaymentModal({ visible, orgName, orgPlan, onClose, onRecord, load
 }
 
 // ── Add User Modal ─────────────────────────────────────────────────────────────
+function isValidEmail(v: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+}
+
 function AddUserModal({ tenantId, onClose, onAdded }: {
   tenantId: string;
   onClose: () => void;
@@ -1383,47 +1387,61 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone]     = useState('');
   const [email, setEmail]     = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
   const [role, setRole]       = useState('MANAGER');
-  const [password, setPassword] = useState('');
-  const [createdCreds, setCreatedCreds] = useState<{ username: string; tempPassword: string } | null>(null);
+  const [createdResult, setCreatedResult] = useState<{
+    username: string; setupEmailQueued: boolean; maskedEmail: string | null;
+  } | null>(null);
+
+  const emailErr = emailTouched && !isValidEmail(email) ? 'Enter a valid email address' : null;
+  const canSubmit = !!fullName.trim() && !!phone.trim() && isValidEmail(email) && !!role;
 
   const addMut = useMutation({
     mutationFn: () => superAdminAddOrgUser(tenantId, {
-      fullName, phone, email: email || undefined, role,
-      password: password || undefined, phoneCountryCode: '+91',
+      fullName: fullName.trim(), phone: phone.trim(), email: email.trim(), role,
+      phoneCountryCode: '+91',
     }),
     onSuccess: (res: any) => {
-      setCreatedCreds({ username: res?.username ?? '—', tempPassword: res?.tempPassword ?? '—' });
+      setCreatedResult({
+        username: res?.username ?? '—',
+        setupEmailQueued: !!res?.setupEmailQueued,
+        maskedEmail: res?.maskedEmail ?? null,
+      });
     },
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed to add user'),
   });
 
-  // After creation: show credentials screen instead of closing immediately
-  if (createdCreds) {
+  // After creation: show setup email confirmation screen
+  if (createdResult) {
     return (
-      <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { onAdded(); onClose(); }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>User Created ✓</Text>
           </View>
           <View style={{ padding: 20 }}>
-            <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 20, lineHeight: 20 }}>
-              Share these credentials with the user — they won't be shown again.
-            </Text>
-            {[
-              { label: 'Username', value: createdCreds.username },
-              { label: 'Temporary password', value: createdCreds.tempPassword },
-            ].map(({ label, value }) => (
-              <View key={label} style={{ marginBottom: 14, backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400 }}>{label.toUpperCase()}</Text>
-                <Text selectable style={{ fontSize: 17, fontWeight: '700', color: C.navy, fontFamily: 'monospace', marginTop: 4 }}>
-                  {value}
+            <View style={{ marginBottom: 14, backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400 }}>USERNAME</Text>
+              <Text selectable style={{ fontSize: 17, fontWeight: '700', color: C.navy, fontFamily: 'monospace', marginTop: 4 }}>
+                {createdResult.username}
+              </Text>
+            </View>
+            <View style={{
+              marginBottom: 20, borderRadius: 12, padding: 14,
+              backgroundColor: createdResult.setupEmailQueued ? '#F0FDF4' : '#FEF3C7',
+              borderWidth: 1, borderColor: createdResult.setupEmailQueued ? '#BBF7D0' : '#FDE68A',
+            }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: createdResult.setupEmailQueued ? '#166534' : '#92400E', marginBottom: 4 }}>
+                {createdResult.setupEmailQueued ? 'Setup email queued ✓' : 'Setup email could not be queued'}
+              </Text>
+              {createdResult.maskedEmail && (
+                <Text style={{ fontSize: 13, color: createdResult.setupEmailQueued ? '#166534' : '#92400E' }}>
+                  {createdResult.setupEmailQueued
+                    ? `Sent to ${createdResult.maskedEmail} — the user will receive a link to set their password.`
+                    : `Could not send to ${createdResult.maskedEmail}. Ask the user to use the "Forgot password" flow.`}
                 </Text>
-              </View>
-            ))}
-            <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 24, textAlign: 'center' }}>
-              The user will be prompted to change their password on first login.
-            </Text>
+              )}
+            </View>
             <Button label="Done" onPress={() => { onAdded(); onClose(); }} fullWidth size="lg" />
           </View>
         </SafeAreaView>
@@ -1441,8 +1459,16 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
         <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
           <Input label="Full Name *" value={fullName} onChangeText={setFullName} placeholder="e.g. Rahul Kumar" />
           <Input label="Phone *" value={phone} onChangeText={setPhone} placeholder="9876543210" keyboardType="phone-pad" />
-          <Input label="Email" value={email} onChangeText={setEmail} placeholder="rahul@example.com" keyboardType="email-address" />
-          <Input label="Password (optional)" value={password} onChangeText={setPassword} placeholder="Leave blank to auto-generate" secureTextEntry />
+          <Input
+            label="Email *"
+            value={email}
+            onChangeText={(v) => { setEmail(v); setEmailTouched(true); }}
+            onBlur={() => setEmailTouched(true)}
+            placeholder="rahul@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          {emailErr && <Text style={{ fontSize: 12, color: C.red, marginTop: -10 }}>{emailErr}</Text>}
 
           {/* Role picker */}
           <View>
@@ -1468,7 +1494,7 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
             label="Add User"
             onPress={() => addMut.mutate()}
             loading={addMut.isPending}
-            disabled={!fullName || !phone}
+            disabled={!canSubmit}
             fullWidth
             size="lg"
           />
