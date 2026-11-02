@@ -101,9 +101,9 @@ public class WhatsAppSmsService implements SmsService {
             log.info("WhatsApp OTP sent, phone ending {}", maskedSuffix(phone));
             return SmsDeliveryStatus.DELIVERED;
         } catch (HttpStatusCodeException exception) {
-            log.error("WhatsApp OTP provider rejected phone ending {} with status {} body={}",
+            log.error("WhatsApp OTP provider rejected phone ending {} with HTTP {}; code={}",
                     maskedSuffix(phone), exception.getStatusCode().value(),
-                    exception.getResponseBodyAsString());
+                    safeErrorCode(exception.getResponseBodyAsString()));
             return SmsDeliveryStatus.DELIVERY_FAILED;
         } catch (RestClientException e) {
             log.error("WhatsApp OTP provider unavailable for phone ending {} ({})",
@@ -173,5 +173,23 @@ public class WhatsAppSmsService implements SmsService {
 
     private String maskedSuffix(String phone) {
         return phone != null && phone.length() >= 4 ? phone.substring(phone.length() - 4) : "****";
+    }
+
+    // Extract only the provider error code from the response body; never log tokens or OTP values.
+    static String safeErrorCode(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) return "no-body";
+        // Redact 6-digit OTP-like sequences
+        String redacted = responseBody.replaceAll("\\b\\d{6,}\\b", "[REDACTED]");
+        // Try to extract {"error":{"code":...,"type":...}} safely
+        try {
+            int codeIdx = redacted.indexOf("\"code\"");
+            int typeIdx = redacted.indexOf("\"type\"");
+            String code = codeIdx >= 0 ? redacted.substring(codeIdx, Math.min(codeIdx + 30, redacted.length())) : "";
+            String type = typeIdx >= 0 ? redacted.substring(typeIdx, Math.min(typeIdx + 40, redacted.length())) : "";
+            String combined = (code + " " + type).replaceAll("[^a-zA-Z0-9_:\\-. ]", "").trim();
+            return combined.length() > 80 ? combined.substring(0, 80) : combined;
+        } catch (Exception ignored) {
+            return "parse-error";
+        }
     }
 }
