@@ -44,9 +44,10 @@ public class OtpController {
         return ResponseEntity.ok(ApiResponse.success(Map.of("verificationToken", token), "Phone verified successfully"));
     }
 
+    // Trust only the gateway-set header; never the client-supplied X-Real-IP.
     private String getClientIp(HttpServletRequest request) {
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) return realIp.trim();
+        String trusted = request.getHeader("X-ChitWise-Client-IP");
+        if (trusted != null && !trusted.isBlank()) return trusted.trim();
         return request.getRemoteAddr();
     }
 }

@@ -5,86 +5,147 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.time.Instant;
 import java.util.HexFormat;
 
 /**
  * Distributed IP-based rate limiter backed by MySQL.
- * Uses an atomic INSERT … ON DUPLICATE KEY UPDATE counter so limits are shared
- * across all service instances — unlike the previous per-JVM Bucket4j cache.
  *
- * The window key encodes the 15-minute bucket: purpose:YYYYMMDDHHMM where MM is
- * floor-rounded to the nearest 15 (i.e. 00, 15, 30, or 45).
+ * Per-minute counters allow accurate 15-minute sliding-window queries that do
+ * not suffer from fixed-bucket boundary bursts.
  *
- * IPs are hashed with SHA-256 before storage so no PII is persisted.
+ * IPs are HMAC-SHA256(hmacKey, normalizedIp) — never raw IP. The key is a
+ * server-side secret injected via app.rate-limit.hmac-key.
+ *
+ * Fail-closed: if the DB is unreachable the request is rejected (returns false)
+ * to prevent an outage from being exploited as an OTP fire-hose.
+ *
+ * Separate purposes: LOGIN, REG_OTP, FP_OTP, STAFF_PHONE, OTP_VERIFY,
+ * ORG_USER_SETUP_OTP. Verification attempts do NOT share a budget with sends.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class RateLimiterService {
 
+    public enum Purpose {
+        LOGIN,
+        REG_OTP,
+        FP_OTP,
+        STAFF_PHONE,
+        OTP_VERIFY,
+        ORG_USER_SETUP_OTP,
+    }
+
     private final JdbcTemplate jdbcTemplate;
 
-    @Value("${app.rate-limit.otp-per-ip-per-15min:5}")
-    private int otpPerIpPer15Min;
+    @Value("${app.rate-limit.hmac-key}")
+    private String hmacKey;
 
-    @Value("${app.rate-limit.login-per-ip-per-15min:50}")
-    private int loginPerIpPer15Min;
+    @Value("${app.rate-limit.login-per-15min:50}")
+    private int loginPer15Min;
 
-    /**
-     * Attempt to consume one slot from the OTP/forgot-password IP bucket (5/15min).
-     * Returns {@code true} if the request is allowed; {@code false} to rate-limit.
-     */
-    public boolean tryConsumeForgot(String ip) {
-        return tryConsume(ip, "OTP", otpPerIpPer15Min);
+    @Value("${app.rate-limit.otp-send-per-15min:5}")
+    private int otpSendPer15Min;
+
+    @Value("${app.rate-limit.otp-verify-per-15min:10}")
+    private int otpVerifyPer15Min;
+
+    public boolean tryConsumeLogin(String clientIp) {
+        return tryConsume(clientIp, Purpose.LOGIN, loginPer15Min);
     }
 
-    /**
-     * Attempt to consume one slot from the login IP bucket (50/15min).
-     */
-    public boolean tryConsumeLogin(String ip) {
-        return tryConsume(ip, "LOGIN", loginPerIpPer15Min);
+    public boolean tryConsumeRegOtp(String clientIp) {
+        return tryConsume(clientIp, Purpose.REG_OTP, otpSendPer15Min);
     }
 
-    private boolean tryConsume(String ip, String purpose, int maxPerWindow) {
-        String ipHash    = sha256(ip);
-        String windowKey = windowKey(purpose);
+    public boolean tryConsumeForgot(String clientIp) {
+        return tryConsume(clientIp, Purpose.FP_OTP, otpSendPer15Min);
+    }
+
+    public boolean tryConsumeStaffPhone(String clientIp) {
+        return tryConsume(clientIp, Purpose.STAFF_PHONE, otpSendPer15Min);
+    }
+
+    public boolean tryConsumeOtpVerify(String clientIp) {
+        return tryConsume(clientIp, Purpose.OTP_VERIFY, otpVerifyPer15Min);
+    }
+
+    public boolean tryConsumeOrgUserSetupOtp(String clientIp) {
+        return tryConsume(clientIp, Purpose.ORG_USER_SETUP_OTP, otpSendPer15Min);
+    }
+
+    // ── Core ─────────────────────────────────────────────────────────────────
+
+    private boolean tryConsume(String clientIp, Purpose purpose, int maxPer15Min) {
+        String clientHash = hmacIp(clientIp);
+        String purposeName = purpose.name();
+        long currentMinute = Instant.now().getEpochSecond() / 60;
+        long windowStart   = currentMinute - 14; // 15-minute sliding window (inclusive)
         try {
             jdbcTemplate.update(
-                    "INSERT INTO otp_ip_rate_limits (ip_hash, window_key, count, created_at) " +
-                    "VALUES (?, ?, 1, NOW()) " +
+                    "INSERT INTO rate_limit_counters (client_hash, purpose, minute_epoch, count) " +
+                    "VALUES (?, ?, ?, 1) " +
                     "ON DUPLICATE KEY UPDATE count = count + 1",
-                    ipHash, windowKey);
-            Integer count = jdbcTemplate.queryForObject(
-                    "SELECT count FROM otp_ip_rate_limits WHERE ip_hash = ? AND window_key = ?",
-                    Integer.class, ipHash, windowKey);
-            return count != null && count <= maxPerWindow;
+                    clientHash, purposeName, currentMinute);
+            Integer total = jdbcTemplate.queryForObject(
+                    "SELECT COALESCE(SUM(count), 0) FROM rate_limit_counters " +
+                    "WHERE client_hash = ? AND purpose = ? AND minute_epoch >= ?",
+                    Integer.class, clientHash, purposeName, windowStart);
+            boolean allowed = total != null && total <= maxPer15Min;
+            if (!allowed) {
+                log.warn("Rate limit exceeded purpose={} window=15min", purposeName);
+            }
+            return allowed;
         } catch (DataAccessException e) {
-            // Fail open if the rate-limit table is unavailable — do not block all OTPs.
-            log.warn("Rate-limit DB check failed for window {}: {}", windowKey, e.getMessage());
-            return true;
+            // Fail closed — cannot confirm limit status, reject to be safe
+            log.error("Rate-limit DB unavailable purpose={}: {}; rejecting (fail-closed)",
+                    purposeName, e.getMessage());
+            return false;
         }
     }
 
-    private static String windowKey(String purpose) {
-        LocalDateTime now = LocalDateTime.now();
-        int minute = (now.getMinute() / 15) * 15;
-        String ts = now.format(DateTimeFormatter.ofPattern("yyyyMMddHH")) + String.format("%02d", minute);
-        return purpose + ":" + ts;
-    }
+    // ── Scheduled cleanup ────────────────────────────────────────────────────
 
-    static String sha256(String value) {
+    @Scheduled(fixedDelayString = "${app.rate-limit.cleanup-interval-ms:3600000}")
+    public void cleanupExpired() {
+        long cutoff = Instant.now().getEpochSecond() / 60 - 30;
         try {
-            byte[] bytes = MessageDigest.getInstance("SHA-256")
-                    .digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(bytes);
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
+            int deleted = jdbcTemplate.update(
+                    "DELETE FROM rate_limit_counters WHERE minute_epoch < ?", cutoff);
+            if (deleted > 0) {
+                log.debug("Rate-limit cleanup: removed {} expired rows", deleted);
+            }
+        } catch (DataAccessException e) {
+            log.warn("Rate-limit cleanup failed: {}", e.getMessage());
         }
+    }
+
+    // ── IP hashing ────────────────────────────────────────────────────────────
+
+    String hmacIp(String ip) {
+        String normalized = normalizeIp(ip);
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(hmacKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal(normalized.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException("HmacSHA256 unavailable", e);
+        }
+    }
+
+    static String normalizeIp(String ip) {
+        if (ip == null) return "unknown";
+        String s = ip.trim();
+        int scope = s.indexOf('%');
+        if (scope > 0) s = s.substring(0, scope);
+        if (s.startsWith("::ffff:") || s.startsWith("::FFFF:")) s = s.substring(7);
+        return s.toLowerCase();
     }
 }
