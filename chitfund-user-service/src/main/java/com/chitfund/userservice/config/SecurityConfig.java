@@ -100,6 +100,11 @@ public class SecurityConfig {
                     "/api/chitfund-requests/recovery/email-otp",
                     "/api/chitfund-requests/recovery/verify-email-otp").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/chitfund-requests/public").permitAll()
+                // Org-user account setup flow (purpose-bound, separate from chitfund-request setup)
+                .requestMatchers(HttpMethod.GET, "/api/auth/org-user-setup").permitAll()
+                .requestMatchers(HttpMethod.POST,
+                    "/api/auth/org-user-setup/email-otp",
+                    "/api/auth/org-user-setup/complete").permitAll()
                 .requestMatchers(HttpMethod.POST,
                     "/api/auth/otp/send",
                     "/api/auth/otp/verify").permitAll()
