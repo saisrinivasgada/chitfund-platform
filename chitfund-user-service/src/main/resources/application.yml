@@ -80,6 +80,7 @@ whatsapp:
   api-version: ${WHATSAPP_API_VERSION:NOT_CONFIGURED}
   otp-template-name: ${WHATSAPP_OTP_TEMPLATE_NAME:otp_verification}
   otp-template-lang: ${WHATSAPP_OTP_TEMPLATE_LANG:en_US}
+  otp-template-has-url-button: ${WHATSAPP_OTP_TEMPLATE_HAS_URL_BUTTON:true}
 
 management:
   endpoints:
