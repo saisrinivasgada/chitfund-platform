@@ -157,9 +157,15 @@ public class OrgUserSetupService {
         user.setTermsVersion("1.0");
         userRepository.save(user);
 
-        // Mark token used
-        token.setUsedAt(LocalDateTime.now());
+        // Mark token used and revoke all other active ORG_USER_INVITE tokens for this user.
+        // The generated-column unique index (V186) prevents a second active invite from
+        // being inserted concurrently, so revoking here is belt-and-suspenders cleanup.
+        LocalDateTime now = LocalDateTime.now();
+        token.setUsedAt(now);
         setupTokenRepository.save(token);
+        setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(
+                        user.getId(), SetupTokenPurpose.ORG_USER_INVITE)
+                .forEach(t -> { t.setUsedAt(now); setupTokenRepository.save(t); });
 
         // Revoke all sessions and trusted devices
         refreshTokenRepository.revokeAllActiveByUser(user);
