@@ -9,6 +9,7 @@ import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.ChitfundRequestKind;
 import com.chitfund.userservice.domain.enums.ChitfundRequestStatus;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.domain.enums.SetupTokenPurpose;
 import com.chitfund.userservice.dto.request.SetupAccountRequest;
 import com.chitfund.userservice.outbox.MemberDeactivationCommandOutbox;
 import com.chitfund.userservice.outbox.SetupEmailOutbox;
@@ -320,6 +321,7 @@ class ChitfundRequestServiceTest {
 
         AccountSetupToken token = AccountSetupToken.builder()
                 .userId(userId).chitfundRequestId(requestId)
+                .purpose(SetupTokenPurpose.CHITFUND_REQUEST)
                 .expiresAt(LocalDateTime.now().plusHours(1)).build();
         ChitfundAccessRequest request = ChitfundAccessRequest.builder()
                 .id(requestId).tenantId(tenantId).memberId(memberId)
@@ -518,6 +520,7 @@ class ChitfundRequestServiceTest {
         com.chitfund.userservice.domain.entity.AccountSetupToken token =
                 com.chitfund.userservice.domain.entity.AccountSetupToken.builder()
                         .userId(userId).chitfundRequestId(requestId)
+                        .purpose(SetupTokenPurpose.CHITFUND_REQUEST)
                         .expiresAt(LocalDateTime.now().plusHours(1)).build();
         ChitfundAccessRequest request = ChitfundAccessRequest.builder()
                 .id(requestId).tenantId(tenantId).memberId(memberId)

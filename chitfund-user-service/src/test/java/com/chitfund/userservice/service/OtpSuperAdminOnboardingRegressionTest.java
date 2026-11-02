@@ -36,21 +36,27 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OtpSuperAdminOnboardingRegressionTest {
 
-    // ── Fix 7: RateLimiterService sha256 is deterministic and IP-hashing ────
+    // ── Fix 7: RateLimiterService IP normalization ────────────────────────────
 
     @Test
-    void sha256IsConsistentAndDoesNotReturnRawIp() {
-        String ip = "192.168.1.100";
-        String hash1 = RateLimiterService.sha256(ip);
-        String hash2 = RateLimiterService.sha256(ip);
-        assertThat(hash1).isEqualTo(hash2);
-        assertThat(hash1).doesNotContain(ip);
-        assertThat(hash1).hasSize(64); // SHA-256 hex
+    void normalizeIpStripsIpv4MappedPrefix() {
+        assertThat(RateLimiterService.normalizeIp("::ffff:192.168.1.1")).isEqualTo("192.168.1.1");
+        assertThat(RateLimiterService.normalizeIp("::FFFF:10.0.0.1")).isEqualTo("10.0.0.1");
     }
 
     @Test
-    void sha256NullIpDoesNotThrow() {
-        assertThat(RateLimiterService.sha256(null)).hasSize(64);
+    void normalizeIpStripsScopeId() {
+        assertThat(RateLimiterService.normalizeIp("fe80::1%eth0")).isEqualTo("fe80::1");
+    }
+
+    @Test
+    void normalizeIpLowercasesAndTrims() {
+        assertThat(RateLimiterService.normalizeIp("  2001:DB8::1  ")).isEqualTo("2001:db8::1");
+    }
+
+    @Test
+    void normalizeIpNullReturnsUnknown() {
+        assertThat(RateLimiterService.normalizeIp(null)).isEqualTo("unknown");
     }
 
     // ── Fix 5: WhatsAppSmsService — safeErrorCode redacts OTPs and tokens ──
@@ -186,7 +192,7 @@ class OtpSuperAdminOnboardingRegressionTest {
 
             User actor = User.builder().id(UUID.randomUUID()).role(Role.SUPER_ADMIN).build();
 
-            assertThatThrownBy(() -> userService.superAdminLockUser(tenantB, userId, actor))
+            assertThatThrownBy(() -> userService.superAdminLockUser(tenantB, userId, actor, "cross-tenant test"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("not found");
         }
@@ -202,7 +208,7 @@ class OtpSuperAdminOnboardingRegressionTest {
 
             User actor = User.builder().id(UUID.randomUUID()).role(Role.SUPER_ADMIN).build();
 
-            assertThatThrownBy(() -> userService.superAdminLockUser(tenantId, targetId, actor))
+            assertThatThrownBy(() -> userService.superAdminLockUser(tenantId, targetId, actor, "protect test"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("protected");
         }
@@ -218,7 +224,7 @@ class OtpSuperAdminOnboardingRegressionTest {
             when(userMapper.toResponse(any())).thenReturn(mock(com.chitfund.userservice.dto.response.UserResponse.class));
 
             User actor = User.builder().id(UUID.randomUUID()).role(Role.SUPER_ADMIN).build();
-            userService.superAdminLockUser(tenantId, targetId, actor);
+            userService.superAdminLockUser(tenantId, targetId, actor, "idempotent test");
 
             verifyNoInteractions(auditClient);
         }
