@@ -104,6 +104,11 @@ public class SecurityConfig {
                     "/api/auth/otp/send",
                     "/api/auth/otp/verify").permitAll()
                 .requestMatchers("/api/auth/forgot-password/**").permitAll()
+                // Retired email-OTP admin reset endpoints — must remain pre-auth so old clients receive 410 not 401
+                .requestMatchers(HttpMethod.POST,
+                    "/api/auth/admin/forgot-password",
+                    "/api/auth/admin/verify-reset-otp",
+                    "/api/auth/admin/reset-password").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .requestMatchers("/internal/**").permitAll()

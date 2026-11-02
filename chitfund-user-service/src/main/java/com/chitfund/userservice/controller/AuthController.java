@@ -291,32 +291,29 @@ public class AuthController {
                 "AUTH_FLOW_RETIRED", "Update the app and use the account recovery flow."));
     }
 
-    // ── Admin email-OTP password reset ──────────────────────────────────────
+    // ── Retired admin email-OTP password reset (now 410) ────────────────────
+    // Admin/manager/staff accounts use the mobile OTP recovery flow:
+    //   POST /api/auth/otp/send  →  /api/auth/forgot-password/verify-otp  →  /api/auth/forgot-password/reset-with-token
 
     @PostMapping("/admin/forgot-password")
-    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminForgotPasswordSendOtp(
-            @RequestBody java.util.Map<String, String> body) {
-        String userId = adminPasswordResetService.sendOtp(body.get("email"));
-        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("userId", userId)));
+    public ResponseEntity<ApiResponse<Void>> adminForgotPasswordRetired() {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use the mobile OTP account recovery flow."));
     }
 
     @PostMapping("/admin/verify-reset-otp")
-    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminVerifyResetOtp(
-            @RequestBody java.util.Map<String, String> body) {
-        String userId = body.get("userId");
-        String otp    = body.get("code");
-        String resetToken = adminPasswordResetService.verifyOtp(userId, otp);
-        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("resetToken", resetToken)));
+    public ResponseEntity<ApiResponse<Void>> adminVerifyResetOtpRetired() {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use the mobile OTP account recovery flow."));
     }
 
     @PostMapping("/admin/reset-password")
-    public ResponseEntity<ApiResponse<Void>> adminResetPasswordWithToken(
-            @RequestBody java.util.Map<String, String> body) {
-        adminPasswordResetService.resetPassword(body.get("resetToken"), body.get("newPassword"));
-        return ResponseEntity.ok(ApiResponse.success(null));
+    public ResponseEntity<ApiResponse<Void>> adminResetPasswordRetired() {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use the mobile OTP account recovery flow."));
     }
 
-    // ── Retired admin email-OTP password reset ──────────────────────────────
+    // ── Retired general email-OTP password reset ────────────────────────────
     // General login recovery is mobile OTP for every organization role. Email
     // recovery is purpose-bound to an existing-member Chitfund Request only.
 
