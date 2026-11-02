@@ -1,5 +1,6 @@
 package com.chitfund.userservice.service;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,8 +63,25 @@ public class RateLimiterService {
 
     private final JdbcTemplate jdbcTemplate;
 
-    @Value("${app.rate-limit.hmac-key}")
+    @Value("${app.rate-limit.enabled:true}")
+    private boolean enabled;
+
+    @Value("${app.rate-limit.hmac-key:}")
     private String hmacKey;
+
+    @PostConstruct
+    void validate() {
+        if (enabled && (hmacKey == null || hmacKey.isBlank())) {
+            throw new IllegalStateException(
+                    "app.rate-limit.hmac-key must be set when rate limiting is enabled. " +
+                    "Set RATE_LIMIT_HMAC_KEY in the environment, or set RATE_LIMIT_ENABLED=false " +
+                    "to disable rate limiting in non-production environments.");
+        }
+        if (!enabled) {
+            log.warn("Rate limiting is DISABLED (RATE_LIMIT_ENABLED=false). " +
+                     "This must never be used in production.");
+        }
+    }
 
     @Value("${app.rate-limit.login-per-15min:50}")
     private int loginPer15Min;
@@ -151,6 +169,7 @@ public class RateLimiterService {
     // ── Core ─────────────────────────────────────────────────────────────────
 
     private boolean tryConsume(String clientIp, Purpose purpose, int maxPer15Min) {
+        if (!enabled) return true;
         String clientHash = hmacIp(clientIp);
         String purposeName = purpose.name();
         long currentMinute = Instant.now().getEpochSecond() / 60;
