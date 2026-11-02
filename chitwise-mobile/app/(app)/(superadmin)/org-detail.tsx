@@ -1385,15 +1385,52 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
   const [email, setEmail]     = useState('');
   const [role, setRole]       = useState('MANAGER');
   const [password, setPassword] = useState('');
+  const [createdCreds, setCreatedCreds] = useState<{ username: string; tempPassword: string } | null>(null);
 
   const addMut = useMutation({
     mutationFn: () => superAdminAddOrgUser(tenantId, {
       fullName, phone, email: email || undefined, role,
       password: password || undefined, phoneCountryCode: '+91',
     }),
-    onSuccess: () => { toast.saved('User added'); onAdded(); },
+    onSuccess: (res: any) => {
+      onAdded();
+      setCreatedCreds({ username: res?.username ?? '—', tempPassword: res?.tempPassword ?? '—' });
+    },
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed to add user'),
   });
+
+  // After creation: show credentials screen instead of closing immediately
+  if (createdCreds) {
+    return (
+      <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <Text style={T.h2}>User Created ✓</Text>
+          </View>
+          <View style={{ padding: 20 }}>
+            <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 20, lineHeight: 20 }}>
+              Share these credentials with the user — they won't be shown again.
+            </Text>
+            {[
+              { label: 'Username', value: createdCreds.username },
+              { label: 'Temporary password', value: createdCreds.tempPassword },
+            ].map(({ label, value }) => (
+              <View key={label} style={{ marginBottom: 14, backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400 }}>{label.toUpperCase()}</Text>
+                <Text selectable style={{ fontSize: 17, fontWeight: '700', color: C.navy, fontFamily: 'monospace', marginTop: 4 }}>
+                  {value}
+                </Text>
+              </View>
+            ))}
+            <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 24, textAlign: 'center' }}>
+              The user will be prompted to change their password on first login.
+            </Text>
+            <Button label="Done" onPress={onClose} fullWidth size="lg" />
+          </View>
+        </SafeAreaView>
+      </Modal>
+    );
+  }
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
