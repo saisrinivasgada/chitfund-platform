@@ -105,14 +105,14 @@ public class UserController {
     }
 
     @PutMapping("/{id}/lock")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> lockUser(@PathVariable UUID id, Authentication auth) {
         User caller = (User) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(userService.lockUser(id, caller), "User account locked"));
     }
 
     @PutMapping("/{id}/unlock")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER', 'SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> unlockUser(@PathVariable UUID id, Authentication auth) {
         User caller = (User) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(userService.unlockUser(id, caller), "User account unlocked"));

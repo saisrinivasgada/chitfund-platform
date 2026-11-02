@@ -129,8 +129,9 @@ export default function SuperAdminOrgsPage() {
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => refetch()} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ marginBottom: 16, paddingHorizontal: 2 }}>

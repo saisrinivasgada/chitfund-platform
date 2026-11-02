@@ -79,6 +79,7 @@ app:
   otp:
     logging-enabled: ${OTP_LOGGING_ENABLED:false}
     max-per-phone-per-day: ${OTP_MAX_PER_DAY:50}
+    max-per-phone-all-purposes-per-day: ${OTP_MAX_TOTAL_PER_DAY:100}
     cooldown:
       enabled: ${OTP_COOLDOWN_ENABLED:true}
 

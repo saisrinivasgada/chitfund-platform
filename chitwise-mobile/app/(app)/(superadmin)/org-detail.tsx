@@ -294,8 +294,9 @@ export default function OrgDetailPage() {
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         refreshControl={<RefreshControl refreshing={orgLoading || usersLoading || chitsLoading} onRefresh={onRefresh} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero card */}

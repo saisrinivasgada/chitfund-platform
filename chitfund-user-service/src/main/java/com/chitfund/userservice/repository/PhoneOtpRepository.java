@@ -17,4 +17,6 @@ public interface PhoneOtpRepository extends JpaRepository<PhoneOtp, String> {
             String phone, String purpose, String userId, LocalDateTime now);
 
     long countByPhoneAndPurposeAndCreatedAtAfter(String phone, String purpose, LocalDateTime since);
+
+    long countByPhoneAndCreatedAtAfter(String phone, LocalDateTime since);
 }

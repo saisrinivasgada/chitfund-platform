@@ -30,8 +30,8 @@ public class OtpService {
     @Value("${app.otp.max-per-phone-per-day:6}")
     private int maxPerPhonePerDay;
 
-    @Value("${app.sms.enabled:false}")
-    private boolean smsEnabled;
+    @Value("${app.otp.max-per-phone-all-purposes-per-day:100}")
+    private int maxPerPhoneAllPurposesPerDay;
 
     @Value("${app.otp.cooldown.enabled:true}")
     private boolean cooldownEnabled;
@@ -41,9 +41,15 @@ public class OtpService {
         LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
         long todayCount = otpRepo.countByPhoneAndPurposeAndCreatedAtAfter(phone, purpose, startOfDay);
 
-        if (smsEnabled && todayCount >= maxPerPhonePerDay) {
+        if (todayCount >= maxPerPhonePerDay) {
             throw new BusinessException(ErrorCode.OTP_RESEND_LIMIT,
                     "Too many OTP requests today. Please try again tomorrow or contact help@thechitwise.com.");
+        }
+
+        long todayTotalCount = otpRepo.countByPhoneAndCreatedAtAfter(phone, startOfDay);
+        if (todayTotalCount >= maxPerPhoneAllPurposesPerDay) {
+            throw new BusinessException(ErrorCode.OTP_RESEND_LIMIT,
+                    "Daily OTP limit reached. Please try again tomorrow or contact help@thechitwise.com.");
         }
 
         if (cooldownEnabled && todayCount > 0) {
