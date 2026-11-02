@@ -26,6 +26,9 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       user:         ${{ steps.out.outputs.user }}
       member:       ${{ steps.out.outputs.member }}
