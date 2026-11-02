@@ -153,6 +153,88 @@ public class EmailService {
         return baseTemplate(LOGO_URL, ICON_ROCKET, "Account Setup", "#2563EB", body);
     }
 
+    // ── Org user created by super admin ──────────────────────────────────────
+
+    public static String buildOrgUserCreatedHtml(String recipientName, String orgName,
+                                                  String role, String username,
+                                                  String tempPassword, String loginUrl) {
+        String name = recipientName != null && !recipientName.isBlank() ? recipientName : "there";
+        String org  = orgName       != null && !orgName.isBlank()       ? orgName       : "your organization";
+        String hero = statusHero(
+            "#F0FDF4",
+            "<svg width=\"40\" height=\"40\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">" +
+            "<circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"#059669\"/>" +
+            "<path d=\"M12 8v4l3 3\" stroke=\"white\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+            "Welcome to ChitWise!",
+            "#DCFCE7", "#15803D", "&#10003; Account Created"
+        );
+        String body = hero + """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  An account has been created for you on <strong>ChitWise</strong> under
+                  <strong>%s</strong>. Your role is <strong>%s</strong>.
+                  Use the credentials below to log in — you will be asked to set a new password on first login.
+                </p>
+                <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;margin:0 0 20px;">
+                  <p style="color:#166534;font-size:12px;font-weight:700;letter-spacing:1.5px;margin:0 0 14px;text-transform:uppercase;">Your login credentials</p>
+                  <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;">Username</td>
+                      <td style="padding:6px 0;color:#111827;font-size:15px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;">Temporary password</td>
+                      <td style="padding:6px 0;color:#111827;font-size:15px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
+                    </tr>
+                  </table>
+                  <p style="color:#166534;font-size:12px;margin:14px 0 0;line-height:1.5;">
+                    You will be prompted to change your password immediately after your first login.
+                  </p>
+                </div>
+                <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="border-radius:8px;background:#059669;">
+                      <a href="%s" style="display:inline-block;padding:14px 32px;color:#FFFFFF;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">
+                        Log in to ChitWise &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <div style="background:#FFF7ED;border-left:4px solid #F97316;border-radius:0 8px 8px 0;padding:12px 16px;margin:0 0 20px;">
+                  <p style="color:#9A3412;font-size:13px;margin:0;line-height:1.5;">
+                    <strong>Keep these credentials private.</strong> Do not share your password with anyone, including ChitWise staff.
+                  </p>
+                </div>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Questions? Reach us at <a href="mailto:help@thechitwise.com" style="color:#059669;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
+                </p>
+                """.formatted(name, org, role, username, tempPassword, loginUrl);
+        return baseTemplate(LOGO_URL, ICON_ROCKET, "Account Created", "#059669", body);
+    }
+
+    public static String buildOrgUserCreatedText(String recipientName, String orgName,
+                                                  String role, String username,
+                                                  String tempPassword, String loginUrl) {
+        String name = recipientName != null && !recipientName.isBlank() ? recipientName : "there";
+        String org  = orgName       != null && !orgName.isBlank()       ? orgName       : "your organization";
+        return """
+                Hi %s,
+
+                An account has been created for you on ChitWise under %s. Your role is %s.
+
+                Username: %s
+                Temporary password: %s
+
+                Log in here: %s
+
+                You will be asked to change your password on first login. Keep your credentials private.
+
+                Questions? Reach us at help@thechitwise.com.
+
+                — The ChitWise Team
+                """.formatted(name, org, role, username, tempPassword, loginUrl);
+    }
+
     // ── Internal send ─────────────────────────────────────────────────────────
 
     private void send(String toEmail, String subject, String textBody, String htmlBody) {

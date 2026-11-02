@@ -31,6 +31,7 @@ import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.PlanAddOnDefRepository;
 import com.chitfund.userservice.repository.TenantCreditAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -70,6 +71,9 @@ public class TenantService {
     private final PlanService planService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final TenantCreditAdjustmentRepository creditAdjustmentRepository;
+
+    @Value("${app.frontend-url:https://app.thechitwise.com}")
+    private String frontendUrl;
 
     // ── Public org self-registration ─────────────────────────────────────────
 
@@ -619,7 +623,7 @@ public class TenantService {
     }
 
     public OrgUserResponse addOrgUser(UUID tenantId, AddOrgUserRequest req, String actorId) {
-        tenantRepository.findByIdForUpdate(tenantId)
+        Tenant tenant = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         Role role = Role.valueOf(req.getRole().toUpperCase());
         if (role != Role.ADMIN && role != Role.MANAGER && role != Role.STAFF) {
@@ -661,6 +665,22 @@ public class TenantService {
                 "ORG_USER_CREATED", actorId, "ROLE_SUPER_ADMIN", null,
                 java.util.Map.of("tenantId", tenantId.toString(), "role", role.name()),
                 tenantId.toString());
+
+        if (req.getEmail() != null && !req.getEmail().isBlank()) {
+            try {
+                String loginUrl = frontendUrl + "/login";
+                String html = EmailService.buildOrgUserCreatedHtml(
+                        req.getFullName(), tenant.getName(), role.name(), candidate, rawPassword, loginUrl);
+                String text = EmailService.buildOrgUserCreatedText(
+                        req.getFullName(), tenant.getName(), role.name(), candidate, rawPassword, loginUrl);
+                notificationEventPublisher.publishEmail(
+                        req.getEmail(),
+                        "Your ChitWise account is ready — " + tenant.getName(),
+                        html, text);
+            } catch (Exception e) {
+                log.warn("Welcome email could not be queued for new org user {}: {}", candidate, e.getMessage());
+            }
+        }
 
         return OrgUserResponse.builder()
                 .userId(user.getId().toString())
