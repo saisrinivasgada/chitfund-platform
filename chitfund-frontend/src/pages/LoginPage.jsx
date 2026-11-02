@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, adminForgotPassword, adminVerifyResetOtp, adminResetPassword, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
 import Button from '../components/ui/Button';
 import DevOtpBanner from '../components/ui/DevOtpBanner';
 import { Input } from '../components/ui/FormField';
@@ -29,7 +29,7 @@ function validatePassword(pw) {
 const OTP_LOCKOUT_SECS = 300; // 5-minute lockout after wrong OTP
 
 function ForgotPasswordFlow({ onClose }) {
-  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone' | 'email-otp'
+  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone'
   const [step, setStep]             = useState('lookup');
   const [input, setInput]           = useState('');
   const [lookup, setLookup]         = useState(null); // { userId, maskedPhone, locked, role }
@@ -41,7 +41,6 @@ function ForgotPasswordFlow({ onClose }) {
   const [showPass, setShowPass]     = useState(false);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
-  const [emailInput, setEmailInput] = useState('');
   // OTP-wrong lockout: countdown in seconds (0 = allowed)
   const [otpLockout, setOtpLockout] = useState(0);
   const [resendTimer, setResendTimer] = useState(0);
@@ -85,37 +84,10 @@ function ForgotPasswordFlow({ onClose }) {
       if (data.locked) { setLookup(data); setStep('locked'); return; }
       setLookup(data);
       const isAdmin = data.role === 'ADMIN' || data.role === 'SUPER_ADMIN';
-      if (isAdmin && !data.maskedPhone) { setStep('no-phone'); return; }
+      if (isAdmin && !data.maskedPhone) { setStep('no-phone'); return; } // show support message
       setStep('last4');
     } catch (err) {
       setError(err.response?.data?.message ?? 'No account found. Check the username or phone number.');
-    } finally { setLoading(false); }
-  }
-
-  async function handleEmailReset(e) {
-    e.preventDefault();
-    if (!emailInput.trim()) { setError('Enter your email address'); return; }
-    setError(''); setLoading(true);
-    try {
-      const data = await adminForgotPassword({ email: emailInput.trim() });
-      setLookup((prev) => ({ ...prev, userId: data.userId }));
-      setStep('email-otp');
-    } catch (err) {
-      setError(err.response?.data?.message ?? 'No account found with that email address.');
-    } finally { setLoading(false); }
-  }
-
-  async function handleVerifyEmailOtp(e) {
-    e.preventDefault();
-    if (otp.length !== 6) { setError('Enter all 6 OTP digits'); return; }
-    setError(''); setLoading(true);
-    try {
-      const data = await adminVerifyResetOtp({ userId: lookup.userId, code: otp });
-      setResetToken(data.resetToken);
-      setStep('password');
-    } catch (err) {
-      setError(err.response?.data?.message ?? 'Incorrect or expired OTP. Try again.');
-      setOtp('');
     } finally { setLoading(false); }
   }
 
@@ -170,11 +142,7 @@ function ForgotPasswordFlow({ onClose }) {
     if (pwError) { setError(pwError); return; }
     setError(''); setLoading(true);
     try {
-      if (emailInput) {
-        await adminResetPassword({ resetToken, newPassword });
-      } else {
-        await forgotPasswordResetWithToken({ resetToken, newPassword });
-      }
+      await forgotPasswordResetWithToken({ resetToken, newPassword });
       setStep('done');
     } catch (err) {
       setError(err.response?.data?.message ?? 'Reset failed. The link may have expired — start over.');
@@ -304,39 +272,27 @@ function ForgotPasswordFlow({ onClose }) {
     </div>
   );
 
-  /* ── No phone — admin email-reset path ── */
+  /* ── No phone — account-access support message ── */
   if (step === 'no-phone') return (
     <div className="mt-5 space-y-4">
-      <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50">
-        <p className="text-sm text-amber-800">No phone number is registered for this account. Enter your email address to receive a reset OTP.</p>
-      </div>
-      <form onSubmit={handleEmailReset} className="space-y-3">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Email address</label>
-          <input type="email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setError(''); }}
-            placeholder="you@example.com" required className={inputCls} autoFocus />
+      <div className="px-4 py-5 rounded-xl border border-amber-200 bg-amber-50">
+        <div className="flex items-start gap-3">
+          <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-900 mb-1">Phone number required for account recovery</p>
+            <p className="text-sm text-amber-800 mb-3">
+              This account does not have a verified phone number. Password recovery requires phone verification via the ChitWise mobile app.
+            </p>
+            <p className="text-sm text-amber-700">
+              Please contact your ChitWise administrator or reach us at{' '}
+              <a href="mailto:help@thechitwise.com" className="underline font-medium">help@thechitwise.com</a>{' '}
+              to regain access.
+            </p>
+          </div>
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={loading} className="w-full">Send Reset OTP</Button>
-        <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); }}
-          className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Change account</button>
-      </form>
-    </div>
-  );
-
-  /* ── Email OTP verification (admin email-reset) ── */
-  if (step === 'email-otp') return (
-    <div className="mt-5 space-y-4">
-      <div className="px-4 py-3 rounded-xl border border-blue-200 bg-blue-50">
-        <p className="text-sm text-blue-700">OTP sent to {emailInput}. Enter it below.</p>
       </div>
-      <form onSubmit={handleVerifyEmailOtp} className="space-y-3">
-        <OtpCodeInput value={otp} onChange={(v) => { setOtp(v); setError(''); }} autoFocus ariaLabel="Email reset OTP" />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={loading} disabled={otp.length !== 6} className="w-full">Verify OTP</Button>
-        <button type="button" onClick={() => { setStep('no-phone'); setOtp(''); setError(''); }}
-          className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Resend OTP</button>
-      </form>
+      <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); }}
+        className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Change account</button>
     </div>
   );
 

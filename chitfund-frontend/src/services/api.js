@@ -287,17 +287,9 @@ export const forgotPasswordVerifyOtp = async ({ userId, code }) => {
 export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }) => {
   await api.post('/auth/forgot-password/reset-with-token', { resetToken, newPassword });
 };
-export const adminForgotPassword = async ({ email }) => {
-  const res = await api.post('/auth/admin/forgot-password', { email });
-  return res.data.data; // { userId }
-};
-export const adminVerifyResetOtp = async ({ userId, code }) => {
-  const res = await api.post('/auth/admin/verify-reset-otp', { userId, code });
-  return res.data.data; // { resetToken }
-};
-export const adminResetPassword = async ({ resetToken, newPassword }) => {
-  await api.post('/auth/admin/reset-password', { resetToken, newPassword });
-};
+// adminForgotPassword, adminVerifyResetOtp, adminResetPassword removed —
+// those endpoints are retired (410 GONE). Account recovery uses the
+// mobile OTP flow via /api/auth/forgot-password/send-otp.
 
 // Legacy (kept for backward compat)
 export const sendForgotPasswordOtp = async ({ phone, countryCode }) => {
