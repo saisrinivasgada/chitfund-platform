@@ -22,5 +22,6 @@ public class OrgUserResponse {
     private boolean mustChangePassword;
     private LocalDateTime joinedAt;
     private LocalDateTime lastLoginAt;
-    private String tempPassword;
+    private boolean setupEmailQueued;
+    private String maskedEmail;
 }

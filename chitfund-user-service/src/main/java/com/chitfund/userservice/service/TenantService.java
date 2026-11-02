@@ -22,6 +22,8 @@ import com.chitfund.userservice.domain.entity.TenantCreditAdjustment;
 import com.chitfund.userservice.dto.request.SetCustomLimitsRequest;
 import com.chitfund.userservice.dto.response.EffectiveLimitsResponse;
 import com.chitfund.userservice.dto.response.BillingInfoResponse;
+import com.chitfund.userservice.domain.entity.AccountSetupToken;
+import com.chitfund.userservice.repository.AccountSetupTokenRepository;
 import com.chitfund.userservice.repository.PromotionRepository;
 import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
 import com.chitfund.userservice.repository.TenantRepository;
@@ -71,9 +73,13 @@ public class TenantService {
     private final PlanService planService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final TenantCreditAdjustmentRepository creditAdjustmentRepository;
+    private final AccountSetupTokenRepository setupTokenRepository;
 
     @Value("${app.frontend-url:https://app.thechitwise.com}")
     private String frontendUrl;
+
+    @Value("${app.setup-token-expiry-hours:72}")
+    private int setupTokenExpiryHours;
 
     // ── Public org self-registration ─────────────────────────────────────────
 
@@ -633,11 +639,6 @@ public class TenantService {
 
         if (role == Role.STAFF || role == Role.MANAGER) planService.checkStaffLimit(tenantId.toString());
 
-        // Generate a temp password if not provided
-        String rawPassword = (req.getPassword() != null && !req.getPassword().isBlank())
-                ? req.getPassword()
-                : generateTempPassword();
-
         // Generate username: phone-based
         String baseUsername = req.getPhone().replaceAll("[^0-9]", "");
         String candidate = baseUsername;
@@ -646,14 +647,15 @@ public class TenantService {
             candidate = baseUsername + s++;
         }
 
+        // Placeholder password — user must complete setup via the emailed link before they can log in
+        String placeholderHash = passwordEncoder.encode(UUID.randomUUID().toString());
         User user = User.builder()
                 .username(candidate)
                 .fullName(req.getFullName())
                 .phone(req.getPhone())
                 .phoneCountryCode(req.getPhoneCountryCode() != null ? req.getPhoneCountryCode() : "+91")
                 .email(req.getEmail())
-                .passwordHash(passwordEncoder.encode(rawPassword))
-                .tempPasswordHash(passwordEncoder.encode(rawPassword))
+                .passwordHash(placeholderHash)
                 .mustChangePassword(true)
                 .emailVerificationRequired(true)
                 .role(role)
@@ -666,19 +668,34 @@ public class TenantService {
                 java.util.Map.of("tenantId", tenantId.toString(), "role", role.name()),
                 tenantId.toString());
 
+        boolean emailQueued = false;
         if (req.getEmail() != null && !req.getEmail().isBlank()) {
             try {
-                String loginUrl = frontendUrl + "/login";
-                String html = EmailService.buildOrgUserCreatedHtml(
-                        req.getFullName(), tenant.getName(), role.name(), candidate, rawPassword, loginUrl);
-                String text = EmailService.buildOrgUserCreatedText(
-                        req.getFullName(), tenant.getName(), role.name(), candidate, rawPassword, loginUrl);
+                // Revoke any prior active tokens for this user
+                setupTokenRepository.findTopByUserIdAndUsedAtIsNullOrderByCreatedAtDesc(user.getId())
+                        .ifPresent(t -> { t.setUsedAt(java.time.LocalDateTime.now()); setupTokenRepository.save(t); });
+                String rawToken = UUID.randomUUID().toString().replace("-", "")
+                        + UUID.randomUUID().toString().replace("-", "");
+                String tokenHash = sha256Hex(rawToken);
+                AccountSetupToken token = AccountSetupToken.builder()
+                        .userId(user.getId())
+                        .tokenHash(tokenHash)
+                        .expiresAt(java.time.LocalDateTime.now().plusHours(setupTokenExpiryHours))
+                        .build();
+                setupTokenRepository.save(token);
+
+                String setupUrl = frontendUrl + "/setup-account?token=" + rawToken;
+                String html = EmailService.buildOrgUserSetupHtml(
+                        req.getFullName(), tenant.getName(), role.name(), candidate, setupUrl, setupTokenExpiryHours);
+                String text = EmailService.buildOrgUserSetupText(
+                        req.getFullName(), tenant.getName(), role.name(), candidate, setupUrl, setupTokenExpiryHours);
                 notificationEventPublisher.publishEmail(
                         req.getEmail(),
-                        "Your ChitWise account is ready — " + tenant.getName(),
+                        "Set up your ChitWise account — " + tenant.getName(),
                         html, text);
+                emailQueued = true;
             } catch (Exception e) {
-                log.warn("Welcome email could not be queued for new org user {}: {}", candidate, e.getMessage());
+                log.warn("Setup email could not be queued for new org user {}: {}", candidate, e.getMessage());
             }
         }
 
@@ -691,8 +708,25 @@ public class TenantService {
                 .role(role.name())
                 .enabled(true)
                 .joinedAt(user.getCreatedAt())
-                .tempPassword(rawPassword)
+                .setupEmailQueued(emailQueued)
+                .maskedEmail(req.getEmail() != null ? maskEmail(req.getEmail()) : null)
                 .build();
+    }
+
+    private static String sha256Hex(String input) {
+        try {
+            byte[] bytes = MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(bytes);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    private static String maskEmail(String email) {
+        int at = email.indexOf('@');
+        if (at <= 1) return "****@" + (at >= 0 ? email.substring(at + 1) : "");
+        return email.charAt(0) + "***" + email.charAt(at - 1) + email.substring(at);
     }
 
     public com.chitfund.userservice.dto.response.ResetPasswordResponse setupAppAccess(UUID userId, String username) {
@@ -742,7 +776,6 @@ public class TenantService {
                 .role(Role.ADMIN.name())
                 .enabled(admin.isEnabled())
                 .joinedAt(admin.getCreatedAt())
-                .tempPassword(null)
                 .build();
     }
 
