@@ -12,8 +12,10 @@ import com.chitfund.userservice.dto.response.OrgUserResponse;
 import com.chitfund.userservice.dto.response.ProxyTokenResponse;
 import com.chitfund.userservice.dto.response.ResetPasswordResponse;
 import com.chitfund.userservice.dto.response.TenantResponse;
+import com.chitfund.userservice.dto.response.UserResponse;
 import com.chitfund.userservice.service.ProxyService;
 import com.chitfund.userservice.service.TenantService;
+import com.chitfund.userservice.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -36,6 +38,7 @@ public class SuperAdminController {
 
     private final TenantService tenantService;
     private final ProxyService proxyService;
+    private final UserService userService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<TenantResponse>>> listTenants(
@@ -244,5 +247,21 @@ public class SuperAdminController {
                 tenantService.deductCredit(tenantId, request.getAmountInr(),
                         request.getNotes(), request.getIdempotencyKey(),
                         principal.getId().toString()), "Credit deducted"));
+    }
+
+    @PutMapping("/{tenantId}/users/{userId}/lock")
+    public ResponseEntity<ApiResponse<UserResponse>> lockOrgUser(
+            @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @AuthenticationPrincipal User principal) {
+        return ResponseEntity.ok(ApiResponse.success(
+                userService.superAdminLockUser(tenantId, userId, principal), "User account locked"));
+    }
+
+    @PutMapping("/{tenantId}/users/{userId}/unlock")
+    public ResponseEntity<ApiResponse<UserResponse>> unlockOrgUser(
+            @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @AuthenticationPrincipal User principal) {
+        return ResponseEntity.ok(ApiResponse.success(
+                userService.superAdminUnlockUser(tenantId, userId, principal), "User account unlocked"));
     }
 }

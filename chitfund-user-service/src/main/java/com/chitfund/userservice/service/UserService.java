@@ -374,4 +374,45 @@ public class UserService {
                     "User is not in your organization", HttpStatus.FORBIDDEN);
         }
     }
+
+    // ── Super-admin tenant-scoped operations ──────────────────────────────────
+
+    @Transactional
+    public UserResponse superAdminLockUser(UUID tenantId, UUID userId, User actor) {
+        return superAdminSetLocked(tenantId, userId, actor, true);
+    }
+
+    @Transactional
+    public UserResponse superAdminUnlockUser(UUID tenantId, UUID userId, User actor) {
+        return superAdminSetLocked(tenantId, userId, actor, false);
+    }
+
+    private UserResponse superAdminSetLocked(UUID tenantId, UUID userId, User actor, boolean lock) {
+        User target = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "User not found", HttpStatus.NOT_FOUND));
+        // No cross-tenant information leak: return 404 as if the user doesn't exist
+        if (!tenantId.toString().equals(target.getTenantId())) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                    "User not found", HttpStatus.NOT_FOUND);
+        }
+        // SUPER_ADMIN and hub-level identities (no tenant) must never be locked via org endpoint
+        if (target.getRole() == Role.SUPER_ADMIN || target.getTenantId() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Cannot modify protected account", HttpStatus.FORBIDDEN);
+        }
+        if (target.isLocked() == lock) {
+            return userMapper.toResponse(target);
+        }
+        var before = userAuditState(target);
+        target.setLocked(lock);
+        if (!lock) target.setFailedLoginAttempts(0);
+        target.setUpdatedBy(actor.getId());
+        User saved = userRepository.save(target);
+        String event = lock ? "USER_LOCKED" : "USER_UNLOCKED";
+        auditClient.log("USER", saved.getId().toString(), event,
+                actor.getId().toString(), "ROLE_SUPER_ADMIN", before, userAuditState(saved),
+                tenantId.toString());
+        return userMapper.toResponse(saved);
+    }
 }
