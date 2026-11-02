@@ -323,16 +323,18 @@ public class TenantService {
 
         String setupUrl = frontendUrl + "/org-user-setup?token=" + rawToken;
         try {
-            String html = EmailService.buildApprovalEmailHtml(
-                    admin.getFullName(), t.getName(), t.getSlug(), username, null, planLimits);
-            String text = EmailService.buildApprovalEmailText(
-                    admin.getFullName(), t.getName(), t.getSlug(), username, null, planLimits);
+            // Use the org-user setup email (a complete standalone HTML document) rather
+            // than appending a setup link after the approval email's closing </html> tag.
+            String html = EmailService.buildOrgUserSetupHtml(
+                    admin.getFullName(), t.getName(), admin.getRole().name(),
+                    username, setupUrl, setupTokenExpiryHours);
+            String text = EmailService.buildOrgUserSetupText(
+                    admin.getFullName(), t.getName(), admin.getRole().name(),
+                    username, setupUrl, setupTokenExpiryHours);
             notificationEventPublisher.publishEmail(
                     t.getContactEmail(),
                     "Your ChitWise account is approved — set up your account",
-                    html + "\n\n<p>Set up your account: <a href=\"" + EmailService.sanitizeUrl(setupUrl)
-                            + "\">Click here</a></p>",
-                    text + "\n\nSet up your account: " + setupUrl);
+                    html, text);
         } catch (Exception e) {
             log.warn("Approval email could not be queued for tenant {}: {}", tenantId, e.getMessage());
         }

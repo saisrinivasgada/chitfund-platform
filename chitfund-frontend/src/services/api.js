@@ -627,6 +627,41 @@ export const unlockUser = async (id) => {
   return res.data.data;
 };
 
+// ── Super Admin tenant-scoped lock/unlock (with audit reason) ─────────────────
+
+export const superAdminLockOrgUser = async (tenantId, userId, reason) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/users/${userId}/lock`, { reason });
+  return res.data.data;
+};
+
+export const superAdminUnlockOrgUser = async (tenantId, userId, reason) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/users/${userId}/unlock`, { reason });
+  return res.data.data;
+};
+
+export const superAdminResendOrgUserSetup = async (tenantId, userId) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/resend-setup`);
+  return res.data.data;
+};
+
+// ── Org-user account-setup flow (public, token-gated) ────────────────────────
+
+export const getOrgUserSetupDetails = async (token) => {
+  const res = await api.get('/auth/org-user-setup', { params: { token } });
+  return res.data.data;
+};
+
+export const sendOrgUserSetupEmailOtp = async (token) => {
+  await api.post('/auth/org-user-setup/email-otp', { token });
+};
+
+export const completeOrgUserSetup = async ({ token, emailOtp, newPassword, termsAccepted }) => {
+  const res = await api.post('/auth/org-user-setup/complete', {
+    token, emailOtp, newPassword, termsAccepted,
+  });
+  return res.data.data;
+};
+
 export const updateMyMemberProfile = async ({ fullName, phone, phoneCountryCode, email, address, city, aadhaarLast4, panNumber, bankName, bankAccountNumber, bankIfsc }) => {
   const res = await api.patch('/members/me/profile', {
     fullName, phone, phoneCountryCode, email, address, city,
