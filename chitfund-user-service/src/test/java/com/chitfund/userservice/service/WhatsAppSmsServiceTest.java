@@ -31,6 +31,7 @@ class WhatsAppSmsServiceTest {
                 .andExpect(header("Authorization", "Bearer " + TOKEN))
                 .andExpect(content().string(containsString("\"to\":\"919876543210\"")))
                 .andExpect(content().string(containsString("\"text\":\"123456\"")))
+                .andExpect(content().string(containsString("\"sub_type\":\"url\"")))
                 .andRespond(withSuccess("{}", org.springframework.http.MediaType.APPLICATION_JSON));
 
         SmsDeliveryStatus status = service.sendOtp("98765 43210", "+91", "123456");
@@ -81,7 +82,7 @@ class WhatsAppSmsServiceTest {
     void refusesToStartEnabledDeliveryWithPlaceholderConfiguration() {
         assertThatThrownBy(() -> new WhatsAppSmsService(
                 new RestTemplate(), "https://graph.example", "NOT_CONFIGURED",
-                "NOT_CONFIGURED", "NOT_CONFIGURED", "otp_verification", "en_US"))
+                "NOT_CONFIGURED", "NOT_CONFIGURED", "otp_verification", "en_US", true))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("WHATSAPP_API_VERSION");
     }
@@ -90,13 +91,13 @@ class WhatsAppSmsServiceTest {
     void refusesPlaintextProviderEndpointThatWouldExposeTokenAndOtp() {
         assertThatThrownBy(() -> new WhatsAppSmsService(
                 new RestTemplate(), "http://graph.example", "v23.0",
-                "123456789", TOKEN, "otp_verification", "en_US"))
+                "123456789", TOKEN, "otp_verification", "en_US", true))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("HTTPS");
     }
 
     private WhatsAppSmsService service(RestTemplate restTemplate) {
         return new WhatsAppSmsService(restTemplate, "https://graph.example/", "v23.0",
-                "123456789", TOKEN, "otp_verification", "en_US");
+                "123456789", TOKEN, "otp_verification", "en_US", true);
     }
 }
