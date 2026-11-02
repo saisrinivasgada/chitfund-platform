@@ -1393,7 +1393,6 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
       password: password || undefined, phoneCountryCode: '+91',
     }),
     onSuccess: (res: any) => {
-      onAdded();
       setCreatedCreds({ username: res?.username ?? '—', tempPassword: res?.tempPassword ?? '—' });
     },
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed to add user'),
@@ -1425,7 +1424,7 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
             <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 24, textAlign: 'center' }}>
               The user will be prompted to change their password on first login.
             </Text>
-            <Button label="Done" onPress={onClose} fullWidth size="lg" />
+            <Button label="Done" onPress={() => { onAdded(); onClose(); }} fullWidth size="lg" />
           </View>
         </SafeAreaView>
       </Modal>
