@@ -5,6 +5,7 @@ import com.chitfund.userservice.dto.request.OrgUserSetupCompleteRequest;
 import com.chitfund.userservice.dto.request.OrgUserSetupEmailOtpRequest;
 import com.chitfund.userservice.dto.response.OrgUserSetupPublicResponse;
 import com.chitfund.userservice.service.OrgUserSetupService;
+import com.chitfund.userservice.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 public class OrgUserSetupController {
 
     private final OrgUserSetupService service;
+    private final RateLimiterService rateLimiter;
 
     @GetMapping
     public ResponseEntity<ApiResponse<OrgUserSetupPublicResponse>> getDetails(
@@ -31,7 +33,12 @@ public class OrgUserSetupController {
 
     @PostMapping("/email-otp")
     public ResponseEntity<ApiResponse<Void>> sendEmailOtp(
-            @Valid @RequestBody OrgUserSetupEmailOtpRequest request) {
+            @Valid @RequestBody OrgUserSetupEmailOtpRequest request,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeOrgUserSetupOtp(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error(
+                    "RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
         service.sendEmailOtp(request);
         return ResponseEntity.ok(ApiResponse.success(null,
                 "Verification code sent to your registered email address"));
@@ -39,9 +46,21 @@ public class OrgUserSetupController {
 
     @PostMapping("/complete")
     public ResponseEntity<ApiResponse<Void>> complete(
-            @Valid @RequestBody OrgUserSetupCompleteRequest request) {
+            @Valid @RequestBody OrgUserSetupCompleteRequest request,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeOrgUserSetupOtpVerify(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error(
+                    "RATE_LIMIT_001", "Too many attempts. Please wait before trying again."));
+        }
         service.complete(request);
         return ResponseEntity.ok(ApiResponse.success(null,
                 "Account setup complete. You can now sign in."));
+    }
+
+    // Trust only the gateway-set header; never the client-supplied X-Real-IP.
+    private String getClientIp(HttpServletRequest request) {
+        String trusted = request.getHeader("X-ChitWise-Client-IP");
+        if (trusted != null && !trusted.isBlank()) return trusted.trim();
+        return request.getRemoteAddr();
     }
 }

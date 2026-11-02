@@ -171,7 +171,7 @@ public class UserController {
     @PostMapping("/admin/phone/send-otp")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<Void>> adminSendPhoneOtp(@Valid @RequestBody SendPhoneOtpRequest req, HttpServletRequest httpRequest) {
-        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiterService.tryConsumeStaffPhone(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         otpService.sendOtp(req.getPhone(), req.getCountryCode(), "ADMIN_PHONE_VERIFY", null);
@@ -181,7 +181,7 @@ public class UserController {
     @PostMapping("/admin/phone/verify-otp")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<Void>> adminVerifyPhoneOtp(@Valid @RequestBody VerifyPhoneOtpRequest req, HttpServletRequest httpRequest) {
-        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiterService.tryConsumeStaffPhoneVerify(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         otpService.verifyOtp(req.getPhone(), "ADMIN_PHONE_VERIFY", req.getCode());
@@ -205,7 +205,7 @@ public class UserController {
     @PostMapping("/me/phone/send-otp")
     public ResponseEntity<ApiResponse<Void>> sendPhoneChangeOtp(
             @Valid @RequestBody SendPhoneOtpRequest req, Authentication auth, HttpServletRequest httpRequest) {
-        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiterService.tryConsumePhoneChange(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         User user = (User) auth.getPrincipal();
@@ -216,7 +216,7 @@ public class UserController {
     @PostMapping("/me/phone/verify-otp")
     public ResponseEntity<ApiResponse<UserResponse>> verifyPhoneChangeOtp(
             @Valid @RequestBody VerifyPhoneOtpRequest req, Authentication auth, HttpServletRequest httpRequest) {
-        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiterService.tryConsumePhoneChangeVerify(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         User user = (User) auth.getPrincipal();
@@ -231,7 +231,7 @@ public class UserController {
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<Void>> sendSupportNumberOtp(
             @Valid @RequestBody SendPhoneOtpRequest req, HttpServletRequest httpRequest) {
-        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiterService.tryConsumeSupportNum(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         otpService.sendOtp(req.getPhone(), req.getCountryCode(), "SUPPORT_NUMBER", null);
@@ -241,7 +241,11 @@ public class UserController {
     @PostMapping("/me/support-number/verify")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<Void>> verifySupportNumber(
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiterService.tryConsumeSupportNumVerify(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
         String phone = body.get("phone");
         String code = body.get("code");
         String countryCode = body.getOrDefault("countryCode", "+91");
@@ -388,9 +392,10 @@ public class UserController {
                 userService.softDeleteStaff(id, admin.getId()), "Staff account deleted"));
     }
 
+    // Trust only the gateway-set header; never the client-supplied X-Real-IP.
     private String getClientIp(HttpServletRequest request) {
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) return realIp.trim();
+        String trusted = request.getHeader("X-ChitWise-Client-IP");
+        if (trusted != null && !trusted.isBlank()) return trusted.trim();
         return request.getRemoteAddr();
     }
 

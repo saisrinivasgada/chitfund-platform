@@ -29,7 +29,7 @@ public class OtpController {
             @Valid @RequestBody SendPhoneOtpRequest req,
             HttpServletRequest httpRequest) {
         String ip = getClientIp(httpRequest);
-        if (!rateLimiterService.tryConsumeForgot(ip)) {
+        if (!rateLimiterService.tryConsumeRegOtp(ip)) {
             throw new BusinessException(ErrorCode.OTP_RATE_LIMITED,
                     "Too many OTP requests from this device. Please wait 15 minutes.",
                     HttpStatus.TOO_MANY_REQUESTS);
@@ -39,7 +39,14 @@ public class OtpController {
     }
 
     @PostMapping("/verify")
-    public ResponseEntity<ApiResponse<Map<String, String>>> verifyOtp(@Valid @RequestBody VerifyPhoneOtpRequest req) {
+    public ResponseEntity<ApiResponse<Map<String, String>>> verifyOtp(
+            @Valid @RequestBody VerifyPhoneOtpRequest req,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiterService.tryConsumeRegOtpVerify(getClientIp(httpRequest))) {
+            throw new BusinessException(ErrorCode.OTP_RATE_LIMITED,
+                    "Too many verification attempts from this device. Please wait 15 minutes.",
+                    HttpStatus.TOO_MANY_REQUESTS);
+        }
         String token = otpService.verifyOtp(req.getPhone(), "REGISTRATION", req.getCode());
         return ResponseEntity.ok(ApiResponse.success(Map.of("verificationToken", token), "Phone verified successfully"));
     }

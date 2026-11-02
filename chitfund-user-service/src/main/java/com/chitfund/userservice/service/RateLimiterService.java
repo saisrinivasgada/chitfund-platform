@@ -26,8 +26,10 @@ import java.util.HexFormat;
  * Fail-closed: if the DB is unreachable the request is rejected (returns false)
  * to prevent an outage from being exploited as an OTP fire-hose.
  *
- * Separate purposes: LOGIN, REG_OTP, FP_OTP, STAFF_PHONE, OTP_VERIFY,
- * ORG_USER_SETUP_OTP. Verification attempts do NOT share a budget with sends.
+ * Separate purposes (send ≠ verify budgets): LOGIN, REG_OTP, REG_OTP_VERIFY,
+ * FP_LOOKUP, FP_OTP, FP_OTP_VERIFY, FP_RESET, STAFF_PHONE, STAFF_PHONE_VERIFY,
+ * PHONE_CHANGE, PHONE_CHANGE_VERIFY, SUPPORT_NUM, SUPPORT_NUM_VERIFY,
+ * ORG_USER_SETUP_OTP, ORG_USER_SETUP_OTP_VERIFY.
  */
 @Service
 @RequiredArgsConstructor
@@ -36,11 +38,26 @@ public class RateLimiterService {
 
     public enum Purpose {
         LOGIN,
+        // Registration OTP
         REG_OTP,
+        REG_OTP_VERIFY,
+        // Forgot-password (4 independent budgets)
+        FP_LOOKUP,
         FP_OTP,
+        FP_OTP_VERIFY,
+        FP_RESET,
+        // Staff / admin phone verification
         STAFF_PHONE,
-        OTP_VERIFY,
+        STAFF_PHONE_VERIFY,
+        // Authenticated phone-change
+        PHONE_CHANGE,
+        PHONE_CHANGE_VERIFY,
+        // Support-number OTP
+        SUPPORT_NUM,
+        SUPPORT_NUM_VERIFY,
+        // Org-user invite setup
         ORG_USER_SETUP_OTP,
+        ORG_USER_SETUP_OTP_VERIFY,
     }
 
     private final JdbcTemplate jdbcTemplate;
@@ -57,28 +74,78 @@ public class RateLimiterService {
     @Value("${app.rate-limit.otp-verify-per-15min:10}")
     private int otpVerifyPer15Min;
 
+    // ── Login ─────────────────────────────────────────────────────────────────
+
     public boolean tryConsumeLogin(String clientIp) {
         return tryConsume(clientIp, Purpose.LOGIN, loginPer15Min);
     }
+
+    // ── Registration OTP ──────────────────────────────────────────────────────
 
     public boolean tryConsumeRegOtp(String clientIp) {
         return tryConsume(clientIp, Purpose.REG_OTP, otpSendPer15Min);
     }
 
-    public boolean tryConsumeForgot(String clientIp) {
+    public boolean tryConsumeRegOtpVerify(String clientIp) {
+        return tryConsume(clientIp, Purpose.REG_OTP_VERIFY, otpVerifyPer15Min);
+    }
+
+    // ── Forgot-password (4 steps, 4 independent budgets) ─────────────────────
+
+    public boolean tryConsumeFpLookup(String clientIp) {
+        return tryConsume(clientIp, Purpose.FP_LOOKUP, otpSendPer15Min);
+    }
+
+    public boolean tryConsumeFpOtp(String clientIp) {
         return tryConsume(clientIp, Purpose.FP_OTP, otpSendPer15Min);
     }
+
+    public boolean tryConsumeFpOtpVerify(String clientIp) {
+        return tryConsume(clientIp, Purpose.FP_OTP_VERIFY, otpVerifyPer15Min);
+    }
+
+    public boolean tryConsumeFpReset(String clientIp) {
+        return tryConsume(clientIp, Purpose.FP_RESET, otpVerifyPer15Min);
+    }
+
+    // ── Staff / admin phone OTP ────────────────────────────────────────────────
 
     public boolean tryConsumeStaffPhone(String clientIp) {
         return tryConsume(clientIp, Purpose.STAFF_PHONE, otpSendPer15Min);
     }
 
-    public boolean tryConsumeOtpVerify(String clientIp) {
-        return tryConsume(clientIp, Purpose.OTP_VERIFY, otpVerifyPer15Min);
+    public boolean tryConsumeStaffPhoneVerify(String clientIp) {
+        return tryConsume(clientIp, Purpose.STAFF_PHONE_VERIFY, otpVerifyPer15Min);
     }
+
+    // ── Phone change (authenticated) ──────────────────────────────────────────
+
+    public boolean tryConsumePhoneChange(String clientIp) {
+        return tryConsume(clientIp, Purpose.PHONE_CHANGE, otpSendPer15Min);
+    }
+
+    public boolean tryConsumePhoneChangeVerify(String clientIp) {
+        return tryConsume(clientIp, Purpose.PHONE_CHANGE_VERIFY, otpVerifyPer15Min);
+    }
+
+    // ── Support-number OTP ────────────────────────────────────────────────────
+
+    public boolean tryConsumeSupportNum(String clientIp) {
+        return tryConsume(clientIp, Purpose.SUPPORT_NUM, otpSendPer15Min);
+    }
+
+    public boolean tryConsumeSupportNumVerify(String clientIp) {
+        return tryConsume(clientIp, Purpose.SUPPORT_NUM_VERIFY, otpVerifyPer15Min);
+    }
+
+    // ── Org-user invite setup ─────────────────────────────────────────────────
 
     public boolean tryConsumeOrgUserSetupOtp(String clientIp) {
         return tryConsume(clientIp, Purpose.ORG_USER_SETUP_OTP, otpSendPer15Min);
+    }
+
+    public boolean tryConsumeOrgUserSetupOtpVerify(String clientIp) {
+        return tryConsume(clientIp, Purpose.ORG_USER_SETUP_OTP_VERIFY, otpVerifyPer15Min);
     }
 
     // ── Core ─────────────────────────────────────────────────────────────────

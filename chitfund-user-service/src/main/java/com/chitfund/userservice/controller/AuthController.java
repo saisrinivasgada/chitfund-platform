@@ -230,7 +230,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<ForgotPasswordLookupResponse>> forgotPasswordLookup(
             @Valid @RequestBody ForgotPasswordLookupRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpLookup(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         return ResponseEntity.ok(ApiResponse.success(
@@ -241,7 +241,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPasswordSendOtp(
             @Valid @RequestBody ForgotPasswordSendOtpRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpOtp(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         authService.sendForgotPasswordOtpNew(req.getUserId(), req.getLast4());
@@ -252,7 +252,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<ForgotPasswordVerifyOtpResponse>> forgotPasswordVerifyOtp(
             @Valid @RequestBody ForgotPasswordVerifyOtpRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpOtpVerify(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         return ResponseEntity.ok(ApiResponse.success(
@@ -263,7 +263,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPasswordResetWithToken(
             @Valid @RequestBody ForgotPasswordResetWithTokenRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpReset(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         authService.resetPasswordWithToken(req.getResetToken(), req.getNewPassword());
