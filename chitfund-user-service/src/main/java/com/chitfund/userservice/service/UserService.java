@@ -378,16 +378,20 @@ public class UserService {
     // ── Super-admin tenant-scoped operations ──────────────────────────────────
 
     @Transactional
-    public UserResponse superAdminLockUser(UUID tenantId, UUID userId, User actor) {
-        return superAdminSetLocked(tenantId, userId, actor, true);
+    public UserResponse superAdminLockUser(UUID tenantId, UUID userId, User actor, String reason) {
+        return superAdminSetLocked(tenantId, userId, actor, true, reason);
     }
 
     @Transactional
-    public UserResponse superAdminUnlockUser(UUID tenantId, UUID userId, User actor) {
-        return superAdminSetLocked(tenantId, userId, actor, false);
+    public UserResponse superAdminUnlockUser(UUID tenantId, UUID userId, User actor, String reason) {
+        return superAdminSetLocked(tenantId, userId, actor, false, reason);
     }
 
-    private UserResponse superAdminSetLocked(UUID tenantId, UUID userId, User actor, boolean lock) {
+    private UserResponse superAdminSetLocked(UUID tenantId, UUID userId, User actor, boolean lock, String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A reason is required", HttpStatus.BAD_REQUEST);
+        }
         User target = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "User not found", HttpStatus.NOT_FOUND));
@@ -412,7 +416,7 @@ public class UserService {
         String event = lock ? "USER_LOCKED" : "USER_UNLOCKED";
         auditClient.log("USER", saved.getId().toString(), event,
                 actor.getId().toString(), "ROLE_SUPER_ADMIN", before, userAuditState(saved),
-                tenantId.toString());
+                tenantId.toString(), reason);
         return userMapper.toResponse(saved);
     }
 }

@@ -4,6 +4,7 @@ import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.dto.request.AddOrgUserRequest;
 import com.chitfund.userservice.dto.request.AdjustTenantCreditRequest;
+import com.chitfund.userservice.dto.request.LockUserRequest;
 import com.chitfund.userservice.dto.request.SetCustomLimitsRequest;
 import com.chitfund.userservice.dto.request.UpdateTenantRequest;
 import com.chitfund.userservice.dto.response.ActivationResponse;
@@ -252,16 +253,28 @@ public class SuperAdminController {
     @PutMapping("/{tenantId}/users/{userId}/lock")
     public ResponseEntity<ApiResponse<UserResponse>> lockOrgUser(
             @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @Valid @RequestBody LockUserRequest body,
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                userService.superAdminLockUser(tenantId, userId, principal), "User account locked"));
+                userService.superAdminLockUser(tenantId, userId, principal, body.getReason()),
+                "User account locked"));
     }
 
     @PutMapping("/{tenantId}/users/{userId}/unlock")
     public ResponseEntity<ApiResponse<UserResponse>> unlockOrgUser(
             @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @Valid @RequestBody LockUserRequest body,
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                userService.superAdminUnlockUser(tenantId, userId, principal), "User account unlocked"));
+                userService.superAdminUnlockUser(tenantId, userId, principal, body.getReason()),
+                "User account unlocked"));
+    }
+
+    @PostMapping("/{tenantId}/users/{userId}/resend-setup")
+    public ResponseEntity<ApiResponse<Void>> resendOrgUserSetup(
+            @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @AuthenticationPrincipal User principal) {
+        tenantService.resendOrgUserSetup(tenantId, userId, principal.getId().toString());
+        return ResponseEntity.ok(ApiResponse.success(null, "Setup email queued"));
     }
 }
