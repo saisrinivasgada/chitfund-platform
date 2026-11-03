@@ -1,5 +1,6 @@
 package com.chitfund.userservice.dto.response;
 
+import com.chitfund.userservice.domain.enums.OrgUserOnboardingState;
 import lombok.Builder;
 import lombok.Data;
 
@@ -25,4 +26,5 @@ public class OrgUserResponse {
     private boolean setupEmailQueued;
     private String maskedEmail;
     private boolean setupPending;
+    private OrgUserOnboardingState onboardingState;
 }

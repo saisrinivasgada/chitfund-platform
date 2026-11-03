@@ -45,4 +45,13 @@ public interface AccountSetupTokenRepository extends JpaRepository<AccountSetupT
            "AND t.usedAt IS NULL AND t.expiresAt > :now")
     Set<UUID> findUserIdsWithActiveOrgInvite(
             @Param("userIds") Collection<UUID> userIds, @Param("now") LocalDateTime now);
+
+    // Freshness guard for resend: returns a token created at or after `since` that is
+    // still unused. Used to de-duplicate rapid back-to-back resend requests.
+    @Query("SELECT t FROM AccountSetupToken t WHERE t.userId = :userId " +
+           "AND t.purpose = com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE " +
+           "AND t.usedAt IS NULL AND t.createdAt >= :since " +
+           "ORDER BY t.createdAt DESC")
+    Optional<AccountSetupToken> findFreshActiveOrgInvite(
+            @Param("userId") UUID userId, @Param("since") LocalDateTime since);
 }

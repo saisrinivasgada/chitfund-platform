@@ -41,6 +41,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.chitfund.userservice.domain.enums.OrgUserOnboardingState;
 import com.chitfund.userservice.util.AddOnJson;
 import com.chitfund.userservice.util.PlanInputValidator;
 import java.util.List;
@@ -579,21 +580,25 @@ public class TenantService {
                 : setupTokenRepository.findUserIdsWithActiveOrgInvite(allUserIds, now);
 
         List<OrgUserResponse> staffUsers = staffList.stream()
-                .map(u -> OrgUserResponse.builder()
-                        .userId(u.getId().toString())
-                        .username(u.getUsername())
-                        .fullName(u.getFullName())
-                        .email(u.getEmail())
-                        .phone(u.getPhone())
-                        .role(u.getRole().name())
-                        .enabled(u.isEnabled())
-                        .locked(u.isLocked())
-                        .hasAppAccess(u.isHasAppAccess())
-                        .mustChangePassword(u.isMustChangePassword())
-                        .joinedAt(u.getCreatedAt())
-                        .lastLoginAt(u.getLastLoginAt())
-                        .setupPending(usersWithActiveInvite.contains(u.getId()))
-                        .build())
+                .map(u -> {
+                    OrgUserOnboardingState state = onboardingState(u, usersWithActiveInvite);
+                    return OrgUserResponse.builder()
+                            .userId(u.getId().toString())
+                            .username(u.getUsername())
+                            .fullName(u.getFullName())
+                            .email(u.getEmail())
+                            .phone(u.getPhone())
+                            .role(u.getRole().name())
+                            .enabled(u.isEnabled())
+                            .locked(u.isLocked())
+                            .hasAppAccess(u.isHasAppAccess())
+                            .mustChangePassword(u.isMustChangePassword())
+                            .joinedAt(u.getCreatedAt())
+                            .lastLoginAt(u.getLastLoginAt())
+                            .setupPending(state == OrgUserOnboardingState.PENDING)
+                            .onboardingState(state)
+                            .build();
+                })
                 .toList();
 
         List<OrgUserResponse> memberUsers = links.stream()
@@ -602,6 +607,7 @@ public class TenantService {
                             .filter(m -> m.getId().equals(link.getUserId()))
                             .findFirst().orElse(null);
                     if (u == null) return null;
+                    OrgUserOnboardingState state = onboardingState(u, usersWithActiveInvite);
                     return OrgUserResponse.builder()
                             .userId(u.getId().toString())
                             .membershipId(link.getId().toString())
@@ -617,7 +623,8 @@ public class TenantService {
                             .mustChangePassword(u.isMustChangePassword())
                             .joinedAt(link.getCreatedAt())
                             .lastLoginAt(u.getLastLoginAt())
-                            .setupPending(usersWithActiveInvite.contains(u.getId()))
+                            .setupPending(state == OrgUserOnboardingState.PENDING)
+                            .onboardingState(state)
                             .build();
                 })
                 .filter(java.util.Objects::nonNull)
@@ -741,6 +748,8 @@ public class TenantService {
             }
         }
 
+        // Newly added user has no completedAt and always has an active invite just inserted.
+        OrgUserOnboardingState newUserState = OrgUserOnboardingState.PENDING;
         return OrgUserResponse.builder()
                 .userId(user.getId().toString())
                 .username(user.getUsername())
@@ -752,16 +761,19 @@ public class TenantService {
                 .joinedAt(user.getCreatedAt())
                 .setupEmailQueued(emailQueued)
                 .maskedEmail(req.getEmail() != null ? maskEmail(req.getEmail()) : null)
-                .setupPending(isSetupPending(user))
+                .setupPending(true)
+                .onboardingState(newUserState)
                 .build();
     }
 
     private boolean isSetupPending(User user) {
-        return isSetupPending(user.getId());
+        return user.getOrgUserSetupCompletedAt() == null;
     }
 
-    private boolean isSetupPending(UUID userId) {
-        return setupTokenRepository.existsActiveOrgUserInvite(userId, java.time.LocalDateTime.now());
+    private static OrgUserOnboardingState onboardingState(User u, java.util.Set<UUID> usersWithActiveInvite) {
+        if (u.getOrgUserSetupCompletedAt() != null) return OrgUserOnboardingState.COMPLETE;
+        if (usersWithActiveInvite.contains(u.getId())) return OrgUserOnboardingState.PENDING;
+        return OrgUserOnboardingState.EXPIRED;
     }
 
     private static String sha256Hex(String input) {
@@ -1466,6 +1478,16 @@ public class TenantService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "No email address on record for this user", HttpStatus.BAD_REQUEST);
         }
+
+        // Freshness guard: if a fresh unused invite was created in the last 30 seconds,
+        // treat this as a duplicate request and return idempotently. The pessimistic lock
+        // above serialises concurrent resends, so the second caller always sees the first
+        // caller's committed token here — preventing duplicate emails and unnecessary revocations.
+        java.time.LocalDateTime freshnessCutoff = java.time.LocalDateTime.now().minusSeconds(30);
+        if (setupTokenRepository.findFreshActiveOrgInvite(userId, freshnessCutoff).isPresent()) {
+            return;
+        }
+
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
@@ -1490,7 +1512,7 @@ public class TenantService {
                 .expiresAt(now.plusHours(setupTokenExpiryHours))
                 .build();
         try {
-            setupTokenRepository.save(token);
+            setupTokenRepository.saveAndFlush(token);
         } catch (DataIntegrityViolationException e) {
             // A concurrent resend won the race and already inserted a new token.
             // Surface this as a controlled conflict rather than an unhandled 500.

@@ -112,13 +112,14 @@ public class AccountEmailOtpService {
      * Phase 2 of the two-phase verify: marks the OTP as consumed.
      * Runs in the CALLER's transaction (REQUIRED) so it rolls back atomically
      * with all other account-setup state changes if anything goes wrong.
+     *
+     * Uses a direct UPDATE rather than fetch-modify-save to avoid the REPEATABLE READ
+     * isolation issue: the outer transaction's snapshot predates the REQUIRES_NEW inner
+     * transaction's commit, so a findById here would return stale attempts=0 and overwrite
+     * the committed attempts count on save.
      */
     @Transactional
     public void markConsumed(String otpId) {
-        AccountEmailOtp record = repository.findById(otpId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "OTP record not found during markConsumed — this is a programming error"));
-        record.setVerified(true);
-        repository.save(record);
+        repository.markVerifiedById(otpId);
     }
 }

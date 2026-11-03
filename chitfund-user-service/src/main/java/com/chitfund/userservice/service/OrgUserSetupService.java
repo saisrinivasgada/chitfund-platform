@@ -176,6 +176,7 @@ public class OrgUserSetupService {
         user.setEmailVerificationRequired(false);
         user.setTermsAcceptedAt(LocalDateTime.now());
         user.setTermsVersion("1.0");
+        user.setOrgUserSetupCompletedAt(LocalDateTime.now());
         userRepository.save(user);
 
         // Mark token used and revoke all other active ORG_USER_INVITE tokens for this user.
