@@ -35,9 +35,10 @@ import static org.mockito.Mockito.*;
 /**
  * Unit tests for TenantService.resendOrgUserSetup().
  *
- * isSetupPending() is now private and delegates to the DB via
- * setupTokenRepository.existsActiveOrgUserInvite(). Tests verify the
- * observable contract through the public resendOrgUserSetup() API.
+ * isSetupPending() is private and uses user.getOrgUserSetupCompletedAt() == null —
+ * a pure in-memory check. Tests verify the observable contract through the public
+ * resendOrgUserSetup() API. Activated users must have orgUserSetupCompletedAt set;
+ * pending/expired users have it null.
  */
 @ExtendWith(MockitoExtension.class)
 class TenantResendSetupTest {
@@ -79,18 +80,18 @@ class TenantResendSetupTest {
         Tenant tenant = Tenant.builder().id(tenantId).name("Test Org").build();
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(true);
+        when(setupTokenRepository.findFreshActiveOrgInvite(eq(userId), any())).thenReturn(Optional.empty());
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(userId, SetupTokenPurpose.ORG_USER_INVITE))
                 .thenReturn(List.of());
         when(setupTokenRepository.saveAllAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(setupTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(setupTokenRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         doNothing().when(notificationEventPublisher).publishEmail(any(), any(), any(), any());
         doNothing().when(auditClient).log(any(), any(), any(), any(), any(), any(), any(), any());
 
         tenantService.resendOrgUserSetup(tenantId, userId, "actor-1");
 
-        verify(setupTokenRepository).save(any(AccountSetupToken.class));
+        verify(setupTokenRepository).saveAndFlush(any(AccountSetupToken.class));
         verify(notificationEventPublisher).publishEmail(any(), any(), any(), any());
     }
 
@@ -105,7 +106,7 @@ class TenantResendSetupTest {
         User user = activatedUser(tenantId, userId);
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(false);
+        // isSetupPending() now checks user.getOrgUserSetupCompletedAt() == null — no repo call needed
 
         assertThatThrownBy(() ->
                 tenantService.resendOrgUserSetup(tenantId, userId, "actor-1"))
@@ -118,9 +119,9 @@ class TenantResendSetupTest {
     }
 
     /**
-     * Critical regression guard: mustChangePassword=true (password-reset workflow)
-     * alone must NOT make a user appear "setup pending". Without an active invite,
-     * resend must be rejected.
+     * Critical regression guard: mustChangePassword=true (password-reset workflow) combined
+     * with orgUserSetupCompletedAt set must still reject resend. The completion timestamp is
+     * the only authoritative signal; other flags must not reopen the resend path.
      */
     @Test
     void resend_mustChangePasswordAloneDoesNotMakeSetupPending() {
@@ -133,10 +134,10 @@ class TenantResendSetupTest {
                 .role(Role.ADMIN)
                 .mustChangePassword(true)
                 .emailVerificationRequired(false)
+                .orgUserSetupCompletedAt(java.time.LocalDateTime.now())
                 .build();
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(false);
 
         assertThatThrownBy(() ->
                 tenantService.resendOrgUserSetup(tenantId, userId, "actor-1"))
@@ -148,9 +149,9 @@ class TenantResendSetupTest {
     }
 
     /**
-     * Critical regression guard: emailVerificationRequired=true (email-change workflow)
-     * alone must NOT make a user appear "setup pending". Without an active invite,
-     * resend must be rejected.
+     * Critical regression guard: emailVerificationRequired=true (email-change workflow) combined
+     * with orgUserSetupCompletedAt set must still reject resend. The completion timestamp is
+     * the only authoritative signal; other flags must not reopen the resend path.
      */
     @Test
     void resend_emailVerificationRequiredAloneDoesNotMakeSetupPending() {
@@ -163,10 +164,10 @@ class TenantResendSetupTest {
                 .role(Role.ADMIN)
                 .mustChangePassword(false)
                 .emailVerificationRequired(true)
+                .orgUserSetupCompletedAt(java.time.LocalDateTime.now())
                 .build();
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(false);
 
         assertThatThrownBy(() ->
                 tenantService.resendOrgUserSetup(tenantId, userId, "actor-1"))
@@ -186,7 +187,7 @@ class TenantResendSetupTest {
         User user = activatedUser(tenantId, userId);
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(false);
+        // isSetupPending() uses the field — no repo mock needed for activated users
 
         assertThatThrownBy(() ->
                 tenantService.resendOrgUserSetup(tenantId, userId, "actor-1"))
@@ -204,7 +205,6 @@ class TenantResendSetupTest {
         User user = activatedUser(tenantId, userId);
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(false);
 
         try {
             tenantService.resendOrgUserSetup(tenantId, userId, "actor-1");
@@ -243,12 +243,12 @@ class TenantResendSetupTest {
                 .build();
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(true);
+        when(setupTokenRepository.findFreshActiveOrgInvite(eq(userId), any())).thenReturn(Optional.empty());
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(userId, SetupTokenPurpose.ORG_USER_INVITE))
                 .thenReturn(List.of(oldToken));
         when(setupTokenRepository.saveAllAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(setupTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(setupTokenRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         doNothing().when(notificationEventPublisher).publishEmail(any(), any(), any(), any());
         doNothing().when(auditClient).log(any(), any(), any(), any(), any(), any(), any(), any());
 
@@ -271,7 +271,7 @@ class TenantResendSetupTest {
                 .build();
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.existsActiveOrgUserInvite(eq(userId), any())).thenReturn(true);
+        // No email — throws before the freshness-guard repo call; no additional mocks needed
 
         assertThatThrownBy(() ->
                 tenantService.resendOrgUserSetup(tenantId, userId, "actor-1"))
@@ -302,6 +302,7 @@ class TenantResendSetupTest {
                 .role(Role.ADMIN)
                 .mustChangePassword(false)
                 .emailVerificationRequired(false)
+                .orgUserSetupCompletedAt(java.time.LocalDateTime.now())
                 .build();
     }
 }

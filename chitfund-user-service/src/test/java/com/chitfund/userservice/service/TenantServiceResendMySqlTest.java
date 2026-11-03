@@ -159,8 +159,23 @@ class TenantServiceResendMySqlTest {
         });
     }
 
-    private String createActiveInvite(UUID userId) {
+    private UUID createActivatedOrgUser(UUID tenantId) {
         return tx.execute(s -> {
+            User u = User.builder()
+                    .username("orguser-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8))
+                    .email("orguser-" + UUID.randomUUID() + "@test.example")
+                    .fullName("Activated User")
+                    .passwordHash("$2a$10$placeholder")
+                    .role(Role.MANAGER)
+                    .tenantId(tenantId.toString())
+                    .orgUserSetupCompletedAt(LocalDateTime.now())
+                    .build();
+            return userRepository.save(u).getId();
+        });
+    }
+
+    private String createActiveInvite(UUID userId) {
+        String hash = tx.execute(s -> {
             AccountSetupToken token = AccountSetupToken.builder()
                     .userId(userId)
                     .purpose(SetupTokenPurpose.ORG_USER_INVITE)
@@ -169,11 +184,17 @@ class TenantServiceResendMySqlTest {
                     .build();
             return tokenRepository.save(token).getTokenHash();
         });
+        // Back-date created_at so the freshness guard (30s window) does not treat this
+        // initial invite as a "just-resent" token. Resend tests verify replacement logic,
+        // not the freshness guard (which is tested by twoSimultaneousResends_*).
+        jdbc.update("UPDATE account_setup_tokens SET created_at = ? WHERE token_hash = ?",
+                LocalDateTime.now().minusMinutes(2), hash);
+        return hash;
     }
 
     private int countOutboxEmails() {
         Integer count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM domain_event_outbox WHERE event_type = 'EVT_TRANSACTIONAL_EMAIL'",
+                "SELECT COUNT(*) FROM domain_event_outbox WHERE event_type = 'TRANSACTIONAL_EMAIL'",
                 Integer.class);
         return count == null ? 0 : count;
     }
@@ -215,8 +236,8 @@ class TenantServiceResendMySqlTest {
     @Test
     void resend_rejectsActivatedAccount() {
         UUID tenantId = createTenant();
-        UUID userId = createOrgUser(tenantId);
-        // No active ORG_USER_INVITE token — account is considered activated
+        // createActivatedOrgUser sets orgUserSetupCompletedAt — the authoritative completion signal
+        UUID userId = createActivatedOrgUser(tenantId);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> tenantService.resendOrgUserSetup(tenantId, userId, "actor"))
@@ -228,10 +249,10 @@ class TenantServiceResendMySqlTest {
         assertThat(countOutboxEmails()).isZero();
     }
 
-    // ── Concurrency: exactly one of two simultaneous resends succeeds ─────────
+    // ── Concurrency: freshness guard deduplicates rapid back-to-back resends ─────
 
     @Test
-    void twoSimultaneousResends_exactlyOneSucceeds() throws Exception {
+    void twoSimultaneousResends_exactlyOneEmailSent() throws Exception {
         UUID tenantId = createTenant();
         UUID userId = createOrgUser(tenantId);
         String originalHash = createActiveInvite(userId);
@@ -241,7 +262,7 @@ class TenantServiceResendMySqlTest {
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
         AtomicInteger successes = new AtomicInteger(0);
-        AtomicInteger conflicts = new AtomicInteger(0);
+        AtomicInteger failures = new AtomicInteger(0);
 
         List<Future<?>> futures = new ArrayList<>();
         for (int i = 0; i < threads; i++) {
@@ -250,20 +271,18 @@ class TenantServiceResendMySqlTest {
                     start.await();
                     tenantService.resendOrgUserSetup(tenantId, userId, "actor");
                     successes.incrementAndGet();
-                } catch (BusinessException e) {
-                    if (e.getHttpStatus() == HttpStatus.CONFLICT) {
-                        conflicts.incrementAndGet();
-                    }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    failures.incrementAndGet();
+                }
             }));
         }
         start.countDown();
         for (Future<?> f : futures) f.get(15, TimeUnit.SECONDS);
         pool.shutdown();
 
-        // Exactly one request wins; the other gets a 409 CONFLICT
-        assertThat(successes.get()).isEqualTo(1);
-        assertThat(conflicts.get()).isEqualTo(1);
+        // Freshness guard: the second serialised request sees the fresh token and returns
+        // idempotently. Both calls return without throwing — one created, one skipped.
+        assertThat(failures.get()).isZero();
 
         // Exactly one active token for this user
         Long activeCount = jdbc.queryForObject(
@@ -272,7 +291,7 @@ class TenantServiceResendMySqlTest {
                 Long.class, userId.toString());
         assertThat(activeCount).isEqualTo(1);
 
-        // The surviving token is the new one — not the original
+        // The surviving token is a new one — not the original (original was revoked by the winner)
         String survivingHash = jdbc.queryForObject(
                 "SELECT token_hash FROM account_setup_tokens WHERE user_id = ? " +
                 "AND purpose = 'ORG_USER_INVITE' AND used_at IS NULL",
@@ -285,7 +304,7 @@ class TenantServiceResendMySqlTest {
                 Long.class, originalHash);
         assertThat(originalStillActive).isZero();
 
-        // Exactly ONE email was queued — the loser's transaction rolled back including its outbox entry
+        // Exactly ONE email was queued — the idempotent second call skipped the email
         int emailsAfter = countOutboxEmails();
         assertThat(emailsAfter - emailsBefore).isEqualTo(1);
     }
