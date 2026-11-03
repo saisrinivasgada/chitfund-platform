@@ -3,7 +3,6 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.AccountEmailOtp;
-import com.chitfund.userservice.exception.IncorrectOtpException;
 import com.chitfund.userservice.repository.AccountEmailOtpRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -73,36 +72,40 @@ public class AccountEmailOtpService {
      * must be atomic with all other account-setup writes.
      *
      * Phase 1 — checkAndIncrementAttempt(): runs in its own REQUIRES_NEW
-     * transaction so the attempt counter is committed even if the caller's
-     * transaction later rolls back. Returns the OTP record's ID when the code
-     * is correct; throws IncorrectOtpException (commits the increment) when wrong.
+     * transaction so the attempt counter is committed regardless of what the
+     * caller's transaction does. Returns an OtpCheckOutcome — NEVER throws for
+     * a wrong code — so the REQUIRES_NEW transaction always commits its increment
+     * before the outcome is evaluated. Throwing a RuntimeException from REQUIRES_NEW
+     * would roll back the inner tx and lose the increment.
      *
      * Phase 2 — markConsumed(): runs in the CALLER's transaction (REQUIRED)
      * so the verified=true flag is rolled back atomically if any subsequent
-     * write (user.save, token.save, session revoke, etc.) fails. This prevents
-     * a partially-completed setup from permanently burning the OTP.
+     * write (user.save, token.save, session revoke, etc.) fails.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public String checkAndIncrementAttempt(String referenceId, String email,
-                                           String purpose, String code) {
+    public OtpCheckOutcome checkAndIncrementAttempt(String referenceId, String email,
+                                                    String purpose, String code) {
         if (code == null || code.isBlank()) {
-            throw new IncorrectOtpException(ErrorCode.VALIDATION_FAILED, "Email OTP is required");
+            return OtpCheckOutcome.invalid(OtpCheckResult.INCORRECT, "Email OTP is required");
         }
-        AccountEmailOtp record = repository
+        java.util.Optional<AccountEmailOtp> found = repository
                 .findFirstByUserIdAndEmailAndPurposeAndVerifiedFalseAndExpiresAtAfterOrderByCreatedAtDesc(
-                        referenceId, email, purpose, LocalDateTime.now())
-                .orElseThrow(() -> new BusinessException(ErrorCode.OTP_EXPIRED,
-                        "Email OTP expired or not found"));
-        if (record.getAttempts() >= MAX_ATTEMPTS) throw new BusinessException(ErrorCode.OTP_MAX_ATTEMPTS);
+                        referenceId, email, purpose, LocalDateTime.now());
+        if (found.isEmpty()) {
+            return OtpCheckOutcome.invalid(OtpCheckResult.EXPIRED_OR_NOT_FOUND,
+                    "Email OTP expired or not found");
+        }
+        AccountEmailOtp record = found.get();
+        if (record.getAttempts() >= MAX_ATTEMPTS) {
+            return OtpCheckOutcome.invalid(OtpCheckResult.MAX_ATTEMPTS_EXCEEDED,
+                    "Too many incorrect attempts. Request a new OTP.");
+        }
         record.setAttempts(record.getAttempts() + 1);
         repository.save(record);
         if (!code.equals(record.getVerificationCode())) {
-            // Attempt count is committed by this REQUIRES_NEW transaction.
-            // IncorrectOtpException is NOT a BusinessException, so it won't trigger
-            // noRollbackFor = BusinessException.class on the outer transaction.
-            throw new IncorrectOtpException(ErrorCode.OTP_INVALID, "Incorrect email OTP");
+            return OtpCheckOutcome.invalid(OtpCheckResult.INCORRECT, "Incorrect email OTP");
         }
-        return record.getId();
+        return OtpCheckOutcome.correct(record.getId());
     }
 
     /**

@@ -14,7 +14,6 @@ import com.chitfund.userservice.repository.RefreshTokenRepository;
 import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.TrustedDeviceRepository;
 import com.chitfund.userservice.repository.UserRepository;
-import com.chitfund.userservice.exception.IncorrectOtpException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -117,9 +116,11 @@ public class OrgUserSetupService {
      *
      * If any write after the OTP check fails, the outer transaction rolls back
      * INCLUDING the OTP consumed flag — so the user can retry with the same OTP.
-     * Incorrect OTP attempts still commit independently (REQUIRES_NEW).
+     * Incorrect OTP attempts still commit independently (REQUIRES_NEW) because
+     * checkAndIncrementAttempt() returns an OtpCheckOutcome and never throws for
+     * a wrong code — the REQUIRES_NEW tx always commits before we evaluate the result.
      */
-    @Transactional(noRollbackFor = IncorrectOtpException.class)
+    @Transactional
     public void complete(OrgUserSetupCompleteRequest request) {
         String tokenHash = sha256(request.getToken());
         // Pessimistic lock prevents two concurrent requests from both succeeding
@@ -148,17 +149,25 @@ public class OrgUserSetupService {
 
         // Phase 1: validate the OTP and increment the attempt counter.
         // Runs in its own REQUIRES_NEW transaction — the counter is committed even
-        // if this method later rolls back. Throws IncorrectOtpException (not
-        // BusinessException) on wrong code; noRollbackFor above lets the outer
-        // transaction commit its empty state so the counter increment is visible.
-        String otpId = accountEmailOtpService.checkAndIncrementAttempt(
+        // if this method later rolls back. Returns OtpCheckOutcome (never throws for
+        // wrong code) so the REQUIRES_NEW tx commits the increment before we decide
+        // what to do with the result.
+        OtpCheckOutcome otpOutcome = accountEmailOtpService.checkAndIncrementAttempt(
                 user.getId().toString(), user.getEmail(),
                 SETUP_EMAIL_OTP_PURPOSE, request.getEmailOtp());
+        if (!otpOutcome.isCorrect()) {
+            ErrorCode code = switch (otpOutcome.getResult()) {
+                case EXPIRED_OR_NOT_FOUND -> ErrorCode.OTP_EXPIRED;
+                case MAX_ATTEMPTS_EXCEEDED -> ErrorCode.OTP_MAX_ATTEMPTS;
+                default -> ErrorCode.OTP_INVALID;
+            };
+            throw new BusinessException(code, otpOutcome.getMessage());
+        }
 
         // Phase 2: mark OTP consumed in the SAME outer transaction as all writes below.
         // If any of these saves fail, the entire outer transaction rolls back —
         // including the verified=true flag — so the OTP remains usable.
-        accountEmailOtpService.markConsumed(otpId);
+        accountEmailOtpService.markConsumed(otpOutcome.getOtpId());
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setTempPasswordHash(null);
