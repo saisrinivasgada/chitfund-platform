@@ -73,7 +73,7 @@ public class NotificationClient {
                     requireTenant(tenantId), memberIds, type, title, message, null, link);
             eventOutbox.enqueue(UUID.randomUUID().toString(),
                     SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS,
-                    objectMapper.writeValueAsString(event), SqsQueues.NOTIFICATION_EVENTS);
+                    objectMapper.writeValueAsString(event), SqsQueues.notificationEvents());
             log.info("Persisted bulk in-app notification '{}' for {} member(s)", type, memberIds.size());
         } catch (Exception e) {
             throw new IllegalStateException("Could not persist bulk in-app notification", e);

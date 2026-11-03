@@ -38,7 +38,9 @@ spring:
         static: ${AWS_REGION:ap-south-1}
       sqs:
         listener:
-          poll-timeout: PT20S
+          poll-timeout: ${SQS_POLL_TIMEOUT:PT20S}
+          max-concurrent-messages: ${SQS_MAX_CONCURRENT_MESSAGES:10}
+          max-messages-per-poll: ${SQS_MAX_MESSAGES_PER_POLL:10}
 
 server:
   port: 8088

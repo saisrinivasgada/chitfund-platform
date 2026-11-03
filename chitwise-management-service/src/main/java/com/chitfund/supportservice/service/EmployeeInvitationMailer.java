@@ -59,7 +59,7 @@ public class EmployeeInvitationMailer {
             String payloadJson = objectMapper.writeValueAsString(
                     new TransactionalEmailEvent(email, subject, html, text));
             eventOutbox.enqueue(UUID.randomUUID().toString(), SqsQueues.EVT_TRANSACTIONAL_EMAIL,
-                    payloadJson, SqsQueues.NOTIFICATION_EVENTS);
+                    payloadJson, SqsQueues.notificationEvents());
             log.info("Hub invite email persisted for delivery");
         } catch (Exception e) {
             log.error("Failed to persist Hub invite email: {}", e.getClass().getSimpleName());

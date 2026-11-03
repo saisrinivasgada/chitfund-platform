@@ -40,7 +40,7 @@ public class NotificationEventConsumer {
     private final EventInboxRepository inboxRepository;
     private final ThreadLocal<String> currentEventId = new ThreadLocal<>();
 
-    @SqsListener(SqsQueues.NOTIFICATION_EVENTS)
+    @SqsListener(SqsQueues.NOTIFICATION_EVENTS_LISTENER)
     @Transactional
     public void onEvent(String raw) {
         try {

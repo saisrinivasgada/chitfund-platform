@@ -43,32 +43,32 @@ public class PaymentEventPublisher {
 
     public void publish(ChitMonthOpenedEvent event) {
         route(SqsQueues.EVT_MONTH_OPENED, event, "CHIT", event.chitId(), List.of(
-                SqsQueues.NOTIFICATION_EVENTS, SqsQueues.REPORTING_EVENTS));
+                SqsQueues.notificationEvents(), SqsQueues.reportingEvents()));
     }
 
     public void publish(ChitMonthSkippedEvent event) {
         route(SqsQueues.EVT_MONTH_SKIPPED, event, "CHIT", event.chitId(), List.of(
-                SqsQueues.NOTIFICATION_EVENTS, SqsQueues.REPORTING_EVENTS));
+                SqsQueues.notificationEvents(), SqsQueues.reportingEvents()));
     }
 
     public void publish(CashCollectedEvent event) {
         route(SqsQueues.EVT_CASH_COLLECTED, event, "PAYMENT_BATCH", event.batchId(), List.of(
-                SqsQueues.NOTIFICATION_EVENTS));
+                SqsQueues.notificationEvents()));
     }
 
     public void publish(PaymentCompletedEvent event) {
         route(SqsQueues.EVT_PAYMENT_COMPLETED, event, "PAYMENT_BATCH", event.batchId(), List.of(
-                SqsQueues.NOTIFICATION_EVENTS, SqsQueues.AUDIT_EVENTS, SqsQueues.REPORTING_EVENTS));
+                SqsQueues.notificationEvents(), SqsQueues.auditEvents(), SqsQueues.reportingEvents()));
     }
 
     public void publish(CashRequestEvent event) {
         route(SqsQueues.EVT_CASH_REQUEST_EVENT, event, "CASH_REQUEST", event.requestId(), List.of(
-                SqsQueues.NOTIFICATION_EVENTS));
+                SqsQueues.notificationEvents()));
     }
 
     public void publish(PaymentIntimationNotificationEvent event) {
         route(SqsQueues.EVT_PAYMENT_INTIMATION, event, "PAYMENT_INTIMATION", event.intimationId(), List.of(
-                SqsQueues.NOTIFICATION_EVENTS));
+                SqsQueues.notificationEvents()));
     }
 
     private void route(String eventType, Object event, String aggregateType,

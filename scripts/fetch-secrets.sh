@@ -1,5 +1,6 @@
 #!/bin/bash
-# Fetches production secrets from AWS Secrets Manager and writes /app/.env
+# Fetches the host-selected environment configuration from AWS Secrets Manager
+# and writes /app/.env without printing secret values.
 # Requires the EC2 instance role to have secretsmanager:GetSecretValue permission.
 set -euo pipefail
 
@@ -15,7 +16,7 @@ SECRET_ID="${CHITWISE_SECRET_ID:-chitwise/prod}"
 REGION="${AWS_REGION:-ap-south-1}"
 ENV_FILE="${CHITWISE_ENV_FILE:-/app/.env}"
 
-echo "Fetching production configuration from Secrets Manager in ${REGION}..."
+echo "Fetching protected ChitWise configuration from Secrets Manager in ${REGION}..."
 
 # Keep signing evidence outside replaceable hosts, images and client bundles.
 export AWS_REGION="$REGION"
@@ -32,4 +33,4 @@ aws secretsmanager get-secret-value \
   --output text | python3 "$(dirname "$0")/prepare-offline-config.py" > "$task_env_tmp"
 chmod 600 "$task_env_tmp"
 mv -f "$task_env_tmp" "$ENV_FILE"
-echo "Production configuration validated and written securely."
+echo "ChitWise configuration validated and written securely."

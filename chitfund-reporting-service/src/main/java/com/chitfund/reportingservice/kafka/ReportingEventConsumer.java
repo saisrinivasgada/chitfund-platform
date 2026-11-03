@@ -29,7 +29,7 @@ public class ReportingEventConsumer {
     private final ObjectMapper objectMapper;
     private final EventInboxRepository inboxRepository;
 
-    @SqsListener(SqsQueues.REPORTING_EVENTS)
+    @SqsListener(SqsQueues.REPORTING_EVENTS_LISTENER)
     @Transactional
     public void onEvent(String raw) {
         try {
