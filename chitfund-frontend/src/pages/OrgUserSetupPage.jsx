@@ -23,6 +23,16 @@ export default function OrgUserSetupPage() {
   const [error, setError]               = useState('');
   const [done, setDone]                 = useState(false);
 
+  const passwordRules = [
+    { label: 'At least 8 characters',           met: newPassword.length >= 8 },
+    { label: 'One uppercase letter (A–Z)',       met: /[A-Z]/.test(newPassword) },
+    { label: 'One lowercase letter (a–z)',       met: /[a-z]/.test(newPassword) },
+    { label: 'One number (0–9)',                 met: /[0-9]/.test(newPassword) },
+    { label: 'One special character (!@#$…)',    met: /[^A-Za-z0-9]/.test(newPassword) },
+    { label: 'Passwords match',                  met: newPassword === confirmPass && confirmPass.length > 0 },
+  ];
+  const allPasswordRulesMet = passwordRules.every(r => r.met);
+
   const { data: details, isLoading: detailsLoading, error: detailsError } = useQuery({
     queryKey: ['org-user-setup-details', token],
     queryFn: () => getOrgUserSetupDetails(token),
@@ -62,8 +72,10 @@ export default function OrgUserSetupPage() {
       setError('Enter the 6-digit code sent to your email before continuing.');
       return;
     }
-    if (newPassword !== confirmPass) { setError("Passwords don't match"); return; }
-    if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!allPasswordRulesMet) {
+      setError('Password does not meet all requirements. Check the checklist below.');
+      return;
+    }
     if (!termsAccepted) { setError('Please accept the Terms of Service to continue.'); return; }
     setError('');
     setLoading(true);
@@ -71,6 +83,7 @@ export default function OrgUserSetupPage() {
       await completeOrgUserSetup({ token, emailOtp, newPassword, termsAccepted });
       setDone(true);
     } catch (err) {
+      // Show the backend's specific message verbatim (includes breached-password rejection).
       setError(err.response?.data?.message ?? 'Setup failed. The link may have expired.');
     } finally {
       setLoading(false);
@@ -221,11 +234,8 @@ export default function OrgUserSetupPage() {
           </div>
 
           {newPassword.length > 0 && (
-            <div className="space-y-1">
-              {[
-                { label: 'At least 8 characters', met: newPassword.length >= 8 },
-                { label: 'Passwords match', met: newPassword === confirmPass && confirmPass.length > 0 },
-              ].map(({ label, met }) => (
+            <div className="space-y-1" data-testid="password-rules">
+              {passwordRules.map(({ label, met }) => (
                 <div key={label} className="flex items-center gap-2">
                   <div className={`w-1.5 h-1.5 rounded-full ${met ? 'bg-green-500' : 'bg-gray-300'}`} />
                   <span className={`text-xs ${met ? 'text-green-600' : 'text-gray-400'}`}>{label}</span>
@@ -266,7 +276,7 @@ export default function OrgUserSetupPage() {
             </span>
           </label>
 
-          <Button type="submit" loading={loading} disabled={!termsAccepted || !otpSent} className="w-full mt-2">
+          <Button type="submit" loading={loading} disabled={!termsAccepted || !otpSent || !allPasswordRulesMet} className="w-full mt-2">
             Activate account
           </Button>
         </form>
