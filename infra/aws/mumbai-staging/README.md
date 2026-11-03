@@ -42,7 +42,7 @@ account. IAM also restricts the instance to `staging-chitfund-*` queue ARNs.
   swap runs all containers.
 - One private `db.t4g.micro` MySQL 8.4 RDS instance stores staging data.
 - Only three consolidated source queues are polled. They use the maximum
-  20-second SQS long poll, one consumer at a time and batches up to 10 messages.
+  20-second SQS long poll and one message/consumer at a time.
   Idle staging polling therefore stays below the SQS free request tier.
 - EC2 and RDS start daily at 08:45 and 08:30 IST respectively. EC2 stops at
   22:00 IST and RDS stops at 22:15 IST. They may be started manually for testing
