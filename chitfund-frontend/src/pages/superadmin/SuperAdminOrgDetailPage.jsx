@@ -249,21 +249,21 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
   const [form, setForm] = useState({ fullName: '', countryCode: '+91', phone: '', email: '', role: 'ADMIN' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [setupQueued, setSetupQueued] = useState(false);
+  const [setupResult, setSetupResult] = useState(null);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await superAdminAddOrgUser(tenantId, {
+      const result = await superAdminAddOrgUser(tenantId, {
         fullName: form.fullName,
         phone: form.phone,
         phoneCountryCode: form.countryCode,
         email: form.email.trim(),
         role: form.role,
       });
-      setSetupQueued(true);
+      setSetupResult(result);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Failed to add user');
     } finally {
@@ -271,19 +271,24 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
     }
   }
 
-  if (setupQueued) {
+  if (setupResult) {
+    const queued = setupResult.setupEmailQueued;
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
-          <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle size={28} className="text-green-500" />
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ${queued ? 'bg-green-100' : 'bg-amber-100'}`}>
+            <CheckCircle size={28} className={queued ? 'text-green-500' : 'text-amber-500'} />
           </div>
-          <h3 className="font-bold text-gray-900 mb-2">Setup email queued</h3>
+          <h3 className="font-bold text-gray-900 mb-2">
+            {queued ? 'Setup email queued' : 'Account created'}
+          </h3>
           <p className="text-sm text-gray-500 mb-6">
-            The user account was created. A setup link has been sent to their email address.
-            They will set their own password via the secure setup page.
+            {queued
+              ? <>The user account was created for <strong>{setupResult.username}</strong>. A setup link has been sent to <strong>{setupResult.maskedEmail}</strong>. They will set their own password via the secure setup page.</>
+              : <>The account for <strong>{setupResult.username}</strong> was created but the setup email could not be queued. Use <strong>Resend Setup</strong> from the user list to retry.</>
+            }
           </p>
-          <Button onClick={() => { onSuccess('User added — setup email queued'); onClose(); }}>Done</Button>
+          <Button onClick={() => { onSuccess(queued ? 'User added — setup email queued' : 'User added — setup email not queued'); onClose(); }}>Done</Button>
         </div>
       </div>
     );
