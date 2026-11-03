@@ -265,11 +265,14 @@ class AccountSetupTokenV186MySqlTest {
                 .build();
         tx.execute(s -> tokenRepo.save(expired));
 
-        // The expired token is still active (used_at IS NULL) — the constraint blocks a second.
-        // The resend must first revoke the expired token before inserting a new one.
+        // The expired token is still "active" (used_at IS NULL) — the generated-column
+        // unique index blocks a second active invite. The resend must revoke (flush to DB)
+        // BEFORE inserting the new token, otherwise the UPDATE and INSERT race in the same
+        // Hibernate flush cycle and the constraint fires. Two separate transactions model
+        // exactly what TenantService does: revoke all, then save a new one.
         tx.execute(s -> {
             expired.setUsedAt(LocalDateTime.now());
-            tokenRepo.save(expired);
+            tokenRepo.saveAndFlush(expired); // flush the UPDATE before the INSERT
             return tokenRepo.save(activeInvite(userId));
         });
 

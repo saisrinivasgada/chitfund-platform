@@ -98,10 +98,10 @@ class NginxTrustedClientIpTest {
         HttpResponse<String> resp = get("/", "X-ChitWise-Client-IP", forgedIp);
         assertThat(resp.statusCode()).isEqualTo(200);
 
-        String body = resp.body();
-        // The echo server returns lowercased header names
-        assertThat(body).contains("\"x-chitwiseclientip\":");  // header was set by nginx
-        assertThat(body).doesNotContain(forgedIp);              // forged value must not appear
+        // Python echo server lowercases headers but keeps hyphens → "x-chitwise-client-ip"
+        String seen = extractHeader(resp.body(), "x-chitwise-client-ip");
+        assertThat(seen).isNotBlank();
+        assertThat(seen).isNotEqualTo(forgedIp); // nginx replaced it with TCP peer addr
     }
 
     @Test
@@ -111,9 +111,13 @@ class NginxTrustedClientIpTest {
                 "X-Forwarded-For", "9.8.7.6");
         assertThat(resp.statusCode()).isEqualTo(200);
 
-        String body = resp.body();
-        // nginx must overwrite X-Real-IP — the forged value "9.8.7.6" must not reach the backend
-        assertThat(body).doesNotContain("9.8.7.6");
+        // X-Real-IP must be the TCP peer (not the forged value)
+        String realIp = extractHeader(resp.body(), "x-real-ip");
+        assertThat(realIp).isNotBlank();
+        assertThat(realIp).isNotEqualTo("9.8.7.6");
+        // Note: X-Forwarded-For will contain "9.8.7.6, <real-peer>" — that is correct nginx
+        // behavior ($proxy_add_x_forwarded_for appends the TCP peer to the incoming chain).
+        // The important guarantee is that X-Real-IP and X-ChitWise-Client-IP cannot be forged.
     }
 
     @Test
@@ -121,33 +125,38 @@ class NginxTrustedClientIpTest {
         HttpResponse<String> r1 = get("/", "X-ChitWise-Client-IP", "evil-1.1.1.1");
         HttpResponse<String> r2 = get("/", "X-ChitWise-Client-IP", "evil-2.2.2.2");
 
-        // Both requests come from the same TCP peer (the test JVM)
-        // so they must have the same X-ChitWise-Client-IP reaching the backend
-        String ip1 = extractHeader(r1.body(), "x-chitwiseclientip");
-        String ip2 = extractHeader(r2.body(), "x-chitwiseclientip");
+        // Both requests come from the same TCP peer (the test JVM) so nginx sets
+        // the same $remote_addr on both — forged values are irrelevant.
+        String ip1 = extractHeader(r1.body(), "x-chitwise-client-ip");
+        String ip2 = extractHeader(r2.body(), "x-chitwise-client-ip");
 
         assertThat(ip1).isNotBlank();
         assertThat(ip1).isEqualTo(ip2);
-        // Neither forged value must appear
         assertThat(ip1).doesNotContain("evil-1.1.1.1").doesNotContain("evil-2.2.2.2");
     }
 
     @Test
     void xChitWiseClientIpIsNotRequestIpFromForgedHeader() throws Exception {
-        // All requests in this test come from the same TCP peer (test JVM → nginx).
-        // Forge a dramatically different IP. The value the backend sees must NOT match.
         String forged = "255.255.255.255";
         HttpResponse<String> resp = get("/", "X-ChitWise-Client-IP", forged);
-        String body = resp.body();
 
-        String seen = extractHeader(body, "x-chitwiseclientip");
+        String seen = extractHeader(resp.body(), "x-chitwise-client-ip");
         assertThat(seen).isNotEqualTo(forged);
     }
 
-    /** Extracts a header value from the JSON echo body. Cheap but sufficient for these tests. */
+    /**
+     * Extracts a header value from the JSON echo body (header names are lowercased + hyphenated).
+     * e.g. extractHeader(body, "x-chitwise-client-ip") → "172.18.0.1"
+     */
     private static String extractHeader(String json, String headerName) {
-        String key = "\"" + headerName + "\":\"";
+        // Header names come back as lowercase with hyphens from the Python echo server
+        String key = "\"" + headerName.toLowerCase() + "\": \"";
         int start = json.indexOf(key);
+        if (start < 0) {
+            // Try without space after colon
+            key = "\"" + headerName.toLowerCase() + "\":\"";
+            start = json.indexOf(key);
+        }
         if (start < 0) return "";
         start += key.length();
         int end = json.indexOf("\"", start);
