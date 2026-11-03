@@ -1,0 +1,636 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Cost-conscious private ChitWise staging infrastructure in ap-south-1.
+  Creates a Tailscale-only application host, a separate private encrypted
+  MySQL database, isolated SQS queues, deployment storage, Systems Manager
+  access, and a GitHub Actions role restricted to the test branch.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chitwise-staging
+    AllowedPattern: '[a-z0-9-]+'
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues: [t3.medium, t3.large]
+  RootVolumeSize:
+    Type: Number
+    Default: 35
+    MinValue: 20
+  DatabaseInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues: [db.t4g.micro, db.t3.micro]
+  DatabaseAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+  StagingSecretName:
+    Type: String
+    Default: chitwise/staging
+    Description: >-
+      Existing ap-south-1 secret containing DB_PASSWORD and the staging
+      application configuration. The stack never prints its value.
+  CertbotSecretName:
+    Type: String
+    Default: chitwise/certbot-godaddy
+    Description: GoDaddy DNS credential used only during certificate renewal.
+  GitHubRepository:
+    Type: String
+    Default: saisrinivasgada/chitfund-platform
+  GitHubOidcProviderArn:
+    Type: String
+    Default: arn:aws:iam::879246538276:oidc-provider/token.actions.githubusercontent.com
+    Description: Existing account-level GitHub Actions OIDC provider ARN.
+  LatestAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: Explicitly reviewed AMI ID. Keep the deployed value for ordinary updates.
+
+Resources:
+  OfflineSigningSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub '${StagingSecretName}/offline-signing'
+      Description: Durable offline grant evidence; retain old keys when rotating.
+      GenerateSecretString:
+        SecretStringTemplate: '{"OFFLINE_SIGNING_KEY_ID":"offline-v1","OFFLINE_PREVIOUS_SIGNING_KEYS":"{}"}'
+        GenerateStringKey: OFFLINE_SIGNING_SECRET
+        PasswordLength: 64
+        ExcludePunctuation: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.30.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-vpc'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-igw'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  ApplicationSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.30.1.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-app-1a'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  DatabaseSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.30.10.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-1a'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  DatabaseSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.30.11.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-1b'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  ApplicationRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-public-routes'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  DefaultInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref ApplicationRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  ApplicationRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref ApplicationRouteTable
+      SubnetId: !Ref ApplicationSubnet
+
+  ApplicationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Private staging host; application access is through Tailscale only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: udp
+          FromPort: 41641
+          ToPort: 41641
+          CidrIp: 0.0.0.0/0
+          Description: Tailscale encrypted peer connectivity only; no public HTTP or HTTPS
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-app-sg'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MySQL from the ChitWise application host only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+          Description: ChitWise services
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-sg'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldReleases
+            Status: Enabled
+            ExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  ApplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: ChitWiseRuntime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue, secretsmanager:DescribeSecret]
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${StagingSecretName}-*'
+                  - !Ref OfflineSigningSecret
+                  - !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${CertbotSecretName}-*'
+              - Effect: Allow
+                Action: [sqs:SendMessage, sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:GetQueueUrl, sqs:ChangeMessageVisibility]
+                Resource: !Sub 'arn:${AWS::Partition}:sqs:${AWS::Region}:${AWS::AccountId}:staging-chitfund-*'
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub '${DeploymentBucket.Arn}/*'
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  ApplicationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref ApplicationRole]
+
+  ApplicationInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref ApplicationInstanceProfile
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      NetworkInterfaces:
+        # The temporary address lets first-boot package installation reach the
+        # internet. It is automatically replaced by the stable Elastic IP.
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: '0'
+          GroupSet: [!Ref ApplicationSecurityGroup]
+          SubnetId: !Ref ApplicationSubnet
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf update -y
+          dnf install -y docker nginx certbot python3-certbot-nginx mariadb105 dnf-plugins-core
+          dnf config-manager --add-repo https://pkgs.tailscale.com/stable/amazon-linux/2023/tailscale.repo
+          dnf install -y tailscale
+          # The service stack contains multiple JVMs. A small encrypted swap
+          # file absorbs simultaneous startup peaks without paying for a larger
+          # instance while traffic is low. RAM remains preferred during normal
+          # operation.
+          fallocate -l 4G /swapfile
+          chmod 0600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >>/etc/fstab
+          echo 'vm.swappiness=10' >/etc/sysctl.d/90-chitwise-swap.conf
+          sysctl --system
+          install -d -m 0755 /usr/local/lib/docker/cli-plugins
+          curl -fsSL \
+            https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          echo '40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a  /usr/local/lib/docker/cli-plugins/docker-compose' \
+            | sha256sum --check --strict
+          chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+          systemctl enable --now docker
+          systemctl enable --now tailscaled
+          systemctl enable amazon-ssm-agent
+          systemctl restart amazon-ssm-agent
+          systemctl enable nginx
+          systemctl enable --now certbot-renew.timer
+          usermod -aG docker ec2-user
+          install -d -o ec2-user -g ec2-user -m 0750 /app
+          install -d -o nginx -g nginx -m 0755 /var/www/chitfund
+          cat >/etc/chitwise-environment <<'EOF'
+          AWS_REGION=${AWS::Region}
+          CHITWISE_SECRET_ID=${StagingSecretName}
+          CHITWISE_CERTBOT_SECRET_ID=${CertbotSecretName}
+          EOF
+          chmod 0644 /etc/chitwise-environment
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-server'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  ApplicationElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-eip'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  ApplicationElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ApplicationElasticIp.AllocationId
+      InstanceId: !Ref ApplicationInstance
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private Mumbai subnets for ChitWise staging MySQL
+      SubnetIds: [!Ref DatabaseSubnetA, !Ref DatabaseSubnetB]
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db-subnets'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  DatabaseParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: ChitWise MySQL 8.4 parameters
+      Family: mysql8.4
+      Parameters:
+        log_bin_trust_function_creators: '1'
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub '${EnvironmentName}-db'
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      Engine: mysql
+      EngineVersion: 8.4.10
+      MasterUsername: chitfund
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${StagingSecretName}:SecretString:DB_PASSWORD}}'
+      AllocatedStorage: !Ref DatabaseAllocatedStorage
+      MaxAllocatedStorage: 50
+      StorageType: gp3
+      StorageEncrypted: true
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 3
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      AutoMinorVersionUpgrade: true
+      EnablePerformanceInsights: false
+      DBParameterGroupName: !Ref DatabaseParameterGroup
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
+      Tags:
+        - {Key: Name, Value: !Sub '${EnvironmentName}-db'}
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  AuditDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: staging-chitfund-audit-events-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  AuditQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: staging-chitfund-audit-events
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 60
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt AuditDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  NotificationDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: staging-chitfund-notification-events-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  NotificationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: staging-chitfund-notification-events
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 60
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt NotificationDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  ReportingDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: staging-chitfund-reporting-events-dlq
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  ReportingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: staging-chitfund-reporting-events
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 60
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ReportingDeadLetterQueue.Arn
+        maxReceiveCount: 5
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-github-deploy'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Federated: !Ref GitHubOidcProviderArn}
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepository}:ref:refs/heads/test'
+      Policies:
+        - PolicyName: DeployChitWise
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub '${DeploymentBucket.Arn}/releases/*'
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript'
+                  - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${ApplicationInstance}'
+              - Effect: Allow
+                Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations]
+                Resource: '*'
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  StagingScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-schedule-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: scheduler.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartStopOnlyThisStagingEnvironment
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [ec2:StartInstances, ec2:StopInstances]
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${ApplicationInstance}'
+              - Effect: Allow
+                Action: [rds:StartDBInstance, rds:StopDBInstance]
+                Resource: !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:${Database}'
+      Tags:
+        - {Key: Application, Value: ChitWise}
+        - {Key: Environment, Value: Staging}
+
+  StartStagingDatabaseSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${EnvironmentName}-start-database'
+      Description: Start the private staging database before the application host
+      FlexibleTimeWindow: {Mode: 'OFF'}
+      ScheduleExpression: 'cron(30 8 * * ? *)'
+      ScheduleExpressionTimezone: Asia/Kolkata
+      State: ENABLED
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:rds:startDBInstance
+        RoleArn: !GetAtt StagingScheduleRole.Arn
+        Input: !Sub '{"DbInstanceIdentifier":"${Database}"}'
+
+  StartStagingApplicationSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${EnvironmentName}-start-application'
+      Description: Start the private staging application after the database
+      FlexibleTimeWindow: {Mode: 'OFF'}
+      ScheduleExpression: 'cron(45 8 * * ? *)'
+      ScheduleExpressionTimezone: Asia/Kolkata
+      State: ENABLED
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:startInstances
+        RoleArn: !GetAtt StagingScheduleRole.Arn
+        Input: !Sub '{"InstanceIds":["${ApplicationInstance}"]}'
+
+  StopStagingApplicationSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${EnvironmentName}-stop-application'
+      Description: Stop the private staging application outside the normal test window
+      FlexibleTimeWindow: {Mode: 'OFF'}
+      ScheduleExpression: 'cron(0 22 * * ? *)'
+      ScheduleExpressionTimezone: Asia/Kolkata
+      State: ENABLED
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:ec2:stopInstances
+        RoleArn: !GetAtt StagingScheduleRole.Arn
+        Input: !Sub '{"InstanceIds":["${ApplicationInstance}"]}'
+
+  StopStagingDatabaseSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${EnvironmentName}-stop-database'
+      Description: Stop the private staging database after the application host
+      FlexibleTimeWindow: {Mode: 'OFF'}
+      ScheduleExpression: 'cron(15 22 * * ? *)'
+      ScheduleExpressionTimezone: Asia/Kolkata
+      State: ENABLED
+      Target:
+        Arn: arn:aws:scheduler:::aws-sdk:rds:stopDBInstance
+        RoleArn: !GetAtt StagingScheduleRole.Arn
+        Input: !Sub '{"DbInstanceIdentifier":"${Database}"}'
+
+  InstanceStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: ChitWise EC2 instance failed a status check
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions: [{Name: InstanceId, Value: !Ref ApplicationInstance}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      # Missing metrics are expected while the cost-saving schedule stops EC2.
+      TreatMissingData: notBreaching
+
+  DatabaseStorageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: ChitWise RDS free storage is below 2 GiB
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions: [{Name: DBInstanceIdentifier, Value: !Ref Database}]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 2147483648
+      ComparisonOperator: LessThanThreshold
+      # Missing metrics are expected while the cost-saving schedule stops RDS.
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApplicationInstanceId:
+    Value: !Ref ApplicationInstance
+  ApplicationPublicIp:
+    Value: !Ref ApplicationElasticIp
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  DeploymentBucketName:
+    Value: !Ref DeploymentBucket
+  GitHubDeployRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
+  StagingSecretName:
+    Value: !Ref StagingSecretName
+  CertbotSecretName:
+    Value: !Ref CertbotSecretName
+  AuditDeadLetterQueueArn:
+    Value: !GetAtt AuditDeadLetterQueue.Arn
+  NotificationDeadLetterQueueArn:
+    Value: !GetAtt NotificationDeadLetterQueue.Arn
+  ReportingDeadLetterQueueArn:
+    Value: !GetAtt ReportingDeadLetterQueue.Arn
+  AuditQueueUrl:
+    Value: !Ref AuditQueue
+  NotificationQueueUrl:
+    Value: !Ref NotificationQueue
+  ReportingQueueUrl:
+    Value: !Ref ReportingQueue
