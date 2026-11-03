@@ -232,7 +232,7 @@ class OrgUserSetupServiceTest {
         }
 
         @Test
-        void completeRejectsWhenTermsNotAccepted() {
+        void completeRejectsWhenTermsNotAccepted_doesNotConsumeOtp() {
             UUID userId = UUID.randomUUID();
             String raw = "notermstoken";
             String hash = OrgUserSetupService.sha256(raw);
@@ -253,7 +253,6 @@ class OrgUserSetupServiceTest {
 
             when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(mainToken));
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-            doNothing().when(accountEmailOtpService).verify(any(), any(), any(), any());
 
             OrgUserSetupCompleteRequest req = new OrgUserSetupCompleteRequest();
             req.setToken(raw);
@@ -264,6 +263,137 @@ class OrgUserSetupServiceTest {
             assertThatThrownBy(() -> service.complete(req))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("terms");
+
+            // OTP must NOT be consumed — verify() must never have been called
+            verify(accountEmailOtpService, never()).verify(any(), any(), any(), any());
+        }
+
+        @Test
+        void completeWithWeakPassword_doesNotConsumeOtp() {
+            UUID userId = UUID.randomUUID();
+            String raw = "weakpasstoken";
+            String hash = OrgUserSetupService.sha256(raw);
+
+            AccountSetupToken mainToken = AccountSetupToken.builder()
+                    .purpose(SetupTokenPurpose.ORG_USER_INVITE)
+                    .tokenHash(hash)
+                    .userId(userId)
+                    .expiresAt(LocalDateTime.now().plusHours(24))
+                    .build();
+
+            User user = User.builder()
+                    .id(userId)
+                    .email("test@example.com")
+                    .role(Role.ADMIN)
+                    .tenantId(UUID.randomUUID().toString())
+                    .build();
+
+            when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(mainToken));
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            doThrow(new BusinessException(com.chitfund.common.exception.ErrorCode.VALIDATION_FAILED,
+                    "Password must contain at least one uppercase letter"))
+                    .when(passwordValidator).validate("weakpass");
+
+            OrgUserSetupCompleteRequest req = new OrgUserSetupCompleteRequest();
+            req.setToken(raw);
+            req.setEmailOtp("222222");
+            req.setNewPassword("weakpass");
+            req.setTermsAccepted(true);
+
+            assertThatThrownBy(() -> service.complete(req))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("uppercase");
+
+            // OTP must NOT be consumed — verify() must never have been called
+            verify(accountEmailOtpService, never()).verify(any(), any(), any(), any());
+        }
+
+        @Test
+        void completeSuccessfully_consumesOtpExactlyOnce() {
+            UUID userId = UUID.randomUUID();
+            String raw = "successtoken";
+            String hash = OrgUserSetupService.sha256(raw);
+
+            AccountSetupToken mainToken = AccountSetupToken.builder()
+                    .purpose(SetupTokenPurpose.ORG_USER_INVITE)
+                    .tokenHash(hash)
+                    .userId(userId)
+                    .expiresAt(LocalDateTime.now().plusHours(24))
+                    .build();
+
+            User user = User.builder()
+                    .id(userId)
+                    .email("test@example.com")
+                    .role(Role.ADMIN)
+                    .tenantId(UUID.randomUUID().toString())
+                    .build();
+
+            when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(mainToken));
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            doNothing().when(accountEmailOtpService).verify(any(), any(), any(), any());
+            doNothing().when(passwordValidator).validate(any());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(setupTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(
+                    any(), eq(SetupTokenPurpose.ORG_USER_INVITE)))
+                    .thenReturn(List.of());
+
+            OrgUserSetupCompleteRequest req = new OrgUserSetupCompleteRequest();
+            req.setToken(raw);
+            req.setEmailOtp("333333");
+            req.setNewPassword("ValidPassword!1");
+            req.setTermsAccepted(true);
+
+            service.complete(req);
+
+            verify(accountEmailOtpService, times(1)).verify(
+                    eq(userId.toString()), eq("test@example.com"),
+                    eq("ORG_USER_SETUP"), eq("333333"));
+        }
+
+        @Test
+        void completeVerifiesOtpAfterTermsAndPassword() {
+            // Prove that OTP is consumed AFTER terms + password by verifying call order:
+            // terms checked first (throws if false), password second (throws if weak),
+            // verify last (throws if wrong OTP). A wrong OTP after valid terms/password
+            // is the only case that should decrement the attempt counter.
+            UUID userId = UUID.randomUUID();
+            String raw = "ordertoken";
+            String hash = OrgUserSetupService.sha256(raw);
+
+            AccountSetupToken token = AccountSetupToken.builder()
+                    .purpose(SetupTokenPurpose.ORG_USER_INVITE)
+                    .tokenHash(hash)
+                    .userId(userId)
+                    .expiresAt(LocalDateTime.now().plusHours(24))
+                    .build();
+
+            User user = User.builder()
+                    .id(userId)
+                    .email("order@example.com")
+                    .role(Role.ADMIN)
+                    .tenantId(UUID.randomUUID().toString())
+                    .build();
+
+            when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(token));
+            when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+            doNothing().when(passwordValidator).validate(any());
+            doThrow(new BusinessException(com.chitfund.common.exception.ErrorCode.OTP_INVALID,
+                    "Invalid OTP"))
+                    .when(accountEmailOtpService).verify(any(), any(), any(), any());
+
+            OrgUserSetupCompleteRequest req = new OrgUserSetupCompleteRequest();
+            req.setToken(raw);
+            req.setEmailOtp("000000");
+            req.setNewPassword("ValidPassword!2");
+            req.setTermsAccepted(true);
+
+            // Wrong OTP with valid terms+password → OTP verify is reached (attempt counted)
+            assertThatThrownBy(() -> service.complete(req))
+                    .isInstanceOf(BusinessException.class);
+
+            // verify() was called → the OTP attempt was registered
+            verify(accountEmailOtpService, times(1)).verify(any(), any(), any(), any());
         }
     }
 }

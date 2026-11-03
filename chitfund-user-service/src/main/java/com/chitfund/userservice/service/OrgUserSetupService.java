@@ -136,16 +136,21 @@ public class OrgUserSetupService {
                     "No email address is on file. Contact your administrator.", HttpStatus.BAD_REQUEST);
         }
 
-        // Validate email OTP
-        accountEmailOtpService.verify(user.getId().toString(), user.getEmail(),
-                SETUP_EMAIL_OTP_PURPOSE, request.getEmailOtp());
-
+        // Validate terms and password BEFORE consuming the OTP.
+        // AccountEmailOtpService.verify() uses REQUIRES_NEW — once called it commits
+        // the OTP record in its own transaction regardless of what the outer transaction
+        // does. Doing these cheap, side-effect-free checks first means a weak password
+        // or missing terms-acceptance never burns the user's valid OTP.
         if (!request.isTermsAccepted()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "You must accept the terms of service to continue", HttpStatus.BAD_REQUEST);
         }
 
         passwordValidator.validate(request.getNewPassword());
+
+        // Consume the OTP only after all other validations pass.
+        accountEmailOtpService.verify(user.getId().toString(), user.getEmail(),
+                SETUP_EMAIL_OTP_PURPOSE, request.getEmailOtp());
 
         // Update user in the same transaction
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
