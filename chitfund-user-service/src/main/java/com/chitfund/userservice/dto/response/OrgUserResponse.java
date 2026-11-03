@@ -24,4 +24,5 @@ public class OrgUserResponse {
     private LocalDateTime lastLoginAt;
     private boolean setupEmailQueued;
     private String maskedEmail;
+    private boolean setupPending;
 }

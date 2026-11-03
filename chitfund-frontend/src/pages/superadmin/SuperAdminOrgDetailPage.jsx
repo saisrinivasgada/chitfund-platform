@@ -1799,6 +1799,7 @@ export default function SuperAdminOrgDetailPage() {
                                   {u.locked ? <LockOpen size={12} /> : <Lock size={12} />}
                                   {lockingUserId === u.userId ? '…' : u.locked ? 'Unlock' : 'Lock'}
                                 </button>
+                                {u.setupPending && (
                                 <button
                                   type="button"
                                   disabled={resendingSetupUserId === u.userId}
@@ -1819,6 +1820,7 @@ export default function SuperAdminOrgDetailPage() {
                                   <Link size={12} />
                                   {resendingSetupUserId === u.userId ? '…' : 'Resend Setup'}
                                 </button>
+                                )}
                               </>
                             )}
                           </div>

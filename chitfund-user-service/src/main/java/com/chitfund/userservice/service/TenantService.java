@@ -573,6 +573,7 @@ public class TenantService {
                         .mustChangePassword(u.isMustChangePassword())
                         .joinedAt(u.getCreatedAt())
                         .lastLoginAt(u.getLastLoginAt())
+                        .setupPending(isSetupPending(u))
                         .build())
                 .toList();
 
@@ -597,6 +598,7 @@ public class TenantService {
                             .mustChangePassword(u.isMustChangePassword())
                             .joinedAt(link.getCreatedAt())
                             .lastLoginAt(u.getLastLoginAt())
+                            .setupPending(isSetupPending(u))
                             .build();
                 })
                 .filter(java.util.Objects::nonNull)
@@ -731,7 +733,12 @@ public class TenantService {
                 .joinedAt(user.getCreatedAt())
                 .setupEmailQueued(emailQueued)
                 .maskedEmail(req.getEmail() != null ? maskEmail(req.getEmail()) : null)
+                .setupPending(isSetupPending(user))
                 .build();
+    }
+
+    static boolean isSetupPending(User user) {
+        return user.isMustChangePassword() || user.isEmailVerificationRequired();
     }
 
     private static String sha256Hex(String input) {
@@ -1422,6 +1429,11 @@ public class TenantService {
         if (!tenantId.toString().equals(user.getTenantId())) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                     "User not found", HttpStatus.NOT_FOUND);
+        }
+        if (!isSetupPending(user)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Account is already activated. Setup links can only be resent to accounts that have not completed setup.",
+                    HttpStatus.CONFLICT);
         }
         if (user.getEmail() == null || user.getEmail().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
