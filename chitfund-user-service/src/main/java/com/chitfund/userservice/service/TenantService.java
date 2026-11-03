@@ -37,6 +37,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -556,10 +557,28 @@ public class TenantService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
         // Non-member users (ADMIN, MANAGER, STAFF) — role + tenantId live on users table
-        List<OrgUserResponse> staffUsers = userRepository
+        List<User> staffList = userRepository
                 .findByTenantIdAndRoleInAndDeletedAtIsNull(tenantId.toString(),
-                        List.of(Role.ADMIN, Role.MANAGER, Role.STAFF))
-                .stream()
+                        List.of(Role.ADMIN, Role.MANAGER, Role.STAFF));
+
+        // Member users — get link row for memberId, user row for profile
+        List<MemberUserLink> links = memberLinkRepository.findAllByTenantId(tenantId);
+        List<User> memberList = links.stream()
+                .map(l -> userRepository.findById(l.getUserId()).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+
+        // Single batch query for active ORG_USER_INVITE tokens — avoids N+1 per user.
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        java.util.List<UUID> allUserIds = java.util.stream.Stream
+                .concat(staffList.stream(), memberList.stream())
+                .map(User::getId)
+                .toList();
+        java.util.Set<UUID> usersWithActiveInvite = allUserIds.isEmpty()
+                ? java.util.Set.of()
+                : setupTokenRepository.findUserIdsWithActiveOrgInvite(allUserIds, now);
+
+        List<OrgUserResponse> staffUsers = staffList.stream()
                 .map(u -> OrgUserResponse.builder()
                         .userId(u.getId().toString())
                         .username(u.getUsername())
@@ -573,15 +592,15 @@ public class TenantService {
                         .mustChangePassword(u.isMustChangePassword())
                         .joinedAt(u.getCreatedAt())
                         .lastLoginAt(u.getLastLoginAt())
-                        .setupPending(isSetupPending(u))
+                        .setupPending(usersWithActiveInvite.contains(u.getId()))
                         .build())
                 .toList();
 
-        // Member users — get link row for memberId, user row for profile
-        List<OrgUserResponse> memberUsers = memberLinkRepository.findAllByTenantId(tenantId)
-                .stream()
+        List<OrgUserResponse> memberUsers = links.stream()
                 .map(link -> {
-                    User u = userRepository.findById(link.getUserId()).orElse(null);
+                    User u = memberList.stream()
+                            .filter(m -> m.getId().equals(link.getUserId()))
+                            .findFirst().orElse(null);
                     if (u == null) return null;
                     return OrgUserResponse.builder()
                             .userId(u.getId().toString())
@@ -598,7 +617,7 @@ public class TenantService {
                             .mustChangePassword(u.isMustChangePassword())
                             .joinedAt(link.getCreatedAt())
                             .lastLoginAt(u.getLastLoginAt())
-                            .setupPending(isSetupPending(u))
+                            .setupPending(usersWithActiveInvite.contains(u.getId()))
                             .build();
                 })
                 .filter(java.util.Objects::nonNull)
@@ -737,8 +756,12 @@ public class TenantService {
                 .build();
     }
 
-    static boolean isSetupPending(User user) {
-        return user.isMustChangePassword() || user.isEmailVerificationRequired();
+    private boolean isSetupPending(User user) {
+        return isSetupPending(user.getId());
+    }
+
+    private boolean isSetupPending(UUID userId) {
+        return setupTokenRepository.existsActiveOrgUserInvite(userId, java.time.LocalDateTime.now());
     }
 
     private static String sha256Hex(String input) {
@@ -1423,7 +1446,11 @@ public class TenantService {
 
     @Transactional
     public void resendOrgUserSetup(UUID tenantId, UUID userId, String actorId) {
-        User user = userRepository.findById(userId)
+        // Pessimistic write lock prevents two concurrent resends from both
+        // reading "setup pending" simultaneously and then racing to insert a
+        // new token, which would cause V186's unique-index constraint to fire
+        // on the second committer with no helpful error surfaced to the caller.
+        User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "User not found", HttpStatus.NOT_FOUND));
         if (!tenantId.toString().equals(user.getTenantId())) {
@@ -1442,11 +1469,16 @@ public class TenantService {
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
-        // Revoke ALL prior ORG_USER_INVITE tokens
-        setupTokenRepository
+        // Revoke all prior active ORG_USER_INVITE tokens and flush immediately.
+        // saveAllAndFlush() ensures the UPDATEs reach the DB before the INSERT
+        // below, preventing V186's unique-index from seeing two active rows for
+        // the same user within the same Hibernate flush cycle.
+        java.util.List<AccountSetupToken> existing = setupTokenRepository
                 .findAllByUserIdAndPurposeAndUsedAtIsNull(
-                        userId, com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE)
-                .forEach(t -> { t.setUsedAt(java.time.LocalDateTime.now()); setupTokenRepository.save(t); });
+                        userId, com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        existing.forEach(t -> t.setUsedAt(now));
+        setupTokenRepository.saveAllAndFlush(existing);
 
         String rawToken = UUID.randomUUID().toString().replace("-", "")
                 + UUID.randomUUID().toString().replace("-", "");
@@ -1455,10 +1487,21 @@ public class TenantService {
                 .userId(userId)
                 .purpose(com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE)
                 .tokenHash(tokenHash)
-                .expiresAt(java.time.LocalDateTime.now().plusHours(setupTokenExpiryHours))
+                .expiresAt(now.plusHours(setupTokenExpiryHours))
                 .build();
-        setupTokenRepository.save(token);
+        try {
+            setupTokenRepository.save(token);
+        } catch (DataIntegrityViolationException e) {
+            // A concurrent resend won the race and already inserted a new token.
+            // Surface this as a controlled conflict rather than an unhandled 500.
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "A setup link was already sent moments ago. Please try again shortly.",
+                    HttpStatus.CONFLICT);
+        }
 
+        // Email is queued into the transactional outbox here. It is only
+        // delivered after this transaction commits, so the loser of a
+        // concurrent-resend race never triggers an email send.
         String setupUrl = frontendUrl + "/org-user-setup?token=" + rawToken;
         String html = EmailService.buildOrgUserSetupHtml(
                 user.getFullName(), tenant.getName(), user.getRole().name(),

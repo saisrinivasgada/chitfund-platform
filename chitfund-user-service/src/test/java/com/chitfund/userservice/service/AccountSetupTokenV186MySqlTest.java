@@ -191,11 +191,11 @@ class AccountSetupTokenV186MySqlTest {
         for (Future<?> f : futures) f.get(10, TimeUnit.SECONDS);
         pool.shutdown();
 
-        // Exactly one active token should exist for this user
+        // Exactly one active token should exist for this user — never zero, never two.
         long activeCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM account_setup_tokens WHERE user_id = ? AND purpose = 'ORG_USER_INVITE' AND used_at IS NULL",
                 Long.class, userId.toString());
-        assertThat(activeCount).isLessThanOrEqualTo(1);
+        assertThat(activeCount).isEqualTo(1);
     }
 
     @Test
@@ -233,7 +233,7 @@ class AccountSetupTokenV186MySqlTest {
         long activeCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM account_setup_tokens WHERE user_id = ? AND purpose = 'ORG_USER_INVITE' AND used_at IS NULL",
                 Long.class, userId.toString());
-        assertThat(activeCount).isLessThanOrEqualTo(1);
+        assertThat(activeCount).isEqualTo(1);
         assertThat(failures.get()).isGreaterThanOrEqualTo(threads - 1);
     }
 
