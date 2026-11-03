@@ -3,6 +3,7 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.AccountEmailOtp;
+import com.chitfund.userservice.exception.IncorrectOtpException;
 import com.chitfund.userservice.repository.AccountEmailOtpRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -42,6 +43,12 @@ public class AccountEmailOtpService {
         return otp;
     }
 
+    /**
+     * Original verify() — used by AuthService, ChitfundRequestService.
+     * These callers operate inside their own @Transactional methods and accept
+     * the REQUIRES_NEW semantics: the OTP is committed independently so that
+     * attempt counts are preserved even if the caller's transaction rolls back.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)
     public void verify(String referenceId, String email, String purpose, String code) {
         if (code == null || code.isBlank()) {
@@ -57,6 +64,57 @@ public class AccountEmailOtpService {
             repository.save(record);
             throw new BusinessException(ErrorCode.OTP_INVALID, "Incorrect email OTP");
         }
+        record.setVerified(true);
+        repository.save(record);
+    }
+
+    /**
+     * Two-phase verify for the org-user setup flow where the OTP consumed state
+     * must be atomic with all other account-setup writes.
+     *
+     * Phase 1 — checkAndIncrementAttempt(): runs in its own REQUIRES_NEW
+     * transaction so the attempt counter is committed even if the caller's
+     * transaction later rolls back. Returns the OTP record's ID when the code
+     * is correct; throws IncorrectOtpException (commits the increment) when wrong.
+     *
+     * Phase 2 — markConsumed(): runs in the CALLER's transaction (REQUIRED)
+     * so the verified=true flag is rolled back atomically if any subsequent
+     * write (user.save, token.save, session revoke, etc.) fails. This prevents
+     * a partially-completed setup from permanently burning the OTP.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public String checkAndIncrementAttempt(String referenceId, String email,
+                                           String purpose, String code) {
+        if (code == null || code.isBlank()) {
+            throw new IncorrectOtpException(ErrorCode.VALIDATION_FAILED, "Email OTP is required");
+        }
+        AccountEmailOtp record = repository
+                .findFirstByUserIdAndEmailAndPurposeAndVerifiedFalseAndExpiresAtAfterOrderByCreatedAtDesc(
+                        referenceId, email, purpose, LocalDateTime.now())
+                .orElseThrow(() -> new BusinessException(ErrorCode.OTP_EXPIRED,
+                        "Email OTP expired or not found"));
+        if (record.getAttempts() >= MAX_ATTEMPTS) throw new BusinessException(ErrorCode.OTP_MAX_ATTEMPTS);
+        record.setAttempts(record.getAttempts() + 1);
+        repository.save(record);
+        if (!code.equals(record.getVerificationCode())) {
+            // Attempt count is committed by this REQUIRES_NEW transaction.
+            // IncorrectOtpException is NOT a BusinessException, so it won't trigger
+            // noRollbackFor = BusinessException.class on the outer transaction.
+            throw new IncorrectOtpException(ErrorCode.OTP_INVALID, "Incorrect email OTP");
+        }
+        return record.getId();
+    }
+
+    /**
+     * Phase 2 of the two-phase verify: marks the OTP as consumed.
+     * Runs in the CALLER's transaction (REQUIRED) so it rolls back atomically
+     * with all other account-setup state changes if anything goes wrong.
+     */
+    @Transactional
+    public void markConsumed(String otpId) {
+        AccountEmailOtp record = repository.findById(otpId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "OTP record not found during markConsumed — this is a programming error"));
         record.setVerified(true);
         repository.save(record);
     }

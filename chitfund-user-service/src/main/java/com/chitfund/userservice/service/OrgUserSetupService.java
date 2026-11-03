@@ -14,6 +14,7 @@ import com.chitfund.userservice.repository.RefreshTokenRepository;
 import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.TrustedDeviceRepository;
 import com.chitfund.userservice.repository.UserRepository;
+import com.chitfund.userservice.exception.IncorrectOtpException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -107,18 +108,18 @@ public class OrgUserSetupService {
     }
 
     /**
-     * Completes account setup in a single transaction:
+     * Completes account setup atomically:
      * - validates token purpose, hash, unused state, expiry
-     * - validates email OTP
-     * - validates password policy
-     * - requires terms acceptance
-     * - saves new password hash; clears mustChangePassword and emailVerificationRequired
-     * - marks email verified
-     * - marks token used (pessimistic lock prevents concurrent completion)
-     * - revokes all sessions and trusted devices
-     * - emits audit event
+     * - validates terms acceptance and password policy (cheap, no side effects)
+     * - checks OTP via REQUIRES_NEW inner transaction (commits attempt count only)
+     * - in the SAME outer transaction: marks OTP consumed, saves password hash,
+     *   marks email verified, marks token used, revokes sessions, emits audit
+     *
+     * If any write after the OTP check fails, the outer transaction rolls back
+     * INCLUDING the OTP consumed flag — so the user can retry with the same OTP.
+     * Incorrect OTP attempts still commit independently (REQUIRES_NEW).
      */
-    @Transactional
+    @Transactional(noRollbackFor = IncorrectOtpException.class)
     public void complete(OrgUserSetupCompleteRequest request) {
         String tokenHash = sha256(request.getToken());
         // Pessimistic lock prevents two concurrent requests from both succeeding
@@ -136,11 +137,8 @@ public class OrgUserSetupService {
                     "No email address is on file. Contact your administrator.", HttpStatus.BAD_REQUEST);
         }
 
-        // Validate terms and password BEFORE consuming the OTP.
-        // AccountEmailOtpService.verify() uses REQUIRES_NEW — once called it commits
-        // the OTP record in its own transaction regardless of what the outer transaction
-        // does. Doing these cheap, side-effect-free checks first means a weak password
-        // or missing terms-acceptance never burns the user's valid OTP.
+        // Terms and password validation before the OTP check — cheap, no side effects.
+        // A weak password or missing terms-acceptance must never burn the user's OTP.
         if (!request.isTermsAccepted()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "You must accept the terms of service to continue", HttpStatus.BAD_REQUEST);
@@ -148,11 +146,20 @@ public class OrgUserSetupService {
 
         passwordValidator.validate(request.getNewPassword());
 
-        // Consume the OTP only after all other validations pass.
-        accountEmailOtpService.verify(user.getId().toString(), user.getEmail(),
+        // Phase 1: validate the OTP and increment the attempt counter.
+        // Runs in its own REQUIRES_NEW transaction — the counter is committed even
+        // if this method later rolls back. Throws IncorrectOtpException (not
+        // BusinessException) on wrong code; noRollbackFor above lets the outer
+        // transaction commit its empty state so the counter increment is visible.
+        String otpId = accountEmailOtpService.checkAndIncrementAttempt(
+                user.getId().toString(), user.getEmail(),
                 SETUP_EMAIL_OTP_PURPOSE, request.getEmailOtp());
 
-        // Update user in the same transaction
+        // Phase 2: mark OTP consumed in the SAME outer transaction as all writes below.
+        // If any of these saves fail, the entire outer transaction rolls back —
+        // including the verified=true flag — so the OTP remains usable.
+        accountEmailOtpService.markConsumed(otpId);
+
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setTempPasswordHash(null);
         user.setMustChangePassword(false);
@@ -163,8 +170,6 @@ public class OrgUserSetupService {
         userRepository.save(user);
 
         // Mark token used and revoke all other active ORG_USER_INVITE tokens for this user.
-        // The generated-column unique index (V186) prevents a second active invite from
-        // being inserted concurrently, so revoking here is belt-and-suspenders cleanup.
         LocalDateTime now = LocalDateTime.now();
         token.setUsedAt(now);
         setupTokenRepository.save(token);
@@ -172,7 +177,6 @@ public class OrgUserSetupService {
                         user.getId(), SetupTokenPurpose.ORG_USER_INVITE)
                 .forEach(t -> { t.setUsedAt(now); setupTokenRepository.save(t); });
 
-        // Revoke all sessions and trusted devices
         refreshTokenRepository.revokeAllActiveByUser(user);
         trustedDeviceRepository.deleteByUserId(user.getId());
 
