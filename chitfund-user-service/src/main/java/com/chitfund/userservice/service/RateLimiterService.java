@@ -82,14 +82,18 @@ public class RateLimiterService {
                     "Set RATE_LIMIT_HMAC_KEY in the environment, or set RATE_LIMIT_ENABLED=false " +
                     "to disable rate limiting in non-production environments.");
         }
-        // Require minimum 32 bytes (256 bits) of key material so HMAC-SHA256 is not
-        // trivially brute-forceable. Short keys and well-known test/placeholder values
-        // are rejected at startup rather than silently accepted.
+        // Require minimum 32-byte key material so HMAC-SHA256 is not trivially
+        // brute-forceable. 32 bytes is the minimum key length — it is NOT a
+        // guarantee of 256-bit entropy; the production value must be generated
+        // with a CSPRNG (e.g. `openssl rand -base64 32`). Short keys and
+        // well-known placeholder values are rejected at startup.
         byte[] keyBytes = hmacKey.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         if (keyBytes.length < 32) {
             throw new IllegalStateException(
-                    "app.rate-limit.hmac-key must be at least 32 bytes (256 bits) of entropy. " +
-                    "The current value is only " + keyBytes.length + " bytes.");
+                    "app.rate-limit.hmac-key must be at least 32 bytes of key material. " +
+                    "Generate a production key with a CSPRNG (e.g. openssl rand -base64 32) " +
+                    "and store it in AWS Secrets Manager. The current value is only " +
+                    keyBytes.length + " bytes.");
         }
         String lower = hmacKey.toLowerCase(java.util.Locale.ROOT);
         if (lower.contains("test") || lower.contains("placeholder") ||
@@ -97,7 +101,8 @@ public class RateLimiterService {
                 lower.contains("example") || lower.contains("secret")) {
             throw new IllegalStateException(
                     "app.rate-limit.hmac-key appears to be a placeholder or test value. " +
-                    "Set a randomly-generated key via RATE_LIMIT_HMAC_KEY in the environment.");
+                    "Set a CSPRNG-generated key via RATE_LIMIT_HMAC_KEY in the environment " +
+                    "and never reuse a JWT, DB, internal-service, or offline-signing secret.");
         }
     }
 
