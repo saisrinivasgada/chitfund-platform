@@ -23,6 +23,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.LocalDateTime;
+import com.chitfund.userservice.service.OtpCheckOutcome;
+import com.chitfund.userservice.service.OtpCheckResult;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -171,7 +173,9 @@ class OrgUserSetupServiceTest {
 
             when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(mainToken));
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-            doNothing().when(accountEmailOtpService).verify(any(), any(), any(), any());
+            when(accountEmailOtpService.checkAndIncrementAttempt(any(), any(), any(), any()))
+                    .thenReturn(OtpCheckOutcome.correct("otp-id-stale"));
+            doNothing().when(accountEmailOtpService).markConsumed(any());
             doNothing().when(passwordValidator).validate(any());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(setupTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -214,7 +218,9 @@ class OrgUserSetupServiceTest {
 
             when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(mainToken));
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-            doNothing().when(accountEmailOtpService).verify(any(), any(), any(), any());
+            when(accountEmailOtpService.checkAndIncrementAttempt(any(), any(), any(), any()))
+                    .thenReturn(OtpCheckOutcome.correct("otp-id-only"));
+            doNothing().when(accountEmailOtpService).markConsumed(any());
             doNothing().when(passwordValidator).validate(any());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(setupTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -330,7 +336,9 @@ class OrgUserSetupServiceTest {
 
             when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(mainToken));
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-            doNothing().when(accountEmailOtpService).verify(any(), any(), any(), any());
+            when(accountEmailOtpService.checkAndIncrementAttempt(any(), any(), any(), any()))
+                    .thenReturn(OtpCheckOutcome.correct("otp-id-once"));
+            doNothing().when(accountEmailOtpService).markConsumed(any());
             doNothing().when(passwordValidator).validate(any());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(setupTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -346,9 +354,10 @@ class OrgUserSetupServiceTest {
 
             service.complete(req);
 
-            verify(accountEmailOtpService, times(1)).verify(
+            verify(accountEmailOtpService, times(1)).checkAndIncrementAttempt(
                     eq(userId.toString()), eq("test@example.com"),
                     eq("ORG_USER_SETUP"), eq("333333"));
+            verify(accountEmailOtpService, times(1)).markConsumed(eq("otp-id-once"));
         }
 
         @Test
@@ -378,9 +387,8 @@ class OrgUserSetupServiceTest {
             when(setupTokenRepository.findByTokenHashForUpdate(hash)).thenReturn(Optional.of(token));
             when(userRepository.findById(userId)).thenReturn(Optional.of(user));
             doNothing().when(passwordValidator).validate(any());
-            doThrow(new BusinessException(com.chitfund.common.exception.ErrorCode.OTP_INVALID,
-                    "Invalid OTP"))
-                    .when(accountEmailOtpService).verify(any(), any(), any(), any());
+            when(accountEmailOtpService.checkAndIncrementAttempt(any(), any(), any(), any()))
+                    .thenReturn(OtpCheckOutcome.invalid(OtpCheckResult.INCORRECT, "Invalid OTP"));
 
             OrgUserSetupCompleteRequest req = new OrgUserSetupCompleteRequest();
             req.setToken(raw);
@@ -388,12 +396,12 @@ class OrgUserSetupServiceTest {
             req.setNewPassword("ValidPassword!2");
             req.setTermsAccepted(true);
 
-            // Wrong OTP with valid terms+password → OTP verify is reached (attempt counted)
+            // Wrong OTP with valid terms+password → checkAndIncrementAttempt is reached (attempt counted)
             assertThatThrownBy(() -> service.complete(req))
                     .isInstanceOf(BusinessException.class);
 
-            // verify() was called → the OTP attempt was registered
-            verify(accountEmailOtpService, times(1)).verify(any(), any(), any(), any());
+            // checkAndIncrementAttempt() was called → the OTP attempt was registered
+            verify(accountEmailOtpService, times(1)).checkAndIncrementAttempt(any(), any(), any(), any());
         }
     }
 }
