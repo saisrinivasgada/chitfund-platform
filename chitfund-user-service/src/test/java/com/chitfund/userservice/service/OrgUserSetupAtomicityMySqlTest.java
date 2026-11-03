@@ -139,9 +139,9 @@ class OrgUserSetupAtomicityMySqlTest {
          */
         @Bean
         PasswordValidator passwordValidator() {
-            @SuppressWarnings("unchecked")
+            @SuppressWarnings({"unchecked", "rawtypes"})
             HttpClient noopHttp = mock(HttpClient.class);
-            CompletableFuture<Object> failed = new CompletableFuture<>();
+            CompletableFuture failed = new CompletableFuture();
             failed.completeExceptionally(new java.io.IOException("test — no network"));
             when(noopHttp.sendAsync(any(), any())).thenReturn(failed);
             return new PasswordValidator(noopHttp,
