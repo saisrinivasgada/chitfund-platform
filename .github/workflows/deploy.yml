@@ -777,7 +777,7 @@ jobs:
   deploy-staging:
     name: Deploy Private Mumbai Staging
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     needs: [changes, build-summary, push-staging-images]
     if: |
       always() &&
@@ -800,6 +800,40 @@ jobs:
         with:
           role-to-assume: ${{ vars.STAGING_AWS_DEPLOY_ROLE_ARN }}
           aws-region: ap-south-1
+      - name: Start staging if the cost-saving schedule stopped it
+        run: |
+          set -euo pipefail
+          db_status=$(aws rds describe-db-instances \
+            --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}" \
+            --query 'DBInstances[0].DBInstanceStatus' --output text)
+          if [ "$db_status" = "stopped" ]; then
+            aws rds start-db-instance \
+              --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}" \
+              --no-cli-pager >/dev/null
+          fi
+          aws rds wait db-instance-available \
+            --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}"
+
+          instance_state=$(aws ec2 describe-instances \
+            --instance-ids "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+            --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if [ "$instance_state" = "stopped" ]; then
+            aws ec2 start-instances \
+              --instance-ids "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+              --no-cli-pager >/dev/null
+          fi
+          aws ec2 wait instance-running \
+            --instance-ids "${{ vars.STAGING_AWS_INSTANCE_ID }}"
+
+          for attempt in $(seq 1 60); do
+            ping=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+              --query 'InstanceInformationList[0].PingStatus' --output text)
+            [ "$ping" = "Online" ] && exit 0
+            sleep 10
+          done
+          echo "Staging instance did not become available in Systems Manager" >&2
+          exit 1
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

@@ -490,6 +490,15 @@ Resources:
               - Effect: Allow
                 Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations]
                 Resource: '*'
+              - Effect: Allow
+                Action: ec2:StartInstances
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${ApplicationInstance}'
+              - Effect: Allow
+                Action: rds:StartDBInstance
+                Resource: !Sub 'arn:${AWS::Partition}:rds:${AWS::Region}:${AWS::AccountId}:db:${Database}'
+              - Effect: Allow
+                Action: [ec2:DescribeInstances, rds:DescribeDBInstances, ssm:DescribeInstanceInformation]
+                Resource: '*'
       Tags:
         - {Key: Application, Value: ChitWise}
         - {Key: Environment, Value: Staging}
@@ -614,6 +623,8 @@ Outputs:
     Value: !Ref ApplicationElasticIp
   DatabaseEndpoint:
     Value: !GetAtt Database.Endpoint.Address
+  DatabaseInstanceId:
+    Value: !Ref Database
   DeploymentBucketName:
     Value: !Ref DeploymentBucket
   GitHubDeployRoleArn:
