@@ -71,15 +71,33 @@ public class RateLimiterService {
 
     @PostConstruct
     void validate() {
-        if (enabled && (hmacKey == null || hmacKey.isBlank())) {
+        if (!enabled) {
+            log.warn("Rate limiting is DISABLED (RATE_LIMIT_ENABLED=false). " +
+                     "This must never be used in production.");
+            return;
+        }
+        if (hmacKey == null || hmacKey.isBlank()) {
             throw new IllegalStateException(
                     "app.rate-limit.hmac-key must be set when rate limiting is enabled. " +
                     "Set RATE_LIMIT_HMAC_KEY in the environment, or set RATE_LIMIT_ENABLED=false " +
                     "to disable rate limiting in non-production environments.");
         }
-        if (!enabled) {
-            log.warn("Rate limiting is DISABLED (RATE_LIMIT_ENABLED=false). " +
-                     "This must never be used in production.");
+        // Require minimum 32 bytes (256 bits) of key material so HMAC-SHA256 is not
+        // trivially brute-forceable. Short keys and well-known test/placeholder values
+        // are rejected at startup rather than silently accepted.
+        byte[] keyBytes = hmacKey.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (keyBytes.length < 32) {
+            throw new IllegalStateException(
+                    "app.rate-limit.hmac-key must be at least 32 bytes (256 bits) of entropy. " +
+                    "The current value is only " + keyBytes.length + " bytes.");
+        }
+        String lower = hmacKey.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("test") || lower.contains("placeholder") ||
+                lower.contains("default") || lower.contains("changeme") ||
+                lower.contains("example") || lower.contains("secret")) {
+            throw new IllegalStateException(
+                    "app.rate-limit.hmac-key appears to be a placeholder or test value. " +
+                    "Set a randomly-generated key via RATE_LIMIT_HMAC_KEY in the environment.");
         }
     }
 
