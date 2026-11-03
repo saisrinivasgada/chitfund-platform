@@ -1,7 +1,10 @@
 package com.chitfund.userservice.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -42,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers(disabledWithoutDocker = true)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class RateLimiterServiceMySqlTest {
 
     // The test HMAC key must be ≥32 bytes and contain no placeholder words.
@@ -221,7 +225,9 @@ class RateLimiterServiceMySqlTest {
 
     // ── DB failure closes ─────────────────────────────────────────────────────
 
+    // Drops the counters table — must run LAST so it cannot corrupt other tests.
     @Test
+    @Order(Integer.MAX_VALUE)
     void dbFailureReturnsFalse_failClosed() {
         RateLimiterService brokenLimiter = new RateLimiterService(jdbcTemplate);
         ReflectionTestUtils.setField(brokenLimiter, "enabled", true);
