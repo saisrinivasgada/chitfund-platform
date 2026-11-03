@@ -76,6 +76,7 @@ jobs:
               - 'chitfund-common/**'
               - 'chitfund-reporting-service/**'
             management:
+              - 'chitfund-common/**'
               - 'chitwise-management-service/**'
             frontend:
               - 'shared/offline/**'
@@ -716,9 +717,11 @@ jobs:
           exit 1
 
   # ── Private staging: build one immutable, internally consistent release ──────
-  # Staging deliberately builds every backend image when backend code/config
-  # changes. A single IMAGE_TAG then identifies the complete tested release;
-  # no service can accidentally fall back to production's mutable latest tag.
+  # Every release gets one immutable IMAGE_TAG. Changed services are built;
+  # unchanged services have their previous staging manifest copied to the new
+  # tag. The first release builds everything because no staging-current
+  # manifests exist yet. This preserves complete releases without spending CI
+  # minutes rebuilding ten unchanged Java services on every test merge.
   push-staging-images:
     name: Build Staging Release Images
     runs-on: ubuntu-latest
@@ -749,30 +752,48 @@ jobs:
       - name: Build and push complete staging release
         env:
           TAG: staging-${{ github.sha }}
+          CHANGED_GATEWAY: ${{ needs.changes.outputs.gateway }}
+          CHANGED_USER: ${{ needs.changes.outputs.user }}
+          CHANGED_MEMBER: ${{ needs.changes.outputs.member }}
+          CHANGED_CHIT: ${{ needs.changes.outputs.chit }}
+          CHANGED_PAYMENT: ${{ needs.changes.outputs.payment }}
+          CHANGED_PAYOUT: ${{ needs.changes.outputs.payout }}
+          CHANGED_NOTIFICATION: ${{ needs.changes.outputs.notification }}
+          CHANGED_AUDIT: ${{ needs.changes.outputs.audit }}
+          CHANGED_REPORTING: ${{ needs.changes.outputs.reporting }}
+          CHANGED_MANAGEMENT: ${{ needs.changes.outputs.management }}
         run: |
           set -euo pipefail
-          services=(
-            "api-gateway:chitfund-api-gateway/Dockerfile"
-            "user-service:chitfund-user-service/Dockerfile"
-            "member-service:chitfund-member-service/Dockerfile"
-            "chit-service:chitfund-chit-service/Dockerfile"
-            "payment-service:chitfund-payment-service/Dockerfile"
-            "payout-service:chitfund-payout-service/Dockerfile"
-            "notification-service:chitfund-notification-service/Dockerfile"
-            "audit-service:chitfund-audit-service/Dockerfile"
-            "reporting-service:chitfund-reporting-service/Dockerfile"
-            "management-service:chitwise-management-service/Dockerfile"
-          )
-          for entry in "${services[@]}"; do
-            name="${entry%%:*}"
-            file="${entry#*:}"
-            docker buildx build . \
+          publish_service() {
+            local name="$1"
+            local file="$2"
+            local changed="$3"
+            local immutable="${IMAGE_PREFIX}/${name}:${TAG}"
+            local current="${IMAGE_PREFIX}/${name}:staging-current"
+
+            if [ "$changed" = "true" ] || ! docker buildx imagetools inspect "$current" >/dev/null 2>&1; then
+              docker buildx build . \
               --file "$file" \
-              --tag "${IMAGE_PREFIX}/${name}:${TAG}" \
+              --tag "$immutable" \
               --cache-from "type=gha,scope=staging-${name}" \
               --cache-to "type=gha,mode=max,scope=staging-${name}" \
               --push
-          done
+            else
+              docker buildx imagetools create --tag "$immutable" "$current"
+            fi
+            docker buildx imagetools create --tag "$current" "$immutable"
+          }
+
+          publish_service api-gateway chitfund-api-gateway/Dockerfile "$CHANGED_GATEWAY"
+          publish_service user-service chitfund-user-service/Dockerfile "$CHANGED_USER"
+          publish_service member-service chitfund-member-service/Dockerfile "$CHANGED_MEMBER"
+          publish_service chit-service chitfund-chit-service/Dockerfile "$CHANGED_CHIT"
+          publish_service payment-service chitfund-payment-service/Dockerfile "$CHANGED_PAYMENT"
+          publish_service payout-service chitfund-payout-service/Dockerfile "$CHANGED_PAYOUT"
+          publish_service notification-service chitfund-notification-service/Dockerfile "$CHANGED_NOTIFICATION"
+          publish_service audit-service chitfund-audit-service/Dockerfile "$CHANGED_AUDIT"
+          publish_service reporting-service chitfund-reporting-service/Dockerfile "$CHANGED_REPORTING"
+          publish_service management-service chitwise-management-service/Dockerfile "$CHANGED_MANAGEMENT"
 
   deploy-staging:
     name: Deploy Private Mumbai Staging
