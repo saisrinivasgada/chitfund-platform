@@ -147,7 +147,7 @@ jobs:
   # result. Running `test` here means a broken test now blocks the deploy.
   #
   # Fast / slow gate split:
-  #   staging (test branch, feat PRs)  → unit tests only; Testcontainers (*MySqlTest) excluded
+  #   staging (test branch, feat PRs)  → unit tests only; Testcontainers (*MySql*) excluded
   #   prod    (main branch, PRs → main) → full suite including MySQL migration/integration tests
   # Testcontainers tests take 5–30 min; excluding them halves staging CI time with no safety gap
   # because the same full suite runs on every push to main before the deploy proceeds.
@@ -167,10 +167,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-user-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-user-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-user-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-member:
@@ -188,10 +188,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-member-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-member-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-member-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-chit:
@@ -209,10 +209,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-chit-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-chit-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-chit-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-payment:
@@ -230,10 +230,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-payment-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-payment-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-payment-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-payout:
@@ -251,10 +251,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-payout-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-payout-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-payout-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-notification:
@@ -272,10 +272,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-notification-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-notification-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-notification-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-gateway:
@@ -293,10 +293,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-api-gateway -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-api-gateway -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-api-gateway -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-audit:
@@ -314,10 +314,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-audit-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-audit-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-audit-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-reporting:
@@ -335,10 +335,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitfund-reporting-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitfund-reporting-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitfund-reporting-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
 
   build-management:
@@ -356,10 +356,10 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.base_ref }}" == "main" ]]; then
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
             mvn -pl chitfund-common,chitwise-management-service -am test --no-transfer-progress
           else
-            mvn -pl chitfund-common,chitwise-management-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySqlTest.java'
+            mvn -pl chitfund-common,chitwise-management-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
           fi
       - name: Require the MySQL 8 employee migration test to run
         if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
