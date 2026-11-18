@@ -275,8 +275,8 @@ services:
 
   management-service:
     build:
-      context: ./chitwise-management-service
-      dockerfile: Dockerfile.local
+      context: .
+      dockerfile: chitwise-management-service/Dockerfile
     image: chitwise-management-service:local
     container_name: chitwise-test-management
     environment:
