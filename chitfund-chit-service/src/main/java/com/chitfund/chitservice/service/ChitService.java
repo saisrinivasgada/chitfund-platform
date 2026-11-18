@@ -2,6 +2,7 @@ package com.chitfund.chitservice.service;
 
 import com.chitfund.chitservice.client.NotificationClient;
 import com.chitfund.chitservice.client.AuditClient;
+import com.chitfund.chitservice.client.PaymentServiceClient;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
@@ -62,6 +63,7 @@ public class ChitService {
     private final AuditClient auditClient;
     private final ChitLifecycleCommandStore lifecycleCommandStore;
     private final ChitLifecycleCommandRepository lifecycleCommandRepository;
+    private final PaymentServiceClient paymentServiceClient;
 
     @Transactional
     public ChitResponse createChit(CreateChitRequest req, UUID createdBy) {
@@ -376,6 +378,21 @@ public class ChitService {
             if (existing.isEmpty()) {
                 enrollmentRepository.save(ChitEnrollment.builder().chit(chit).memberId(memberId).build());
                 log.info("Chit {} — enrolled member {} after slot assignment", chit.getId(), memberId);
+                if (chit.getStatus() == ChitStatus.ACTIVE) {
+                    final UUID cId = chit.getId();
+                    final String tId = TenantContext.get();
+                    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                        TransactionSynchronizationManager.registerSynchronization(
+                                new TransactionSynchronization() {
+                                    @Override
+                                    public void afterCommit() {
+                                        paymentServiceClient.createLateJoinDues(cId, memberId, tId, null);
+                                    }
+                                });
+                    } else {
+                        paymentServiceClient.createLateJoinDues(cId, memberId, tId, null);
+                    }
+                }
             }
         } else {
             existing.forEach(e -> e.setActive(false));

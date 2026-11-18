@@ -65,8 +65,10 @@ public class ChitController {
 
     @GetMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<ChitResponse>> getChit(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(chitService.getChit(id)));
+    public ResponseEntity<ApiResponse<ChitResponse>> getChit(@PathVariable UUID id, Authentication auth) {
+        ChitResponse chit = chitService.getChit(id);
+        if (!isAdmin(auth)) chit.setOrgHeldSpotsCount(null);
+        return ResponseEntity.ok(ApiResponse.success(chit));
     }
 
     @GetMapping
@@ -78,11 +80,14 @@ public class ChitController {
             @RequestParam(defaultValue = "20") int size,
             Authentication auth) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        // Super-admin can pass ?tenantFilter= to scope by a specific org
         boolean isSuperAdmin = auth != null && auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("SUPER_ADMIN"));
-        return ResponseEntity.ok(ApiResponse.success(
-                chitService.listChits(status, isSuperAdmin ? tenantFilter : null, pageable)));
+        PagedResponse<ChitResponse> result =
+                chitService.listChits(status, isSuperAdmin ? tenantFilter : null, pageable);
+        if (!isAdmin(auth)) {
+            result.getContent().forEach(c -> c.setOrgHeldSpotsCount(null));
+        }
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @GetMapping("/updated-today")
@@ -200,8 +205,13 @@ public class ChitController {
                 .orElse("UNKNOWN");
     }
 
+    private boolean isAdmin(Authentication auth) {
+        return auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+    }
+
     @GetMapping("/org-reservations")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> getOrgReservations() {
         LocalDate today = LocalDate.now();
         List<MonthReservationResponse> list = reservationRepository.findAllOrgHeldByTenant(TenantContext.get())

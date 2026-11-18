@@ -1,6 +1,7 @@
 package com.chitfund.chitservice.service;
 
 import com.chitfund.chitservice.client.AuditClient;
+import com.chitfund.chitservice.client.PaymentServiceClient;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
@@ -15,6 +16,8 @@ import com.chitfund.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Map;
@@ -31,6 +34,7 @@ public class EnrollmentService {
     private final ChitMapper chitMapper;
     private final PlanLimitChecker planLimitChecker;
     private final AuditClient auditClient;
+    private final PaymentServiceClient paymentServiceClient;
 
     @Transactional
     public ChitEnrollmentResponse enrollMember(UUID chitId, EnrollMemberRequest request) {
@@ -58,6 +62,25 @@ public class EnrollmentService {
                 null,
                 Map.of("memberId", request.getMemberId().toString(), "chitId", chitId.toString()),
                 TenantContext.get());
+
+        // For mid-run joins, schedule catch-up dues creation AFTER this transaction commits.
+        // Using afterCommit prevents calling payment-service on a rolled-back enrollment,
+        // and prevents orphan dues from outliving a failed approval.
+        if (chit.getStatus() == ChitStatus.ACTIVE) {
+            final UUID memberId = request.getMemberId();
+            final String tenantId = TenantContext.get();
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(
+                        new TransactionSynchronization() {
+                            @Override
+                            public void afterCommit() {
+                                paymentServiceClient.createLateJoinDues(chitId, memberId, tenantId, null);
+                            }
+                        });
+            } else {
+                paymentServiceClient.createLateJoinDues(chitId, memberId, tenantId, null);
+            }
+        }
 
         return response;
     }

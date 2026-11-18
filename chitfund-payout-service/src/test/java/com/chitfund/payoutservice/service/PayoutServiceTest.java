@@ -140,6 +140,22 @@ class PayoutServiceTest {
         return payoutService.disburse(id, request, actorId, UUID.randomUUID().toString());
     }
 
+    private DisburseRequest disburseRequest(DisbursementMode mode, String reference) {
+        DisburseRequest req = new DisburseRequest();
+        req.setDisbursementMode(mode);
+        req.setReferenceNumber(reference); // amount null = full remaining
+        return req;
+    }
+
+    // A rejected disbursement must leave the payout untouched and queue no money moves.
+    private void assertNoMoneyMoved(Payout payout) {
+        assertThat(payout.getStatus()).isEqualTo(PayoutStatus.PENDING);
+        assertThat(payout.getDisbursedAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        verify(payoutRepository, never()).save(any());
+        verify(disbursementRepository, never()).save(any());
+        verify(financialCommandStore, never()).enqueue(any());
+    }
+
     private CancelPayoutRequest cancelRequest() {
         CancelPayoutRequest req = new CancelPayoutRequest();
         req.setReason("Test cancellation reason");
@@ -630,6 +646,92 @@ class PayoutServiceTest {
 
             disburse(payoutId, disburseRequest(bd(20_000)), adminId);
             verify(eventPublisher, never()).publish(any(PayoutDisbursedEvent.class));
+        }
+
+        @Test
+        @DisplayName("UPI disbursement with a blank reference is rejected before any money moves")
+        void rejectsUpiDisbursementWithBlankReference() {
+            Payout payout = pendingPayout(bd(45_000));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+
+            assertThatThrownBy(() -> payoutService.disburse(payoutId,
+                    disburseRequest(DisbursementMode.UPI, "   "), adminId,
+                    UUID.randomUUID().toString()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("reference number is required for UPI");
+
+            assertNoMoneyMoved(payout);
+        }
+
+        @Test
+        @DisplayName("BANK_TRANSFER disbursement with a missing reference is rejected before any money moves")
+        void rejectsBankTransferWithMissingReference() {
+            Payout payout = pendingPayout(bd(45_000));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+
+            assertThatThrownBy(() -> payoutService.disburse(payoutId,
+                    disburseRequest(DisbursementMode.BANK_TRANSFER, null), adminId,
+                    UUID.randomUUID().toString()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("reference number is required for BANK_TRANSFER");
+
+            assertNoMoneyMoved(payout);
+        }
+
+        @Test
+        @DisplayName("CHEQUE disbursement with an overlong reference is rejected before any money moves")
+        void rejectsChequeWithOverlongReference() {
+            Payout payout = pendingPayout(bd(45_000));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            String overlong = "C".repeat(51); // column is varchar(50)
+
+            assertThatThrownBy(() -> payoutService.disburse(payoutId,
+                    disburseRequest(DisbursementMode.CHEQUE, overlong), adminId,
+                    UUID.randomUUID().toString()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("at most 50 characters");
+
+            assertNoMoneyMoved(payout);
+        }
+
+        @Test
+        @DisplayName("non-cash disbursement with a valid reference is accepted")
+        void acceptsNonCashDisbursementWithValidReference() {
+            Payout payout = pendingPayout(bd(45_000));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
+                    .thenReturn(Collections.emptyList());
+
+            payoutService.disburse(payoutId,
+                    disburseRequest(DisbursementMode.UPI, "  UPI-TXN-12345  "), adminId,
+                    UUID.randomUUID().toString());
+
+            assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DISBURSED);
+            assertThat(payout.getReferenceNumber()).isEqualTo("UPI-TXN-12345");
+        }
+
+        @Test
+        @DisplayName("CASH disbursement still needs no reference")
+        void cashDisbursementNeedsNoReference() {
+            Payout payout = pendingPayout(bd(45_000));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
+                    .thenReturn(Collections.emptyList());
+
+            // CASH with no reference number — the pre-existing behaviour must be preserved.
+            disburse(payoutId, disburseRequest(DisbursementMode.CASH, null), adminId);
+
+            assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DISBURSED);
+            assertThat(payout.getDisbursedAmount()).isEqualByComparingTo(bd(45_000));
         }
     }
 

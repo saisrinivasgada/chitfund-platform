@@ -269,6 +269,11 @@ public class PayoutService {
                     "Cannot disburse more than the remaining amount ₹" + remaining, org.springframework.http.HttpStatus.BAD_REQUEST);
         }
 
+        // UPI, BANK_TRANSFER and CHEQUE must carry an audit reference (UTR / txn id /
+        // cheque no). Reject missing, blank or overlong references before any money
+        // moves — CASH is handed over physically and needs none.
+        String referenceNumber = validateDisbursementReference(request);
+
         BigDecimal newDisbursed = alreadyDisbursed.add(thisAmount);
         boolean fullyDisbursed = newDisbursed.compareTo(payout.getNetPayoutAmount()) >= 0;
 
@@ -276,7 +281,7 @@ public class PayoutService {
         payout.setDisbursedAmount(newDisbursed);
         payout.setStatus(fullyDisbursed ? PayoutStatus.DISBURSED : PayoutStatus.PARTIALLY_DISBURSED);
         payout.setDisbursementMode(request.getDisbursementMode());
-        if (request.getReferenceNumber() != null) payout.setReferenceNumber(request.getReferenceNumber());
+        if (referenceNumber != null) payout.setReferenceNumber(referenceNumber);
         payout.setDisbursedAt(now);
         payout.setDisbursedBy(adminId);
         if (request.getNotes() != null) payout.setNotes(request.getNotes());
@@ -289,7 +294,7 @@ public class PayoutService {
                 .payoutId(payout.getId())
                 .amount(thisAmount)
                 .mode(request.getDisbursementMode())
-                .referenceNumber(request.getReferenceNumber())
+                .referenceNumber(referenceNumber)
                 .notes(request.getNotes())
                 .disbursedBy(adminId)
                 .disbursedAt(now)
@@ -375,38 +380,49 @@ public class PayoutService {
                 .build());
 
         if (disbursedSoFar.compareTo(BigDecimal.ZERO) > 0 && modeUsed != null) {
-            List<PayoutDisbursement> postedDisbursements =
-                    disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(payoutId);
-            BigDecimal postedTotal = postedDisbursements.stream()
-                    .map(PayoutDisbursement::getAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            if (postedTotal.compareTo(disbursedSoFar) == 0 && !postedDisbursements.isEmpty()) {
-                for (PayoutDisbursement posted : postedDisbursements) {
+            boolean physicalMode = modeUsed == DisbursementMode.CASH || modeUsed == DisbursementMode.CHEQUE;
+            if (physicalMode && !request.isCashReturnConfirmed()) {
+                // Physical disbursements (cash/cheque) cannot be credited back to treasury
+                // until the admin confirms the money was physically returned. The payout is
+                // still voided — the admin must re-call void with cashReturnConfirmed=true
+                // once they have the cash/cheque in hand.
+                log.warn("Payout {} ({}) voided by {} but cashReturnConfirmed=false — "
+                        + "treasury reversal skipped until physical return is confirmed",
+                        payoutId, modeUsed, adminId);
+            } else {
+                List<PayoutDisbursement> postedDisbursements =
+                        disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(payoutId);
+                BigDecimal postedTotal = postedDisbursements.stream()
+                        .map(PayoutDisbursement::getAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                if (postedTotal.compareTo(disbursedSoFar) == 0 && !postedDisbursements.isEmpty()) {
+                    for (PayoutDisbursement posted : postedDisbursements) {
+                        queueFinancialCommand(PayoutFinancialCommand.builder()
+                                .tenantId(tenantId())
+                                .actorId(adminId)
+                                .payoutId(payoutId)
+                                .dedupeKey(payoutId + ":TREASURY_REVERSAL:" + posted.getId())
+                                .commandType(PayoutFinancialCommandType.RECORD_TREASURY_REVERSAL)
+                                .amount(posted.getAmount())
+                                .disbursementMode(posted.getMode())
+                                .build());
+                    }
+                } else {
+                    // Compatibility for records predating the disbursement history.
+                    // New payouts always take the exact per-transaction path above.
+                    log.error("Payout {} disbursement history totals ₹{} but payout totals ₹{}; "
+                                    + "using legacy {} account for reversal",
+                            payoutId, postedTotal, disbursedSoFar, modeUsed);
                     queueFinancialCommand(PayoutFinancialCommand.builder()
                             .tenantId(tenantId())
                             .actorId(adminId)
                             .payoutId(payoutId)
-                            .dedupeKey(payoutId + ":TREASURY_REVERSAL:" + posted.getId())
+                            .dedupeKey(payoutId + ":TREASURY_REVERSAL:LEGACY")
                             .commandType(PayoutFinancialCommandType.RECORD_TREASURY_REVERSAL)
-                            .amount(posted.getAmount())
-                            .disbursementMode(posted.getMode())
+                            .amount(disbursedSoFar)
+                            .disbursementMode(modeUsed)
                             .build());
                 }
-            } else {
-                // Compatibility for records predating the disbursement history.
-                // New payouts always take the exact per-transaction path above.
-                log.error("Payout {} disbursement history totals ₹{} but payout totals ₹{}; "
-                                + "using legacy {} account for reversal",
-                        payoutId, postedTotal, disbursedSoFar, modeUsed);
-                queueFinancialCommand(PayoutFinancialCommand.builder()
-                        .tenantId(tenantId())
-                        .actorId(adminId)
-                        .payoutId(payoutId)
-                        .dedupeKey(payoutId + ":TREASURY_REVERSAL:LEGACY")
-                        .commandType(PayoutFinancialCommandType.RECORD_TREASURY_REVERSAL)
-                        .amount(disbursedSoFar)
-                        .disbursementMode(modeUsed)
-                        .build());
             }
         }
 
@@ -586,7 +602,9 @@ public class PayoutService {
             String currentTenant = tenantId();
             int durationMonths = chitServiceClient.getChitDurationMonths(chitId, currentTenant);
             if (durationMonths <= 0) return;
-            long disbursedCount = payoutRepository.countByTenantIdAndChitIdAndStatus(
+            // Count distinct months — a chit with extra/additional payouts can have more
+            // DISBURSED rows than durationMonths if the same month has multiple payouts.
+            long disbursedCount = payoutRepository.countDistinctDisbursedMonths(
                     currentTenant, chitId, PayoutStatus.DISBURSED);
             if (disbursedCount >= durationMonths) {
                 log.info("All {} draws disbursed for chit {} — triggering auto-complete", durationMonths, chitId);
@@ -701,6 +719,31 @@ public class PayoutService {
             return List.of(current);
         }
         return List.of();
+    }
+
+    /**
+     * The API contract requires a reference number for every non-cash disbursement
+     * so each UPI, bank or cheque payout is auditable. CASH is physically handed
+     * over and carries none. referenceNumber is persisted in a varchar(50) column.
+     */
+    private String validateDisbursementReference(DisburseRequest request) {
+        if (request.getDisbursementMode() == DisbursementMode.CASH) {
+            return request.getReferenceNumber();
+        }
+        String reference = request.getReferenceNumber();
+        if (reference == null || reference.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A reference number is required for "
+                            + request.getDisbursementMode() + " disbursements",
+                    HttpStatus.BAD_REQUEST);
+        }
+        reference = reference.trim();
+        if (reference.length() > 50) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Reference number must be at most 50 characters",
+                    HttpStatus.BAD_REQUEST);
+        }
+        return reference;
     }
 
     private BigDecimal nonNegative(BigDecimal value, String label) {

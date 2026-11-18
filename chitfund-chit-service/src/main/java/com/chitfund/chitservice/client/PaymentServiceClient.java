@@ -138,5 +138,39 @@ public class PaymentServiceClient {
         }
     }
 
+    /**
+     * Called after enrolling a member into an already-running (ACTIVE) chit.
+     * Asks payment-service to create catch-up PaymentRecord rows for every opened
+     * draw the member doesn't yet have a record for. Idempotent — safe on retry.
+     * Logs and swallows on failure so the enrollment commit is not lost.
+     */
+    public void createLateJoinDues(UUID chitId, UUID memberId, String tenantId, UUID actorId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", tenantId);
+
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("chitId", chitId.toString());
+            body.put("memberId", memberId.toString());
+            if (actorId != null) body.put("actorId", actorId.toString());
+
+            restTemplate.exchange(
+                    paymentServiceUrl + "/admin/draws/internal/late-join-dues",
+                    HttpMethod.POST,
+                    new HttpEntity<>(body, headers),
+                    Void.class);
+
+            log.info("Late-join dues requested for member {} in chit {}", memberId, chitId);
+        } catch (RestClientException e) {
+            // Enrollment is already committed — log the failure so an admin can
+            // manually trigger a retry rather than rolling back the enrollment.
+            log.error("Failed to create late-join dues for member {} in chit {}: {} — " +
+                    "enrollment was saved; admin should trigger a manual dues sync",
+                    memberId, chitId, e.getMessage());
+        }
+    }
+
     public record MemberSpot(UUID memberId, int spots) {}
 }

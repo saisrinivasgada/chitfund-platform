@@ -2,6 +2,7 @@ package com.chitfund.chitservice.service;
 
 import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.client.NotificationClient;
+import com.chitfund.chitservice.client.PaymentServiceClient;
 import com.chitfund.chitservice.dto.request.OverrideResponseRequest;
 import com.chitfund.chitservice.dto.request.RespondToInvitationRequest;
 import com.chitfund.chitservice.dto.request.SendInvitationRequest;
@@ -45,6 +46,7 @@ class InvitationTenantIsolationTest {
     @Mock NotificationClient notificationClient;
     @Mock AuditClient auditClient;
     @Mock ObjectMapper objectMapper;
+    @Mock PaymentServiceClient paymentServiceClient;
 
     @InjectMocks InvitationService invitationService;
 

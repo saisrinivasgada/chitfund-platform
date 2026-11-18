@@ -25,6 +25,7 @@ public class PaymentRecordResponse {
     private PaymentRecordStatus status;
     private boolean overdue;
     private LocalDate promisedPaymentDate;
+    private String catchUpSource;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

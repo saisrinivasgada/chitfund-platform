@@ -1,6 +1,7 @@
 package com.chitfund.chitservice.service;
 
 import com.chitfund.chitservice.client.AuditClient;
+import com.chitfund.chitservice.client.PaymentServiceClient;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.common.exception.ResourceNotFoundException;
@@ -23,6 +24,7 @@ class EnrollmentTenantIsolationTest {
     @Mock ChitMapper chitMapper;
     @Mock PlanLimitChecker planLimitChecker;
     @Mock AuditClient auditClient;
+    @Mock PaymentServiceClient paymentServiceClient;
 
     @InjectMocks EnrollmentService enrollmentService;
 

@@ -54,4 +54,7 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
             String tenantId, UUID memberId, UUID chitId, List<PayoutStatus> excludedStatuses);
 
     long countByTenantIdAndChitIdAndStatus(String tenantId, UUID chitId, PayoutStatus status);
+
+    @Query("SELECT COUNT(DISTINCT p.monthNumber) FROM Payout p WHERE p.tenantId = :tenantId AND p.chitId = :chitId AND p.status = :status")
+    long countDistinctDisbursedMonths(@Param("tenantId") String tenantId, @Param("chitId") UUID chitId, @Param("status") PayoutStatus status);
 }

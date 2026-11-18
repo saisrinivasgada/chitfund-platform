@@ -73,6 +73,11 @@ public class PaymentRecord {
     // Admin note: date the member said they will pay. No financial effect — purely operational.
     private LocalDate promisedPaymentDate;
 
+    // Non-null only for records created as late-join catch-up (e.g. 'LATE_JOIN').
+    // Null on all records created at normal draw-open time.
+    @Column(name = "catch_up_source", length = 50)
+    private String catchUpSource;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
