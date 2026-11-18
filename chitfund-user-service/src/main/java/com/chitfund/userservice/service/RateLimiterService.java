@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.HexFormat;
 
@@ -198,15 +201,43 @@ public class RateLimiterService {
         long currentMinute = Instant.now().getEpochSecond() / 60;
         long windowStart   = currentMinute - 14; // 15-minute sliding window (inclusive)
         try {
-            jdbcTemplate.update(
-                    "INSERT INTO rate_limit_counters (client_hash, purpose, minute_epoch, count) " +
-                    "VALUES (?, ?, ?, 1) " +
-                    "ON DUPLICATE KEY UPDATE count = count + 1",
-                    clientHash, purposeName, currentMinute);
-            Integer total = jdbcTemplate.queryForObject(
-                    "SELECT COALESCE(SUM(count), 0) FROM rate_limit_counters " +
-                    "WHERE client_hash = ? AND purpose = ? AND minute_epoch >= ?",
-                    Integer.class, clientHash, purposeName, windowStart);
+            // Use a single connection for the INSERT/UPDATE + LAST_INSERT_ID() read so
+            // we get the per-thread incremented count atomically. The ON DUPLICATE KEY
+            // row lock serialises concurrent increments; LAST_INSERT_ID() is session-
+            // scoped so it reflects exactly this thread's write, not a later one.
+            // Previous-minute buckets are read-only after their minute ends — no race.
+            Integer total = jdbcTemplate.execute((Connection conn) -> {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO rate_limit_counters (client_hash, purpose, minute_epoch, count) " +
+                        "VALUES (?, ?, ?, LAST_INSERT_ID(1)) " +
+                        "ON DUPLICATE KEY UPDATE count = LAST_INSERT_ID(count + 1)")) {
+                    ps.setString(1, clientHash);
+                    ps.setString(2, purposeName);
+                    ps.setLong(3, currentMinute);
+                    ps.executeUpdate();
+                }
+                int thisMinuteCount;
+                try (java.sql.Statement st = conn.createStatement();
+                     ResultSet rs = st.executeQuery("SELECT LAST_INSERT_ID()")) {
+                    thisMinuteCount = rs.next() ? rs.getInt(1) : maxPer15Min + 1;
+                }
+                // Previous minutes are immutable once their epoch ends — read-only sum.
+                int prevTotal = 0;
+                if (currentMinute > windowStart) {
+                    try (PreparedStatement ps2 = conn.prepareStatement(
+                            "SELECT COALESCE(SUM(count), 0) FROM rate_limit_counters " +
+                            "WHERE client_hash = ? AND purpose = ? AND minute_epoch >= ? AND minute_epoch < ?")) {
+                        ps2.setString(1, clientHash);
+                        ps2.setString(2, purposeName);
+                        ps2.setLong(3, windowStart);
+                        ps2.setLong(4, currentMinute);
+                        try (ResultSet rs = ps2.executeQuery()) {
+                            prevTotal = rs.next() ? rs.getInt(1) : 0;
+                        }
+                    }
+                }
+                return thisMinuteCount + prevTotal;
+            });
             boolean allowed = total != null && total <= maxPer15Min;
             if (!allowed) {
                 log.warn("Rate limit exceeded purpose={} window=15min", purposeName);
