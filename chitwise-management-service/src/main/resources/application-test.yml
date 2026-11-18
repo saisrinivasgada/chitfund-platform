@@ -1,0 +1,15 @@
+spring:
+  cache:
+    type: simple
+  cloud:
+    aws:
+      credentials:
+        access-key: test
+        secret-key: test
+      region:
+        static: us-east-2
+
+management:
+  health:
+    redis:
+      enabled: false
