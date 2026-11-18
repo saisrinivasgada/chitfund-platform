@@ -32,6 +32,7 @@ public class OrgTicketController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("success", false, "message", "Missing authentication context"));
         }
+        if (!ctx.canUseSupportTickets()) return forbidden();
         String userName = ctx.getUserName();
         if (userName == null) userName = ctx.getUserId();
 
@@ -50,10 +51,11 @@ public class OrgTicketController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("success", false, "message", "Missing authentication context"));
         }
+        if (!ctx.canUseSupportTickets()) return forbidden();
 
         PagedResponse<TicketResponse> result = "MEMBER".equals(ctx.getRole())
                 ? ticketService.listForMember(ctx.getTenantId(), ctx.getUserId(), page, size)
-                : ticketService.listForOrg(ctx.getTenantId(), page, size);
+                : ticketService.listForOrg(ctx.getTenantId(), ctx.getUserId(), page, size);
         return ResponseEntity.ok(Map.of("success", true, "data", result));
     }
 
@@ -62,6 +64,7 @@ public class OrgTicketController {
                                         HttpServletRequest httpRequest) {
         OrgRequestContext ctx = new OrgRequestContext(httpRequest);
         if (!ctx.isValid()) return unauthorized();
+        if (!ctx.canUseSupportTickets()) return forbidden();
 
         TicketResponse ticket = ticketService.getTicket(
                 ticketId, ctx.getTenantId(), false, ctx.getUserId(), isMember(ctx));
@@ -75,6 +78,7 @@ public class OrgTicketController {
                                           HttpServletRequest httpRequest) {
         OrgRequestContext ctx = new OrgRequestContext(httpRequest);
         if (!ctx.isValid()) return unauthorized();
+        if (!ctx.canUseSupportTickets()) return forbidden();
 
         PagedResponse<TicketMessageResponse> result = ticketService.getMessages(
                 ticketId, ctx.getTenantId(), false, ctx.getUserId(), isMember(ctx), cursor, limit);
@@ -87,6 +91,7 @@ public class OrgTicketController {
                                           HttpServletRequest httpRequest) {
         OrgRequestContext ctx = new OrgRequestContext(httpRequest);
         if (!ctx.isValid()) return unauthorized();
+        if (!ctx.canUseSupportTickets()) return forbidden();
 
         String userName = ctx.getUserName();
         if (userName == null) userName = ctx.getUserId();
@@ -105,6 +110,7 @@ public class OrgTicketController {
                                             HttpServletRequest httpRequest) {
         OrgRequestContext ctx = new OrgRequestContext(httpRequest);
         if (!ctx.isValid()) return unauthorized();
+        if (!ctx.canUseSupportTickets()) return forbidden();
 
         ticketService.softDeleteMessage(ticketId, messageId, ctx.getUserId(),
                 ctx.getRole(), ctx.getTenantId(), false);
@@ -116,6 +122,7 @@ public class OrgTicketController {
                                        HttpServletRequest httpRequest) {
         OrgRequestContext ctx = new OrgRequestContext(httpRequest);
         if (!ctx.isValid()) return unauthorized();
+        if (!ctx.canUseSupportTickets()) return forbidden();
 
         ticketService.markRead(
                 ticketId, ctx.getTenantId(), false, ctx.getUserId(), isMember(ctx));
@@ -129,5 +136,10 @@ public class OrgTicketController {
     private ResponseEntity<?> unauthorized() {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(Map.of("success", false, "message", "Missing authentication context"));
+    }
+
+    private ResponseEntity<?> forbidden() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("success", false, "message", "Support ticket access is not permitted for this role"));
     }
 }

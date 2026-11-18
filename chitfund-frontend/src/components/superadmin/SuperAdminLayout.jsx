@@ -95,8 +95,16 @@ export default function SuperAdminLayout({ embedded = false }) {
   if (embedded) {
     return (
       <div className="min-h-full bg-[#F5F7FA]">
-        <div className="bg-white border-b border-gray-100 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-30">
-          <nav className="flex items-center gap-0.5 sm:gap-1">
+        <div className="bg-white border-b border-gray-100 px-3 sm:px-6 xl:px-8 flex items-center gap-3 justify-between sticky top-0 z-30">
+          <label htmlFor="platform-section" className="sr-only">Platform section</label>
+          <select id="platform-section" value={NAV.find(({ to }) => isActive(to))?.to ?? '/superadmin'}
+            onChange={event => navigate(event.target.value)}
+            className="xl:hidden flex-1 min-w-0 my-2 px-3 py-2 text-sm font-semibold text-[#1E3A5F] bg-[#EFF4FA] border border-gray-200 rounded-lg">
+            {NAV.map(({ label, to, badge }) => (
+              <option key={to} value={to}>{label}{badge && alertCount > 0 ? ` (${alertCount})` : ''}</option>
+            ))}
+          </select>
+          <nav className="hidden xl:flex items-center gap-0.5 sm:gap-1 min-w-0 overflow-x-auto">
             {NAV.map(({ label, to, badge }) => (
               <Link
                 key={to}
@@ -120,7 +128,7 @@ export default function SuperAdminLayout({ embedded = false }) {
             type="button"
             onClick={handleProfile}
             title="Edit profile"
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold hover:opacity-80 cursor-pointer my-1"
+            className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-white text-sm font-bold hover:opacity-80 cursor-pointer my-1"
             style={{ background: 'linear-gradient(135deg, #1E3A5F, #2a4f7c)' }}
           >
             {user?.username ? user.username[0].toUpperCase() : 'S'}
@@ -139,18 +147,18 @@ export default function SuperAdminLayout({ embedded = false }) {
 
   return (
     <div className={`min-h-screen bg-[#F5F7FA]`}>
-      <header className="bg-white border-b border-gray-100 px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between sticky top-0 z-30">
-        <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto scrollbar-none">
+      <header className="bg-white border-b border-gray-100 px-4 sm:px-8 py-3 sm:py-4 flex items-center gap-3 justify-between sticky top-0 z-30">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <div className="flex items-center gap-3 flex-shrink-0">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#1E3A5F' }}>
               <BookOpen size={17} className="text-white" />
             </div>
-            <div>
+            <div className="hidden sm:block">
               <span className="font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>ChitWise</span>
               <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Super Admin</span>
             </div>
           </div>
-          <nav className="flex items-center gap-0.5 sm:gap-1 ml-1 sm:ml-2">
+          <nav className="hidden xl:flex items-center gap-0.5 sm:gap-1 ml-1 sm:ml-2">
             {NAV.map(({ label, to, badge }) => (
               <Link
                 key={to}
@@ -171,6 +179,14 @@ export default function SuperAdminLayout({ embedded = false }) {
             ))}
           </nav>
         </div>
+        <label htmlFor="superadmin-section" className="sr-only">Platform section</label>
+        <select id="superadmin-section" value={NAV.find(({ to }) => isActive(to))?.to ?? '/superadmin'}
+          onChange={event => navigate(event.target.value)}
+          className="xl:hidden flex-1 min-w-0 max-w-44 sm:max-w-64 px-3 py-2 text-sm font-semibold text-[#1E3A5F] bg-[#EFF4FA] border border-gray-200 rounded-lg">
+          {NAV.map(({ label, to, badge }) => (
+            <option key={to} value={to}>{label}{badge && alertCount > 0 ? ` (${alertCount})` : ''}</option>
+          ))}
+        </select>
         <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
           <button
             type="button"
@@ -184,7 +200,7 @@ export default function SuperAdminLayout({ embedded = false }) {
           <button
             type="button"
             onClick={() => setShowSignOut(true)}
-            className="hidden sm:block text-sm text-gray-400 hover:text-gray-700 cursor-pointer transition-colors"
+            className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors"
           >
             Sign out
           </button>

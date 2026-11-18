@@ -27,17 +27,24 @@ test('chit history exposes older pages, actors and recorded before/after changes
     if (url.pathname === '/api/users/staff') return json({ success: true, data: [{ id: 'admin-audit', fullName: 'Audit Administrator', role: 'ADMIN' }] });
     return null;
   } });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/chits/${chitId}?tab=Audit`);
   await expectAuthenticatedShell(page);
   await expect(page.getByText('Page 1 of 2 · 2 events')).toBeVisible();
   await page.getByText('View recorded changes', { exact: true }).click();
   await expect(page.getByText('Original chit name → Audit History QA', { exact: true })).toBeVisible();
   await expect(page.getByText('Audit Administrator', { exact: true })).toBeVisible();
+  await expect(page.getByText('By', { exact: true }).last()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 820, height: 1180 });
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByText('Page 2 of 2 · 2 events')).toBeVisible();
   await page.getByText('View recorded changes', { exact: true }).click();
   await expect(page.getByText('1000 → 1200', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   expect(requestedPages).toEqual(expect.arrayContaining([0, 1]));
 });
 
@@ -64,14 +71,34 @@ test('background refresh cannot silently advance the version of an open slot edi
   const payout = page.locator('table input[type="number"]').first();
   await expect(payout).toHaveValue('1000'); await payout.fill('1200');
   const beforeRefresh = reads; version = 8;
-  await page.evaluate(async () => {
-    const { activeAccountScope } = await import('/src/offline/accountClient.js');
-    const { mutateRow } = await import('/src/offline/storage.js');
-    const { notifyOfflineChange } = await import('/src/offline/outbox.js');
-    const scope = activeAccountScope();
-    await mutateRow('accounts', scope, row => ({ ...row, offlineAccess: { enabled: true, actorId: row.user.id, tenantId: row.tenant.tenantId, role: row.user.role } }));
-    notifyOfflineChange(scope);
-  });
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const open = indexedDB.open('chitwise-offline-v1');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction('accounts', 'readwrite');
+      const accounts = tx.objectStore('accounts');
+      const request = accounts.openCursor();
+      let scope;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const row = cursor.value;
+        scope = row.scope;
+        cursor.update({ ...row, offlineAccess: {
+          enabled: true, actorId: row.user.id, tenantId: row.tenant.tenantId, role: row.user.role,
+        } });
+      };
+      tx.oncomplete = () => {
+        db.close();
+        const channel = new BroadcastChannel('chitwise-offline');
+        channel.postMessage({ scope });
+        channel.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+  }));
   await page.getByRole('button', { name: 'Accounts', exact: true }).click();
   await page.getByRole('button', { name: 'Sync now', exact: true }).click();
   await expect.poll(() => reads).toBeGreaterThan(beforeRefresh);

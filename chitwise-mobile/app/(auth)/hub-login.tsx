@@ -59,6 +59,9 @@ export default function HubLoginScreen() {
         <TouchableOpacity onPress={() => Linking.openURL(helpEmail)} style={{ alignItems: 'center', paddingTop: 16 }}>
           <Text style={{ color: C.navy, fontSize: 13, fontWeight: '600' }}>Forgot password? Email ChitWise Help</Text>
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => Linking.openURL('https://thechitwise.com/delete-account')} style={{ alignItems: 'center', paddingTop: 14 }}>
+          <Text style={{ color: C.navy, fontSize: 12, textDecorationLine: 'underline' }}>Privacy and account deletion</Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   </SafeAreaView>;

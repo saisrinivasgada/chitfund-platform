@@ -95,7 +95,7 @@ export default function ChitfundRequestsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         <Text style={T.h1}>ChitWise App Access</Text>
         <Text style={{ color: C.gray500, marginBottom: 8 }}>
           Organisations can invite you to access their portal through ChitWise.

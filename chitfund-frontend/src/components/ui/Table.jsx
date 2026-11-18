@@ -26,7 +26,7 @@ export default function Table({ columns, children, className = '' }) {
 export function Tr({ children, onClick, className = '' }) {
   return (
     <tr
-      className={`hover:bg-gray-50 transition-colors ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      className={`hover:bg-[#EAF1FA] transition-colors ${onClick ? 'cursor-pointer' : ''} ${className}`}
       onClick={onClick}
     >
       {children}

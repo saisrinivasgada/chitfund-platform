@@ -18,8 +18,17 @@ import {
 
 function fmtTime(ts) {
   if (!ts) return '';
-  return new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return new Date(ts).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
 }
+
+const businessDayFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+const businessDay = (value) => {
+  if (!value || Number.isNaN(new Date(value).getTime())) return null;
+  return businessDayFormatter.format(new Date(value));
+};
+const isToday = (value) => businessDay(value) === businessDay(Date.now());
 
 function fmtAmt(n) {
   return `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
@@ -80,9 +89,11 @@ const HIDDEN = '••••••';
 function DismissBtn({ onDismiss }) {
   return (
     <button
+      type="button"
       onClick={(e) => { e.stopPropagation(); onDismiss(); }}
       className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors cursor-pointer ml-1"
-      title="Clear this item"
+      title="Hide from this view"
+      aria-label="Hide activity from this view"
     >
       <X size={12} />
     </button>
@@ -96,13 +107,21 @@ function BatchRow({ batch, staffMap, memberMap, chitMap, chits, hidden, onDismis
   const member = nm(memberMap, batch.memberId);
   const chit = chits.find((c) => c.id === batch.chitId);
   const chitName = chit?.name ?? nm(chitMap, batch.chitId);
-  const collector = nm(staffMap, batch.collectedBy);
+  const collector = nm(staffMap, batch.collectedBy ?? batch.recordedBy);
   const alloc = batch.allocations ?? [];
   const draws = alloc.map((a) => `#${a.monthNumber}`).join(', ');
 
   return (
     <div
       onClick={() => navigate(`/transactions/${batch.id}`)}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          navigate(`/transactions/${batch.id}`);
+        }
+      }}
+      role="link"
+      tabIndex={0}
       className="flex items-start gap-3 px-5 py-3 bg-white hover:bg-[#EEF2F8]/40 transition-colors cursor-pointer group"
     >
       <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -128,7 +147,7 @@ function BatchRow({ batch, staffMap, memberMap, chitMap, chits, hidden, onDismis
         </div>
         <p className="text-xs text-gray-400 mt-0.5">
           {draws && <span>Draw {draws} · </span>}
-          by {collector} · {fmtTime(batch.collectedAt ?? batch.createdAt)}
+          by {collector} · {fmtTime(batch.recordedAt ?? batch.collectedAt ?? batch.createdAt)}
         </p>
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -195,32 +214,35 @@ export default function TodaysActivityFeed() {
   const navigate = useNavigate();
   const [dismissed, setDismissed] = useState(new Set());
   const [auditFilter, setAuditFilter] = useState('ALL');
+  const [showOperational, setShowOperational] = useState(false);
   const dismiss = useCallback((key) => setDismissed((prev) => new Set([...prev, key])), []);
 
-  const { data: batches = [], isLoading: batchesLoading, refetch: refetchBatches } =
-    useQuery({ queryKey: ['today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 30_000 });
+  const { data: batches = [], isLoading: batchesLoading, isError: batchesError, refetch: refetchBatches } =
+    useQuery({ queryKey: ['today-batches'], queryFn: getTodaysPaymentBatches, enabled: showOperational, staleTime: 30_000, retry: false });
 
-  const { data: draws = [], isLoading: drawsLoading, refetch: refetchDraws } =
-    useQuery({ queryKey: ['today-draws'], queryFn: getTodaysDraws, staleTime: 30_000 });
+  const { data: draws = [], isLoading: drawsLoading, isError: drawsError, refetch: refetchDraws } =
+    useQuery({ queryKey: ['today-draws'], queryFn: getTodaysDraws, enabled: showOperational, staleTime: 30_000, retry: false });
 
-  const { data: payouts = [], isLoading: payoutsLoading, refetch: refetchPayouts } =
-    useQuery({ queryKey: ['today-payouts'], queryFn: getTodaysPayouts, staleTime: 30_000 });
+  const { data: payouts = [], isLoading: payoutsLoading, isError: payoutsError, refetch: refetchPayouts } =
+    useQuery({ queryKey: ['today-payouts'], queryFn: getTodaysPayouts, enabled: showOperational, staleTime: 30_000, retry: false });
 
-  const { data: chitActivity = [], isLoading: chitLoading, refetch: refetchChits } =
-    useQuery({ queryKey: ['today-chit-activity'], queryFn: getTodaysChitActivity, staleTime: 30_000 });
+  const { data: chitActivity = [], isLoading: chitLoading, isError: chitError, refetch: refetchChits } =
+    useQuery({ queryKey: ['today-chit-activity'], queryFn: getTodaysChitActivity, enabled: showOperational, staleTime: 30_000, retry: false });
 
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff(), staleTime: 5 * 60_000 });
-  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => getMembers({ size: 50 }), staleTime: 60_000 });
-  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 30_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff(), enabled: showOperational, staleTime: 5 * 60_000 });
+  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => getMembers({ size: 50 }), enabled: showOperational, staleTime: 60_000 });
+  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, enabled: showOperational, staleTime: 30_000 });
 
   const { data: recentAudit = [], isLoading: auditLoading, isError: auditError,
     refetch: refetchAudit } = useQuery({
     queryKey: ['dashboard-audit', auditFilter],
-    queryFn: () => getRecentAuditLogs({ entityType: auditFilter, size: 100 }),
+    queryFn: () => getRecentAuditLogs({ entityType: auditFilter, size: 12 }),
     staleTime: 30_000,
+    retry: false,
   });
 
-  const isLoading = batchesLoading || drawsLoading || payoutsLoading || chitLoading || auditLoading;
+  const isLoading = batchesLoading || drawsLoading || payoutsLoading || chitLoading;
+  const activityError = batchesError || drawsError || payoutsError || chitError;
 
   const staffMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.fullName ?? s.username ?? 'Staff']));
   const staffRoleMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.role ?? '']));
@@ -232,27 +254,37 @@ export default function TodaysActivityFeed() {
   );
   const chitMap = Object.fromEntries((chits ?? []).map((c) => [c.id, c.name ?? c.id]));
 
+  // The backend returns a batch when *any* event happened today. A remittance
+  // today must not make yesterday's collection appear in today's total.
   const collectedBatches = batches
-    .filter((b) => b.status !== 'VOIDED' && !dismissed.has(`batch-${b.id}`));
+    .filter((b) => isToday(b.recordedAt ?? b.collectedAt ?? b.createdAt)
+      && b.status !== 'VOIDED' && !dismissed.has(`batch-${b.id}`));
   const remittedBatches  = batches
-    .filter((b) => b.remittedAt && !dismissed.has(`remit-${b.id}`));
+    .filter((b) => isToday(b.remittedAt) && !dismissed.has(`remit-${b.id}`));
   const voidedBatches    = batches
-    .filter((b) => b.status === 'VOIDED' && !dismissed.has(`void-${b.id}`));
+    .filter((b) => b.status === 'VOIDED' && isToday(b.voidedAt) && !dismissed.has(`void-${b.id}`));
   const totalCollected   = collectedBatches.reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
 
   // Only show chits with meaningful status changes (exclude DRAFT name-edits if status is still DRAFT
   // and the chit was created in the feed window, since creation also triggers updatedAt)
   const chitStatusChanges = chitActivity.filter(
     (c) => (!dismissed.has(`chit-${c.id}`)) &&
-    (c.status !== 'DRAFT' || new Date(c.createdAt).toDateString() !== new Date().toDateString())
+    (c.status !== 'DRAFT' || !isToday(c.createdAt))
   );
 
-  const activeDrawEvents = draws.filter((d) => (d.skippedAt || d.openedAt) && !dismissed.has(`draw-${d.id}`));
+  const drawEvents = draws.flatMap((draw) => [
+    { kind: 'opened', at: draw.openedAt, draw },
+    { kind: 'closed', at: draw.closedAt, draw },
+    { kind: 'skipped', at: draw.skippedAt, draw },
+  ]).filter((event) => isToday(event.at) && !dismissed.has(`draw-${event.kind}-${event.draw.id}`))
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
   const filteredPayouts = payouts.filter((p) => !dismissed.has(`payout-${p.id}`));
 
   const hasActivity = collectedBatches.length > 0
-    || activeDrawEvents.length > 0
+    || remittedBatches.length > 0
+    || voidedBatches.length > 0
+    || drawEvents.length > 0
     || filteredPayouts.length > 0
     || chitStatusChanges.length > 0;
 
@@ -318,27 +350,41 @@ export default function TodaysActivityFeed() {
         )}
       </div>
 
+      <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
+        <button
+          type="button"
+          onClick={() => setShowOperational((value) => !value)}
+          aria-expanded={showOperational}
+          className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-[#1E3A5F]"
+        >
+          <span>{showOperational ? 'Hide' : 'Show'} today’s payment, draw and payout breakdown</span>
+          {showOperational ? <ChevronDown size={16} className="shrink-0" /> : <ChevronRight size={16} className="shrink-0" />}
+        </button>
+        {!showOperational && <p className="mt-1 text-xs text-gray-500">Open the breakdown when you need detailed counts. Audited activity stays visible above.</p>}
+      </div>
+
+      {showOperational && <>
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
         <div>
           <h3 className="text-base font-semibold text-gray-900">Today's Activity</h3>
           <p className="text-xs text-gray-400 mt-0.5">
-            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
-            {' · '}last 12 hrs
+            {new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long' })}
+            {' · '}activity recorded today
           </p>
         </div>
         <div className="flex items-center gap-3">
           {/* Quick count chips */}
-          {!isLoading && (
+          {hasActivity && (
             <div className="hidden sm:flex items-center gap-1.5">
               {collectedBatches.length > 0 && (
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
                   {collectedBatches.length} payment{collectedBatches.length !== 1 ? 's' : ''}
                 </span>
               )}
-              {activeDrawEvents.length > 0 && (
+              {drawEvents.length > 0 && (
                 <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF2F8', color: '#1E3A5F' }}>
-                  {activeDrawEvents.length} draw event{activeDrawEvents.length !== 1 ? 's' : ''}
+                  {drawEvents.length} draw event{drawEvents.length !== 1 ? 's' : ''}
                 </span>
               )}
               {chitStatusChanges.length > 0 && (
@@ -358,12 +404,25 @@ export default function TodaysActivityFeed() {
         </div>
       </div>
 
-      {isLoading ? (
+      {activityError && (
+        <div className="px-6 py-3 bg-amber-50 border-b border-amber-100 text-sm text-amber-800" role="status">
+          Some activity could not be loaded. This summary may be incomplete.
+          <button type="button" onClick={refetchAll} className="ml-2 font-semibold underline">Retry</button>
+        </div>
+      )}
+
+      {isLoading && hasActivity && (
+        <div className="px-6 py-2 border-b border-gray-100 text-xs text-gray-500" role="status">
+          More activity is loading. Counts may increase.
+        </div>
+      )}
+
+      {isLoading && !hasActivity ? (
         <div className="flex items-center justify-center py-16 text-gray-400 text-sm gap-2">
           <RefreshCw size={14} className="animate-spin" />
           Loading activity…
         </div>
-      ) : !hasActivity ? (
+      ) : !hasActivity && !activityError ? (
         <div className="flex flex-col items-center justify-center py-16 text-gray-400">
           <Clock size={28} className="mb-3 text-gray-300" />
           <p className="text-sm font-medium">No activity yet today</p>
@@ -426,19 +485,19 @@ export default function TodaysActivityFeed() {
           )}
 
           {/* ── Draw Activity ── */}
-          {activeDrawEvents.length > 0 && (
+          {drawEvents.length > 0 && (
             <SectionCard
               icon={ArrowDownCircle}
               iconColor="text-[#1E3A5F]"
               iconBg="bg-[#EEF2F8]"
               title="Draw Activity"
-              count={activeDrawEvents.length}
-              subtitle={`${draws.filter((d) => d.openedAt && !d.closedAt).length} opened · ${draws.filter((d) => d.skippedAt).length} skipped`}
+              count={drawEvents.length}
+              subtitle={`${drawEvents.filter((e) => e.kind === 'opened').length} opened · ${drawEvents.filter((e) => e.kind === 'closed').length} closed · ${drawEvents.filter((e) => e.kind === 'skipped').length} skipped`}
             >
-              {draws.map((d) => {
+              {drawEvents.map(({ draw: d, kind, at }) => {
                 const chitName = nm(chitMap, d.chitId);
                 const cycle = `${chitName} — Draw #${d.monthNumber}`;
-                if (d.skippedAt) {
+                if (kind === 'skipped') {
                   const skipperRole = staffRoleMap[d.skippedBy];
                   return (
                     <EventRow key={`skip-${d.id}`}
@@ -446,11 +505,11 @@ export default function TodaysActivityFeed() {
                       label="Skipped" labelColor="text-orange-600"
                       detail={<span className="flex items-center gap-1.5 flex-wrap">{nm(staffMap, d.skippedBy)} {skipperRole && <RoleBadge role={skipperRole} />} skipped {cycle}</span>}
                       sub={d.skipReason}
-                      time={fmtTime(d.skippedAt)}
-                      onDismiss={() => dismiss(`draw-${d.id}`)} />
+                      time={fmtTime(at)}
+                      onDismiss={() => dismiss(`draw-skipped-${d.id}`)} />
                   );
                 }
-                if (d.openedAt && !d.closedAt) {
+                if (kind === 'opened') {
                   const openerRole = staffRoleMap[d.openedBy];
                   return (
                     <EventRow key={`open-${d.id}`}
@@ -458,11 +517,17 @@ export default function TodaysActivityFeed() {
                       label="Opened" labelColor="text-[#1E3A5F]"
                       detail={<span className="flex items-center gap-1.5 flex-wrap">{nm(staffMap, d.openedBy)} {openerRole && <RoleBadge role={openerRole} />} opened {cycle}</span>}
                       sub={d.dueDate ? `Due: ${d.dueDate}` : undefined}
-                      time={fmtTime(d.openedAt)}
-                      onDismiss={() => dismiss(`draw-${d.id}`)} />
+                      time={fmtTime(at)}
+                      onDismiss={() => dismiss(`draw-opened-${d.id}`)} />
                   );
                 }
-                return null;
+                const closerRole = staffRoleMap[d.closedBy];
+                return <EventRow key={`close-${d.id}`}
+                  icon={CheckCircle} iconColor="text-[#1E3A5F]" iconBg="bg-[#EEF2F8]"
+                  label="Closed" labelColor="text-[#1E3A5F]"
+                  detail={<span className="flex items-center gap-1.5 flex-wrap">{nm(staffMap, d.closedBy)} {closerRole && <RoleBadge role={closerRole} />} closed {cycle}</span>}
+                  time={fmtTime(at)}
+                  onDismiss={() => dismiss(`draw-closed-${d.id}`)} />;
               })}
             </SectionCard>
           )}
@@ -491,13 +556,31 @@ export default function TodaysActivityFeed() {
               iconBg="bg-green-50"
               title="Payout Activity"
               count={filteredPayouts.length}
-              subtitle={`${filteredPayouts.filter((p) => p.disbursedAt).length} disbursed · ${filteredPayouts.filter((p) => p.status === 'PENDING').length} pending`}
+              subtitle={`${filteredPayouts.filter((p) => p.disbursedAt && p.status !== 'CANCELLED' && p.status !== 'VOIDED').length} disbursed · ${filteredPayouts.filter((p) => p.status === 'PENDING').length} pending`}
             >
               {filteredPayouts.map((p) => {
                 const member = nm(memberMap, p.memberId);
                 const chit = nm(chitMap, p.chitId);
                 const payAmt = amt(p.netPayoutAmount);
 
+                if (p.voidedAt || p.status === 'VOIDED') return (
+                  <EventRow key={`void-payout-${p.id}`}
+                    icon={Ban} iconColor="text-red-500" iconBg="bg-red-50"
+                    label="Voided" labelColor="text-red-600"
+                    detail={`${nm(staffMap, p.voidedBy)} voided ${payAmt} for ${member}`}
+                    sub={p.voidReason}
+                    time={fmtTime(p.voidedAt)}
+                    onDismiss={() => dismiss(`payout-${p.id}`)} />
+                );
+                if (p.cancelledAt || p.status === 'CANCELLED') return (
+                  <EventRow key={`can-${p.id}`}
+                    icon={Ban} iconColor="text-red-500" iconBg="bg-red-50"
+                    label="Cancelled" labelColor="text-red-600"
+                    detail={`${nm(staffMap, p.cancelledBy)} cancelled ${payAmt} for ${member}`}
+                    sub={p.cancellationReason}
+                    time={fmtTime(p.cancelledAt)}
+                    onDismiss={() => dismiss(`payout-${p.id}`)} />
+                );
                 if (p.disbursedAt) return (
                   <EventRow key={`dis-${p.id}`}
                     icon={Gift} iconColor="text-green-700" iconBg="bg-green-50"
@@ -514,15 +597,6 @@ export default function TodaysActivityFeed() {
                     detail={`${nm(staffMap, p.createdBy)} registered ${payAmt} for ${member}`}
                     sub={`${chit} · Draw #${p.monthNumber} — awaiting disbursement`}
                     time={fmtTime(p.createdAt)}
-                    onDismiss={() => dismiss(`payout-${p.id}`)} />
-                );
-                if (p.cancelledAt) return (
-                  <EventRow key={`can-${p.id}`}
-                    icon={Ban} iconColor="text-red-500" iconBg="bg-red-50"
-                    label="Cancelled" labelColor="text-red-600"
-                    detail={`${nm(staffMap, p.cancelledBy)} cancelled ${payAmt} for ${member}`}
-                    sub={p.cancellationReason}
-                    time={fmtTime(p.cancelledAt)}
                     onDismiss={() => dismiss(`payout-${p.id}`)} />
                 );
                 return null;
@@ -554,6 +628,7 @@ export default function TodaysActivityFeed() {
           )}
         </div>
       )}
+      </>}
     </div>
   );
 }

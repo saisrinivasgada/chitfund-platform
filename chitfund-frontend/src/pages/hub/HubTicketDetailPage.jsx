@@ -124,6 +124,8 @@ export default function HubTicketDetailPage() {
   const {
     data: msgPages,
     isLoading: msgsLoading,
+    isError: msgsError,
+    refetch: refetchMessages,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -150,9 +152,9 @@ export default function HubTicketDetailPage() {
   }, [messages.length]);
 
   const sendMut = useMutation({
-    mutationFn: () => hubSendTicketMessage(id, content.trim()),
-    onSuccess: () => {
-      setContent('');
+    mutationFn: (message) => hubSendTicketMessage(id, message),
+    onSuccess: (_result, message) => {
+      setContent(current => current.trim() === message ? '' : current);
       qc.invalidateQueries({ queryKey: ['hub-ticket-messages', id] });
       qc.invalidateQueries({ queryKey: ['hub-ticket', id] });
       qc.invalidateQueries({ queryKey: ['hub-tickets'] });
@@ -328,6 +330,8 @@ export default function HubTicketDetailPage() {
 
           {msgsLoading ? (
             <div className="flex items-center justify-center py-10 text-gray-400 text-sm">Loading messages…</div>
+          ) : msgsError ? (
+            <button type="button" onClick={() => refetchMessages()} className="text-sm text-red-600 py-8">Could not load replies. Tap to retry.</button>
           ) : messages.length === 0 ? (
             <div className="flex items-center justify-center py-10 text-gray-400 text-sm">No messages yet. Start the conversation.</div>
           ) : (
@@ -381,15 +385,17 @@ export default function HubTicketDetailPage() {
         </div>
 
         {/* Reply box */}
-        {currentStatus !== 'CLOSED' ? (
-          <div className="border-t border-gray-100 p-3 flex gap-2 items-end">
+        {currentStatus !== 'CLOSED' && currentStatus !== 'RESOLVED' ? (
+          <div className="border-t border-gray-100 p-3">
+            {sendMut.isError && <p role="alert" className="text-xs text-red-600 mb-2">Reply was not sent. Your draft is saved; try again.</p>}
+            <div className="flex gap-2 items-end">
             <textarea
               value={content}
               onChange={e => setContent(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey && content.trim()) {
                   e.preventDefault();
-                  sendMut.mutate();
+                  sendMut.mutate(content.trim());
                 }
               }}
               rows={2}
@@ -397,13 +403,14 @@ export default function HubTicketDetailPage() {
               className="flex-1 resize-none px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] bg-white"
             />
             <button
-              onClick={() => sendMut.mutate()}
+              onClick={() => sendMut.mutate(content.trim())}
               disabled={!content.trim() || sendMut.isPending}
               className="flex items-center justify-center w-10 h-10 rounded-xl text-white transition-opacity disabled:opacity-40 flex-shrink-0"
               style={{ backgroundColor: '#1E3A5F' }}
             >
               <Send size={16} />
             </button>
+            </div>
           </div>
         ) : (
           <div className="border-t border-gray-100 p-3 text-center text-xs text-gray-400">

@@ -737,7 +737,7 @@ export default function BillingPage() {
                 <div className="flex-shrink-0 text-right bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
                   <p className="text-xs text-emerald-600 font-medium">Credit</p>
                   <p className="text-base font-bold text-emerald-700">{fmt(billing.creditBalanceInr)}</p>
-                  <p className="text-[10px] text-emerald-500">applied at renewal</p>
+                  <p className="text-[10px] text-emerald-500">available for renewal</p>
                 </div>
               )}
             </div>
@@ -821,8 +821,11 @@ export default function BillingPage() {
               { key: 'settlement',       label: 'Member Early-Exit Settlement',     desc: 'Calculate and record member exit settlements automatically', icon: HandCoins },
               { key: 'full_analytics',   label: 'Full Analytics & Reports',         desc: 'Advanced reports and export tools',                         icon: BarChart2 },
               { key: 'priority_support', label: 'Priority Support',                 desc: 'Faster response times from our team',                       icon: Headphones },
+              { key: 'chitfund_compliance', label: 'ChitFund Compliance',           desc: 'Compliance features for eligible organisations',             icon: Lock },
             ];
             const enabled = new Set(effectiveLimits.enabledAddOns ?? []);
+            const knownKeys = new Set(ALL_ADD_ONS.map(({ key }) => key));
+            const otherEnabled = [...enabled].filter((key) => !knownKeys.has(key));
             const missingAny = ALL_ADD_ONS.some(c => !enabled.has(c.key));
             return (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
@@ -846,6 +849,12 @@ export default function BillingPage() {
                       </div>
                     );
                   })}
+                  {otherEnabled.map((key) => (
+                    <div key={key} className="flex items-center gap-3 rounded-xl border border-green-100 bg-green-50/50 p-3">
+                      <CheckCircle size={16} className="text-green-600 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-gray-900">{key.replaceAll('_', ' ')}</span>
+                    </div>
+                  ))}
                 </div>
                 {missingAny && (
                   <p className="text-xs text-gray-400 mt-4 text-center">

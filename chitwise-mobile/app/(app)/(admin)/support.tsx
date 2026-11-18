@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
 import {
   listMyTickets, createSupportTicket, getTicketMessages,
@@ -91,7 +91,7 @@ function NewTicketModal({ visible, onClose, onCreate }: {
         </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
             {/* Type picker */}
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Category</Text>
@@ -167,11 +167,15 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
   const qc = useQueryClient();
   const [text, setText] = useState('');
   const flatRef = useRef<FlatList>(null);
+  const initialScrollRef = useRef(false);
+  const nearBottomRef = useRef(true);
 
-  const { data: messages = [], isLoading } = useQuery({
+  const { data: messages, isLoading, isError, refetch: refetchMessages, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ['ticket-messages', ticket.id],
-    queryFn: () => getTicketMessages(ticket.id),
-    refetchInterval: 15_000,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => getTicketMessages(ticket.id, { cursor: pageParam }),
+    getNextPageParam: (lastPage: any) => lastPage?.hasNext ? lastPage.nextCursor : undefined,
+    refetchInterval: 30_000,
   });
 
   useEffect(() => {
@@ -179,18 +183,16 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
   }, [ticket.id]);
 
   const sendMut = useMutation({
-    mutationFn: () => sendTicketMessage(ticket.id, text.trim()),
-    onSuccess: () => {
-      setText('');
+    mutationFn: (content: string) => sendTicketMessage(ticket.id, content),
+    onSuccess: (_message, content) => {
+      setText(current => current.trim() === content ? '' : current);
       qc.invalidateQueries({ queryKey: ['ticket-messages', ticket.id] });
       qc.invalidateQueries({ queryKey: ['my-tickets'] });
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send'),
   });
 
-  const msgs: any[] = Array.isArray(messages)
-    ? messages
-    : (messages as any)?.content ?? [];
+  const msgs: any[] = ((messages as any)?.pages ?? []).flatMap((page: any) => page?.items ?? []).reverse();
 
   const isClosed = ticket.status === 'CLOSED' || ticket.status === 'RESOLVED';
 
@@ -215,13 +217,30 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color={C.navy} />
         </View>
+      ) : isError ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <Text style={{ color: C.gray700, marginBottom: 12 }}>Could not load messages.</Text>
+          <TouchableOpacity onPress={() => refetchMessages()}><Text style={{ color: C.navy, fontWeight: '700' }}>Try again</Text></TouchableOpacity>
+        </View>
       ) : (
         <FlatList
           ref={flatRef}
           data={msgs}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ padding: 12, paddingBottom: 16, gap: 8 }}
-          onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onScroll={event => {
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            nearBottomRef.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 120;
+          }}
+          scrollEventThrottle={16}
+          onContentSizeChange={() => {
+            if (!initialScrollRef.current || (nearBottomRef.current && !isFetchingNextPage)) {
+              flatRef.current?.scrollToEnd({ animated: initialScrollRef.current });
+            }
+            initialScrollRef.current = true;
+          }}
+          ListHeaderComponent={hasNextPage ? <TouchableOpacity disabled={isFetchingNextPage} onPress={() => fetchNextPage()} style={{ alignSelf: 'center', padding: 10 }}><Text style={{ color: C.navy, fontWeight: '700' }}>{isFetchingNextPage ? 'Loading…' : 'Load older messages'}</Text></TouchableOpacity> : null}
           ListEmptyComponent={
             <View style={{ alignItems: 'center', paddingVertical: 32 }}>
               <Text style={{ fontSize: 28, marginBottom: 8 }}>🎧</Text>
@@ -232,7 +251,7 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
             </View>
           }
           renderItem={({ item: msg }) => {
-            const fromAgent = msg.senderRole === 'SUPER_ADMIN';
+            const fromAgent = msg.senderType === 'SUPER_ADMIN' || msg.senderType === 'SUPPORT_AGENT';
             return (
               <View style={{ alignItems: fromAgent ? 'flex-start' : 'flex-end' }}>
                 {fromAgent && (
@@ -271,7 +290,7 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
               style={{ flex: 1, borderWidth: 1.5, borderColor: C.gray200, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, fontSize: 14, color: C.gray900, maxHeight: 100 }}
             />
             <TouchableOpacity
-              onPress={() => sendMut.mutate()}
+              onPress={() => sendMut.mutate(text.trim())}
               disabled={!text.trim() || sendMut.isPending}
               style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: text.trim() ? C.navy : C.gray200, alignItems: 'center', justifyContent: 'center' }}
             >
@@ -295,13 +314,13 @@ export default function SupportScreen() {
   const [showNew, setShowNew] = useState(false);
   const [activeTicket, setActiveTicket] = useState<any>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['my-tickets'],
     queryFn: () => listMyTickets({ page: 0, size: 50 }),
     staleTime: 60_000,
   });
 
-  const tickets: any[] = Array.isArray(data) ? data : (data as any)?.content ?? [];
+  const tickets: any[] = Array.isArray(data) ? data : (data as any)?.items ?? [];
 
   if (activeTicket) {
     return (
@@ -336,6 +355,11 @@ export default function SupportScreen() {
       {isLoading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color={C.navy} />
+        </View>
+      ) : isError ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <Text style={{ color: C.gray700, marginBottom: 12 }}>Could not load tickets.</Text>
+          <TouchableOpacity onPress={() => refetch()}><Text style={{ color: C.navy, fontWeight: '700' }}>Try again</Text></TouchableOpacity>
         </View>
       ) : tickets.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>

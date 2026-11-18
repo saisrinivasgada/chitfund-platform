@@ -439,7 +439,9 @@ export async function makeRetryableOperationsReady(accountScope: string): Promis
   const db = await getOfflineDatabase(accountScope);
   await db.runAsync(
     `UPDATE sync_operations SET next_attempt_at = ?, updated_at = ?
-     WHERE account_scope = ? AND status IN ('RETRYABLE_FAILURE', 'PAUSED_ACCESS')`,
+     WHERE account_scope = ? AND status IN ('RETRYABLE_FAILURE', 'PAUSED_ACCESS')
+       AND (last_error_code IS NULL OR last_error_code NOT IN
+         ('RATE_LIMITED', 'RATE_001', 'RATE_LIMIT_001', 'HTTP_429'))`,
     Date.now(),
     Date.now(),
     accountScope,
@@ -686,13 +688,22 @@ export async function pruneCompletedOperations(accountScope: string): Promise<vo
  * SecureStore — even if someone recovers the file the key is gone.
  */
 export async function purgeAccountOfflineData(accountScope: string): Promise<void> {
+  const connection = openDatabases.get(accountScope);
   openDatabases.delete(accountScope);
+  if (connection) {
+    // Close the shared handle before removing its file. A failed close must
+    // leave the saved account available so the user can retry the removal.
+    const db = await connection;
+    await db.closeAsync();
+  }
   const hash = await scopeHash(accountScope);
   const filename = `chitwise-offline-${hash}.db`;
   try {
     await SQLite.deleteDatabaseAsync(filename);
-  } catch {
-    // File may not exist yet (account created but never recorded offline)
+  } catch (error) {
+    // Online-only accounts may never have created a file. Other failures must
+    // not be reported as a successful local-data deletion.
+    if (offlineFileExists(filename)) throw error;
   }
   await SecureStore.deleteItemAsync(`chitwise_offline_key_${hash}`);
 }

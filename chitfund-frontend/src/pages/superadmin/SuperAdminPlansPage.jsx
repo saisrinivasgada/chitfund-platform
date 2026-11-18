@@ -713,7 +713,7 @@ export default function SuperAdminPlansPage() {
                         onDragStart={() => handleDragStart(idx)}
                         onDragOver={e => handleDragOver(e, idx)}
                         onDrop={() => handleDrop(idx)}
-                        className={`border-b border-gray-50 transition-colors ${isDragTarget ? 'bg-blue-50/70 border-blue-200' : 'hover:bg-gray-50/50'}`}
+                        className={`border-b border-gray-50 transition-colors ${isDragTarget ? 'bg-blue-50/70 border-blue-200' : 'odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA]'}`}
                       >
                         {/* Drag handle */}
                         <td className="px-3 py-4">

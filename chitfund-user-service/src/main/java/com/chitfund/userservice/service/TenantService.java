@@ -257,9 +257,9 @@ public class TenantService {
             User existingAdmin = admins.get(0);
             try {
                 String html = EmailService.buildApprovalEmailHtml(
-                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), null, planLimits);
+                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), planLimits);
                 String text = EmailService.buildApprovalEmailText(
-                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), null, planLimits);
+                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), planLimits);
                 notificationEventPublisher.publishEmail(
                         t.getContactEmail(),
                         "Your ChitWise account is now active — " + t.getName(),
@@ -305,15 +305,15 @@ public class TenantService {
 
         try {
             String html = EmailService.buildApprovalEmailHtml(
-                    admin.getFullName(), t.getName(), t.getSlug(), username, rawPassword, planLimits);
+                    admin.getFullName(), t.getName(), t.getSlug(), username, planLimits);
             String text = EmailService.buildApprovalEmailText(
-                    admin.getFullName(), t.getName(), t.getSlug(), username, rawPassword, planLimits);
+                    admin.getFullName(), t.getName(), t.getSlug(), username, planLimits);
             notificationEventPublisher.publishEmail(
                     t.getContactEmail(),
-                    "Your ChitWise account is approved — login credentials inside",
+                    "Your ChitWise account is approved",
                     html, text);
         } catch (Exception e) {
-            log.warn("Approval email with credentials could not be queued for tenant {}: {}", tenantId, e.getMessage());
+            log.warn("Approval email could not be queued for tenant {}: {}", tenantId, e.getMessage());
         }
 
         return ActivationResponse.builder()
@@ -670,9 +670,9 @@ public class TenantService {
             try {
                 String loginUrl = frontendUrl + "/login";
                 String html = EmailService.buildOrgUserCreatedHtml(
-                        req.getFullName(), tenant.getName(), role.name(), candidate, rawPassword, loginUrl);
+                        req.getFullName(), tenant.getName(), role.name(), candidate, loginUrl);
                 String text = EmailService.buildOrgUserCreatedText(
-                        req.getFullName(), tenant.getName(), role.name(), candidate, rawPassword, loginUrl);
+                        req.getFullName(), tenant.getName(), role.name(), candidate, loginUrl);
                 notificationEventPublisher.publishEmail(
                         req.getEmail(),
                         "Your ChitWise account is ready — " + tenant.getName(),
@@ -1322,8 +1322,8 @@ public class TenantService {
                             .stream().findFirst().map(User::getUsername).orElse(null);
                     String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
                     PlanLimits planLimits = planLimitsRepository.findById(planCode).orElse(null);
-                    html = EmailService.buildApprovalEmailHtml(null, t.getName(), t.getSlug(), adminUsername, null, planLimits);
-                    text = EmailService.buildApprovalEmailText(null, t.getName(), t.getSlug(), adminUsername, null, planLimits);
+                    html = EmailService.buildApprovalEmailHtml(null, t.getName(), t.getSlug(), adminUsername, planLimits);
+                    text = EmailService.buildApprovalEmailText(null, t.getName(), t.getSlug(), adminUsername, planLimits);
                     subject = "Your ChitWise account is now active — " + t.getName();
                 }
                 case "REJECTED" -> {

@@ -157,7 +157,7 @@ public class EmailService {
 
     public static String buildOrgUserCreatedHtml(String recipientName, String orgName,
                                                   String role, String username,
-                                                  String tempPassword, String loginUrl) {
+                                                  String loginUrl) {
         String name = recipientName != null && !recipientName.isBlank() ? recipientName : "there";
         String org  = orgName       != null && !orgName.isBlank()       ? orgName       : "your organization";
         String hero = statusHero(
@@ -173,22 +173,18 @@ public class EmailService {
                   Hi <strong>%s</strong>,<br><br>
                   An account has been created for you on <strong>ChitWise</strong> under
                   <strong>%s</strong>. Your role is <strong>%s</strong>.
-                  Use the credentials below to log in — you will be asked to set a new password on first login.
+                  Your username is below. Ask the administrator who invited you for first-login instructions.
                 </p>
                 <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;margin:0 0 20px;">
-                  <p style="color:#166534;font-size:12px;font-weight:700;letter-spacing:1.5px;margin:0 0 14px;text-transform:uppercase;">Your login credentials</p>
+                  <p style="color:#166534;font-size:12px;font-weight:700;letter-spacing:1.5px;margin:0 0 14px;text-transform:uppercase;">Your account</p>
                   <table width="100%%" cellpadding="0" cellspacing="0" border="0">
                     <tr>
                       <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;">Username</td>
                       <td style="padding:6px 0;color:#111827;font-size:15px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
                     </tr>
-                    <tr>
-                      <td style="padding:6px 0;color:#6B7280;font-size:13px;">Temporary password</td>
-                      <td style="padding:6px 0;color:#111827;font-size:15px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
-                    </tr>
                   </table>
                   <p style="color:#166534;font-size:12px;margin:14px 0 0;line-height:1.5;">
-                    You will be prompted to change your password immediately after your first login.
+                    For your safety, ChitWise does not send passwords by email.
                   </p>
                 </div>
                 <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
@@ -202,19 +198,19 @@ public class EmailService {
                 </table>
                 <div style="background:#FFF7ED;border-left:4px solid #F97316;border-radius:0 8px 8px 0;padding:12px 16px;margin:0 0 20px;">
                   <p style="color:#9A3412;font-size:13px;margin:0;line-height:1.5;">
-                    <strong>Keep these credentials private.</strong> Do not share your password with anyone, including ChitWise staff.
+                    If you were not expecting this account, contact ChitWise support.
                   </p>
                 </div>
                 <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
                   Questions? Reach us at <a href="mailto:help@thechitwise.com" style="color:#059669;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
                 </p>
-                """.formatted(name, org, role, username, tempPassword, loginUrl);
+                """.formatted(name, org, role, username, loginUrl);
         return baseTemplate(LOGO_URL, ICON_ROCKET, "Account Created", "#059669", body);
     }
 
     public static String buildOrgUserCreatedText(String recipientName, String orgName,
                                                   String role, String username,
-                                                  String tempPassword, String loginUrl) {
+                                                  String loginUrl) {
         String name = recipientName != null && !recipientName.isBlank() ? recipientName : "there";
         String org  = orgName       != null && !orgName.isBlank()       ? orgName       : "your organization";
         return """
@@ -223,16 +219,15 @@ public class EmailService {
                 An account has been created for you on ChitWise under %s. Your role is %s.
 
                 Username: %s
-                Temporary password: %s
-
                 Log in here: %s
 
-                You will be asked to change your password on first login. Keep your credentials private.
+                Ask the administrator who invited you for first-login instructions.
+                For your safety, ChitWise does not send passwords by email.
 
                 Questions? Reach us at help@thechitwise.com.
 
                 — The ChitWise Team
-                """.formatted(name, org, role, username, tempPassword, loginUrl);
+                """.formatted(name, org, role, username, loginUrl);
     }
 
     // ── Internal send ─────────────────────────────────────────────────────────
@@ -520,8 +515,8 @@ public class EmailService {
                 <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 12px;"><strong>What happens next?</strong></p>
                 <ol style="color:#4B5563;font-size:14px;line-height:2;margin:0 0 20px;padding-left:20px;">
                   <li>Our team reviews your registration — usually within 1 business day</li>
-                  <li>You'll receive an activation email to set your password</li>
-                  <li>Log in and start managing your chit fund immediately</li>
+                  <li>You'll receive an approval email with your sign-in details</li>
+                  <li>Complete first-time setup if needed, then manage your chit fund</li>
                 </ol>
                 <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
                   Questions? We're here at
@@ -544,8 +539,8 @@ public class EmailService {
 
                 What happens next?
                 1. Our team reviews your registration (usually within 1 business day)
-                2. You'll receive an activation email to set your password
-                3. Log in and start managing your chit fund
+                2. You'll receive an approval email with your sign-in details
+                3. Complete first-time setup if needed, then manage your chit fund
 
                 Questions? Reach us at help@thechitwise.com.
 
@@ -649,7 +644,7 @@ public class EmailService {
     // ── Org approval / rejection / suspension ─────────────────────────────────
 
     public static String buildApprovalEmailHtml(String adminName, String orgName, String slug,
-                                                String username, String tempPassword,
+                                                String username,
                                                 com.chitfund.userservice.domain.entity.PlanLimits planLimits) {
         String name = adminName != null && !adminName.isBlank() ? adminName : "there";
         String portalUrl = "https://" + slug + ".thechitwise.com";
@@ -661,30 +656,7 @@ public class EmailService {
             "Account Approved",
             "#DCFCE7", "#15803D", "&#10003; Active"
         );
-        String credentialsBlock = tempPassword != null
-                ? """
-                  <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;margin:0 0 20px;">
-                    <p style="color:#166534;font-size:12px;font-weight:700;letter-spacing:1.5px;margin:0 0 14px;text-transform:uppercase;">Your login credentials</p>
-                    <table width="100%%" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td style="padding:5px 0;color:#6B7280;font-size:13px;width:120px;">Username</td>
-                        <td style="padding:5px 0;color:#111827;font-size:14px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:5px 0;color:#6B7280;font-size:13px;">Temp password</td>
-                        <td style="padding:5px 0;color:#111827;font-size:14px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
-                      </tr>
-                      <tr>
-                        <td style="padding:5px 0;color:#6B7280;font-size:13px;">Your portal</td>
-                        <td style="padding:5px 0;font-size:13px;">
-                          <a href="%s" style="color:#059669;font-weight:600;text-decoration:none;">%s</a>
-                        </td>
-                      </tr>
-                    </table>
-                    <p style="color:#166534;font-size:12px;margin:14px 0 0;">You will be asked to set a new password on first login.</p>
-                  </div>
-                  """.formatted(username, tempPassword, portalUrl, portalUrl)
-                : """
+        String accountBlock = """
                   <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;margin:0 0 20px;">
                     <table width="100%%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
@@ -698,6 +670,7 @@ public class EmailService {
                         </td>
                       </tr>
                     </table>
+                    <p style="color:#166534;font-size:12px;margin:14px 0 0;">Use the sign-in method you chose at registration. If this is a new account, contact ChitWise support for first-login instructions. Passwords are never sent by email.</p>
                   </div>
                   """.formatted(username, portalUrl, portalUrl);
         String planBlock = buildPlanSummaryBlock(planLimits);
@@ -721,33 +694,30 @@ public class EmailService {
                   Need help getting started? Reach us at
                   <a href="mailto:help@thechitwise.com" style="color:#059669;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
                 </p>
-                """.formatted(name, orgName, credentialsBlock, planBlock, portalUrl);
+                """.formatted(name, orgName, accountBlock, planBlock, portalUrl);
         return baseTemplate(LOGO_URL, ICON_ROCKET, "Account Approved", "#059669", bodyContent);
     }
 
     public static String buildApprovalEmailText(String adminName, String orgName, String slug,
-                                                String username, String tempPassword,
+                                                String username,
                                                 com.chitfund.userservice.domain.entity.PlanLimits planLimits) {
         String name = adminName != null && !adminName.isBlank() ? adminName : "there";
-        String credentials = tempPassword != null
-                ? "Username: " + username + "\nTemporary password: " + tempPassword +
-                  "\n(You will be asked to change your password on first login.)"
-                : "Username: " + username;
         String planText = buildPlanSummaryText(planLimits);
         return """
                 Hi %s,
 
                 Great news! Your %s account on ChitWise has been approved and is now active.
 
-                %s
+                Username: %s
                 Portal: https://%s.thechitwise.com
 
-                %sClick the link above to log in and get started.
+                %sUse the sign-in method you chose at registration. If this is a new account,
+                contact ChitWise support for first-login instructions. Passwords are never sent by email.
 
                 Questions? Reach us at help@thechitwise.com.
 
                 — The ChitWise Team
-                """.formatted(name, orgName, credentials, slug, planText);
+                """.formatted(name, orgName, username, slug, planText);
     }
 
     private static String buildPlanSummaryBlock(com.chitfund.userservice.domain.entity.PlanLimits p) {

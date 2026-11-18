@@ -7,7 +7,7 @@ import {
   superAdminListTenants, billingListPayments, billingRecordPayment, billingRecordUpgrade, billingUpgradePreview,
   billingRecordRefund,
 } from '../../../services/api';
-import { C, fmtDate, Badge } from '../../../components/ui';
+import { C, fmtDate, Badge, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
 function fmtPaise(p: number | null | undefined) {
@@ -53,7 +53,7 @@ function PaymentDetailModal({ payment, tenantMap, onClose, onRefunded }: {
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Payment Detail</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 12 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 12, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           {/* Info card */}
           <View style={{ backgroundColor: C.gray50, borderRadius: 14, padding: 16, gap: 8, borderWidth: 1, borderColor: C.gray200 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -161,6 +161,7 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
   const [preview, setPreview] = useState<any>(null);
+  const [previewFor, setPreviewFor] = useState('');
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   const METHODS = ['UPI', 'CASH', 'BANK_TRANSFER'];
@@ -168,16 +169,30 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
   const PLANS   = ['BASIC', 'GROWTH', 'ENTERPRISE', 'CUSTOM'];
 
   useEffect(() => {
-    if (pType !== 'UPGRADE' || !tenantId || !plan) { setPreview(null); return; }
+    let active = true;
+    setPreview(null);
+    setPreviewFor('');
+    if (pType !== 'UPGRADE' || !tenantId || !plan) { setLoadingPreview(false); return; }
     setLoadingPreview(true);
     billingUpgradePreview(tenantId, plan)
-      .then((p: any) => { setPreview(p); setAmount(String(Math.round(p.chargePaise / 100))); })
-      .catch(() => setPreview(null))
-      .finally(() => setLoadingPreview(false));
+      .then((p: any) => { if (active) { setPreview(p); setPreviewFor(`${tenantId}:${plan}`); } })
+      .catch(() => { if (active) setPreview(null); })
+      .finally(() => { if (active) setLoadingPreview(false); });
+    return () => { active = false; };
   }, [pType, tenantId, plan]);
 
+  const activePreview = previewFor === `${tenantId}:${plan}` ? preview : null;
+  const validAmount = /^\d+(?:\.\d{1,2})?$/.test(amount.trim())
+    && Number(amount) > 0 && Number.isSafeInteger(Math.round(Number(amount) * 100));
   const mut = useMutation({
-    mutationFn: () => pType === 'UPGRADE'
+    mutationFn: () => {
+      if (pType === 'UPGRADE' && (loadingPreview || !activePreview)) {
+        throw new Error('Wait for the current upgrade amount before recording payment.');
+      }
+      if (pType !== 'UPGRADE' && !validAmount) {
+        throw new Error('Enter a positive rupee amount with at most two decimal places.');
+      }
+      return pType === 'UPGRADE'
       ? billingRecordUpgrade({
           tenantId,
           newPlan: plan,
@@ -196,14 +211,18 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
           paymentReference: reference || null,
           paymentDate,
           notes: notes || null,
-        }),
+        });
+    },
     onSuccess: () => {
       toast.saved('Payment recorded');
       setTenantId(''); setTenantSearch(''); setAmount(''); setReference(''); setNotes('');
       onDone();
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
   });
+
+  const submitDisabled = mut.isPending || !tenantId
+    || (pType === 'UPGRADE' ? loadingPreview || !activePreview : !validAmount);
 
   const matchingTenants = tenants.filter((t: any) =>
     tenantSearch.length > 0 &&
@@ -220,7 +239,7 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: 20, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           {/* Org search */}
           <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Organization</Text>
           {selectedTenant ? (
@@ -249,20 +268,24 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
             </>
           )}
 
-          {/* Amount */}
-          <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Amount (₹)</Text>
-          <TextInput
-            value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="0"
-            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900, marginBottom: 6 }}
-          />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-            {['500', '1000', '2000', '5000', '10000'].map((v) => (
-              <TouchableOpacity key={v} onPress={() => setAmount(v)}
-                style={{ backgroundColor: amount === v ? C.navy : C.gray100, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: amount === v ? '#fff' : C.gray700 }}>₹{v}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {/* Upgrade price is calculated by the server; other payments use rupees entered here. */}
+          {pType !== 'UPGRADE' && (
+            <>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Amount (₹)</Text>
+              <TextInput
+                value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0"
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900, marginBottom: 6 }}
+              />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                {['500', '1000', '2000', '5000', '10000'].map((v) => (
+                  <TouchableOpacity key={v} onPress={() => setAmount(v)}
+                    style={{ backgroundColor: amount === v ? C.navy : C.gray100, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: amount === v ? '#fff' : C.gray700 }}>₹{v}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          )}
 
           {/* Type */}
           <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Payment Type</Text>
@@ -305,19 +328,19 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
               <View style={{ backgroundColor: '#EDE9FE', borderRadius: 12, padding: 14, marginBottom: 14 }}>
                 <Text style={{ fontSize: 12, color: '#7C3AED' }}>Loading proration…</Text>
               </View>
-            ) : preview ? (
+            ) : activePreview ? (
               <View style={{ backgroundColor: '#EDE9FE', borderRadius: 12, padding: 14, marginBottom: 14 }}>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED', marginBottom: 8 }}>Proration Breakdown</Text>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontSize: 12, color: '#5B21B6' }}>Days remaining ({preview.daysRemaining}/{preview.daysInPeriod})</Text>
-                  <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>-₹{(preview.creditPaise/100).toFixed(0)} credit</Text>
+                  <Text style={{ fontSize: 12, color: '#5B21B6' }}>Days remaining ({activePreview.daysRemaining}/{activePreview.daysInPeriod})</Text>
+                  <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>-₹{(activePreview.creditPaise/100).toFixed(2)} credit</Text>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#C4B5FD', paddingTop: 6 }}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: '#4C1D95' }}>Amount to collect</Text>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#4C1D95' }}>₹{(preview.chargePaise/100).toFixed(0)}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#4C1D95' }}>₹{(activePreview.chargePaise/100).toFixed(2)}</Text>
                 </View>
               </View>
-            ) : null
+            ) : <Text style={{ fontSize: 12, color: C.red, marginBottom: 14 }}>Upgrade amount is unavailable. Change the plan to retry.</Text>
           )}
 
           {/* Reference (for non-cash) */}
@@ -352,8 +375,8 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
           <TouchableOpacity
             onPress={() => mut.mutate()}
-            disabled={mut.isPending || !tenantId || !amount}
-            style={{ backgroundColor: C.navy, borderRadius: 14, padding: 15, alignItems: 'center', opacity: (mut.isPending || !tenantId || !amount) ? 0.5 : 1 }}
+            disabled={submitDisabled}
+            style={{ backgroundColor: C.navy, borderRadius: 14, padding: 15, alignItems: 'center', opacity: submitDisabled ? 0.5 : 1 }}
           >
             <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>
               {mut.isPending ? 'Recording…' : 'Record Payment'}
@@ -417,7 +440,7 @@ export default function SuperAdminBillingScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         showsVerticalScrollIndicator={false}
       >
@@ -446,7 +469,7 @@ export default function SuperAdminBillingScreen() {
             const isRefund = p.type === 'REFUND';
             return (
               <TouchableOpacity key={p.id ?? i} activeOpacity={0.75} onPress={() => setSelectedPayment(p)} style={{
-                backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 10,
+                backgroundColor: listRowColor(i), borderRadius: 14, padding: 14, marginBottom: 10,
                 borderWidth: 1, borderColor: C.gray100,
                 shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
               }}>

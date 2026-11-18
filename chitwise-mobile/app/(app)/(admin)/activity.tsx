@@ -7,6 +7,7 @@ import { getAuditLogPage, getMembers, getChits } from '../../../services/api';
 import { C, T, Card, EmptyState, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
+import { indiaBusinessDate, indiaBusinessDayRange } from '../../../utils/indiaBusinessDay';
 
 
 const PAGE_SIZE = 50;
@@ -138,7 +139,7 @@ function paymentModeChip(mode?: string | null): { icon: string; label: string } 
 function smartTime(dateStr?: string | null): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
-  const isToday = date.toDateString() === new Date().toDateString();
+  const isToday = indiaBusinessDate(date) === indiaBusinessDate(Date.now());
   if (!isToday) return fmtDateTime(dateStr);
   const diff = Math.floor((Date.now() - date.getTime()) / 1000);
   if (diff < 60)   return 'just now';
@@ -149,18 +150,16 @@ function smartTime(dateStr?: string | null): string {
 function inDateRange(iso: string | undefined, preset: string, from: string, to: string): boolean {
   if (!iso) return false;
   const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return false;
   const now = new Date();
   if (preset === 'today') {
-    const start = new Date(now); start.setHours(0,0,0,0);
-    const end   = new Date(now); end.setHours(23,59,59,999);
-    return t >= start.getTime() && t <= end.getTime();
+    return indiaBusinessDate(iso) === indiaBusinessDate(now);
   }
   if (preset === 'week')  { const w = new Date(now); w.setDate(w.getDate()-7); return t >= w.getTime(); }
   if (preset === 'month') { const m = new Date(now); m.setDate(m.getDate()-30); return t >= m.getTime(); }
   if (preset === 'custom' && from) {
-    const s = new Date(from + 'T00:00:00').getTime();
-    const e = to ? new Date(to + 'T23:59:59').getTime() : Infinity;
-    return t >= s && t <= e;
+    const selectedDate = indiaBusinessDate(iso);
+    return selectedDate !== null && selectedDate >= from && (!to || selectedDate <= to);
   }
   return true;
 }
@@ -168,8 +167,7 @@ function inDateRange(iso: string | undefined, preset: string, from: string, to: 
 function auditDateRange(preset: string, from: string, to: string) {
   const now = new Date();
   if (preset === 'today') {
-    const start = new Date(now); start.setHours(0, 0, 0, 0);
-    const end = new Date(now); end.setHours(23, 59, 59, 999);
+    const { start, end } = indiaBusinessDayRange(indiaBusinessDate(now)!)!;
     return { from: start.toISOString(), to: end.toISOString() };
   }
   if (preset === 'week' || preset === 'month') {
@@ -178,10 +176,10 @@ function auditDateRange(preset: string, from: string, to: string) {
     return { from: start.toISOString(), to: now.toISOString() };
   }
   if (preset === 'custom' && /^\d{4}-\d{2}-\d{2}$/.test(from)) {
-    const start = new Date(`${from}T00:00:00`);
-    const end = /^\d{4}-\d{2}-\d{2}$/.test(to)
-      ? new Date(`${to}T23:59:59.999`)
-      : now;
+    const range = indiaBusinessDayRange(from);
+    if (!range) return {};
+    const start = range.start;
+    const end = indiaBusinessDayRange(to)?.end ?? now;
     return { from: start.toISOString(), to: end.toISOString() };
   }
   return {};
@@ -326,7 +324,7 @@ export default function ActivityScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       {/* Header */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
@@ -443,6 +441,8 @@ export default function ActivityScreen() {
       <View style={{ height: 1, backgroundColor: C.gray200 }} />
 
       <FlatList
+          style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
+          keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
           data={displayed}
           keyExtractor={(item: any, i) => String(item.id ?? i)}
           refreshControl={<RefreshControl refreshing={isRefetching && !isFetchingNextPage} onRefresh={onRefresh} tintColor={C.navy} />}

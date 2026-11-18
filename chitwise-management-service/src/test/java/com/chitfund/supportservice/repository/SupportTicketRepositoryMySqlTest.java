@@ -1,6 +1,8 @@
 package com.chitfund.supportservice.repository;
 
 import com.chitfund.supportservice.domain.entity.SupportTicket;
+import com.chitfund.supportservice.domain.entity.TicketMessage;
+import com.chitfund.supportservice.domain.enums.SenderType;
 import com.chitfund.supportservice.domain.enums.TicketPriority;
 import com.chitfund.supportservice.domain.enums.TicketSource;
 import com.chitfund.supportservice.domain.enums.TicketType;
@@ -16,6 +18,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Set;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,6 +43,7 @@ class SupportTicketRepositoryMySqlTest {
     }
 
     @Autowired SupportTicketRepository repository;
+    @Autowired TicketMessageRepository messages;
 
     @Test
     void hubSearchRestrictsRowsToAllowedTicketTypes() {
@@ -54,6 +58,30 @@ class SupportTicketRepositoryMySqlTest {
         assertThat(result.getContent())
                 .extracting(SupportTicket::getId)
                 .containsExactly("payment-ticket");
+    }
+
+    @Test
+    void unreadQueriesOnlyTrackMessagesFromTheOtherSide() {
+        repository.saveAndFlush(ticket("ticket-read", "CW-2026-9003", TicketType.ACCOUNT));
+        saveMessage("org-message", SenderType.ORG_MEMBER);
+        saveMessage("hub-message", SenderType.SUPPORT_AGENT);
+        messages.flush();
+
+        List<SenderType> hub = List.of(SenderType.SUPER_ADMIN, SenderType.SUPPORT_AGENT);
+        List<SenderType> org = List.of(SenderType.ORG_ADMIN, SenderType.ORG_MEMBER);
+        assertThat(messages.countByTicketIdAndReadByCreatorFalseAndSenderTypeIn("ticket-read", hub)).isEqualTo(1);
+        assertThat(messages.countByTicketIdAndReadByHandlerFalseAndSenderTypeIn("ticket-read", org)).isEqualTo(1);
+
+        assertThat(messages.markReadByCreator("ticket-read", hub)).isEqualTo(1);
+        assertThat(messages.markReadByHandler("ticket-read", org)).isEqualTo(1);
+        assertThat(messages.countByTicketIdAndReadByCreatorFalseAndSenderTypeIn("ticket-read", hub)).isZero();
+        assertThat(messages.countByTicketIdAndReadByHandlerFalseAndSenderTypeIn("ticket-read", org)).isZero();
+    }
+
+    private void saveMessage(String id, SenderType senderType) {
+        messages.save(TicketMessage.builder()
+                .id(id).ticketId("ticket-read").senderId(id)
+                .senderType(senderType).senderName(id).content("Test message").build());
     }
 
     private SupportTicket ticket(String id, String number, TicketType type) {

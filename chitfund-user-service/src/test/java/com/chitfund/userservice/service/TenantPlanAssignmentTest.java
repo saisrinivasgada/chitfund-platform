@@ -274,6 +274,66 @@ class TenantPlanAssignmentTest {
     }
 
     @Test
+    void autoCreatedAdminPasswordIsNeverIncludedInApprovalEmail() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).name("Pilot Chit Fund").slug("pilot-chit")
+                .contactEmail("owner@example.com").plan("BASIC").status("PENDING").build();
+        PlanLimits basic = PlanLimits.builder().plan("BASIC").isActive(true).isPublic(true)
+                .priceMonthlyInr(0).build();
+        when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
+        when(planLimitsRepository.findById("BASIC")).thenReturn(Optional.of(basic));
+        when(customLimitsRepository.existsById(tenantId.toString())).thenReturn(true);
+        when(userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(
+                tenantId.toString(), List.of(com.chitfund.userservice.domain.enums.Role.ADMIN)))
+                .thenReturn(List.of());
+        when(tenantRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(userRepository.save(any())).thenAnswer(call -> {
+            User user = call.getArgument(0);
+            user.setId(UUID.randomUUID());
+            return user;
+        });
+
+        var result = tenantService.activateTenant(tenantId, "owner-1");
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationEventPublisher).publishEmail(
+                org.mockito.ArgumentMatchers.eq("owner@example.com"), any(), html.capture(), text.capture());
+
+        assertThat(result.getAdminTempPassword()).isNotBlank();
+        assertThat(html.getValue()).doesNotContain(result.getAdminTempPassword());
+        assertThat(text.getValue()).doesNotContain(result.getAdminTempPassword());
+        assertThat(text.getValue()).contains("pilot-chit.admin", "does not send passwords by email");
+    }
+
+    @Test
+    void superAdminCreatedOrgUserPasswordIsNeverIncludedInWelcomeEmail() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).name("Pilot Chit Fund").slug("pilot-chit").build();
+        var request = new com.chitfund.userservice.dto.request.AddOrgUserRequest();
+        request.setFullName("Pilot Manager");
+        request.setPhone("9000000000");
+        request.setEmail("manager@example.com");
+        request.setRole("ADMIN");
+        when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
+        when(userRepository.save(any())).thenAnswer(call -> {
+            User user = call.getArgument(0);
+            user.setId(UUID.randomUUID());
+            return user;
+        });
+
+        var result = tenantService.addOrgUser(tenantId, request, "owner-1");
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationEventPublisher).publishEmail(
+                org.mockito.ArgumentMatchers.eq("manager@example.com"), any(), html.capture(), text.capture());
+
+        assertThat(result.getTempPassword()).isNotBlank();
+        assertThat(html.getValue()).doesNotContain(result.getTempPassword());
+        assertThat(text.getValue()).doesNotContain(result.getTempPassword());
+        assertThat(text.getValue()).contains("does not send passwords by email");
+    }
+
+    @Test
     void inactivePlanCannotBeUsedAsCustomPlanFallback() {
         UUID tenantId = UUID.randomUUID();
         PlanLimits retired = PlanLimits.builder().plan("RETIRED").isActive(false).build();

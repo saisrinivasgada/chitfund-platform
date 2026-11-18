@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { retryAfterDelayMs } from '../../shared/rateLimitMessage';
 import { legacyStaffEvidence } from '../../shared/offline/legacyStaffEvidence';
 import * as Crypto from 'expo-crypto';
 import NetInfo from '@react-native-community/netinfo';
@@ -112,8 +113,9 @@ export async function processStaffOperation(operation: QueuedOperation<any>): Pr
       }
       const backoff = Math.min(5 * 60_000, 2 ** Math.max(0, attempts - 1) * 5_000);
       await complete('RETRYABLE_FAILURE', {
-        attempts, nextAttemptAt: Date.now() + backoff + Math.floor(Math.random() * 2_000),
-        errorCode: code, errorMessage: message,
+        attempts, nextAttemptAt: Date.now() + Math.max(
+          backoff + Math.floor(Math.random() * 2_000), retryAfterDelayMs(error) ?? 0),
+        errorCode: status === 429 ? 'RATE_LIMITED' : code, errorMessage: message,
       });
       return { kind: 'retryable', error };
     }

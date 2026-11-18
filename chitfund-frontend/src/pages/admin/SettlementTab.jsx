@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { shouldRetryRead } from '../../../../shared/offline/readSnapshots';
 import {
   getMembers, getSettlementPreview, confirmSettlement, getMemberSettlements,
   recordSettlementTransaction, getPendingSettlements, getAllSettlements,
@@ -17,7 +18,7 @@ import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import Modal from '../../components/ui/Modal';
 import {
-  HandCoins, Info, ChevronDown, ChevronUp, CheckSquare, Square,
+  HandCoins, Info, ChevronDown, ChevronUp, CheckSquare,
   TrendingUp, TrendingDown, CheckCircle, History, ChevronRight,
   Printer, BookOpen, XCircle, Eye,
 } from 'lucide-react';
@@ -37,6 +38,14 @@ function CaseBadge({ settlementCase }) {
       {cfg.label}
     </span>
   );
+}
+
+function parseSettlementPayment(input, remaining) {
+  const value = String(input).trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(value)) return null;
+  const paise = Math.round(Number(value) * 100);
+  const maxPaise = Math.round(Number(remaining) * 100);
+  return Number.isSafeInteger(paise) && paise > 0 && paise <= maxPaise ? paise / 100 : null;
 }
 
 // ─── Payout status pill ────────────────────────────────────────────────────
@@ -199,13 +208,13 @@ function DrawsPanel({ records, hidden, colSpan, payoutMonthNumber, netPayoutAmou
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {records.map((r) => {
+                {records.map((r, index) => {
                   const bal = Number(r.balance ?? 0);
                   const isPayoutDraw = hasPayoutInfo && r.monthNumber === payoutMonthNumber;
                   const isWaived = r.status === 'WAIVED';
                   return (
                     <Fragment key={r.monthNumber}>
-                      <tr className={`transition-colors ${isPayoutDraw ? 'bg-[#EEF2F8]/40' : 'hover:bg-slate-50'}`}>
+                      <tr className={`transition-colors ${isPayoutDraw ? 'bg-[#EEF2F8]/40' : index % 2 === 0 ? 'bg-white hover:bg-[#EAF1FA]' : 'bg-[#F3F7FC] hover:bg-[#EAF1FA]'}`}>
                         <td className="px-3 py-2 font-medium text-gray-700">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span>Draw {r.monthNumber}</span>
@@ -608,7 +617,6 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
 
   const [selectedMemberId, setSelectedMemberId] = useState(initialMemberId);
   const [highlightPaymentId, setHighlightPaymentId] = useState(initialPaymentId || null);
-  const [toggledChits, setToggledChits] = useState({}); // chitId → true/false
   const [modes, setModes] = useState({});               // chitId → 'FAIR' | 'ADMIN_WIN'
   const [expandedChits, setExpandedChits] = useState({}); // chitId → true/false
   const [notes, setNotes] = useState('');
@@ -662,19 +670,16 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
     }),
     enabled: !!selectedMemberId,
 
-    retry: 1,       // fail fast — errors usually aren't transient here
+    retry: (failureCount, error) => shouldRetryRead(failureCount, error, 1),
   });
 
-  // Auto-toggle all chits on when preview data arrives (React Query v5: no onSuccess in useQuery)
+  // Keep per-chit payout modes in sync with the latest full-member preview.
   useEffect(() => {
     if (!preview?.chitItems) return;
-    const allOn = {};
     const defaultModes = {};
     preview.chitItems.forEach((item) => {
-      allOn[item.chitId] = true;
       defaultModes[item.chitId] = 'FAIR';
     });
-    setToggledChits(allOn);
     setModes(defaultModes);
   }, [preview]);
 
@@ -755,7 +760,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to void settlement'),
   });
 
-  // ── Derived calculation (respecting toggles + mode overrides) ─────────
+  // ── Derived calculation (all chits; per-chit payout modes remain selectable) ──
   const chitItems = useMemo(() => preview?.chitItems ?? [], [preview?.chitItems]);
 
   // Re-compute net amounts client-side when admin toggles mode (for CASE_C)
@@ -775,7 +780,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
     });
   }, [chitItems, modes]);
 
-  const includedItems = computedItems.filter((i) => toggledChits[i.chitId]);
+  const includedItems = computedItems;
 
   const totalOwed = includedItems
     .filter((i) => Number(i.displayNetAmount) > 0)
@@ -814,7 +819,6 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
       qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
       qc.invalidateQueries({ queryKey: ['members'] });
       setShowConfirm(false);
-      setToggledChits({});
       setModes({});
       setNotes('');
       setAdjustmentAmount('');
@@ -826,6 +830,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
       const net = Number(settlement?.netAmount ?? 0);
       if (net !== 0 && settlement?.id) {
         setConfirmedSettlement(settlement);
+        setRecordPaymentKey(crypto.randomUUID());
         setPaymentMethod('');
         setPaymentAmount(String(Math.abs(net)));
         setConfirmedRemaining(Math.abs(net));
@@ -846,8 +851,9 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
     mutationFn: () => {
       const net = Number(confirmedSettlement?.netAmount ?? 0);
       const absNet = Math.abs(net);
-      const enteredAmt = parseFloat(paymentAmount);
-      const amount = !isNaN(enteredAmt) && enteredAmt > 0 ? enteredAmt : absNet;
+      const maxAllowed = confirmedRemaining > 0 ? confirmedRemaining : absNet;
+      const amount = parseSettlementPayment(paymentAmount, maxAllowed);
+      if (amount === null) throw new Error('Enter an amount within the remaining settlement balance.');
       return recordSettlementTransaction({
         settlementId: confirmedSettlement.id,
         amount,
@@ -866,14 +872,10 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
       qc.invalidateQueries({ queryKey: ['settlement-transactions', confirmedSettlement?.id] });
       setRecordedTxn(data);
     },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
+    onError: (err) => toast.error(err.response?.data?.message ?? err.message ?? 'Failed to record payment'),
   });
 
   // ── Helpers ────────────────────────────────────────────────────────────
-  const toggleChit = useCallback((chitId) => {
-    setToggledChits((prev) => ({ ...prev, [chitId]: !prev[chitId] }));
-  }, []);
-
   const toggleExpand = useCallback((chitId) => {
     setExpandedChits((prev) => ({ ...prev, [chitId]: !prev[chitId] }));
   }, []);
@@ -1165,7 +1167,6 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
               value={selectedMemberId}
               onChange={(e) => {
                 setSelectedMemberId(e.target.value);
-                setToggledChits({});
                 setModes({});
                 setExpandedChits({});
                 setAdjustmentAmount('');
@@ -1221,7 +1222,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                 <div>
                   <h3 className="font-semibold text-gray-900">Settlement Breakdown</h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Toggle chits to include/exclude. For partial payouts (Case C), choose Fair or Admin Win mode.
+                    This settles every chit shown and marks the member inactive across the organization. For partial payouts (Case C), choose Fair or Admin Win mode.
                   </p>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
@@ -1263,8 +1264,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                     </tr>
                   </thead>
                   <tbody>
-                    {computedItems.map((item) => {
-                      const included = !!toggledChits[item.chitId];
+                    {computedItems.map((item, index) => {
+                      const included = true;
                       const expanded = !!expandedChits[item.chitId];
                       const net = Number(item.displayNetAmount ?? 0);
                       const isOwes = net > 0;
@@ -1274,23 +1275,12 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                       return (
                         <Fragment key={item.chitId}>
                           <tr
-                            className={`border-b border-gray-100 transition-colors ${included ? 'bg-white' : 'bg-gray-50 opacity-60'} ${hasRecords ? 'cursor-pointer hover:bg-[#EEF2F8]/30' : ''}`}
+                            className={`border-b border-gray-100 transition-colors ${included ? (index % 2 === 0 ? 'bg-white' : 'bg-[#F3F7FC]') : 'bg-gray-50 opacity-60'} ${hasRecords ? 'cursor-pointer hover:bg-[#EAF1FA]' : ''}`}
                             onClick={hasRecords ? () => toggleExpand(item.chitId) : undefined}
                           >
-                            {/* Include toggle — stop propagation so clicking checkbox doesn't expand */}
+                            {/* Every chit is included because confirmation deactivates the member organization-wide. */}
                             <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={() => toggleChit(item.chitId)}
-                                className="p-1 rounded cursor-pointer text-gray-400 hover:text-[#1E3A5F] transition-colors"
-                                title={included ? 'Exclude this chit' : 'Include this chit'}
-                              >
-                                {included ? (
-                                  <CheckSquare size={18} style={{ color: '#1E3A5F' }} />
-                                ) : (
-                                  <Square size={18} />
-                                )}
-                              </button>
+                              <CheckSquare size={18} style={{ color: '#1E3A5F' }} aria-label="Included in member settlement" />
                             </td>
 
                             {/* Chit name — with expand chevron */}
@@ -1682,10 +1672,10 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
         const net = Number(confirmedSettlement.netAmount);
         const isCollect = net > 0;
         const absNet = Math.abs(net);
-        const enteredAmt = parseFloat(paymentAmount);
         const maxAllowed = confirmedRemaining > 0 ? confirmedRemaining : absNet;
-        const isPartial = !isNaN(enteredAmt) && enteredAmt > 0 && enteredAmt < maxAllowed;
-        const isValid = !isNaN(enteredAmt) && enteredAmt > 0 && enteredAmt <= maxAllowed;
+        const enteredAmt = parseSettlementPayment(paymentAmount, maxAllowed);
+        const isPartial = enteredAmt !== null && enteredAmt < maxAllowed;
+        const isValid = enteredAmt !== null;
         const paymentMemberName = allMembers.find((m) => m.id === confirmedSettlement.memberId)?.fullName ?? 'Member';
 
         const printReceipt = (txn) => {
@@ -2268,6 +2258,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                       setViewSettlement(null);
                       setExpandedDrawChit(null);
                       setConfirmedSettlement(s);
+                      setRecordPaymentKey(crypto.randomUUID());
                       setPaymentMethod('');
                       setPaymentAmount(String(remaining));
                       setConfirmedRemaining(remaining);
@@ -2339,7 +2330,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
           title={supersedingSettlement ? 'Confirm Audited Correction' : 'Confirm Settlement'}
           description={supersedingSettlement
             ? `Reverse and replace settlement ${String(supersedingSettlement.id).slice(0, 8)}… for ${selectedMember?.fullName}. The original remains in the audit trail.`
-            : `Settle ${selectedMember?.fullName} across ${includedItems.length} chit${includedItems.length !== 1 ? 's' : ''}. This action cannot be undone.`}
+            : `Settle ${selectedMember?.fullName} across all ${includedItems.length} chit${includedItems.length !== 1 ? 's' : ''} shown and mark the member inactive across the organization. This action cannot be undone.`}
           actionLabel={supersedingSettlement ? 'Reverse & Create Replacement' : 'Yes, Confirm Settlement'}
           onConfirm={() => confirmMutation.mutate({ idempotencyKey: confirmIdempotencyKey })}
           onClose={() => setShowConfirm(false)}

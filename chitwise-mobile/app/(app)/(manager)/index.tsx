@@ -17,6 +17,7 @@ import { OfflineSnapshotLabel } from '../../../components/OfflineSnapshotLabel';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
 import RoleLogo from '../../../components/RoleLogo';
+import { NotificationInboxButton } from '../../../components/NotificationInboxButton';
 
 export default function ManagerDashboardScreen() {
   const { user } = useAuthStore();
@@ -91,7 +92,7 @@ export default function ManagerDashboardScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <ScrollView
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32, width: '100%', maxWidth: 1100, alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
@@ -105,6 +106,7 @@ export default function ManagerDashboardScreen() {
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <NotificationInboxButton />
             <TutorialHelpButton />
             <TouchableOpacity onPress={() => setShowProfile(true)}
               style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.42, shadowRadius: 8, elevation: 4 }}>

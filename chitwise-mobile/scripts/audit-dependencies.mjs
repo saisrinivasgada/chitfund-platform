@@ -1,10 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-// Expo SDK 54 currently pulls these packages into its Node-side Metro and
-// certificate tooling. npm publishes no patched version and recommends
-// incompatible Expo/React Native downgrades/upgrades. Neither package accepts
-// member/admin input in the shipped Hermes application bundle.
+// Expo SDK 54 pulls this package into Node-side Metro repository-file globbing.
+// The exception covers only its build-tool exposure, not member/admin input in
+// the shipped Hermes application bundle.
 //
 // Keep this exception deliberately narrow: exact advisory, exact installed
 // version, and an expiry that forces a fresh review instead of silently living
@@ -15,11 +14,6 @@ const approvedLeaves = new Map([
     packageName: 'braces',
     version: '3.0.3',
     exposure: 'Expo/Metro repository-file globbing during builds',
-  }],
-  ['https://github.com/advisories/GHSA-86w9-cpqp-85rv', {
-    packageName: 'node-forge',
-    version: '1.4.0',
-    exposure: 'Expo CLI/update certificate tooling with trusted build inputs',
   }],
 ]);
 
@@ -158,5 +152,7 @@ const counts = report.metadata?.vulnerabilities ?? {};
 console.log(
   `Dependency audit passed: ${counts.critical ?? 0} Critical, `
   + `${counts.high ?? 0} High roll-ups, ${counts.moderate ?? 0} Moderate; `
-  + 'all High findings resolve only to the reviewed Expo build-tool exceptions.',
+  + (accepted.size > 0
+    ? 'all High findings resolve only to the reviewed Expo build-tool exception.'
+    : 'no High or Critical findings.'),
 );

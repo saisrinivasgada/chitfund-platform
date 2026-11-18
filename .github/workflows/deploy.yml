@@ -16,6 +16,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/saisrinivasgada
@@ -398,7 +402,7 @@ jobs:
         working-directory: chitfund-frontend
         run: npx playwright install --with-deps chromium
       - name: Shared offline policy and snapshot checks
-        run: node --test shared/offline/*.test.mjs
+        run: node --test shared/offline/*.test.mjs shared/rateLimitMessage.test.mjs shared/legalDocumentUrl.test.mjs
       - name: Production offline shell and background delivery
         working-directory: chitfund-frontend
         run: npm run test:offline
@@ -698,6 +702,8 @@ jobs:
       - name: Build React frontend
         if: needs.changes.outputs.frontend == 'true'
         working-directory: chitfund-frontend
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
         run: npm ci && npm run build
 
       - name: Prepare encrypted deployment bundle

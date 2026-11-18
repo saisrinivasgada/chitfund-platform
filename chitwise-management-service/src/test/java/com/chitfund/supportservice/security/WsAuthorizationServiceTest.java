@@ -51,6 +51,31 @@ class WsAuthorizationServiceTest {
     }
 
     @Test
+    void managerAndStaffCannotSubscribeToOrganizationTickets() {
+        assertThat(service.canSubscribeToTicket(
+                "ticket-1", "tenant-1", "manager-1", "MANAGER", false)).isFalse();
+        assertThat(service.canSubscribeToTicket(
+                "ticket-1", "tenant-1", "staff-1", "STAFF", false)).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(ticketRepo);
+    }
+
+    @Test
+    void staffCannotSubscribeToMemberConversationOutsideItsApiPermissions() {
+        assertThat(service.canSubscribeToConversation(
+                "conversation-1", "tenant-1", "staff-1", "STAFF", false)).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(conversationRepo);
+    }
+
+    @Test
+    void adminCanSubscribeToTenantTicketButNotAnotherTenant() {
+        when(ticketRepo.findById("ticket-1")).thenReturn(Optional.of(ticket("member-1")));
+        assertThat(service.canSubscribeToTicket(
+                "ticket-1", "tenant-1", "admin-1", "ADMIN", false)).isTrue();
+        assertThat(service.canSubscribeToTicket(
+                "ticket-1", "tenant-2", "admin-2", "ADMIN", false)).isFalse();
+    }
+
+    @Test
     void missingTenantDoesNotGrantHubAccess() {
         assertThat(service.canSubscribeToPool(false, "ADMIN")).isFalse();
         assertThat(service.canSubscribeToTicket(

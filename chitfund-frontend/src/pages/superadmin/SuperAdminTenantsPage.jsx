@@ -16,6 +16,7 @@ import {
   Phone, PlusCircle, Copy, Check as CheckIcon, Eye, LogIn,
 } from 'lucide-react';
 import ManageCreditModal from '../../components/superadmin/ManageCreditModal';
+import { openProxyWindow, transferProxySession } from '../../utils/proxySessionTransfer';
 
 const STATUS_CONFIG = {
   ACTIVE: {
@@ -99,14 +100,14 @@ function CredentialsModal({ creds, onClose }) {
           </div>
           <div>
             <h3 className="text-base font-bold text-gray-900">Org activated!</h3>
-            <p className="text-xs text-gray-500">Share these credentials with the admin to log in.</p>
+            <p className="text-xs text-gray-500">Review the new admin sign-in details.</p>
           </div>
         </div>
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-xs text-amber-800">
           {hasPassword
-            ? 'These credentials are shown here until the admin changes their password. You can retrieve them again from the org\'s ⋯ menu.'
-            : 'This admin has already set their own password — the temporary password is no longer available.'}
+            ? 'This temporary password is shown only once. Verify the admin directly before sharing it. Never send it by email.'
+            : 'No password is available to retrieve here. The admin must use their own sign-in or account recovery method.'}
         </div>
 
         <CredentialField label="Username" value={creds.adminUsername} />
@@ -423,17 +424,19 @@ export default function SuperAdminTenantsPage() {
         showToast('Please enter a clear reason of at least 5 characters');
         return;
       }
+      const proxyWin = openProxyWindow();
+      if (!proxyWin) {
+        showToast('Allow pop-ups to open this proxy session.');
+        return;
+      }
       try {
         const t = tenants.find(x => x.id === tenantId);
-        const { token, tenantSlug } = await superAdminProxyAs(
+        const result = await superAdminProxyAs(
           tenantId, extra, undefined, reason.trim()
         );
-        // Open proxy session in a new tab — pass tenant metadata from loaded state
-        let url = `${window.location.origin}/proxy?token=${encodeURIComponent(token)}&role=${extra}&slug=${tenantSlug}`;
-        if (t?.name) url += `&tenantName=${encodeURIComponent(t.name)}`;
-        if (t?.planExpiresAt) url += `&planExpiresAt=${encodeURIComponent(t.planExpiresAt)}`;
-        window.open(url, '_blank');
+        transferProxySession(proxyWin, result, t?.name);
       } catch (err) {
+        proxyWin.close();
         showToast(err.response?.data?.message ?? `No ${extra} user found in this org`);
       }
       return;
@@ -577,7 +580,7 @@ export default function SuperAdminTenantsPage() {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-8 h-8 border-2 border-[#1E3A5F] border-t-transparent rounded-full animate-spin" />
@@ -588,7 +591,7 @@ export default function SuperAdminTenantsPage() {
               <p className="text-sm">{search ? 'No organizations match your search' : 'No organizations yet'}</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full min-w-[960px]">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/60">
                   {['Organization', 'Status', 'Plan', 'Members', 'Registered', 'Contact', 'Expiry', ''].map((h) => (

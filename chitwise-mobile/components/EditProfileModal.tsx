@@ -2,7 +2,7 @@ import { requestSignOut } from '../offline/signOut';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, Modal, TouchableOpacity, TextInput, ActivityIndicator,
-  Alert, KeyboardAvoidingView, Platform,
+  Alert, KeyboardAvoidingView, Linking, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -87,6 +87,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
   const [otpPhone, setOtpPhone] = useState('');
   const [otpCC,    setOtpCC]    = useState('+91');
   const [otpError, setOtpError] = useState('');
+  const [otpRejected, setOtpRejected] = useState(false);
   const [otpTimer, setOtpTimer] = useState(0);
   const otpTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -113,6 +114,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
   const [usernameAvail, setUsernameAvail] = useState<boolean | null>(null);
   const [usernameChecking, setUsernameChecking] = useState(false);
   const usernameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const usernameCheckId = useRef(0);
 
   // Security fields
   const [curPwd,     setCurPwd]     = useState('');
@@ -133,18 +135,19 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
   // Pre-fill when data loads
   const handleUsernameChange = useCallback((t: string) => {
     const cleaned = t.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+    const checkId = ++usernameCheckId.current;
     setUsername(cleaned);
     setUsernameAvail(null);
     if (usernameDebounce.current) clearTimeout(usernameDebounce.current);
-    if (!cleaned || cleaned === (me?.username ?? '')) { setUsernameChecking(false); return; }
+    if (cleaned.length < 3 || cleaned === (me?.username ?? '')) { setUsernameChecking(false); return; }
     setUsernameChecking(true);
     usernameDebounce.current = setTimeout(async () => {
       try {
         const res = await checkUsernameAvailability(cleaned);
-        setUsernameAvail(res.available);
-      } catch { setUsernameAvail(null); }
-      finally { setUsernameChecking(false); }
-    }, 350);
+        if (usernameCheckId.current === checkId) setUsernameAvail(res.available);
+      } catch { if (usernameCheckId.current === checkId) setUsernameAvail(null); }
+      finally { if (usernameCheckId.current === checkId) setUsernameChecking(false); }
+    }, 650);
   }, [me?.username]);
 
   // Tab resets only when the modal opens — not when the queries below resolve,
@@ -277,6 +280,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
       setOtpStep('pending');
       setOtpCode('');
       setOtpError('');
+      setOtpRejected(false);
       startOtpTimer();
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send OTP. Please try again.'),
@@ -294,9 +298,12 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
       onClose();
     },
     onError: (e: any) => {
-      const msg = e.response?.data?.message ?? 'Incorrect OTP. Please try again.';
-      const isMaxAttempts = e.response?.data?.errorCode === 'OTP_004';
+      const code = e.response?.data?.errorCode;
+      const msg = e.response?.data?.message ?? (code === 'OTP_003'
+        ? 'Incorrect OTP. Please try again.' : 'Could not verify right now. Please try again.');
+      const isMaxAttempts = code === 'OTP_004';
       setOtpError(msg);
+      setOtpRejected(code === 'OTP_003' || isMaxAttempts);
       if (isMaxAttempts) {
         setOtpCode('');
         if (otpTimerRef.current) clearInterval(otpTimerRef.current);
@@ -340,7 +347,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
         </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
 
             {/* ── Profile tab ─────────────────────────────────────────────── */}
             {tab === 'profile' && (
@@ -394,7 +401,8 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                     <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
                       Enter the 6-digit code to verify your new number.
                     </Text>
-                    <OtpCodeInput value={otpCode} onChangeText={(value) => { setOtpCode(value); setOtpError(''); }} hasError={!!otpError} autoFocus />
+                    <OtpCodeInput value={otpCode} onChangeText={(value) => { setOtpCode(value); setOtpError(''); setOtpRejected(false); }}
+                      hasError={!!otpError && otpRejected} autoFocus />
                     {otpError ? (
                       <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{otpError}</Text>
                     ) : null}
@@ -627,6 +635,18 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
               style={{ borderWidth: 1.5, borderColor: C.red ?? '#DC2626', borderRadius: 12, padding: 14, alignItems: 'center' }}>
               <Text style={{ fontSize: 15, fontWeight: '700', color: C.red ?? '#DC2626' }}>Log Out</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => { onClose(); router.push('/(app)/delete-account' as any); }}
+              style={{ paddingVertical: 12, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.red ?? '#DC2626', textDecorationLine: 'underline' }}>Delete my account</Text>
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, paddingVertical: 8 }}>
+              <Text accessibilityRole="link" onPress={() => Linking.openURL('https://thechitwise.com/privacy')}
+                style={{ color: C.navy, fontSize: 12, textDecorationLine: 'underline' }}>Privacy Policy</Text>
+              <Text accessibilityRole="link" onPress={() => Linking.openURL('https://thechitwise.com/terms')}
+                style={{ color: C.navy, fontSize: 12, textDecorationLine: 'underline' }}>Terms of Service</Text>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>

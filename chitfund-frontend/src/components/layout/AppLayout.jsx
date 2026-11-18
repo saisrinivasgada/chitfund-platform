@@ -11,6 +11,7 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import { useRealtimeUpdates } from '../../hooks/useRealtimeUpdates';
+import useDesktopViewport from '../../hooks/useDesktopViewport';
 import RoleLogo from '../brand/RoleLogo';
 import OfflineStatus from '../../offline/OfflineStatus';
 
@@ -34,6 +35,7 @@ export default function AppLayout() {
     });
   }
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
+  const desktopViewport = useDesktopViewport();
   useRealtimeUpdates(isAuthenticated && !offlineSession);
   const navigate = useNavigate();
   const [planExpiredOpen, setPlanExpiredOpen] = useState(false);
@@ -98,7 +100,7 @@ export default function AppLayout() {
 
   return (
     <ToastContext.Provider value={toast}>
-      <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#F8F9FB' }}>
+      <div className="flex h-[100dvh] overflow-hidden" style={{ backgroundColor: '#F8F9FB' }}>
 
         {/* ── Backdrop — mobile/tablet only ─────────────────────────────── */}
         <div
@@ -110,7 +112,7 @@ export default function AppLayout() {
         />
 
         {/* ── Sidebar ───────────────────────────────────────────────────── */}
-        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapse} />
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapse} notificationEnabled={desktopViewport} />
 
         {/* ── Main column ───────────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -120,18 +122,18 @@ export default function AppLayout() {
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
               aria-label="Open menu"
             >
               <Menu size={22} />
             </button>
 
             {/* Centre: logo + org name */}
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/dashboard')}>
-              <RoleLogo role={user?.role} className="w-8 h-8" />
-              <div className="flex flex-col leading-tight">
+            <button type="button" className="flex min-w-0 flex-1 items-center justify-center gap-2 px-2 cursor-pointer" onClick={() => navigate('/dashboard')} aria-label="Go to dashboard">
+              <RoleLogo role={user?.role} className="w-8 h-8 shrink-0" />
+              <div className="flex min-w-0 flex-col leading-tight text-left">
                 <span
-                  className="text-base font-bold"
+                  className="text-base font-bold truncate"
                   style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
                 >
                   ChitWise
@@ -140,10 +142,10 @@ export default function AppLayout() {
                   <span className="text-xs text-gray-400 truncate max-w-[140px]">{tenantName}</span>
                 )}
               </div>
-            </div>
+            </button>
 
             {/* Right: notification bell + hide toggle */}
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 onClick={toggleHidden}
@@ -152,13 +154,13 @@ export default function AppLayout() {
               >
                 {hidden ? <Eye size={20} /> : <EyeOff size={20} />}
               </button>
-              <NotificationBell />
+              {!desktopViewport && <NotificationBell listenSocket={false} />}
             </div>
           </header>
 
           {/* ── Scrollable content ──────────────────────────────────────── */}
           <main
-            className="flex-1 overflow-y-auto overscroll-contain"
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
             <div className="p-4 sm:p-8 lg:p-10 max-w-7xl mx-auto">

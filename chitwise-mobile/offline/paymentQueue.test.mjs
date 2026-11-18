@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { retryAfterDelayMs } from '../../shared/rateLimitMessage.js';
 const code = ts.transpileModule(await readFile(new URL('./paymentQueue.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const original = { memberId: 'member-a', chitId: 'chit-a', amount: 1000, paymentMode: 'CASH', recordedAt: '2026-01-01T12:00:00Z', offlineAuthorization: 'original-expired-grant', allocations: [{ chitId: 'chit-a', amount: 600 }, { chitId: 'chit-b', amount: 400 }] };
 async function device(status = 'RETRYABLE_FAILURE', receipt, options = {}) {
@@ -11,6 +12,7 @@ async function device(status = 'RETRYABLE_FAILURE', receipt, options = {}) {
   const requests = []; let refreshes = 0; let loseAck = options.loseAck ?? true;
   const store = (value) => ({ getState: () => value });
   const dependencies = {
+    '../../shared/rateLimitMessage': { retryAfterDelayMs },
     axios: { default: { isAxiosError: (e) => !!e?.isAxiosError } },
     'expo-crypto': { CryptoDigestAlgorithm: { SHA256: 'sha256' }, digestStringAsync: async (_, text) => createHash('sha256').update(text).digest('hex'), randomUUID: () => 'new-operation' },
     '@react-native-community/netinfo': { default: { fetch: async () => ({ isConnected: true, isInternetReachable: true }) } },

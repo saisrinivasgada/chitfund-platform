@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { CheckCircle, MessageSquare } from 'lucide-react';
 import PhoneInput from './PhoneInput';
+import OtpCodeInput from './OtpCodeInput';
 import { adminSendPhoneOtp, adminVerifyPhoneOtp } from '../../services/api';
 
 /**
@@ -28,6 +29,7 @@ export default function PhoneOtpVerifier({
   const [otpStep, setOtpStep] = useState(null); // null | 'pending'
   const [otpCode, setOtpCode] = useState('');
   const [otpError, setOtpError] = useState('');
+  const [otpRejected, setOtpRejected] = useState(false);
   const [otpTimer, setOtpTimer] = useState(0);
   const [verified, setVerified] = useState(false);
   const timerRef = useRef(null);
@@ -42,6 +44,7 @@ export default function PhoneOtpVerifier({
     setOtpStep(null);
     setOtpCode('');
     setOtpError('');
+    setOtpRejected(false);
     onVerified?.(false);
   }, [phone]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -64,6 +67,7 @@ export default function PhoneOtpVerifier({
       setOtpStep('pending');
       setOtpCode('');
       setOtpError('');
+      setOtpRejected(false);
       startTimer();
     },
     onError: (err) => {
@@ -82,15 +86,18 @@ export default function PhoneOtpVerifier({
     },
     onError: (err) => {
       const code = err.response?.data?.errorCode;
+      setOtpRejected(code === 'OTP_003' || code === 'OTP_004');
       if (code === 'OTP_004') {
         setOtpError('Too many attempts. Click "Resend OTP" to try again.');
         setOtpStep(null);
         setOtpTimer(0);
         clearInterval(timerRef.current);
-      } else {
+      } else if (code === 'OTP_003') {
         setOtpError('Incorrect OTP. Please try again.');
+      } else {
+        setOtpError(err.response?.data?.message || 'Could not verify right now. Please try again.');
       }
-      setOtpCode('');
+      if (code === 'OTP_003' || code === 'OTP_004') setOtpCode('');
     },
   });
 
@@ -107,8 +114,9 @@ export default function PhoneOtpVerifier({
     sendMut.mutate({ phone, countryCode });
   }
 
-  function handleVerify() {
-    verifyMut.mutate({ phone, countryCode, code: otpCode });
+  function handleVerify(code = otpCode) {
+    if (verifyMut.isPending || code.length !== 6) return;
+    verifyMut.mutate({ phone, countryCode, code });
   }
 
   return (
@@ -162,19 +170,14 @@ export default function PhoneOtpVerifier({
             <span>Enter the 6-digit code sent to {countryCode} {phone}</span>
           </div>
 
-          <div className="flex gap-2">
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={6}
-              value={otpCode}
-              onChange={(e) => { setOtpCode(e.target.value.replace(/\D/g, '')); setOtpError(''); }}
-              placeholder="000000"
-              className="w-36 h-10 px-3 text-center text-xl font-mono tracking-widest border border-[#C7D5E8] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C7D5E8] bg-white"
-            />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <OtpCodeInput value={otpCode} onChange={(value) => { setOtpCode(value); setOtpError(''); setOtpRejected(false); }}
+              onComplete={handleVerify} autoFocus disabled={verifyMut.isPending}
+              status={otpRejected && otpError ? 'error' : verifyMut.isPending ? 'loading' : 'idle'}
+              ariaLabel="Phone verification code" />
             <button
               type="button"
-              onClick={handleVerify}
+              onClick={() => handleVerify()}
               disabled={otpCode.length !== 6 || verifyMut.isPending}
               className="h-10 px-4 text-sm font-medium text-white bg-[#1E3A5F] rounded-lg hover:bg-[#2E5090] disabled:opacity-60 transition-colors"
             >

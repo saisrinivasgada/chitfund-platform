@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { hubGetTicket, hubGetTicketMessages, hubListTickets, hubMarkTicketRead, hubSendTicketMessage, hubUpdateTicketStatus, hubGetIdentityCaseByTicket, hubPrepareIdentityCase, hubApproveIdentityCase, hubRejectIdentityCase, hubExecuteIdentityCase } from '../../services/api';
-import { C, T } from '../ui';
+import { C, T, listRowColor } from '../ui';
 import { useAuthStore } from '../../store/authStore';
 
 const TYPES = ['INQUIRY', 'BILLING', 'CHIT', 'DRAW', 'PAYMENT', 'PAYOUT', 'MEMBER_MGMT', 'ACCOUNT', 'TECHNICAL', 'FEATURE_REQUEST', 'GENERAL'];
@@ -37,9 +37,21 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [statusReason, setStatusReason] = useState('');
   const ticketQuery = useQuery({ queryKey: ['hub-ticket', id], queryFn: () => hubGetTicket(id) });
-  const messagesQuery = useQuery({ queryKey: ['hub-ticket-messages', id], queryFn: () => hubGetTicketMessages(id), refetchInterval: 30000 });
+  const messagesQuery = useInfiniteQuery({
+    queryKey: ['hub-ticket-messages', id],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => hubGetTicketMessages(id, pageParam),
+    getNextPageParam: (lastPage: any) => lastPage?.hasNext ? lastPage.nextCursor : undefined,
+    refetchInterval: 30000,
+  });
   useEffect(() => { hubMarkTicketRead(id).catch(() => {}); }, [id]);
-  const send = useMutation({ mutationFn: () => hubSendTicketMessage(id, draft.trim()), onSuccess: () => { setDraft(''); qc.invalidateQueries({ queryKey: ['hub-ticket-messages', id] }); } });
+  const send = useMutation({
+    mutationFn: (content: string) => hubSendTicketMessage(id, content),
+    onSuccess: (_message, content) => {
+      setDraft(current => current.trim() === content ? '' : current);
+      qc.invalidateQueries({ queryKey: ['hub-ticket-messages', id] });
+    },
+  });
   const status = useMutation({
     mutationFn: ({ next, note }: { next: string; note: string }) => hubUpdateTicketStatus(id, next, note),
     onSuccess: () => {
@@ -55,7 +67,7 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
   if (canReopen && ['RESOLVED', 'CLOSED'].includes(ticket?.status) && !nextStatuses.includes('IN_PROGRESS')) {
     nextStatuses.unshift('IN_PROGRESS');
   }
-  const messages: any[] = (messagesQuery.data as any)?.items ?? [];
+  const messages: any[] = ((messagesQuery.data as any)?.pages ?? []).flatMap((page: any) => page?.items ?? []).reverse();
   const canReadCase = !!hubUser?.canManageIdentityCases || !!hubUser?.platformOwner;
   const identityQuery = useQuery({ queryKey: ['hub-mobile-identity-case', id], queryFn: () => hubGetIdentityCaseByTicket(id), enabled: ticket?.type === 'ACCOUNT' && canReadCase });
   const identityCase: any = identityQuery.data;
@@ -75,6 +87,7 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const executeCase = useMutation({ mutationFn: () => hubExecuteIdentityCase(identityCase.id), onSuccess: refreshIdentity, onError: (e: any) => Alert.alert('Identity case', e.response?.data?.message ?? 'Execution failed; retry remains safe') });
 
   if (ticketQuery.isLoading) return <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.navy} /></SafeAreaView>;
+  if (ticketQuery.isError) return <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}><Text style={{ color: C.gray700, marginBottom: 12 }}>Could not load ticket.</Text><TouchableOpacity onPress={() => ticketQuery.refetch()}><Text style={{ color: C.navy, fontWeight: '700' }}>Try again</Text></TouchableOpacity></SafeAreaView>;
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', padding: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
       <TouchableOpacity onPress={onBack} style={{ padding: 8 }}><Text style={{ fontSize: 22, color: C.navy }}>‹</Text></TouchableOpacity>
@@ -82,7 +95,7 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
       {(ticket?.priority === 'HIGH' || ticket?.priority === 'URGENT') && <Text style={{ fontSize: 11, fontWeight: '800', color: '#92400E', backgroundColor: '#FEF3C7', padding: 7, borderRadius: 8 }}>⚑ PRIORITY</Text>}
     </View>
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={{ padding: 14 }}>
+      <ScrollView contentContainerStyle={{ padding: 14, width: '100%', maxWidth: 960, alignSelf: 'center' }} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" maintainVisibleContentPosition={{ minIndexForVisible: 0 }}>
         <View style={{ backgroundColor: C.surface, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, marginBottom: 12 }}>
           <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>{label(ticket?.type)} · {label(ticket?.status)}</Text>
           <Text style={{ fontSize: 13, color: C.gray700, lineHeight: 20, marginTop: 8 }}>{ticket?.description}</Text>
@@ -107,7 +120,8 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
           {nextStatuses.map(s => <Chip key={s} text={label(s)} selected={false} onPress={() => setPendingStatus(s)} />)}
         </ScrollView>
         <Text style={{ fontSize: 10, fontWeight: '800', color: C.gray400, marginBottom: 7 }}>CONVERSATION</Text>
-        {messagesQuery.isLoading ? <ActivityIndicator color={C.navy} /> : messages.length === 0 ? <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>No replies yet</Text> : messages.slice().reverse().map((message: any) => {
+        {messagesQuery.hasNextPage && <TouchableOpacity disabled={messagesQuery.isFetchingNextPage} onPress={() => messagesQuery.fetchNextPage()} style={{ alignSelf: 'center', padding: 10, marginBottom: 8 }}><Text style={{ color: C.navy, fontWeight: '700' }}>{messagesQuery.isFetchingNextPage ? 'Loading…' : 'Load older replies'}</Text></TouchableOpacity>}
+        {messagesQuery.isLoading ? <ActivityIndicator color={C.navy} /> : messagesQuery.isError ? <TouchableOpacity onPress={() => messagesQuery.refetch()}><Text style={{ textAlign: 'center', color: C.red, padding: 20 }}>Could not load replies. Tap to retry.</Text></TouchableOpacity> : messages.length === 0 ? <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>No replies yet</Text> : messages.map((message: any) => {
           const hub = message.senderType === 'SUPER_ADMIN' || message.senderType === 'SUPPORT_AGENT';
           return <View key={message.id} style={{ alignItems: hub ? 'flex-end' : 'flex-start', marginBottom: 10 }}>
             <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2 }}>{message.senderName}</Text>
@@ -115,14 +129,16 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
           </View>;
         })}
       </ScrollView>
-      <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.surface, padding: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+      {send.isError && <Text style={{ color: C.red, backgroundColor: C.surface, paddingHorizontal: 12, paddingTop: 8 }}>Reply was not sent. Your draft is saved; try again.</Text>}
+      {ticket?.status !== 'CLOSED' && ticket?.status !== 'RESOLVED' && <View style={{ flexDirection: 'row', gap: 8, backgroundColor: C.surface, padding: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>
         <TextInput value={draft} onChangeText={setDraft} placeholder="Write a reply…" multiline style={{ flex: 1, maxHeight: 90, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 10 }} />
-        <TouchableOpacity disabled={!draft.trim() || send.isPending} onPress={() => send.mutate()} style={{ width: 43, height: 43, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: draft.trim() ? C.navy : C.gray200 }}><Text style={{ color: C.white, fontSize: 18 }}>↑</Text></TouchableOpacity>
-      </View>
+        <TouchableOpacity disabled={!draft.trim() || send.isPending} onPress={() => send.mutate(draft.trim())} style={{ width: 43, height: 43, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: draft.trim() ? C.navy : C.gray200 }}><Text style={{ color: C.white, fontSize: 18 }}>↑</Text></TouchableOpacity>
+      </View>}
     </KeyboardAvoidingView>
     <Modal transparent animationType="fade" visible={!!pendingStatus} onRequestClose={() => { setPendingStatus(null); setStatusReason(''); }}>
-      <View style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: 'rgba(15,23,42,0.48)' }}>
-        <View style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: 'rgba(15,23,42,0.48)' }}>
+        <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+          style={{ backgroundColor: C.surface, borderRadius: 18, maxHeight: '90%', width: '100%', maxWidth: 640, alignSelf: 'center' }} contentContainerStyle={{ padding: 18 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.gray900 }}>Change ticket status</Text>
           <Text style={{ marginTop: 5, fontSize: 12, lineHeight: 18, color: C.gray500 }}>
             Move this ticket from {label(ticket?.status)} to {label(pendingStatus ?? undefined)}. Your reason becomes part of the audit history.
@@ -141,8 +157,8 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
               <Text style={{ fontWeight: '700', color: C.white }}>{status.isPending ? 'Saving…' : 'Confirm'}</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Modal>
   </SafeAreaView>;
 }
@@ -171,10 +187,10 @@ export default function HubTicketsScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 7 }}><Chip text="All priority" selected={!priority} onPress={() => resetPage(setPriority, '')} /><Chip text="⚑ Priority" selected={priority === 'HIGH'} onPress={() => resetPage(setPriority, 'HIGH')} /><Chip text="Normal" selected={priority === 'NORMAL'} onPress={() => resetPage(setPriority, 'NORMAL')} /></ScrollView>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 9 }}><TextInput value={fromDate} onChangeText={v => resetPage(setFromDate, v)} placeholder="From YYYY-MM-DD" style={{ flex: 1, borderWidth: 1, borderColor: C.gray200, borderRadius: 9, padding: 8, fontSize: 12 }} /><TextInput value={toDate} onChangeText={v => resetPage(setToDate, v)} placeholder="To YYYY-MM-DD" style={{ flex: 1, borderWidth: 1, borderColor: C.gray200, borderRadius: 9, padding: 8, fontSize: 12 }} /></View>
     </View>
-    <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 30 }}>
-      {query.isLoading ? <ActivityIndicator color={C.navy} style={{ marginTop: 40 }} /> : items.length === 0 ? <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 40 }}>No tickets found</Text> : items.map(item => {
+    <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 30, width: '100%', maxWidth: 960, alignSelf: 'center' }} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled">
+      {query.isLoading ? <ActivityIndicator color={C.navy} style={{ marginTop: 40 }} /> : query.isError ? <TouchableOpacity onPress={() => query.refetch()}><Text style={{ textAlign: 'center', color: C.red, marginTop: 40 }}>Could not load tickets. Tap to retry.</Text></TouchableOpacity> : items.length === 0 ? <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 40 }}>No tickets found</Text> : items.map((item, i) => {
         const high = item.priority === 'HIGH' || item.priority === 'URGENT';
-        return <TouchableOpacity key={item.id} onPress={() => setSelected(item.id)} style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 9, borderWidth: high ? 2 : 1, borderColor: high ? '#F59E0B' : C.gray100 }}>
+        return <TouchableOpacity key={item.id} onPress={() => setSelected(item.id)} style={{ backgroundColor: listRowColor(i), borderRadius: 14, padding: 14, marginBottom: 9, borderWidth: high ? 2 : 1, borderColor: high ? '#F59E0B' : C.gray100 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500 }}>{item.ticketNumber}</Text><Text style={{ fontSize: 10, fontWeight: '800', color: C.navy, backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{label(item.type)}</Text>{high && <Text style={{ fontSize: 10, fontWeight: '800', color: '#92400E' }}>⚑ PRIORITY</Text>}</View>
           <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900, marginTop: 6 }} numberOfLines={1}>{item.subject}</Text>
           <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>{label(item.status)} · {item.tenantName ?? (item.source === 'PUBLIC' ? 'Public inquiry' : item.tenantId)} · {date(item.createdAt)}</Text>

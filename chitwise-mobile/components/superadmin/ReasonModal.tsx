@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../ui';
 
@@ -44,6 +44,7 @@ export default function ReasonModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.55)', justifyContent: 'center', padding: 20 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%', maxWidth: 520, alignSelf: 'center' }}>
         <View style={{ backgroundColor: C.surface, borderRadius: 18, padding: 20, gap: 14 }}>
           <Text style={{ fontSize: 18, fontWeight: '800', color: C.navy }}>{title}</Text>
           {message ? <Text style={{ fontSize: 13, lineHeight: 19, color: C.gray500 }}>{message}</Text> : null}
@@ -57,6 +58,9 @@ export default function ReasonModal({
             editable={!busy}
             style={{ minHeight: 86, borderWidth: 1.5, borderColor: error ? C.red : C.gray300, borderRadius: 12, padding: 12, color: C.gray900, textAlignVertical: 'top' }}
           />
+          <TouchableOpacity onPress={() => Keyboard.dismiss()} style={{ alignSelf: 'flex-end', paddingVertical: 4, paddingHorizontal: 8 }}>
+            <Text style={{ color: C.navy, fontSize: 13, fontWeight: '700' }}>Done typing</Text>
+          </TouchableOpacity>
           {error ? <Text style={{ fontSize: 12, color: C.red }}>{error}</Text> : null}
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <TouchableOpacity disabled={busy} onPress={onCancel}
@@ -69,6 +73,7 @@ export default function ReasonModal({
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );

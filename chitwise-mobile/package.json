@@ -11,8 +11,8 @@
     "ios:hub": "EXPO_PUBLIC_APP_VARIANT=hub expo run:ios",
     "web": "expo start --web",
     "audit:ci": "node scripts/audit-dependencies.mjs",
-    "audit:test": "node --test scripts/audit-dependencies.test.mjs",
-    "offline:policy:test": "node --experimental-strip-types --test tests/offline/simulator-link.test.mjs utils/linkQaTrace.test.mjs components/tabBarMetrics.test.mjs features/chits/drawRequest.test.mjs features/chits/scheduleCommand.test.mjs offline/accessPolicy.test.mjs store/serializeActions.test.mjs store/savedAccounts.test.mjs store/reviewNavigationStore.test.mjs && node --experimental-vm-modules --test --test-concurrency=1 components/DrawPaymentRows.test.mjs components/PendingPaymentQueueCard.test.mjs offline/cancelSavedPayment.test.mjs services/readCollections.test.mjs offline/paymentQueue.test.mjs offline/signOut.test.mjs offline/signOutDatabase.test.mjs offline/staffQueue.test.mjs offline/staffReviews.test.mjs offline/useOnlineMutation.test.mjs store/toolkitStore.test.mjs",
+    "audit:test": "node --test scripts/audit-dependencies.test.mjs scripts/decode-uri-component-compat.test.mjs",
+    "offline:policy:test": "node --experimental-strip-types --test tests/offline/simulator-link.test.mjs utils/linkQaTrace.test.mjs utils/paymentPreview.test.mjs utils/settlementPayment.test.mjs utils/disbursementForm.test.mjs utils/indiaBusinessDay.test.mjs components/tabBarMetrics.test.mjs features/chits/drawRequest.test.mjs features/chits/scheduleCommand.test.mjs offline/accessPolicy.test.mjs store/serializeActions.test.mjs store/savedAccounts.test.mjs store/reviewNavigationStore.test.mjs && node --experimental-vm-modules --test --test-concurrency=1 components/DrawPaymentRows.test.mjs components/PendingPaymentQueueCard.test.mjs offline/accountPurge.test.mjs offline/cancelSavedPayment.test.mjs services/readCollections.test.mjs offline/paymentQueue.test.mjs offline/signOut.test.mjs offline/signOutDatabase.test.mjs offline/staffQueue.test.mjs offline/staffReviews.test.mjs offline/useOnlineMutation.test.mjs store/toolkitStore.test.mjs utils/reminderNotifications.test.mjs",
     "type-check": "tsc --noEmit",
     "doctor": "expo-doctor",
     "device-unlock:test": "node --experimental-vm-modules --test utils/biometrics.test.mjs utils/authorizeAccountLogin.test.mjs components/DeviceUnlockGate.test.mjs"
@@ -25,6 +25,7 @@
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-query-persist-client": "^5.101.2",
     "axios": "^1.20.0",
+    "decode-uri-component": "file:vendor/decode-uri-component-cjs",
     "expo": "~54.0.37",
     "expo-background-task": "~1.0.10",
     "expo-blur": "~15.0.8",
@@ -66,7 +67,10 @@
     "image-size": "$image-size",
     "postcss": "8.5.28",
     "shell-quote": "1.12.0",
-    "source-map-js": "1.2.2"
+    "source-map-js": "1.2.2",
+    "follow-redirects": "1.16.3",
+    "node-forge": "1.4.3",
+    "decode-uri-component": "$decode-uri-component"
   },
   "private": true
 }

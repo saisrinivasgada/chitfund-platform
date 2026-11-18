@@ -13,6 +13,21 @@ on:
       - 'chitwise-mobile/**'
       - 'shared/offline/**'
       - '.github/workflows/mobile-ci.yml'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Native release journey to verify before a mobile release'
+        type: choice
+        required: true
+        default: both
+        options:
+          - both
+          - ios
+          - android
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -35,7 +50,7 @@ jobs:
         run: npm ci
 
       - name: Offline policy and recovery checks
-        run: npm run offline:policy:test && npm run device-unlock:test && node --test ../shared/offline/*.test.mjs scripts/ensure-ci-ios-driver.test.mjs
+        run: npm run offline:policy:test && npm run device-unlock:test && node --test ../shared/offline/*.test.mjs ../shared/rateLimitMessage.test.mjs ../shared/legalDocumentUrl.test.mjs scripts/ensure-ci-ios-driver.test.mjs
 
       - name: TypeScript type-check
         run: npm run type-check
@@ -69,6 +84,9 @@ jobs:
 
   ios-offline:
     name: iOS release offline journeys
+    # Native release verification is explicit: simulator builds consume most of
+    # the mobile CI minutes and are not needed for every ordinary code push.
+    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'both' || inputs.platform == 'ios')
     runs-on: macos-15
     # A successful complete build and native suite took nearly 88 minutes.
     # Allow runner variation; individual business assertion deadlines stay fixed.
@@ -158,6 +176,7 @@ jobs:
 
   android-offline:
     name: Android release offline journeys
+    if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'both' || inputs.platform == 'android')
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:

@@ -9,6 +9,7 @@ import {
   markAllNotificationsRead,
 } from '../../services/api';
 import { useNotifSocket } from '../../hooks/useNotifSocket';
+import { useAuth } from '../../context/AuthContext';
 
 function timeAgo(iso) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -58,43 +59,84 @@ function NotifItem({ n, onRead, onNavigate }) {
   );
 }
 
-export default function NotificationBell() {
+export default function NotificationBell({ listenSocket = true }) {
   const [open, setOpen] = useState(false);
+  const [liveAlert, setLiveAlert] = useState(null);
+  const [actionError, setActionError] = useState('');
   const panelRef = useRef(null);
+  const latestIdRef = useRef(null);
+  const initializedRef = useRef(false);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user, tenantId } = useAuth();
+  const notificationScope = [tenantId, user?.id];
 
-  const { data: unreadCount = 0 } = useQuery({
-    queryKey: ['notif-unread'],
+  const { data: unreadCount = 0, isError: countError } = useQuery({
+    queryKey: ['notif-unread', ...notificationScope],
     queryFn: getUnreadCount,
+    enabled: !!tenantId && !!user?.id,
     refetchInterval: 60_000, // fallback poll — WebSocket provides instant updates when available
   });
 
   useNotifSocket(useCallback(() => {
     qc.invalidateQueries({ queryKey: ['notif-unread'] });
     qc.invalidateQueries({ queryKey: ['notifications'] });
-  }, [qc]));
+  }, [qc]), listenSocket);
 
-  const { data: notifications = [], isLoading } = useQuery({
-    queryKey: ['notifications'],
+  const { data: notifications = [], dataUpdatedAt, isLoading, isError, isSuccess, refetch } = useQuery({
+    queryKey: ['notifications', ...notificationScope],
     queryFn: getNotifications,
-    enabled: open,
+    enabled: !!tenantId && !!user?.id,
+    staleTime: 60_000,
+    // The socket refreshes this list on an event. Poll only the tiny unread
+    // count; fetching the full inbox every minute wastes data on slow links.
   });
+
+  useEffect(() => {
+    latestIdRef.current = null;
+    initializedRef.current = false;
+    setLiveAlert(null);
+    setActionError('');
+    setOpen(false);
+  }, [tenantId, user?.id]);
+
+  useEffect(() => {
+    if (!isSuccess) return;
+    if (!initializedRef.current) {
+      if (notifications.length) latestIdRef.current = notifications[0].id;
+      initializedRef.current = true;
+      return;
+    }
+    const newest = notifications[0];
+    if (!newest || newest.id === latestIdRef.current) return;
+    latestIdRef.current = newest.id;
+    if (!newest.read) setLiveAlert(newest);
+  }, [notifications, isSuccess]);
+
+  useEffect(() => {
+    if (!liveAlert) return undefined;
+    const timer = window.setTimeout(() => setLiveAlert(null), 6500);
+    return () => window.clearTimeout(timer);
+  }, [liveAlert]);
 
   const readMutation = useMutation({
     mutationFn: markNotificationRead,
     onSuccess: () => {
+      setActionError('');
       qc.invalidateQueries({ queryKey: ['notifications'] });
       qc.invalidateQueries({ queryKey: ['notif-unread'] });
     },
+    onError: () => setActionError('Could not mark that notification as read. Try again when connected.'),
   });
 
   const readAllMutation = useMutation({
     mutationFn: markAllNotificationsRead,
     onSuccess: () => {
+      setActionError('');
       qc.invalidateQueries({ queryKey: ['notifications'] });
       qc.invalidateQueries({ queryKey: ['notif-unread'] });
     },
+    onError: () => setActionError('Could not mark all notifications as read. Try again when connected.'),
   });
 
   // Close on outside click
@@ -108,7 +150,7 @@ export default function NotificationBell() {
   }, [open]);
 
   const handleNavigate = useCallback((n) => {
-    if (n.link) navigate(n.link);
+    if (typeof n.link === 'string' && n.link.startsWith('/') && !n.link.startsWith('//')) navigate(n.link);
     if (!n.read) readMutation.mutate(n.id);
     setOpen(false);
   }, [navigate, readMutation]);
@@ -117,16 +159,30 @@ export default function NotificationBell() {
 
   return (
     <div ref={panelRef} className="relative">
+      {liveAlert && (
+        <button type="button" onClick={() => { setOpen(true); setLiveAlert(null); }}
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[210] w-[min(360px,calc(100vw-24px))] rounded-2xl bg-[#1E3A5F] text-white px-4 py-3 shadow-2xl text-left border border-white/20 transition-all"
+          aria-live="polite" aria-label={`New notification: ${liveAlert.title}`}>
+          <span className="block text-xs font-semibold text-white/70 mb-1">ChitWise notification</span>
+          <span className="block text-sm font-semibold truncate">{liveAlert.title}</span>
+          <span className="block text-xs text-white/80 truncate mt-0.5">{liveAlert.message}</span>
+        </button>
+      )}
       {/* Bell button */}
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open && Date.now() - dataUpdatedAt > 60_000) refetch();
+          setOpen((v) => !v);
+        }}
         className={`relative flex items-center justify-center w-8 h-8 rounded-lg transition-colors cursor-pointer ${
           open ? 'bg-[#EFF3F8] text-[#1E3A5F]' : 'text-gray-400 hover:bg-gray-100 hover:text-gray-800'
         }`}
-        title="Notifications"
+        title={countError ? 'Notifications unavailable — open to retry' : 'Notifications'}
+        aria-label="Notifications"
       >
         <Bell size={17} />
-        {unread > 0 && (
+        {countError && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500" />}
+        {!countError && unread > 0 && (
           <span
             className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-0.5 flex items-center justify-center rounded-full text-white text-[9px] font-bold leading-none"
             style={{ backgroundColor: '#D4A017' }}
@@ -138,10 +194,7 @@ export default function NotificationBell() {
 
       {/* Dropdown panel — opens rightward since the bell lives in the left sidebar */}
       {open && (
-        <div
-          className="absolute left-0 mt-2 z-[200] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
-          style={{ width: '340px', top: '100%' }}
-        >
+        <div className="fixed left-3 right-3 top-14 sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 lg:left-0 lg:right-auto z-[200] sm:w-[340px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100" style={{ backgroundColor: '#1E3A5F' }}>
             <div className="flex items-center gap-2">
@@ -173,10 +226,16 @@ export default function NotificationBell() {
           </div>
 
           {/* List */}
+          {actionError && <p role="alert" className="border-b border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700">{actionError}</p>}
           <div className="overflow-y-auto" style={{ maxHeight: '400px' }}>
             {isLoading ? (
               <div className="flex items-center justify-center py-10 text-gray-400 text-sm">
                 Loading…
+              </div>
+            ) : isError ? (
+              <div className="px-4 py-10 text-center text-sm text-gray-600">
+                <p>Notifications are unavailable. This does not mean your inbox is empty.</p>
+                <button type="button" onClick={() => refetch()} className="mt-3 font-semibold text-[#1E3A5F] underline">Try again</button>
               </div>
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-gray-400">

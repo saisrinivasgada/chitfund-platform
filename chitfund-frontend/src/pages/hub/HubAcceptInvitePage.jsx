@@ -1,14 +1,19 @@
-import { useState } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { hubAcceptInvite, setHubToken } from '../../services/api';
+import LegalAcceptanceCheckbox from '../../components/legal/LegalAcceptanceCheckbox';
+import { readOneTimeLinkToken, removeOneTimeLinkTokenFromUrl } from '../../utils/oneTimeLinkToken';
 
 export default function HubAcceptInvitePage() {
-  const [params] = useSearchParams();
   const navigate = useNavigate();
-  const token = params.get('token') ?? '';
+  const [token] = useState(() => readOneTimeLinkToken() ?? '');
+  useEffect(() => {
+    if (token) removeOneTimeLinkTokenFromUrl();
+  }, [token]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -23,7 +28,7 @@ export default function HubAcceptInvitePage() {
     }
     setLoading(true);
     try {
-      const data = await hubAcceptInvite({ token, username, password });
+      const data = await hubAcceptInvite({ token, username, password, termsAccepted });
       setHubToken(data.token);
       sessionStorage.setItem('hub_token', data.token);
       localStorage.setItem('hub_user', JSON.stringify({
@@ -60,7 +65,12 @@ export default function HubAcceptInvitePage() {
         <input className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200" type="password" value={confirmation}
           onChange={(event) => setConfirmation(event.target.value)} minLength={8} maxLength={100}
           autoComplete="new-password" placeholder="Confirm password" required />
-        <button disabled={loading} className="w-full py-2.5 rounded-xl text-white font-semibold disabled:opacity-60 bg-[#1E3A5F]">
+        <LegalAcceptanceCheckbox
+          id="hub-invite-legal-acceptance"
+          checked={termsAccepted}
+          onChange={setTermsAccepted}
+        />
+        <button disabled={loading || !termsAccepted} className="w-full py-2.5 rounded-xl text-white font-semibold disabled:opacity-60 bg-[#1E3A5F]">
           {loading ? 'Activating…' : 'Activate account'}
         </button>
       </form>

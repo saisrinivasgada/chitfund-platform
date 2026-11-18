@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Building2, CheckCircle, Mail, ShieldCheck } from 'lucide-react';
 import Button from '../components/ui/Button';
 import OtpCodeInput from '../components/ui/OtpCodeInput';
 import { Input } from '../components/ui/FormField';
+import { readOneTimeLinkToken, removeOneTimeLinkTokenFromUrl } from '../utils/oneTimeLinkToken';
 import {
   forgotPasswordResetWithToken,
   getPublicChitfundRequest,
@@ -21,8 +22,10 @@ function passwordError(value) {
 }
 
 export default function ChitfundRequestLandingPage() {
-  const [params] = useSearchParams();
-  const token = params.get('token') ?? '';
+  const [token] = useState(() => readOneTimeLinkToken() ?? '');
+  useEffect(() => {
+    if (token) removeOneTimeLinkTokenFromUrl();
+  }, [token]);
   const [step, setStep] = useState('details');
   const [otp, setOtp] = useState('');
   const [resetToken, setResetToken] = useState('');

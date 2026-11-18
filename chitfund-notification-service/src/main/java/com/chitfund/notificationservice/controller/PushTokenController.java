@@ -46,7 +46,7 @@ public class PushTokenController {
     public ResponseEntity<ApiResponse<Void>> unregister(@RequestBody Map<String, String> body) {
         String token = body.get("token");
         if (token != null && !token.isBlank()) {
-            pushTokenService.unregister(token);
+            pushTokenService.unregister(currentUserId(), token);
         }
         return ResponseEntity.ok(ApiResponse.success(null));
     }

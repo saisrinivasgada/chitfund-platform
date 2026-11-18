@@ -82,6 +82,7 @@ function RecordPaymentModal({ initialTenantId, onClose, onSuccess }) {
   const [paymentDate, setPaymentDate]     = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes]                 = useState('');
   const [preview, setPreview]             = useState(null);
+  const [previewFor, setPreviewFor]       = useState('');
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [fe, setFe]                       = useState({});
   const [error, setError]                 = useState('');
@@ -111,18 +112,32 @@ function RecordPaymentModal({ initialTenantId, onClose, onSuccess }) {
   });
 
   useEffect(() => {
-    if (type !== 'UPGRADE' || !tenantId || !toPlan) { setPreview(null); return; }
+    let active = true;
+    setPreview(null);
+    setPreviewFor('');
+    if (type !== 'UPGRADE' || !tenantId || !toPlan) { setLoadingPreview(false); return; }
     setLoadingPreview(true);
     billingUpgradePreview(tenantId, toPlan)
-      .then(p => { setPreview(p); setAmountPaise(String(Math.round(p.chargePaise))); })
-      .catch(() => setPreview(null))
-      .finally(() => setLoadingPreview(false));
+      .then(p => { if (active) { setPreview(p); setPreviewFor(`${tenantId}:${toPlan}`); } })
+      .catch(() => { if (active) setPreview(null); })
+      .finally(() => { if (active) setLoadingPreview(false); });
+    return () => { active = false; };
   }, [type, tenantId, toPlan]);
+
+  const activePreview = previewFor === `${tenantId}:${toPlan}` ? preview : null;
+  const validAmount = /^\d+(?:\.\d{1,2})?$/.test(amountPaise.trim())
+    && Number(amountPaise) > 0 && Number.isSafeInteger(Math.round(Number(amountPaise) * 100));
 
   function handleSubmit(e) {
     e.preventDefault();
     setError('');
     if (!tenantId) { setError('Please select an organisation'); return; }
+    if (type === 'UPGRADE' && (loadingPreview || !activePreview)) {
+      setError('Wait for the current upgrade amount before recording payment.'); return;
+    }
+    if (type !== 'UPGRADE' && !validAmount) {
+      setError('Enter a positive amount in rupees with at most two decimal places.'); return;
+    }
 
     const payload = type === 'UPGRADE'
       ? { tenantId, newPlan: toPlan, paymentMethod: method, paymentReference: reference || null, paymentDate, notes: notes || null }
@@ -209,7 +224,9 @@ function RecordPaymentModal({ initialTenantId, onClose, onSuccess }) {
           {type === 'UPGRADE' && (
             loadingPreview
               ? <div className="text-xs text-gray-400 animate-pulse">Calculating proration…</div>
-              : <ProrationBreakdown preview={preview} />
+              : activePreview
+                ? <ProrationBreakdown preview={activePreview} />
+                : <p className="text-xs text-red-600">Upgrade amount is unavailable. Change the plan to retry.</p>
           )}
 
           {/* Amount (not shown for upgrade — auto-calculated) */}
@@ -233,11 +250,11 @@ function RecordPaymentModal({ initialTenantId, onClose, onSuccess }) {
             </div>
           )}
 
-          {type === 'UPGRADE' && preview && (
+              {type === 'UPGRADE' && activePreview && (
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Amount to Collect</label>
               <div className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-gray-50 font-semibold text-gray-800">
-                {fmtPaise(preview.chargePaise)}
+                {fmtPaise(activePreview.chargePaise)}
               </div>
             </div>
           )}
@@ -313,7 +330,7 @@ function RecordPaymentModal({ initialTenantId, onClose, onSuccess }) {
             </button>
             <button
               type="submit"
-              disabled={mutation.isPending}
+              disabled={mutation.isPending || (type === 'UPGRADE' ? loadingPreview || !activePreview : !validAmount)}
               className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50 cursor-pointer"
               style={{ backgroundColor: '#1E3A5F' }}
             >
@@ -465,7 +482,7 @@ export default function SuperAdminBillingPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
         {isLoading ? (
           <div className="p-12 text-center text-sm text-gray-400">Loading payments…</div>
         ) : filtered.length === 0 ? (
@@ -481,7 +498,7 @@ export default function SuperAdminBillingPage() {
             </button>
           </div>
         ) : (
-          <table className="w-full">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 {['Type', 'Organisation', 'Plan', 'Amount', 'Method', 'Date', ''].map(h => (

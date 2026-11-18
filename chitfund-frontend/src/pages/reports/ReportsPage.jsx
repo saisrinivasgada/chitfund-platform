@@ -278,8 +278,8 @@ function DrawDetailModal({ draw, chit, onClose }) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-[3px] bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[98vh]" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[96dvh]" onClick={(e) => e.stopPropagation()}>
         {/* Close button — pinned inside top-right corner */}
         <button
           onClick={onClose}
@@ -313,13 +313,13 @@ function DrawDetailModal({ draw, chit, onClose }) {
         </div>
 
         {/* Members table */}
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-auto flex-1" style={{ WebkitOverflowScrolling: 'touch' }}>
           {isLoading ? (
             <div className="py-10 text-center text-sm text-gray-400 animate-pulse">Loading members…</div>
           ) : sorted.length === 0 ? (
             <div className="py-10 text-center text-sm text-gray-400">No payment records for this draw.</div>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_#e5e7eb]">
                 <tr>
                   <th className="py-3 text-left text-xs font-semibold text-gray-500 uppercase" style={{ paddingLeft: 24, paddingRight: 12 }}>Member</th>
@@ -339,7 +339,7 @@ function DrawDetailModal({ draw, chit, onClose }) {
                     <>
                       <tr
                         key={p.id}
-                        className="odd:bg-white even:bg-slate-50/70 hover:bg-[#EEF2F8] cursor-pointer transition-colors"
+                        className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] cursor-pointer transition-colors"
                         onClick={() => setExpandedMemberId(isExpanded ? null : p.memberId)}
                       >
                         <td className="py-3" style={{ paddingLeft: 24, paddingRight: 12 }}>
@@ -817,7 +817,8 @@ const PRINT_CSS = `
   table{width:100%;border-collapse:collapse;margin:6px 0;font-size:10px}
   th{background:#1E3A5F;color:#fff;padding:5px 8px;text-align:left;font-size:10px}
   td{border:1px solid #ddd;padding:4px 8px}
-  tr:nth-child(even) td{background:#f8f8f8}
+  tbody tr:nth-child(odd) td{background:#fff}
+  tbody tr:nth-child(even) td{background:#F3F7FC}
   tfoot td{background:#e8eef4;font-weight:bold}
   .meta{display:flex;gap:24px;margin-bottom:12px;font-size:11px;flex-wrap:wrap}
   .meta span{color:#555}
@@ -1074,7 +1075,7 @@ function ChitPaymentSection({ memberId, chit }) {
                   </thead>
                   <tbody>
                     {history.map((r) => (
-                      <tr key={r.id} className="odd:bg-white even:bg-slate-50/70">
+                      <tr key={r.id} className="odd:bg-white even:bg-[#F3F7FC]">
                         <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
                         <td className="px-3 py-2 text-gray-500">{fmtDate(r.dueDate)}</td>
                         <td className="px-3 py-2 text-gray-700">{h(r.amountDue)}</td>
@@ -1467,7 +1468,7 @@ function MemberReportTab() {
                   </thead>
                   <tbody>
                     {payouts.map((p) => (
-                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-[#EEF2F8] cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
+                      <tr key={p.id} className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
                         <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
                         <td className="px-3 py-2">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                         <td className="px-3 py-2">{h(p.winningAmount)}</td>
@@ -1556,7 +1557,7 @@ function MemberReportTab() {
                   </thead>
                   <tbody>
                     {settlements.map((s) => (
-                      <tr key={s.id} className="odd:bg-white even:bg-slate-50/70">
+                      <tr key={s.id} className="odd:bg-white even:bg-[#F3F7FC]">
                         <td className="px-3 py-2">{fmtDate(s.settledAt ?? s.createdAt)}</td>
                         <td className="px-3 py-2 font-semibold">{h(s.totalAmount ?? s.amount)}</td>
                         <td className="px-3 py-2 text-gray-500 max-w-[200px]">
@@ -1942,7 +1943,8 @@ function ChitReportTab() {
                         Admin Invested Funds — {fmt(adminInvestment)}
                         <span className="font-normal text-amber-500 ml-1">(advance payouts to additional members, to be recovered)</span>
                       </p>
-                      <table className="w-full text-xs">
+                      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      <table className="w-full min-w-[400px] text-xs">
                         <thead>
                           <tr className="border-b border-amber-200">
                             <th className="px-2 py-1.5 text-left text-amber-600 font-medium">Draw</th>
@@ -1960,6 +1962,7 @@ function ChitReportTab() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1986,7 +1989,7 @@ function ChitReportTab() {
                     {collectionRows.map((r) => (
                       <tr
                         key={r.monthNumber}
-                        className="odd:bg-white even:bg-slate-50/70 hover:bg-[#EEF2F8] cursor-pointer transition-colors"
+                        className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] cursor-pointer transition-colors"
                         onClick={() => setSelectedDraw(r)}
                         title="Click to see member-wise breakdown"
                       >
@@ -2069,7 +2072,7 @@ function ChitReportTab() {
                   </thead>
                   <tbody>
                     {payoutsData.map((p) => (
-                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-[#EEF2F8] cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
+                      <tr key={p.id} className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
                         <td className="px-3 py-2 font-semibold">{drawLabel(chit.startDate, p.monthNumber)}</td>
                         <td className="px-3 py-2"><MemberLink id={p.memberId} name={resolveMember(p)} /></td>
                         <td className="px-3 py-2">{h(p.winningAmount)}</td>
@@ -2279,7 +2282,7 @@ function PaymentsTab() {
               </thead>
               <tbody>
                 {batches.map((b) => (
-                  <tr key={b.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-[#EEF2F8] transition-colors cursor-pointer" onClick={() => setSelectedBatchId(b.id)}>
+                  <tr key={b.id} className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] transition-colors cursor-pointer" onClick={() => setSelectedBatchId(b.id)}>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(b.collectedAt ?? b.createdAt)}</td>
                     <td className="px-4 py-2.5">
                       <MemberLink id={b.memberId} name={memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId} />
@@ -2436,7 +2439,7 @@ function PayoutsTab() {
               </thead>
               <tbody>
                 {filtered.map((p) => (
-                  <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-[#EEF2F8] cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
+                  <tr key={p.id} className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
                     <td className="px-3 py-2.5 font-semibold text-gray-700">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                     <td className="px-3 py-2.5">
                       <ChitLink id={p.chitId} name={resolveUUID(p.chitId, {}, chitMap, {})} />
@@ -2746,7 +2749,7 @@ function TreasuryTab() {
               </thead>
               <tbody>
                 {filtered.map((t, i) => (
-                  <tr key={t.id ?? i} className="odd:bg-white even:bg-slate-50/70 hover:bg-[#EEF2F8] transition-colors cursor-pointer" onClick={() => setSelectedTxn(t)}>
+                  <tr key={t.id ?? i} className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] transition-colors cursor-pointer" onClick={() => setSelectedTxn(t)}>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(t.createdAt ?? t.transactionDate)}</td>
                     <td className="px-4 py-2.5 text-xs">
                       <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t.accountType ?? '—'}</span>

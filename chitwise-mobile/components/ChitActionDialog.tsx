@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, type MutableRefObject, type ReactNode } from 'react';
-import { Animated, StyleSheet } from 'react-native';
+import { Animated, Keyboard, StyleSheet } from 'react-native';
 
 export type ChitDialogClosers = MutableRefObject<Map<symbol, () => void>>;
 const CloseContext = createContext<ChitDialogClosers | null>(null);
@@ -23,7 +23,9 @@ export function ChitActionDialog({ visible, children, onRequestClose }: {
     if (!visible) return;
     fade.setValue(0.85);
     const animation = Animated.timing(fade, { toValue: 1, duration: 140, useNativeDriver: true });
-    animation.start(); return () => animation.stop();
+    animation.start();
+    // Closing a sheet or leaving the screen must release input focus too.
+    return () => { animation.stop(); Keyboard.dismiss(); };
   }, [visible]);
   if (!visible) return null;
   return <Animated.View testID="chit-action-dialog" accessibilityViewIsModal importantForAccessibility="yes"

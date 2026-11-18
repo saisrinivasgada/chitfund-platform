@@ -11,7 +11,7 @@ import {
   getCollectionsReport, getMembersReport, getPayoutsReport,
   getPaymentBatchById, getDrawPayments, listStaff,
 } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader, fmtDate, listRowColor } from '../../../components/ui';
 import { useAuthStore } from '../../../store/authStore';
 import { useUIStore } from '../../../store/uiStore';
 
@@ -129,7 +129,7 @@ function PayoutDetailModal({ payoutId, onClose }: { payoutId: string | null; onC
         {isLoading || !p ? (
           <ListLoadingScreen />
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 12, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
 
             {/* Member + Chit */}
             <Card style={{ padding: 14 }}>
@@ -386,11 +386,11 @@ function MemberReport() {
             </View>
           </View>
           <ScrollView style={{ maxHeight: 240 }}>
-            {filtered.slice(0, 40).map((m: any) => (
+            {filtered.slice(0, 40).map((m: any, i: number) => (
               <TouchableOpacity
                 key={m.id}
                 onPress={() => { setMemberId(m.id); setShowPicker(false); setSearch(''); }}
-                style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray50, backgroundColor: m.id === memberId ? C.navy50 : C.white }}
+                style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray50, backgroundColor: m.id === memberId ? C.navy50 : listRowColor(i) }}
               >
                 <Text style={{ fontSize: 15, color: C.gray900, fontWeight: '500' }}>{m.name}</Text>
                 <Text style={T.xs}>{m.phone} · {m.status}</Text>
@@ -555,7 +555,7 @@ function PaymentDetailModal({ batchId, onClose }: { batchId: string | null; onCl
         {isLoading || !b ? (
           <ListLoadingScreen />
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
             <View style={{ backgroundColor: C.navy, borderRadius: 16, padding: 18, marginBottom: 16 }}>
               <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: '700', letterSpacing: 1 }}>AMOUNT</Text>
               <Text style={{ fontSize: 28, fontWeight: '800', color: '#D4A017', marginTop: 2 }}>{fmt(b.totalAmount)}</Text>
@@ -587,9 +587,15 @@ function PaymentDetailModal({ batchId, onClose }: { batchId: string | null; onCl
               <>
                 <SectionHeader title={`Allocations (${allocations.length})`} />
                 {allocations.map((a: any, i: number) => (
-                  <Card key={a.id ?? i} style={{ marginBottom: 8, padding: 12, flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ fontSize: 13, color: C.gray700 }}>Draw #{a.monthNumber}</Text>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{fmt(a.amount ?? a.allocatedAmount)}</Text>
+                  <Card key={a.paymentRecordId ?? a.catchUpInstallmentLineId ?? i} style={{ marginBottom: 8, padding: 12 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                      <Text style={{ fontSize: 13, color: C.gray700 }}>{a.catchUpInstallmentLineId ? 'Past installment' : 'Installment'} · Draw #{a.monthNumber}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{fmt(a.amount ?? a.allocatedAmount)}</Text>
+                    </View>
+                    {a.chitId && a.chitId !== b.chitId && <Text style={{ fontSize: 11, color: C.gray500, marginTop: 4 }}>Chit {a.chitId}</Text>}
+                    {(a.cashApplied != null || a.creditApplied != null) && (
+                      <Text style={{ fontSize: 11, color: C.gray500, marginTop: 4 }}>New payment {fmt(a.cashApplied)} · Existing credit {fmt(a.creditApplied)}</Text>
+                    )}
                   </Card>
                 ))}
               </>
@@ -666,11 +672,11 @@ function PaymentsReport() {
         <EmptyState title="No payments" message="No payment records found for the selected period." />
       ) : (
         <View>
-          {(batches as any[]).map((b: any) => {
+          {(batches as any[]).map((b: any, i: number) => {
             const draws = (b.allocations ?? []).map((a: any) => `#${a.monthNumber}`).join(', ');
             return (
               <TouchableOpacity key={b.id} activeOpacity={0.75} onPress={() => setDetailBatchId(b.id)}>
-                <Card style={{ marginBottom: 8, padding: 12 }}>
+                <Card style={{ marginBottom: 8, padding: 12, backgroundColor: listRowColor(i) }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
@@ -768,9 +774,9 @@ function PayoutsReport() {
         <EmptyState title="No payouts" message="No payout records found." />
       ) : (
         <View>
-          {filtered.map((p: any) => (
+          {filtered.map((p: any, i: number) => (
             <TouchableOpacity key={p.id} onPress={() => setSelectedPayoutId(p.id)} activeOpacity={0.7}>
-              <Card style={{ marginBottom: 8, padding: 12 }}>
+              <Card style={{ marginBottom: 8, padding: 12, backgroundColor: listRowColor(i) }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{p.memberName ?? '—'}</Text>
@@ -896,14 +902,16 @@ function ChitReport() {
       {showPicker && (
         <View style={{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, marginBottom: 12, maxHeight: 280 }}>
           <ScrollView>
-            {(chits as any[]).map((c: any) => (
+            {(chits as any[]).map((c: any, i: number) => (
               <TouchableOpacity
                 key={c.id}
                 onPress={() => { setChitId(c.id); setShowPicker(false); }}
-                style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray50, backgroundColor: c.id === chitId ? C.navy50 : C.white }}
+                style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray50, backgroundColor: c.id === chitId ? C.navy50 : listRowColor(i) }}
               >
                 <Text style={{ fontSize: 15, color: C.gray900, fontWeight: '500' }}>{c.name}</Text>
-                <Text style={{ fontSize: 11, color: C.gray400 }}>{c.status} · {c.capacity} members</Text>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>
+                  {c.status} · {c.payingMemberSlots ?? Math.max(0, Number(c.capacity ?? 0) - Number(c.orgHeldSpotsCount ?? 0))} paying member slots
+                </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -956,7 +964,7 @@ function ChitReport() {
           <SectionHeader title={`Draw Collections (${collectionRows.length})`} />
           {collectionRows.length === 0 ? (
             <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', paddingVertical: 12 }}>No draw data</Text>
-          ) : collectionRows.map((r: any) => {
+          ) : collectionRows.map((r: any, i: number) => {
             const drawId = drawMap[r.monthNumber]?.id;
             return (
               <TouchableOpacity
@@ -964,7 +972,7 @@ function ChitReport() {
                 activeOpacity={drawId ? 0.75 : 1}
                 onPress={() => drawId && setSelectedDraw({ id: drawId, monthNumber: r.monthNumber })}
               >
-                <Card style={{ marginBottom: 6, padding: 12 }}>
+                <Card style={{ marginBottom: 6, padding: 12, backgroundColor: listRowColor(i) }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Draw #{r.monthNumber}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -988,9 +996,9 @@ function ChitReport() {
           <SectionHeader title={`Payouts (${payoutsData.length})`} />
           {payoutsData.length === 0 ? (
             <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', paddingVertical: 12 }}>No payouts yet</Text>
-          ) : payoutsData.map((p: any) => (
+          ) : payoutsData.map((p: any, i: number) => (
             <TouchableOpacity key={p.id} onPress={() => setSelectedPayoutId(p.id)} activeOpacity={0.7}>
-              <Card style={{ marginBottom: 6, padding: 12 }}>
+              <Card style={{ marginBottom: 6, padding: 12, backgroundColor: listRowColor(i) }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{p.memberName ?? '—'}</Text>
@@ -1044,7 +1052,7 @@ function DrawDetailModal({ draw, onClose }: {
         {isLoading ? (
           <ListLoadingScreen />
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
               <Card style={{ flex: 1, padding: 14 }}>
                 <Text style={T.xs}>Total Due</Text>
@@ -1063,7 +1071,7 @@ function DrawDetailModal({ draw, onClose }: {
               const due = Number(r.amountDue ?? 0);
               const paid = Number(r.amountPaid ?? 0);
               return (
-                <Card key={r.id ?? i} style={{ marginBottom: 8, padding: 12 }}>
+                <Card key={r.id ?? i} style={{ marginBottom: 8, padding: 12, backgroundColor: listRowColor(i) }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
@@ -1184,7 +1192,7 @@ function TreasuryReport() {
           {filtered.map((t: any, i: number) => {
             const isIn = Number(t.amount ?? 0) > 0;
             return (
-              <Card key={t.id ?? i} style={{ marginBottom: 6, padding: 12 }}>
+              <Card key={t.id ?? i} style={{ marginBottom: 6, padding: 12, backgroundColor: listRowColor(i) }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <View style={{ flex: 1, paddingRight: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
@@ -1263,7 +1271,7 @@ export default function ReportsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         {/* Header */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

@@ -3,9 +3,12 @@ import { Client } from '@stomp/stompjs';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
 
-const WS_URL = __DEV__
-  ? 'ws://localhost:8080/ws-native'
-  : 'wss://thechitwise.com/ws-native';
+const apiGateway = new URL(process.env.EXPO_PUBLIC_API_URL
+  ?? (__DEV__ ? 'http://localhost:8080/api' : 'https://thechitwise.com/api'));
+apiGateway.protocol = apiGateway.protocol === 'https:' ? 'wss:' : 'ws:';
+apiGateway.pathname = '/ws-native';
+apiGateway.search = '';
+const WS_URL = apiGateway.toString();
 
 // Maps WS event type → React Query keys to invalidate
 const INVALIDATIONS: Record<string, string[][]> = {
@@ -13,6 +16,7 @@ const INVALIDATIONS: Record<string, string[][]> = {
     ['m-cash-requests'],
     ['staff-tasks'],
     ['worker-pending-batches'],
+    ['m-recent-activity'],
   ],
   PAYMENTS_UPDATED: [
     ['m-today-batches'],
@@ -36,9 +40,11 @@ const INVALIDATIONS: Record<string, string[][]> = {
   TREASURY_UPDATED: [
     ['m-wallet'],
     ['m-wallet-txns'],
+    ['m-recent-activity'],
   ],
   IN_APP_UPDATED: [
     ['m-unread'],
+    ['m-notifs'],
   ],
   AUCTION_UPDATED: [
     ['m-auctions'],
@@ -55,6 +61,19 @@ export function useRealtimeUpdates(enabled = true) {
   useEffect(() => {
     if (!enabled || !token || !tenantId) return;
 
+    const pendingKeys = new Map<string, string[]>();
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const queueRefresh = (keys: string[][]) => {
+      keys.forEach((key) => pendingKeys.set(JSON.stringify(key), key));
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        const keysToRefresh = [...pendingKeys.values()];
+        pendingKeys.clear();
+        keysToRefresh.forEach((key) => qc.invalidateQueries({ queryKey: key }));
+      }, 750);
+    };
+
     const client = new Client({
       webSocketFactory: () => new WebSocket(WS_URL) as any,
       beforeConnect: async () => {
@@ -69,7 +88,7 @@ export function useRealtimeUpdates(enabled = true) {
           try {
             const { type } = JSON.parse(frame.body);
             const keys = INVALIDATIONS[type] ?? [];
-            keys.forEach((key) => qc.invalidateQueries({ queryKey: key }));
+            queueRefresh(keys);
           } catch {
             // ignore malformed frames
           }
@@ -78,6 +97,10 @@ export function useRealtimeUpdates(enabled = true) {
     });
 
     client.activate();
-    return () => { client.deactivate(); };
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      pendingKeys.clear();
+      client.deactivate();
+    };
   }, [enabled, token, tenantId, qc]);
 }

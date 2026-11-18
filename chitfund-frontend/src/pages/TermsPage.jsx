@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 const P = '#1E3A5F';
-const UPDATED = 'September 2026';
+const UPDATED = 'November 2026';
 
 const SECTIONS = [
   { id: 's1',  num: '1',  title: 'Acceptance of Terms',                     icon: FileText      },
@@ -172,20 +172,19 @@ export default function TermsPage() {
             <p>
               These Terms of Service ("Terms") govern your access to and use of ChitWise, a software
               platform for managing chit fund operations accessible at <strong>thechitwise.com</strong>.
-              By registering an account, accessing the platform, or using any feature of ChitWise, you
-              agree to be bound by these Terms.
+              When you actively accept these Terms during account creation or after a revised version
+              is presented, you agree to be bound by that version.
             </p>
             <p>
-              If you are using ChitWise on behalf of an organisation, you represent that you have the
-              authority to bind that organisation to these Terms. If you do not agree with any part of
-              these Terms, do not use the platform.
+              If you accept on behalf of an organisation, you confirm that you have authority to bind
+              it to these Terms. If you do not agree, do not activate or continue using the account.
             </p>
           </S>
 
           <S id="s2" title="2. Eligibility" icon={UserCheck} r={sectionRefs}>
             <ul className="list-disc pl-5 space-y-1.5">
               <li>You must be at least 18 years of age to use ChitWise</li>
-              <li>You must be a legal resident or entity incorporated in India (or operating in a jurisdiction where chit fund management software is lawful)</li>
+              <li>New organisation accounts are available only to organisations established and operating in India</li>
               <li>You must have the legal authority to enter into contracts on behalf of the organisation you register</li>
             </ul>
             <p>ChitWise reserves the right to refuse service to anyone at any time.</p>
@@ -320,7 +319,7 @@ export default function TermsPage() {
 
           <S id="s12" title="12. Subscriptions & Billing" icon={CreditCard} r={sectionRefs}>
             <ul className="list-disc pl-5 space-y-1.5">
-              <li>ChitWise subscriptions are billed on a monthly basis</li>
+              <li>Paid ChitWise subscriptions are billed on a monthly basis; the Basic plan is free</li>
               <li>Fees are based on the plan selected at registration or at time of upgrade</li>
               <li>Prices are in Indian Rupees (INR) and are subject to applicable taxes including GST</li>
               <li>Subscription fees are due at the beginning of each billing period</li>
@@ -341,11 +340,13 @@ export default function TermsPage() {
           <S id="s14" title="14. Cancellation & Account Closure" icon={RefreshCw} r={sectionRefs}>
             <ul className="list-disc pl-5 space-y-1.5">
               <li>You may cancel your subscription at any time through account settings or by contacting us</li>
-              <li>Your account and data remain accessible until the end of the current billing period</li>
-              <li>After the billing period ends, your account will be deactivated</li>
-              <li>Your data remains accessible for export until your account is formally closed</li>
-              <li>To request deletion of all data, contact <a href="mailto:help@thechitwise.com" className="underline" style={{ color: P }}>help@thechitwise.com</a> — we will confirm scope and timeline</li>
+              <li>Access continues until the current paid billing period ends; the organisation's access may then be suspended</li>
+              <li>Export records you need before access is suspended, or contact us for assistance with an export</li>
+              <li>To request account closure and deletion of eligible personal data, contact <a href="mailto:help@thechitwise.com" className="underline" style={{ color: P }}>help@thechitwise.com</a> — we will confirm scope and timeline</li>
             </ul>
+            <button type="button" onClick={() => navigate('/delete-account')} className="mt-3 font-semibold underline" style={{ color: P }}>
+              Request account deletion
+            </button>
           </S>
 
           <S id="s15" title="15. Refunds" icon={Settings} r={sectionRefs}>
@@ -358,14 +359,15 @@ export default function TermsPage() {
 
           <S id="s16" title="16. Data After Cancellation" icon={Clock} r={sectionRefs}>
             <p>
-              Upon account closure, your data remains accessible until the account is fully deactivated.
-              Please export any records you need before deactivation. To request permanent deletion of
-              your organisation's data, submit a deletion request to{' '}
+              Subscription cancellation and account deletion are separate requests. Please export any
+              records you need while you still have access. To request deletion of eligible personal
+              data or closure of your organisation's account, submit a request to{' '}
               <a href="mailto:help@thechitwise.com" className="underline" style={{ color: P }}>
                 help@thechitwise.com
               </a>
-              . We will confirm the scope and timeline before proceeding. Data subject to a legal hold
-              or statutory retention obligation may be retained for the required period.
+              . We will verify the request and confirm the scope and timeline before proceeding. Chit,
+              payment, and audit records subject to a legal hold or statutory retention obligation may
+              be retained for the required period.
               ChitWise is not liable for data loss resulting from voluntary account closure.
             </p>
           </S>
@@ -384,7 +386,7 @@ export default function TermsPage() {
             <p>
               ChitWise implements reasonable technical and organisational security measures to protect
               data from unauthorised access, alteration, disclosure, or destruction — including HTTPS
-              encryption, encrypted password storage, role-based access controls, and audit logs.
+              encryption, password hashing, role-based access controls, and audit logs.
             </p>
             <p>
               You are responsible for maintaining the security of your own admin credentials, managing
@@ -469,11 +471,12 @@ export default function TermsPage() {
 
           <S id="s25" title="25. Changes to These Terms" icon={RefreshCw} r={sectionRefs}>
             <p>
-              We may update these Terms from time to time. For significant changes, we will notify
-              active subscribers at least <strong>14 days in advance</strong> via email or an in-app
-              notice. Continued use of ChitWise after the effective date constitutes acceptance of the
-              revised Terms. If you do not agree to the updated Terms, you may cancel your account before
-              the effective date.
+              We may update these Terms from time to time. For material changes, we will show the
+              updated Terms, explain the important changes, and ask you to actively accept the new
+              version before continuing to use account features. We record the version and time of
+              acceptance. Simply opening the app or reading the notice is not acceptance. If you do
+              not agree, you may stop using ChitWise and contact us about export, cancellation, or
+              account closure, subject to applicable record-retention obligations.
             </p>
           </S>
 
@@ -481,7 +484,8 @@ export default function TermsPage() {
             <p>
               These Terms are governed by the laws of India. Any disputes arising from these Terms or
               your use of ChitWise shall be subject to the exclusive jurisdiction of the courts in
-              Hyderabad, Telangana, India.
+              Hyderabad, Telangana, India, except where mandatory law in another applicable jurisdiction
+              requires otherwise.
             </p>
           </S>
 

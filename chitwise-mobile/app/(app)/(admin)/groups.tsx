@@ -47,9 +47,11 @@ function CreateGroupModal({ visible, onClose, onCreated }: { visible: boolean; o
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={onClose}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1}>
-            <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+            <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+              style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}
+              contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900, marginBottom: 20 }}>New Group</Text>
               <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Group Name *</Text>
               <TextInput
@@ -90,7 +92,7 @@ function CreateGroupModal({ visible, onClose, onCreated }: { visible: boolean; o
                   ? <ActivityIndicator color="#fff" />
                   : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Create Group</Text>}
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </TouchableOpacity>
@@ -103,6 +105,7 @@ function CreateGroupModal({ visible, onClose, onCreated }: { visible: boolean; o
 function GroupChatView({ group, userId, onBack }: { group: any; userId: string; onBack: () => void }) {
   const queryClient = useQueryClient();
   const [input, setInput] = useState('');
+  const retryDraft = useRef<{ content: string; clientMessageId: string } | null>(null);
   const flatRef = useRef<FlatList>(null);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
@@ -118,22 +121,28 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
 
   const sendMutation = useMutation({
     mutationFn: ({ content, clientMessageId }: any) => sendGroupMessage(group.id, content, clientMessageId),
-    onSuccess: () => {
+    onSuccess: (_: any, variables: any) => {
+      retryDraft.current = null;
       queryClient.invalidateQueries({ queryKey: ['m-groupMessages', group.id] });
       queryClient.invalidateQueries({ queryKey: ['m-groups'] });
-      setInput('');
+      setInput((current) => current.trim() === variables.content ? '' : current);
     },
+    onError: (error: any) => Alert.alert('Message not sent', error?.response?.data?.message ?? 'Check your connection and retry. Your draft is still here.'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (msgId: string) => deleteGroupMessage(group.id, msgId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['m-groupMessages', group.id] }),
+    onError: () => Alert.alert('Message not deleted', 'Check your connection and try again.'),
   });
 
   const handleSend = useCallback(() => {
     const content = input.trim();
     if (!content || sendMutation.isPending) return;
-    sendMutation.mutate({ content, clientMessageId: genId() });
+    const clientMessageId = retryDraft.current?.content === content
+      ? retryDraft.current.clientMessageId : genId();
+    retryDraft.current = { content, clientMessageId };
+    sendMutation.mutate({ content, clientMessageId });
   }, [input, sendMutation]);
 
   const handleDelete = (msg: any) => {
@@ -242,8 +251,8 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
 
 // ── GroupList ─────────────────────────────────────────────────────────────────
 
-function GroupList({ onSelect, onNew }: { onSelect: (g: any) => void; onNew: () => void }) {
-  const { data, isLoading, refetch } = useQuery({
+function GroupList({ onSelect, onNew, canCreate }: { onSelect: (g: any) => void; onNew: () => void; canCreate: boolean }) {
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['m-groups'],
     queryFn: () => listGroups({ size: 50 }),
     staleTime: 15_000,
@@ -257,6 +266,9 @@ function GroupList({ onSelect, onNew }: { onSelect: (g: any) => void; onNew: () 
       <ActivityIndicator color={C.navy} />
     </View>
   );
+  if (isError) return <TouchableOpacity onPress={() => refetch()} style={{ padding: 32, alignItems: 'center' }}>
+    <Text style={{ color: C.red, fontSize: 14 }}>Group chats unavailable. Tap to retry.</Text>
+  </TouchableOpacity>;
 
   return (
     <FlatList
@@ -264,7 +276,7 @@ function GroupList({ onSelect, onNew }: { onSelect: (g: any) => void; onNew: () 
       keyExtractor={(i) => i.id}
       onRefresh={refetch}
       refreshing={isLoading}
-      ListHeaderComponent={() => (
+      ListHeaderComponent={canCreate ? () => (
         <TouchableOpacity
           onPress={onNew}
           style={{
@@ -275,12 +287,12 @@ function GroupList({ onSelect, onNew }: { onSelect: (g: any) => void; onNew: () 
         >
           <Text style={{ color: '#16a34a', fontWeight: '700', fontSize: 14 }}>＋ New Group</Text>
         </TouchableOpacity>
-      )}
+      ) : null}
       ListEmptyComponent={() => (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40, marginTop: 40 }}>
           <Text style={{ fontSize: 36, marginBottom: 12 }}>👥</Text>
           <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray700, textAlign: 'center', marginBottom: 6 }}>No groups yet</Text>
-          <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center' }}>Create a group to chat with multiple members at once.</Text>
+          <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center' }}>{canCreate ? 'Create a group to chat with multiple members at once.' : 'Groups you join will appear here.'}</Text>
         </View>
       )}
       ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: C.gray100 }} />}
@@ -316,6 +328,7 @@ function GroupList({ onSelect, onNew }: { onSelect: (g: any) => void; onNew: () 
 
 export default function AdminGroupsScreen() {
   const { user } = useAuthStore();
+  const canCreate = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const [selected, setSelected] = useState<any>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -328,14 +341,14 @@ export default function AdminGroupsScreen() {
       {selected ? (
         <GroupChatView group={selected} userId={user?.id ?? ''} onBack={() => setSelected(null)} />
       ) : (
-        <GroupList onSelect={setSelected} onNew={() => setShowCreate(true)} />
+        <GroupList onSelect={setSelected} onNew={() => setShowCreate(true)} canCreate={canCreate} />
       )}
 
-      <CreateGroupModal
+      {canCreate && <CreateGroupModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
         onCreated={(g) => { setSelected(g); }}
-      />
+      />}
     </SafeAreaView>
   );
 }

@@ -3,7 +3,7 @@ import { View, Text, FlatList, RefreshControl, Modal, ScrollView, TouchableOpaci
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyMemberProfile, getPayoutsForMember, getMyChits, getPayoutById } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Divider, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Divider, fmtDate, listRowColor } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 const PAYOUT_STATUS_COLOR: Record<string, string> = {
@@ -156,7 +156,8 @@ function PayoutDetailModal({ summary, chitName, onClose }: {
                   key={d.id ?? i}
                   style={{
                     flexDirection: 'row', alignItems: 'center', gap: 12,
-                    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100,
+                    paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: C.gray100,
+                    backgroundColor: listRowColor(i),
                   }}
                 >
                   <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#F0FDF4', alignItems: 'center', justifyContent: 'center' }}>
@@ -233,6 +234,7 @@ export default function MemberPayoutsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <FlatList
+        style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
         data={visible}
         keyExtractor={(p: any) => p.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
@@ -315,7 +317,7 @@ export default function MemberPayoutsScreen() {
             message="When you win a draw, your payout details will appear here."
           />
         }
-        renderItem={({ item: p }) => {
+        renderItem={({ item: p, index }) => {
           const statusColor = PAYOUT_STATUS_COLOR[p.status] ?? C.gray400;
           const chitName = chitMap[p.chitId] ?? '—';
           const netAmt = p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0;
@@ -324,7 +326,7 @@ export default function MemberPayoutsScreen() {
 
           return (
             <TouchableOpacity activeOpacity={0.85} onPress={() => setDetail(p)}>
-              <Card style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: statusColor }}>
+              <Card style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: statusColor, backgroundColor: listRowColor(index) }}>
                 {/* Header row */}
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                   <View style={{ flex: 1 }}>

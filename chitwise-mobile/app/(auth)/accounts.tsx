@@ -17,7 +17,7 @@ import { accountStorageId, useAuthStore, StoredAccount } from '../../store/authS
 import { logoutAccount } from '../../services/api';
 import { requestSignOut } from '../../offline/signOut';
 import { getAccountScope, getStoredAccountScope } from '../../offline/accountScope';
-import { getSyncCounts, getLastSyncedAt, makeRetryableOperationsReady, hasOfflineDatabase, purgeAccountOfflineData } from '../../offline/database';
+import { getSyncCounts, getLastSyncedAt, makeRetryableOperationsReady, getUnsentOperationCount, hasOfflineDatabase, discardUnsentOperationsForSignOut, purgeAccountOfflineData } from '../../offline/database';
 import { isBiometricEnabled, authenticateDevice, rememberUnlockAccount } from '../../utils/biometrics';
 import { C, formatPhone } from '../../components/ui';
 import RoleLogo from '../../components/RoleLogo';
@@ -112,10 +112,8 @@ export default function AccountsScreen() {
     const scopes = [...new Set([scope, ...(acc.retainedOfflineScopes ?? [])])];
     let pending = 0;
     for (const savedScope of scopes) {
-      if (!await hasOfflineDatabase(savedScope)) continue;
       try {
-        const counts = await getSyncCounts(savedScope);
-        pending += counts.pending + counts.conflicts + counts.failed;
+        pending += await getUnsentOperationCount(savedScope);
       } catch {
         Alert.alert('Saved records are locked', 'Unlock this device before removing the account so its saved collections can be checked.');
         return;
@@ -132,11 +130,15 @@ export default function AccountsScreen() {
           text: pending > 0 ? 'Discard & Remove' : 'Remove',
           style: 'destructive',
           onPress: async () => {
-            if (acc.refreshToken) {
-              try { await logoutAccount(acc.refreshToken); } catch {}
+            try {
+              await useAuthStore.getState().logoutFromAccount(acc.accountId);
+              for (const savedScope of scopes) await discardUnsentOperationsForSignOut(savedScope);
+              for (const savedScope of scopes) await purgeAccountOfflineData(savedScope);
+              await removeAccount(acc.accountId);
+              if (acc.refreshToken) logoutAccount(acc.refreshToken).catch(() => {});
+            } catch {
+              Alert.alert('Could not remove saved account', 'The device could not clear this account’s saved data. Unlock the device and try again.');
             }
-            for (const savedScope of scopes) { try { await purgeAccountOfflineData(savedScope); } catch {} }
-            await removeAccount(acc.accountId);
           },
         },
       ],

@@ -2,13 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   openDraw, recordWinner, markSlotProcessed, updateReservationSlot,
-  getEnrollments, getReservations, getMembers, getMemberBalanceBulk, listStaff, getDrawPayments, getWinners,
+  getEnrollments, getReservations, getMembers, getMemberBalanceBulk, listStaff, getWinners,
 } from '../../services/api';
 import { useToastContext } from '../layout/AppLayout';
+import { useAuth } from '../../context/AuthContext';
 import Button from '../ui/Button';
 import FormField, { Select, DateInput } from '../ui/FormField';
 import {
-  Trophy, Building2, X, Plus, AlertCircle, Phone, CheckCircle, ChevronDown, Info, Shuffle,
+  Trophy, Building2, X, Plus, AlertCircle, Phone, CheckCircle, ChevronDown, Shuffle,
 } from 'lucide-react';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
   const qc = useQueryClient();
   const toast = useToastContext();
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [dueDate, setDueDate] = useState(() => computeDefaultDueDate(chit?.startDate, nextCycleNum, chit?.monthlyDueDate));
   const [additionalWinners, setAdditionalWinners] = useState([]);
@@ -168,17 +170,6 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
     queryFn: () => getMemberBalanceBulk(allParticipantIds),
     enabled: allParticipantIds.length > 0,
   });
-
-  // Fetch the most recent real draw's payment records to detect late-member already charged
-  const lastRealDraw = [...draws]
-    .filter((d) => d.status !== 'SKIPPED')
-    .sort((a, b) => b.monthNumber - a.monthNumber)[0] ?? null;
-  const { data: lastDrawPayments = [] } = useQuery({
-    queryKey: ['draw-payments', lastRealDraw?.id],
-    queryFn: () => getDrawPayments(lastRealDraw.id),
-    enabled: !!lastRealDraw && reservationOnlyMemberIds.length > 0,
-  });
-  const membersInLastDraw = new Set(lastDrawPayments.map((p) => String(p.memberId)));
 
   const primaryWinnerSlot = [...reservations]
     .filter((r) => r.status === 'RESERVED')
@@ -254,8 +245,6 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
     const seen = new Set();
     const members = [];
-    // Draws that happened before this one (skipped don't generate installments)
-    const pastRealDrawCount = draws.filter((d) => d.status !== 'SKIPPED').length;
     for (const e of enrollments) {
       const mid = e.memberId ?? e.id;
       if (seen.has(mid)) continue;
@@ -307,14 +296,9 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
       const processedAmt = processedSlots.reduce(
         (s, sl) => s + Number(sl.postPayoutContribution ?? defaultPostPayout), 0
       );
-      // Late-added members owe installments for every real draw before they joined,
-      // multiplied by the number of slots they hold (each slot = one installment per draw).
-      // If they already appeared in the last draw's payment records, they were charged
-      // their backlog then — don't charge again.
-      const totalSlots = reservedSlots.length + processedSlots.length;
-      const alreadyInSystem = membersInLastDraw.has(mid);
-      const backdateCount = alreadyInSystem ? 0 : pastRealDrawCount;
-      const amountDue = processedAmt + reservedSlots.length * baseInstallment + backdateCount * totalSlots * baseInstallment;
+      // Historical missed installments are a separate obligation posted at slot
+      // approval. This preview contains only the installment for this draw.
+      const amountDue = processedAmt + reservedSlots.length * baseInstallment;
 
       const previousBalance = Number(balanceMap[mid] ?? 0);
       const isPrimary  = String(mid) === String(primaryWinnerSlot?.memberId);
@@ -337,13 +321,14 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         reservedSlotNums:  reservedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
         processedSlotNums: processedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
         amountDue,
-        backdateCount,
         isWinner, isPrimary, isExtra, winCount,
         netPayout,
       });
     }
 
-    const orgSlots = reservations.filter((r) => r.orgHeld && r.status === 'RESERVED');
+    const orgSlots = user?.role === 'ADMIN'
+      ? reservations.filter((r) => r.orgHeld && r.status === 'RESERVED')
+      : [];
     for (const slot of orgSlots) {
       members.push({
         memberId: `org_${slot.id}`,
@@ -355,7 +340,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         reservedCount: 1,
         reservedSlotNums: [slot.monthNumber].filter(Boolean),
         processedSlotNums: [],
-        amountDue: baseInstallment,
+        amountDue: 0,
         isWinner: false,
         isPrimary: slot.id === primaryWinnerSlot?.id,
         isExtra: false,
@@ -412,7 +397,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
             payoutAmount: lotterySlot.payoutAmount ?? null,
             postPayoutContribution: lotterySlot.postPayoutContribution ?? null,
           });
-          await markSlotProcessed({ chitId, reservationId: lotterySlot.id }).catch(() => {});
+          await markSlotProcessed({ chitId, reservationId: lotterySlot.id });
         }
         return;
       }
@@ -428,7 +413,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
       });
 
       if (slotsToProcess.length > 0) {
-        await Promise.all(slotsToProcess.map((sid) => markSlotProcessed({ chitId, reservationId: sid }).catch(() => {})));
+        await Promise.all(slotsToProcess.map((sid) => markSlotProcessed({ chitId, reservationId: sid })));
       }
 
       const primaryAmt = Number(primaryWinnerSlot?.payoutAmount ?? chit?.chitValue ?? 0);
@@ -454,7 +439,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
             monthNumber: nextCycleNum,
             winningAmount,
             discountAmount: 0,
-          }).catch(() => {})
+          })
         )
       );
     },
@@ -465,7 +450,13 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
       toast.success(`Draw ${nextCycleNum} opened`);
       onClose();
     },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to open draw'),
+    onError: (err) => {
+      qc.invalidateQueries({ queryKey: ['draws', chitId] });
+      qc.invalidateQueries({ queryKey: ['reservations', chitId] });
+      qc.invalidateQueries({ queryKey: ['winners', chitId] });
+      toast.error(`${err.response?.data?.message ?? 'Draw action could not be completed'}. Refresh the draw before trying again; some steps may already be saved.`);
+      onClose();
+    },
   });
 
   const completedDraws = draws.filter((d) => d.status !== 'SKIPPED').length;
@@ -477,6 +468,18 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
     ? (isOrgDraw ? null : (memberMap[primaryWinnerSlot.memberId]?.fullName ?? 'Unknown'))
     : null;
 
+  if (user?.role !== 'ADMIN' && isOrgDraw) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <p className="text-base font-semibold text-[#1E3A5F]">Admin action required</p>
+          <p className="mt-2 text-sm text-gray-600">This draw needs an admin to complete it. Your other draw and collection work is unchanged.</p>
+          <Button onClick={onClose} className="mt-5 w-full">Close</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-8 lg:p-10">
       <div
@@ -486,7 +489,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         aria-hidden="true"
       />
 
-      <div className="relative w-full sm:max-w-3xl rounded-t-2xl sm:rounded-2xl sm:shadow-2xl overflow-hidden flex flex-col sm:flex-row max-h-[90vh] sm:max-h-[82vh]">
+      <div className="relative w-full sm:max-w-3xl rounded-t-2xl sm:rounded-2xl sm:shadow-2xl overflow-hidden flex flex-col sm:flex-row max-h-[90dvh] sm:max-h-[82dvh]">
 
         {/* ── Left panel — navy context sidebar ── */}
         <div
@@ -561,7 +564,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                 </div>
                 <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
                   style={{ background: 'rgba(212,160,23,0.2)', color: '#D4A017' }}>
-                  Org-held slot · no payout
+                  Organization position · no member installment
                 </span>
               </div>
             ) : winnerName ? (
@@ -757,7 +760,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
             ) : (
               <div className="space-y-4">
 
-                <div className={`grid gap-3 ${preview.members.some((m) => m.isOrg) ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                <div className={`grid grid-cols-2 gap-3 ${preview.members.some((m) => m.isOrg) ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
                   {[
                     { label: 'Due Date', value: (() => { const [y,m,d] = dueDate.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); })() },
                     { label: 'Members', value: preview.members.filter((m) => !m.isOrg).length },
@@ -773,9 +776,9 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                   ))}
                 </div>
 
-                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="rounded-xl border border-gray-200 overflow-x-auto">
                   <div className="overflow-y-auto max-h-64">
-                    <table className="w-full text-sm">
+                    <table className="w-full min-w-[420px] text-sm">
                       <thead className="sticky top-0 z-10">
                         <tr className="bg-gray-50 border-b border-gray-100">
                           <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
@@ -786,7 +789,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                       <tbody className="divide-y divide-gray-50">
                         {preview.members.map((m) => (
                           <tr key={m.memberId}
-                            className={`transition-colors ${m.isDiscontinued ? 'opacity-50' : ''} ${m.isOrg ? 'bg-[#EEF2F8]/40' : m.isPrimary ? 'bg-amber-50/70' : m.isExtra ? 'bg-[#EEF2F8]/60' : 'bg-white hover:bg-gray-50/60'}`}>
+                            className={`transition-colors ${m.isDiscontinued ? 'opacity-50' : ''} ${m.isOrg ? 'bg-[#EEF2F8]/40' : m.isPrimary ? 'bg-amber-50/70' : m.isExtra ? 'bg-[#EEF2F8]/60' : 'odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA]'}`}>
                             <td className={`py-2.5 pl-4 pr-3 ${m.isOrg && m.isPrimary ? 'border-l-2 border-[#1E3A5F]' : (m.isPrimary || m.isExtra) ? 'border-l-2' : ''}`}
                               style={(!m.isOrg && (m.isPrimary || m.isExtra)) ? { borderLeftColor: m.isPrimary ? '#D97706' : '#1E3A5F' } : {}}>
                               <div className="flex flex-col gap-0.5">
@@ -827,11 +830,6 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {m.phone && <span className="text-xs text-gray-400 flex items-center gap-1"><Phone size={9} />{m.phone}</span>}
-                                  {m.backdateCount > 0 && (
-                                    <span className="text-[10px] bg-orange-50 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded-md font-semibold">
-                                      {m.backdateCount} missed draw{m.backdateCount > 1 ? 's' : ''} included
-                                    </span>
-                                  )}
                                   {m.previousBalance > 0 && (
                                     <span className="text-[10px] bg-red-50 text-red-500 border border-red-100 px-1.5 py-0.5 rounded-md">
                                       +₹{m.previousBalance.toLocaleString()} owed
@@ -860,36 +858,9 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                               </div>
                             </td>
                             <td className="px-4 py-2.5 text-right align-middle">
-                              {m.backdateCount > 0 ? (() => {
-                                const totalSlots = (m.reservedSlotNums?.length ?? 0) + (m.processedSlotNums?.length ?? 0);
-                                const backlogPerDraw = totalSlots * baseInstallment;
-                                const backlogTotal   = m.backdateCount * backlogPerDraw;
-                                const currentDraw    = (m.reservedSlotNums?.length ?? 0) * baseInstallment;
-                                return (
-                                  <div className="relative inline-flex items-center gap-1 group justify-end">
-                                    <span className="text-sm font-semibold text-gray-800">₹{m.amountDue.toLocaleString()}</span>
-                                    <Info size={12} className="text-orange-400 flex-shrink-0 cursor-help" />
-                                    <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block z-50 w-60 bg-gray-900 text-white text-xs rounded-xl px-3 py-2.5 shadow-2xl pointer-events-none">
-                                      <p className="font-semibold text-orange-300 mb-2">Amount breakdown</p>
-                                      <div className="space-y-1.5">
-                                        <div className="flex justify-between gap-2">
-                                          <span className="text-gray-400">{m.backdateCount} missed draw{m.backdateCount > 1 ? 's' : ''} × ₹{backlogPerDraw.toLocaleString()}</span>
-                                          <span className="text-orange-200 font-semibold whitespace-nowrap">₹{backlogTotal.toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between gap-2">
-                                          <span className="text-gray-400">Current draw</span>
-                                          <span className="whitespace-nowrap">₹{currentDraw.toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between gap-2 border-t border-gray-700 pt-1.5">
-                                          <span className="font-semibold">Total</span>
-                                          <span className="font-bold whitespace-nowrap">₹{m.amountDue.toLocaleString()}</span>
-                                        </div>
-                                      </div>
-                                      <div className="absolute -bottom-1 right-3 w-2 h-2 bg-gray-900 rotate-45" />
-                                    </div>
-                                  </div>
-                                );
-                              })() : (
+                              {m.isOrg ? (
+                                <span className="text-xs font-medium text-[#1E3A5F]">No installment</span>
+                              ) : (
                                 <span className="text-sm font-semibold text-gray-800">₹{m.amountDue.toLocaleString()}</span>
                               )}
                             </td>

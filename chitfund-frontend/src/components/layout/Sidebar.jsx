@@ -482,7 +482,7 @@ function SidebarSwitchModal({ phone, altRole, altLabel, onClose }) {
 
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
-export default function Sidebar({ open = false, onClose, collapsed = false, onToggleCollapse }) {
+export default function Sidebar({ open = false, onClose, collapsed = false, onToggleCollapse, notificationEnabled = true }) {
   const { user, requestLogout, analyticsEnabled, chatEnabled, settlementEnabled, tenantName } = useAuth();
   const navigate = useNavigate();
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
@@ -558,7 +558,7 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
   return (
     <aside
       className={[
-        'flex flex-col bg-white print:hidden transition-all duration-300 ease-in-out relative',
+        'flex flex-col bg-white print:hidden transition-all duration-300 ease-in-out',
         // Mobile: fixed drawer
         'fixed inset-y-0 left-0 z-50 w-72',
         open ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
@@ -602,9 +602,9 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
         </div>
 
         {/* Desktop: notification bell */}
-        {!collapsed && (
+        {notificationEnabled && !collapsed && (
           <div className="hidden lg:block">
-            <NotificationBell />
+            <NotificationBell listenSocket={false} />
           </div>
         )}
 
@@ -647,9 +647,9 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
       </div>
 
       {/* Notification bell in nav when collapsed on desktop */}
-      {collapsed && (
+      {notificationEnabled && collapsed && (
         <div className="hidden lg:flex justify-center pt-3 pb-1">
-          <NotificationBell />
+          <NotificationBell listenSocket={false} />
         </div>
       )}
 

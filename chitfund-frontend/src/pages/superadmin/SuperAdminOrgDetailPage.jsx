@@ -36,6 +36,7 @@ import {
 import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
 import ManageCreditModal from '../../components/superadmin/ManageCreditModal';
+import { openProxyWindow, transferProxySession } from '../../utils/proxySessionTransfer';
 
 const RESERVED_SLUGS = new Set([
   'hub', 'www', 'api', 'app', 'mail', 'admin', 'support', 'help',
@@ -141,7 +142,7 @@ function PlanUsageCard({ plan, chits, memberCount, staffCount, effectiveLimits }
         </div>
         <span className="text-xs text-gray-400">{chitTypesLabel}</span>
       </div>
-      <div className={`grid gap-5 ${showStaff ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className={`grid gap-5 ${showStaff ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
         <UsageBar label="Active Chits" used={activeChits} limit={chitLimit} />
         <UsageBar label="Members" used={memberCount} limit={memberLimit} />
         {showStaff && <UsageBar label="Staff Accounts" used={staffCount} limit={staffLimit} />}
@@ -186,18 +187,18 @@ function Toast({ msg }) {
   );
 }
 
-function CredentialsPopup({ username, password, onDone, title = 'User Created', subtitle = 'Share these credentials with the user' }) {
+function CredentialsPopup({ username, password, onDone, title = 'User Created', subtitle = 'Review the sign-in details' }) {
   const [copied, setCopied] = useState(false);
 
   function copyAll() {
-    navigator.clipboard.writeText(`Username: ${username}\nPassword: ${password}`);
+    navigator.clipboard.writeText(password ? `Username: ${username}\nPassword: ${password}` : `Username: ${username}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-2xl">
         <div className="px-6 py-5 text-center border-b border-gray-100">
           <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
             <CheckCircle size={24} className="text-emerald-600" />
@@ -209,16 +210,18 @@ function CredentialsPopup({ username, password, onDone, title = 'User Created', 
           <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 space-y-3">
             <div>
               <p className="text-xs text-gray-400 uppercase font-semibold tracking-wide mb-1">Username</p>
-              <p className="font-mono font-semibold text-gray-900">{username}</p>
+              <p className="break-all font-mono font-semibold text-gray-900">{username}</p>
             </div>
-            <div className="border-t border-gray-100 pt-3">
+            {password && <div className="border-t border-gray-100 pt-3">
               <p className="text-xs text-gray-400 uppercase font-semibold tracking-wide mb-1">Temporary Password</p>
-              <p className="font-mono font-semibold text-gray-900 text-lg tracking-widest">{password}</p>
-            </div>
+              <p className="break-all font-mono font-semibold text-gray-900 text-lg tracking-widest">{password}</p>
+            </div>}
           </div>
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
             <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-700">User must change this password on first login.</p>
+            <p className="text-xs text-amber-700">{password
+              ? 'This temporary password is shown only once. Verify the recipient directly, never email it, and have them change it at first sign-in.'
+              : 'No password is available here. The user should sign in with their existing method or use account recovery.'}</p>
           </div>
           <div className="flex gap-3">
             <button
@@ -227,7 +230,7 @@ function CredentialsPopup({ username, password, onDone, title = 'User Created', 
               className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 cursor-pointer transition-colors"
             >
               {copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />}
-              {copied ? 'Copied!' : 'Copy Credentials'}
+              {copied ? 'Copied!' : password ? 'Copy Credentials' : 'Copy Username'}
             </button>
             <button
               type="button"
@@ -282,8 +285,8 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-900">Add User to Org</h3>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer">
@@ -297,7 +300,7 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
               required
               value={form.fullName}
               onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400"
               placeholder="e.g. Ravi Kumar"
             />
           </div>
@@ -412,8 +415,8 @@ function SetExpiryModal({ tenantId, currentExpiry, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-900">Set Plan Expiry Date</h3>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer">
@@ -437,7 +440,7 @@ function SetExpiryModal({ tenantId, currentExpiry, onClose, onSuccess }) {
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Reason *</label>
             <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400 resize-none"
               placeholder="Why is the subscription expiry changing?" />
           </div>
           {error && (
@@ -532,8 +535,8 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Sliders size={16} className="text-amber-600" />
@@ -545,7 +548,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {/* Limits grid */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               { key: 'maxActiveChits', label: 'Max Chits' },
               { key: 'maxMembers',     label: 'Max Members' },
@@ -561,7 +564,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
                     value={form[key] === -1 ? '' : form[key]}
                     onChange={(e) => setForm({ ...form, [key]: e.target.value })}
                     placeholder={form[key] === -1 ? '∞' : ''}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400"
                   />
                   <button
                     type="button"
@@ -633,7 +636,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
                 step="0.01"
                 value={form.priceMonthlyInr}
                 onChange={(e) => setForm({ ...form, priceMonthlyInr: e.target.value })}
-                className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                className="w-full border border-gray-200 rounded-lg pl-7 pr-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400"
                 placeholder="0"
               />
             </div>
@@ -644,14 +647,14 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               rows={2}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400 resize-none"
               placeholder="e.g. Negotiated pricing for Kethaki Chitfunds — 3-month trial"
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Reason for entitlement change *</label>
             <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400 resize-none"
               placeholder="Contract approval, plan correction, or customer request" />
           </div>
           {/* Reset to plan defaults */}
@@ -661,7 +664,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
               <select
                 value={resetPlan}
                 onChange={e => setResetPlan(e.target.value)}
-                className="flex-1 border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-blue-400"
+                className="min-w-0 flex-1 border border-gray-200 rounded-lg px-2 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400"
               >
                 {plans.length > 0
                   ? plans.map(p => (
@@ -692,7 +695,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
                     {priceInr != null && <span className="font-bold text-amber-600">₹{priceInr.toLocaleString('en-IN')}/mo</span>}
                   </div>
                   {preview.tagline && <p className="text-gray-400">{preview.tagline}</p>}
-                  <div className="grid grid-cols-3 gap-2 pt-1">
+                  <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 pt-1">
                     {[
                       { label: 'Max Chits', value: preview.maxActiveChits === -1 ? '∞' : preview.maxActiveChits },
                       { label: 'Max Members', value: preview.maxMembers === -1 ? '∞' : preview.maxMembers },
@@ -753,8 +756,8 @@ function RenameModal({ tenant, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-900">Edit Org Details</h3>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer">
@@ -768,7 +771,7 @@ function RenameModal({ tenant, onClose, onSuccess }) {
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400"
             />
           </div>
           <div>
@@ -778,7 +781,7 @@ function RenameModal({ tenant, onClose, onSuccess }) {
               <input
                 value={slug}
                 onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                className="flex-1 px-3 py-2 text-sm focus:outline-none"
+                className="min-w-0 flex-1 px-3 py-2 text-base sm:text-sm focus:outline-none"
                 placeholder="your-org"
               />
             </div>
@@ -789,7 +792,7 @@ function RenameModal({ tenant, onClose, onSuccess }) {
               value={businessRegNumber}
               onChange={(e) => setBusinessRegNumber(e.target.value)}
               placeholder="e.g. LLPIN AA-1234"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400"
             />
           </div>
           <div>
@@ -798,7 +801,7 @@ function RenameModal({ tenant, onClose, onSuccess }) {
               value={supportPhoneNumber}
               onChange={(e) => setSupportPhoneNumber(e.target.value)}
               placeholder="e.g. 9876543210"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400"
             />
             <p className="text-[10px] text-gray-400 mt-1">Members and staff see this to contact the admin. No OTP needed for super admin.</p>
           </div>
@@ -875,8 +878,8 @@ export default function SuperAdminOrgDetailPage() {
               password: activationResult.adminTempPassword,
               title: 'Org Activated',
               subtitle: activationResult.adminAlreadyExisted
-                ? 'Admin account credentials — share with the org owner'
-                : 'Auto-created admin credentials — share with the org owner',
+                ? 'The admin account is already active'
+                : 'A new admin account was created',
             });
           }
           loadAll();
@@ -935,21 +938,15 @@ export default function SuperAdminOrgDetailPage() {
     setProxyingUserId(user.userId);
     // Open a blank window synchronously (direct user gesture) so popup blocker doesn't fire.
     // After the async API call we navigate it to the proxy URL.
-    const proxyWin = window.open('', '_blank');
+    const proxyWin = openProxyWindow();
+    if (!proxyWin) {
+      showToast('Allow pop-ups to open this proxy session.');
+      setProxyingUserId(null);
+      return;
+    }
     try {
       const result = await superAdminProxyAs(tenantId, user.role, user.userId, reason.trim());
-      const params = new URLSearchParams({
-        token: result.token,
-        tenantId: result.tenantId,
-        tenantSlug: result.tenantSlug,
-        tenantName: tenant?.name ?? '',
-        role: result.proxyRole,
-      });
-      if (proxyWin) {
-        proxyWin.location.href = `/proxy?${params}`;
-      } else {
-        window.open(`/proxy?${params}`, '_blank');
-      }
+      transferProxySession(proxyWin, result, tenant?.name);
     } catch (err) {
       proxyWin?.close();
       showToast(err.response?.data?.message ?? 'Proxy failed');
@@ -998,8 +995,8 @@ export default function SuperAdminOrgDetailPage() {
               password: activationResult.adminTempPassword,
               title: 'Org Activated',
               subtitle: activationResult.adminAlreadyExisted
-                ? 'Admin account credentials — share with the org owner'
-                : 'Auto-created admin credentials — share with the org owner',
+                ? 'The admin account is already active'
+                : 'A new admin account was created',
             });
           }
           loadAll();
@@ -1082,18 +1079,18 @@ export default function SuperAdminOrgDetailPage() {
           <span className="text-gray-700 font-medium">Tenant Detail</span>
         </div>
         {/* Org hero card */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
+        <div className="mb-6 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-4">
+            <div className="flex min-w-0 items-center gap-4">
               <div
                 className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-xl flex-shrink-0"
                 style={{ background: 'linear-gradient(135deg, #1E3A5F, #2a4f7c)' }}
               >
                 {tenant.name?.[0]?.toUpperCase() ?? '?'}
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h1 className="text-xl font-bold text-gray-900">{tenant.name}</h1>
+                  <h1 className="min-w-0 break-words text-xl font-bold text-gray-900">{tenant.name}</h1>
                   <button
                     type="button"
                     onClick={() => setShowRename(true)}
@@ -1104,7 +1101,7 @@ export default function SuperAdminOrgDetailPage() {
                   </button>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <span className="text-sm text-gray-500 font-mono">@{tenant.slug}</span>
+                  <span className="break-all text-sm text-gray-500 font-mono">@{tenant.slug}</span>
                   <div className="relative">
                     <button
                       type="button"
@@ -1182,7 +1179,7 @@ export default function SuperAdminOrgDetailPage() {
                   )}
                 </div>
                 {tenant.contactEmail && (
-                  <p className="text-xs text-gray-400 mt-1">{tenant.contactEmail}</p>
+                  <p className="mt-1 break-all text-xs text-gray-400">{tenant.contactEmail}</p>
                 )}
                 <div className="flex items-center gap-3 mt-2 flex-wrap">
                   {tenant.businessRegNumber && (
@@ -1191,7 +1188,7 @@ export default function SuperAdminOrgDetailPage() {
                   {tenant.supportPhoneNumber && (
                     <span className="text-xs text-gray-500">📞 {tenant.supportPhoneNumber}</span>
                   )}
-                  <span className="text-xs font-mono text-gray-300">{tenant.id}</span>
+                  <span className="break-all text-xs font-mono text-gray-300">{tenant.id}</span>
                 </div>
               </div>
             </div>
@@ -1319,7 +1316,7 @@ export default function SuperAdminOrgDetailPage() {
           </div>
 
           {/* Quick stats */}
-          <div className="grid grid-cols-4 gap-4 mt-5 pt-5 border-t border-gray-50">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5 border-t border-gray-50">
             {[
               { label: 'Admins',   value: adminCount,   color: 'text-purple-700' },
               { label: 'Managers', value: managerCount, color: 'text-blue-700' },
@@ -1693,7 +1690,7 @@ export default function SuperAdminOrgDetailPage() {
                   </thead>
                   <tbody>
                     {users.slice((userPage - 1) * PAGE_SIZE, userPage * PAGE_SIZE).map((u) => (
-                      <tr key={u.userId} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
+                      <tr key={u.userId} className="border-b border-gray-50 odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] transition-colors">
                         <td className="px-6 py-3.5">
                           <div>
                             <p className="font-medium text-gray-900">{u.fullName ?? '—'}</p>
@@ -1862,7 +1859,7 @@ export default function SuperAdminOrgDetailPage() {
                       <tr
                         key={c.id}
                         onClick={() => navigate('/chits/' + c.id)}
-                        className="border-b border-gray-50 hover:bg-blue-50/40 transition-colors cursor-pointer"
+                        className="border-b border-gray-50 odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] transition-colors cursor-pointer"
                       >
                         <td className="px-6 py-3.5">
                           <p className="font-medium text-gray-900 hover:text-[#1E3A5F]">{c.name}</p>
@@ -1962,7 +1959,7 @@ export default function SuperAdminOrgDetailPage() {
           username={resetCredentials.username}
           password={resetCredentials.password}
           title={resetCredentials.title ?? 'Password Reset'}
-          subtitle={resetCredentials.subtitle ?? 'New temporary credentials — share with the user'}
+          subtitle={resetCredentials.subtitle ?? 'Review the new sign-in details'}
           onDone={() => setResetCredentials(null)}
         />
       )}
@@ -2032,11 +2029,11 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
     }
   }
 
-  const INPUT_CLS = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/10 bg-white';
+  const INPUT_CLS = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-base sm:text-sm outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/10 bg-white';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" onClick={onClose}>
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-bold text-gray-900 text-base">Set Org Discount</h3>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 cursor-pointer"><X size={18} /></button>
@@ -2127,8 +2124,8 @@ function ReactivateModal({ tenant, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3 className="font-bold text-gray-900">Reactivate Registration</h3>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"><X size={16} /></button>
@@ -2145,7 +2142,7 @@ function ReactivateModal({ tenant, onClose, onSuccess }) {
                 type="text"
                 value={slug}
                 onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-_.]/g, ''))}
-                className="flex-1 px-3 py-2.5 text-sm font-mono focus:outline-none"
+                className="min-w-0 flex-1 px-3 py-2.5 text-base sm:text-sm font-mono focus:outline-none"
               />
             </div>
             {slug !== tenant.slug && (

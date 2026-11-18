@@ -38,6 +38,7 @@ export function AuthProvider({ children }) {
   const [analyticsEnabled, setAnalyticsEnabled] = useState(() => localStorage.getItem('analyticsEnabled') === 'true');
   const [chatEnabled, setChatEnabled] = useState(() => localStorage.getItem('chatEnabled') === 'true');
   const [settlementEnabled, setSettlementEnabled] = useState(() => localStorage.getItem('settlementEnabled') === 'true');
+  const [addOns, setAddOns] = useState([]);
   const [adminPhone, setAdminPhone] = useState(() => localStorage.getItem('adminPhone') ?? null);
   const [adminEmail, setAdminEmail] = useState(() => localStorage.getItem('adminEmail') ?? null);
   // True while restoring session from HttpOnly refresh cookie on page load
@@ -67,6 +68,7 @@ export function AuthProvider({ children }) {
     ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','settlementEnabled','adminPhone','adminEmail']
       .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
     sessionStorage.removeItem('token'); // clear proxy session token if any
+    sessionStorage.removeItem('legal_return_path');
     setToken(null);
     setUser(null);
     setTenantId(null);
@@ -78,6 +80,7 @@ export function AuthProvider({ children }) {
     setAnalyticsEnabled(false);
     setChatEnabled(false);
     setSettlementEnabled(false);
+    setAddOns([]);
     setAdminPhone(null);
     setAdminEmail(null);
     setIsProxySession(false);
@@ -172,10 +175,17 @@ export function AuthProvider({ children }) {
     setAnalyticsEnabled(nextAnalytics);
     setChatEnabled(nextChat);
     setSettlementEnabled(nextSettlement);
+    setAddOns(Array.isArray(limits.enabledAddOns) ? limits.enabledAddOns : []);
   }, [isProxySession]);
 
   // On mount: if localStorage has user info but no token in memory, restore via HttpOnly cookie
   useEffect(() => {
+    // The proxy tab receives a one-time token in its own sessionStorage. Do not
+    // race a normal account refresh against ProxyPage's bootstrap login.
+    if (window.location.pathname === '/proxy') {
+      setIsRestoring(false);
+      return;
+    }
     if (!localStorage.getItem('user')) {
       setIsRestoring(false);
       return;
@@ -324,6 +334,7 @@ export function AuthProvider({ children }) {
       store.setItem('settlementEnabled', String(tenantData.settlementEnabled));
       setSettlementEnabled(tenantData.settlementEnabled);
     }
+    setAddOns(!offline && Array.isArray(tenantData.addOns) ? tenantData.addOns : []);
     if (tenantData.adminPhone !== undefined) {
       if (tenantData.adminPhone) { store.setItem('adminPhone', tenantData.adminPhone); setAdminPhone(tenantData.adminPhone); }
       else { store.removeItem('adminPhone'); setAdminPhone(null); }
@@ -347,7 +358,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, settlementEnabled, adminPhone, adminEmail,
+      token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, settlementEnabled, addOns, adminPhone, adminEmail,
       login, logout, requestLogout, updateUser,
       switchToSavedAccount: async (scope) => {
         try {
@@ -397,6 +408,7 @@ function tenantSessionData(tenant) {
     analyticsEnabled: tenant.analyticsEnabled === true,
     chatEnabled: tenant.chatEnabled === true,
     settlementEnabled: tenant.settlementEnabled === true,
+    addOns: Array.isArray(tenant.addOns) ? tenant.addOns : [],
     offlineEnabled: typeof tenant.offlineEnabled === 'boolean' ? tenant.offlineEnabled : undefined,
     adminPhone: tenant.adminPhone ?? null,
     adminEmail: tenant.adminEmail ?? null,

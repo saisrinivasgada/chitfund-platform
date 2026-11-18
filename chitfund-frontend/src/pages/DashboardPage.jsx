@@ -1,10 +1,10 @@
 import ReadDataBoundary from '../offline/ReadDataBoundary';
 import SnapshotLabel from '../offline/SnapshotLabel';
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
-  getChits, getMembers, getPendingPayouts, getWalletBalance,
+  getChits, getMembersPage, getPendingPayouts, getWalletBalance,
   getPendingRemittance, listStaff,
   getOrgReservations, getCashRequestSummary, getWinners, getAllPayouts,
   getMyReferralInfo, getMyEffectiveLimits, getPendingSettlements, listAuctions,
@@ -13,7 +13,6 @@ import { useAuth } from '../context/AuthContext';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import Badge, { statusBadge } from '../components/ui/Badge';
 import Button from '../components/ui/Button';
-import { DashboardSkeleton } from '../components/ui/Spinner';
 import StaffHomePage from './staff/StaffHomePage';
 import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
@@ -24,6 +23,27 @@ import {
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
+
+function chitPositionSummary(chit) {
+  const orgValue = chit.orgHeldSpotsCount ?? chit.organizationPayoutSlots;
+  const orgSlots = orgValue == null ? NaN : Number(orgValue);
+  const totalPositions = chit.capacity == null ? NaN : Number(chit.capacity);
+  const validTotal = Number.isSafeInteger(totalPositions) && totalPositions >= 0;
+  const validOrg = Number.isSafeInteger(orgSlots) && orgSlots >= 0;
+  const payingSlots = chit.payingMemberSlots != null
+    ? Number(chit.payingMemberSlots)
+    : validTotal && validOrg && orgSlots <= totalPositions
+      ? totalPositions - orgSlots : NaN;
+  if (!Number.isSafeInteger(payingSlots) || payingSlots < 0 ||
+      (validTotal && payingSlots > totalPositions) ||
+      (validTotal && validOrg && payingSlots + orgSlots !== totalPositions)) {
+    return validTotal ? `${totalPositions} payout positions` : 'Positions unavailable';
+  }
+  const payingLabel = `${payingSlots} paying member slot${payingSlots === 1 ? '' : 's'}`;
+  return validOrg && orgSlots > 0
+    ? `${payingLabel} + ${orgSlots} organization payout slot${orgSlots === 1 ? '' : 's'}`
+    : payingLabel;
+}
 
 function OverLimitModal({ violations, onContinue }) {
   return (
@@ -92,7 +112,7 @@ function SectionHeader({ icon: Icon, color, title, linkLabel, onLink }) {
 }
 
 function StatCard({ icon: Icon, label, value, color, sub, hidden, onClick }) {
-  const base = "bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4";
+  const base = "bg-white rounded-xl border border-gray-200 shadow-sm p-3 sm:p-5 flex flex-col xl:flex-row items-start xl:items-center gap-2 xl:gap-4 min-w-0";
   const interactive = onClick ? "cursor-pointer hover:shadow-md hover:border-gray-300 transition-all" : "";
   return (
     <div className={`${base} ${interactive}`} onClick={onClick}>
@@ -102,9 +122,9 @@ function StatCard({ icon: Icon, label, value, color, sub, hidden, onClick }) {
       >
         <Icon size={20} style={{ color }} />
       </div>
-      <div>
-        <p className="text-xs text-gray-500 font-medium">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 leading-tight mt-0.5">
+      <div className="min-w-0 w-full">
+        <p className="text-xs text-gray-500 font-medium break-words">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 leading-tight mt-0.5 break-words">
           {hidden ? HIDDEN_PLACEHOLDER : (value ?? '—')}
         </p>
         {sub && !hidden && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
@@ -218,7 +238,6 @@ function TreasuryCard({ label, amount, icon: Icon, color, hidden }) {
 
 
 export default function DashboardPage() {
-  const hasRenderedData = useRef(false);
   const { user, planExpiresAt } = useAuth();
   const isPlanExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const navigate = useNavigate();
@@ -229,31 +248,45 @@ export default function DashboardPage() {
   const { hidden } = useHiddenAmounts();
   const isAdmin = user?.role === 'ADMIN';
 
-  const { data: chits = [], isLoading: chitsLoading } = useQuery({
+  const { data: chitsData, isLoading: chitsLoading } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
+    enabled: isAdmin,
     staleTime: 30_000,
     retry: false,
   });
+  const chits = chitsData ?? [];
+  // /chits defaults to 20 rows. A full first page is only a lower bound.
+  const chitsMayBePartial = chits.length >= 20;
 
-  const { data: members = [], isLoading: membersLoading } = useQuery({
-    queryKey: ['members'],
-    queryFn: () => getMembers({ size: 50 }),
+  const { data: membersPage, isLoading: membersLoading } = useQuery({
+    queryKey: ['dashboard-members-page'],
+    queryFn: () => getMembersPage({ page: null, size: 50 }),
+    enabled: isAdmin,
     staleTime: 60_000,
     retry: false,
   });
+  const members = Array.isArray(membersPage) ? membersPage : membersPage?.content ?? [];
+  const memberCount = membersPage === undefined ? null : (membersPage?.totalElements ?? members.length);
+  // Give the first screen its essential chit/member requests before starting
+  // secondary dashboard lookups on a slow connection.
+  const detailsReady = !chitsLoading && !membersLoading;
 
   // Pending Disbursement = payouts in PENDING status
-  const { data: pendingPayouts = [] } = useQuery({
+  const { data: pendingPayoutsData } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: () => getPendingPayouts(),
+    enabled: isAdmin,
     staleTime: 30_000,
+    retry: false,
   });
+  const pendingPayouts = pendingPayoutsData ?? [];
+  const pendingPayoutsReady = pendingPayoutsData !== undefined;
 
   const { data: walletBalance } = useQuery({
     queryKey: ['wallet-balance'],
     queryFn: () => getWalletBalance(),
-    enabled: isAdmin,
+    enabled: isAdmin && detailsReady,
     staleTime: 30_000,
   });
 
@@ -269,14 +302,14 @@ export default function DashboardPage() {
   const { data: remittanceBatches = [], dataUpdatedAt: remittanceUpdatedAt } = useQuery({
     queryKey: ['remittance', 'pending'],
     queryFn: () => getPendingRemittance(),
-    enabled: isAdmin,
+    enabled: isAdmin && detailsReady,
     staleTime: 30_000,
   });
 
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: () => listStaff(),
-    enabled: isAdmin,
+    enabled: isAdmin && detailsReady,
     staleTime: 5 * 60_000,
   });
 
@@ -285,7 +318,7 @@ export default function DashboardPage() {
   const { data: orgReservations = [] } = useQuery({
     queryKey: ['dash-org-reservations'],
     queryFn: getOrgReservations,
-    enabled: isAdmin,
+    enabled: isAdmin && detailsReady,
     staleTime: 60_000,
   });
 
@@ -293,38 +326,46 @@ export default function DashboardPage() {
   const eligibleChits = chits.filter((c) => c.status !== 'DRAFT');
   const eligibleChitStr = eligibleChits.map((c) => c.id).join(',');
 
-  const { data: chitWinnersMap = {} } = useQuery({
+  const { data: chitWinnersData } = useQuery({
     queryKey: ['winners-batch-dash', eligibleChitStr],
     queryFn: async () => {
-      const entries = await Promise.all(
-        eligibleChits.map((c) =>
-          getWinners(c.id).then((ws) => [c.id, ws]).catch(() => [c.id, []])
-        )
-      );
+      const entries = [];
+      for (let i = 0; i < eligibleChits.length; i += 3) {
+        const batch = eligibleChits.slice(i, i + 3);
+        entries.push(...await Promise.all(batch.map((c) => getWinners(c.id).then((ws) => [c.id, ws]))));
+      }
       return Object.fromEntries(entries);
     },
-    enabled: isAdmin && eligibleChits.length > 0,
+    // A partial chit page cannot produce an exact tenant-wide count. Avoid a
+    // winner request per listed chit until the aggregate endpoint is available.
+    enabled: isAdmin && detailsReady && !chitsMayBePartial && eligibleChits.length > 0,
     staleTime: 300_000,
+    retry: false,
   });
+  const chitWinnersMap = chitWinnersData ?? {};
+  const winnersReady = chitWinnersData !== undefined;
 
-  const { data: allPayoutsForDash = [] } = useQuery({
+  const { data: allPayoutsData } = useQuery({
     queryKey: ['payouts', 'all-for-dash'],
     queryFn: () => getAllPayouts({}),
-    enabled: isAdmin,
+    enabled: isAdmin && detailsReady && !chitsMayBePartial && eligibleChits.length > 0,
     staleTime: 300_000,
+    retry: false,
   });
+  const allPayoutsForDash = allPayoutsData ?? [];
+  const allPayoutsReady = allPayoutsData !== undefined;
 
   useQuery({
     queryKey: ['myReferralInfo'],
     queryFn: getMyReferralInfo,
-    enabled: isAdmin,
+    enabled: isAdmin && detailsReady,
     staleTime: 300_000,
   });
 
   const { data: pendingSettlementsPage } = useQuery({
     queryKey: ['dash-pending-settlements'],
     queryFn: () => getPendingSettlements(0, 5),
-    enabled: isAdmin,
+    enabled: isAdmin && detailsReady,
     staleTime: 120_000,
   });
   const pendingSettlements = pendingSettlementsPage?.content ?? [];
@@ -338,12 +379,16 @@ export default function DashboardPage() {
       .filter((p) => p.status !== 'CANCELLED')
       .map((p) => `${p.chitId}:${p.monthNumber}:${String(p.memberId)}`)
   );
-  let pendingPayoutCount = 0;
-  for (const [chitId, winners] of Object.entries(chitWinnersMap)) {
-    for (const w of winners) {
-      const mid = w.memberId ?? w.winnerId;
-      if (!paidKeys.has(`${chitId}:${w.monthNumber}:${String(mid)}`)) {
-        pendingPayoutCount++;
+  // An unavailable payout or winner feed must never be presented as zero.
+  let pendingPayoutCount = chitsData !== undefined && !chitsMayBePartial && eligibleChits.length === 0 ? 0 : null;
+  if (chitsData !== undefined && !chitsMayBePartial && eligibleChits.length > 0 && winnersReady && allPayoutsReady) {
+    pendingPayoutCount = 0;
+    for (const [chitId, winners] of Object.entries(chitWinnersMap)) {
+      for (const w of winners) {
+        const mid = w.memberId ?? w.winnerId;
+        if (!paidKeys.has(`${chitId}:${w.monthNumber}:${String(mid)}`)) {
+          pendingPayoutCount++;
+        }
       }
     }
   }
@@ -355,8 +400,8 @@ export default function DashboardPage() {
     queries: activeAuctionChits.map((c) => ({
       queryKey: ['auctions', c.id],
       queryFn: () => listAuctions(c.id),
-      enabled: isAdmin,
-      refetchInterval: 30_000,
+      enabled: isAdmin && detailsReady,
+      refetchInterval: 60_000,
       staleTime: 15_000,
     })),
   });
@@ -384,8 +429,8 @@ export default function DashboardPage() {
     if (effectiveLimits.maxActiveChits > 0 && activeChits.length > effectiveLimits.maxActiveChits) {
       v.push({ label: 'Active Chit Groups', current: activeChits.length, limit: effectiveLimits.maxActiveChits });
     }
-    if (effectiveLimits.maxMembers > 0 && members.length > effectiveLimits.maxMembers) {
-      v.push({ label: 'Members', current: members.length, limit: effectiveLimits.maxMembers });
+    if (effectiveLimits.maxMembers > 0 && memberCount > effectiveLimits.maxMembers) {
+      v.push({ label: 'Members', current: memberCount, limit: effectiveLimits.maxMembers });
     }
     return v;
   })();
@@ -397,13 +442,11 @@ export default function DashboardPage() {
   if (user?.role === 'STAFF')  return <StaffHomePage />;
   if (user?.role === 'MANAGER') return <ManagerHomePage />;
 
-  // A child also observes members. Replacing the whole dashboard during its
-  // retry unmounted that child and caused an endless retry/loading cycle.
-  if ((chitsLoading || membersLoading) && navigator.onLine && !hasRenderedData.current) return <DashboardSkeleton />;
-  hasRenderedData.current = true;
-
   return (
-    <ReadDataBoundary label="Dashboard" queryKeys={[['chits'], ['members']]}><div className="space-y-8">
+    <div className="space-y-8">
+      {/* Keep the audited activity readable while the larger lists load. */}
+      <TodaysActivityFeed />
+      <ReadDataBoundary label="Dashboard" queryKeys={[['chits'], ['dashboard-members-page']]}><div className="space-y-8">
       {limitViolations.length > 0 && !limitsDismissed && (
         <OverLimitModal
           violations={limitViolations}
@@ -429,7 +472,7 @@ export default function DashboardPage() {
         </div>
         {(() => {
           const chitLimitHit = !!(effectiveLimits?.maxActiveChits > 0 && activeChits.length >= effectiveLimits.maxActiveChits);
-          const memberLimitHit = !!(effectiveLimits?.maxMembers > 0 && members.length >= effectiveLimits.maxMembers);
+          const memberLimitHit = !!(effectiveLimits?.maxMembers > 0 && memberCount >= effectiveLimits.maxMembers);
           const chitOff = isPlanExpired || chitLimitHit;
           const memberOff = isPlanExpired || memberLimitHit;
           const expiredTip = 'Your plan has expired — contact support to renew';
@@ -463,22 +506,22 @@ export default function DashboardPage() {
           <StatCard
             icon={BookOpen}
             label="Total Chits"
-            value={chits.length}
+            value={chitsData === undefined ? null : chitsMayBePartial ? `${chits.length}+` : chits.length}
             color="#1E3A5F"
-            sub={`${activeChits.length} active`}
+            sub={chitsData === undefined ? 'Loading chits…' : `${activeChits.length}${chitsMayBePartial ? '+' : ''} active`}
             hidden={false}
           />
           <StatCard
             icon={CreditCard}
             label="Active Chits"
-            value={activeChits.length}
+            value={chitsData === undefined ? null : chitsMayBePartial ? `${activeChits.length}+` : activeChits.length}
             color="#16A34A"
             hidden={false}
           />
           <StatCard
             icon={Users}
             label="Total Members"
-            value={members.length}
+            value={memberCount}
             color="#D4A017"
             hidden={false}
           />
@@ -494,7 +537,7 @@ export default function DashboardPage() {
           <StatCard
             icon={CheckCircle}
             label="Pending Disbursement"
-            value={pendingPayouts.length}
+            value={pendingPayoutsReady ? pendingPayouts.length : null}
             color="#DC2626"
             sub="payout created, not disbursed"
             hidden={false}
@@ -736,9 +779,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Recent Activity ──────────────────────────────────────────────── */}
+      {/* ── Quick access ─────────────────────────────────────────────────── */}
       <div>
-        <SectionHeader icon={BookOpen} color="#1E3A5F" title="Recent Activity" />
+        <SectionHeader icon={BookOpen} color="#1E3A5F" title="Quick access" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Recent Chits */}
@@ -758,21 +801,22 @@ export default function DashboardPage() {
                 <p className="text-sm text-gray-400 py-10 text-center">No chit funds yet</p>
               ) : (
                 chits.slice(0, 5).map((c) => (
-                  <div
+                  <button
+                    type="button"
                     key={c.id}
-                    className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                    className="w-full flex items-start sm:items-center justify-between gap-3 px-3 sm:px-5 py-3 text-left hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#1E3A5F] cursor-pointer transition-colors"
                     onClick={() => navigate(`/chits/${c.id}`)}
                   >
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{c.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
                         {hidden
-                          ? `${HIDDEN_PLACEHOLDER} / month · ${c.capacity} members`
-                          : `₹${c.installmentAmount?.toLocaleString()} / month · ${c.capacity} members`}
+                          ? `${HIDDEN_PLACEHOLDER} / month · ${chitPositionSummary(c)}`
+                          : `₹${c.installmentAmount?.toLocaleString()} / month · ${chitPositionSummary(c)}`}
                       </p>
                     </div>
                     <Badge variant={statusBadge(c.status)}>{c.status}</Badge>
-                  </div>
+                  </button>
                 ))
               )}
             </div>
@@ -823,9 +867,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Today's Activity Feed ────────────────────────────────────────── */}
-      <TodaysActivityFeed />
-
     </div></ReadDataBoundary>
+    </div>
   );
 }

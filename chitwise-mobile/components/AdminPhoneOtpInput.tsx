@@ -31,6 +31,7 @@ export function AdminPhoneOtpInput({
   const [otpStep, setOtpStep] = useState<'pending' | null>(null);
   const [otpCode, setOtpCode] = useState('');
   const [otpError, setOtpError] = useState('');
+  const [otpRejected, setOtpRejected] = useState(false);
   const [otpTimer, setOtpTimer] = useState(0);
   const [sendCount, setSendCount] = useState(0);
   const [resendBlocked, setResendBlocked] = useState(false);
@@ -47,6 +48,7 @@ export function AdminPhoneOtpInput({
     setOtpStep(null);
     setOtpCode('');
     setOtpError('');
+    setOtpRejected(false);
     setSendCount(0);
     setResendBlocked(false);
     onVerified(false);
@@ -78,6 +80,7 @@ export function AdminPhoneOtpInput({
       setOtpStep('pending');
       setOtpCode('');
       setOtpError('');
+      setOtpRejected(false);
       startTimer(nextCount * 60);
     },
     onError: (e: any) => {
@@ -98,15 +101,18 @@ export function AdminPhoneOtpInput({
     },
     onError: (e: any) => {
       const code = e.response?.data?.errorCode;
+      setOtpRejected(code === 'OTP_003' || code === 'OTP_004');
       if (code === 'OTP_004') {
         setOtpError('Too many attempts. Request a new OTP.');
         setOtpStep(null);
         setOtpTimer(0);
         if (timerRef.current) clearInterval(timerRef.current);
-      } else {
+      } else if (code === 'OTP_003') {
         setOtpError('Incorrect OTP. Try again.');
+      } else {
+        setOtpError(e.response?.data?.message ?? 'Could not verify right now. Please try again.');
       }
-      setOtpCode('');
+      if (code === 'OTP_003' || code === 'OTP_004') setOtpCode('');
     },
   });
 
@@ -145,7 +151,7 @@ export function AdminPhoneOtpInput({
           activeOpacity={0.7}
           style={{
             marginTop: 8, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10,
-            backgroundColor: '#4F46E5', alignSelf: 'flex-start',
+            backgroundColor: C.navy, alignSelf: 'flex-start',
             flexDirection: 'row', alignItems: 'center', gap: 6,
             opacity: sendMut.isPending ? 0.6 : 1,
           }}
@@ -166,22 +172,24 @@ export function AdminPhoneOtpInput({
       {otpStep === 'pending' && (
         <View style={{
           marginTop: 10, padding: 14, borderRadius: 12,
-          borderWidth: 1.5, borderColor: '#818CF8', backgroundColor: '#EEF2FF',
+          borderWidth: 1.5, borderColor: C.gray300, backgroundColor: C.navy50,
         }}>
-          <Text style={{ fontSize: 13, color: '#4338CA', marginBottom: 10, fontWeight: '500' }}>
+          <Text style={{ fontSize: 13, color: C.navy, marginBottom: 10, fontWeight: '500' }}>
             Enter the 6-digit code sent to {countryCode} {phone}
           </Text>
 
           {/* Code input + verify button */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-            <View style={{ flex: 1 }}><OtpCodeInput value={otpCode} onChangeText={(v) => { setOtpCode(v); setOtpError(''); }} hasError={!!otpError} autoFocus /></View>
+          <View style={{ gap: 12, marginBottom: 8 }}>
+            <OtpCodeInput value={otpCode} onChangeText={(v) => { setOtpCode(v); setOtpError(''); setOtpRejected(false); }}
+              onComplete={(code) => { if (!verifyMut.isPending) verifyMut.mutate({ phone, countryCode, code }); }}
+              status={verifyMut.isPending ? 'loading' : otpRejected && otpError ? 'error' : 'idle'} autoFocus />
             <TouchableOpacity
               onPress={handleVerify}
               disabled={otpCode.length !== 6 || verifyMut.isPending}
               activeOpacity={0.7}
               style={{
-                paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#4F46E5',
-                justifyContent: 'center', opacity: otpCode.length !== 6 || verifyMut.isPending ? 0.5 : 1,
+                minHeight: 44, paddingHorizontal: 16, borderRadius: 10, backgroundColor: C.navy,
+                justifyContent: 'center', alignItems: 'center', opacity: otpCode.length !== 6 || verifyMut.isPending ? 0.5 : 1,
               }}
             >
               {verifyMut.isPending
@@ -203,7 +211,7 @@ export function AdminPhoneOtpInput({
               <Text style={{ fontSize: 12, color: C.gray400 }}>Resend in {fmtSecs(otpTimer)}</Text>
             ) : (
               <TouchableOpacity onPress={handleSend} disabled={sendMut.isPending}>
-                <Text style={{ fontSize: 12, color: '#4F46E5', fontWeight: '600' }}>
+                <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600' }}>
                   {sendMut.isPending ? 'Sending…' : 'Resend OTP'}
                 </Text>
               </TouchableOpacity>

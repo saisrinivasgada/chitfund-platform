@@ -7,7 +7,7 @@ import { useOnlineMutation } from '../../../offline/useOnlineMutation';
 import { buildOpenDrawRequest } from '../../../features/chits/drawRequest';
 import {
   View, Text, FlatList, Modal, ScrollView, RefreshControl,
-  TouchableOpacity, Alert, TextInput, KeyboardAvoidingView, Platform,
+  TouchableOpacity, Alert, TextInput, KeyboardAvoidingView, Platform, useWindowDimensions,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,15 +15,15 @@ import * as Crypto from 'expo-crypto';
 import {
   getChit, getChits, getDraws, openDraw, closeDraw, skipDraw, deleteDraw,
   getEnrollments, getMembers, getWinners, recordWinner,
-  getPayoutsByChit,
-  recordPayment, createPayout, disbursePayout,
+  getAllPayouts,
+  collectPayment, getMemberBalance, getMemberTotalBalance, createPayout,
   getReservations, updateReservationSlot, markSlotProcessed,
   listAuctions, closeAuction, placeBid,
   getChitLifecycleSync,
 } from '../../../services/api';
 import {
   C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen,
-  fmtDate, Divider,
+  fmtDate, Divider, listRowColor,
 } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
@@ -34,6 +34,8 @@ const DRAW_STATUS_COLOR: Record<string, string> = {
 type DetailTab = 'draws' | 'members' | 'winners' | 'schedule' | 'info' | 'auction';
 
 export default function ManagerChitsScreen() {
+  const { width: viewportWidth } = useWindowDimensions();
+  const tabletList = viewportWidth >= 700;
   const qc = useQueryClient();
   const [selected, setSelected] = useState<any>(null);
   const { data: lifecycleSync } = useQuery({
@@ -71,19 +73,23 @@ export default function ManagerChitsScreen() {
   const [collectDraw, setCollectDraw] = useState<any>(null);
   const [collectMemberId, setCollectMemberId] = useState('');
   const [collectAmount, setCollectAmount] = useState('');
-  const [collectMode, setCollectMode] = useState('CASH');
   const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => Crypto.randomUUID());
+  const { data: collectBalance } = useQuery({
+    queryKey: ['m-collect-balance', collectMemberId, selected?.id],
+    queryFn: () => getMemberBalance(collectMemberId, selected.id),
+    enabled: showCollect && !!collectMemberId && !!selected?.id,
+  });
+  const { data: collectTotalBalance } = useQuery({
+    queryKey: ['m-collect-total-balance', collectMemberId],
+    queryFn: () => getMemberTotalBalance(collectMemberId),
+    enabled: showCollect && !!collectMemberId,
+  });
 
   const [showPayout, setShowPayout] = useState(false);
   const [payoutWinner, setPayoutWinner] = useState<any>(null);
   const [payoutAmount, setPayoutAmount] = useState('');
   const [payoutIdempotencyKey, setPayoutIdempotencyKey] = useState(() => Crypto.randomUUID());
 
-  const [showDisburse, setShowDisburse] = useState(false);
-  const [disbursePay, setDisbursePay] = useState<any>(null);
-  const [disburseIdempotencyKey, setDisburseIdempotencyKey] = useState(() => Crypto.randomUUID());
-  const [disburseMode, setDisburseMode] = useState('CASH');
-  const [disburseAmount, setDisburseAmount] = useState('');
 
   const [proxyMemberId, setProxyMemberId] = useState('');
   const [proxyBidAmount, setProxyBidAmount] = useState('');
@@ -124,10 +130,14 @@ export default function ManagerChitsScreen() {
     enabled: !!selected?.id && (detailTab === 'schedule' || showOpenDraw),
     staleTime: 60_000,
   });
+  const requestedDrawNumber = Number(odDrawNum) || nextDrawNum;
+  const drawRequiresAdmin = (reservations as any[]).some((slot: any) =>
+    slot.status !== 'VOIDED' && slot.orgHeld && Number(slot.monthNumber ?? slot.slotNumber) === requestedDrawNumber
+  );
 
   const { data: chitPayouts = [] } = useQuery({
     queryKey: ['m-chit-payouts', selected?.id],
-    queryFn: () => getPayoutsByChit(selected!.id),
+    queryFn: () => getAllPayouts({ chitId: selected!.id }),
     enabled: !!selected?.id && detailTab === 'winners',
     staleTime: 30_000,
   });
@@ -170,13 +180,13 @@ export default function ManagerChitsScreen() {
   const selectedChitId = useRef(selected?.id);
   selectedChitId.current = selected?.id;
   const [openDrawError, setOpenDrawError] = useState('');
-  const actionOpen = showOpenDraw || showSkip || showCollect || showPayout || showDisburse;
+  const actionOpen = showOpenDraw || showSkip || showCollect || showPayout;
   function closeDrawDialog() {
     drawSequence.current++; setShowOpenDraw(false); setOpenDrawError('');
     setOdDrawNum(''); setOdWinnerIds([]); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
   }
   function closeDetail() {
-    closeDrawDialog(); setShowSkip(false); setShowCollect(false); setShowPayout(false); setShowDisburse(false); setSelected(null);
+    closeDrawDialog(); setShowSkip(false); setShowCollect(false); setShowPayout(false); setSelected(null);
   }
 
   const openDrawMut = useOnlineMutation({
@@ -184,6 +194,7 @@ export default function ManagerChitsScreen() {
     onMutate: () => ({ chitId: selected.id, sequence: drawSequence.current }),
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
+      if (drawRequiresAdmin) throw new Error('This draw requires an administrator to open it.');
       await openDraw(buildOpenDrawRequest(selected, drawNum, enrollments as any[], winners as any[], reservations as any[]));
 
       if (selected?.chitType === 'LOTTERY') {
@@ -280,22 +291,39 @@ export default function ManagerChitsScreen() {
   });
 
   const collectMut = useMutation({
-    mutationFn: () => recordPayment({
+    mutationFn: () => collectPayment({
       memberId: collectMemberId,
       chitId: selected.id,
-      drawId: collectDraw?.id,
       amount: Number(collectAmount),
-      paymentMode: collectMode,
       idempotencyKey: collectIdempotencyKey,
     }),
     onSuccess: () => {
       setCollectIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['m-draw-payments', collectDraw?.id] });
-      setShowCollect(false); setCollectMemberId(''); setCollectAmount(''); setCollectMode('CASH');
-      toast.saved('Payment recorded');
+      setShowCollect(false); setCollectMemberId(''); setCollectAmount('');
+      toast.saved('Cash recorded — awaiting admin remittance');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record cash collection'),
   });
+
+  function confirmCashCollection() {
+    const amount = Number(collectAmount);
+    if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) {
+      Alert.alert('Enter a valid amount', 'Cash collected must be greater than zero and use at most two decimal places.');
+      return;
+    }
+    const selectedDue = Number(collectBalance?.totalOutstanding);
+    const totalDue = Number(collectTotalBalance);
+    const excess = Number.isFinite(selectedDue) && amount > selectedDue
+      ? ` This is ₹${(amount - selectedDue).toLocaleString('en-IN')} above this chit's current dues. Older dues may be cleared first; any remainder may become member credit after remittance.`
+      : '';
+    const total = Number.isFinite(totalDue)
+      ? ` Current dues across all chits: ₹${totalDue.toLocaleString('en-IN')}.`
+      : ' Current dues could not be confirmed.';
+    Alert.alert('Confirm cash collected',
+      `Have you physically received ₹${amount.toLocaleString('en-IN')} from ${memberMap[collectMemberId] ?? 'this member'}? Record it as cash awaiting admin remittance. It will not settle an installment until the admin confirms receipt.${total}${excess}`,
+      [{ text: 'Cancel', style: 'cancel' }, { text: 'Record cash', onPress: () => collectMut.mutate() }]);
+  }
 
   const payoutMut = useMutation({
     mutationFn: () => createPayout({
@@ -314,20 +342,6 @@ export default function ManagerChitsScreen() {
       toast.saved('Payout created');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to create payout'),
-  });
-
-  const disburseMut = useMutation({
-    mutationFn: () => disbursePayout(disbursePay.id, {
-      disbursementMode: disburseMode,
-      amount: Number(disburseAmount) || Number(disbursePay.netPayoutAmount ?? disbursePay.winningAmount ?? 0),
-    }, disburseIdempotencyKey),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-chit-payouts', selected.id] });
-      setShowDisburse(false); setDisbursePay(null); setDisburseAmount('');
-      setDisburseIdempotencyKey(Crypto.randomUUID());
-      toast.saved('Payout disbursed');
-    },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to disburse'),
   });
 
   // ── List ─────────────────────────────────────────────────────────────────────
@@ -362,6 +376,10 @@ export default function ManagerChitsScreen() {
       <ReadDataBoundary label="Chits" queryKeys={[['m-chits']]}>
 
       <FlatList
+        style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
+        key={tabletList ? 'tablet-chits' : 'phone-chits'}
+        numColumns={tabletList ? 2 : 1}
+        columnWrapperStyle={tabletList ? { gap: 12 } : undefined}
         data={sorted}
         keyExtractor={(c: any) => c.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
@@ -375,9 +393,9 @@ export default function ManagerChitsScreen() {
           </View>
         }
         ListEmptyComponent={<EmptyState title="No chits" message="No chits found." />}
-        renderItem={({ item: c }) => (
-          <TouchableOpacity activeOpacity={0.8} onPress={() => { setSelected(c); setDetailTab('draws'); setExpandedDrawId(null); }}>
-            <Card style={{ marginBottom: 12 }}>
+        renderItem={({ item: c, index }) => (
+          <TouchableOpacity activeOpacity={0.8} style={tabletList ? { flex: 1, maxWidth: (Math.min(viewportWidth, 960) - 44) / 2, minWidth: 0 } : undefined} onPress={() => { setSelected(c); setDetailTab('draws'); setExpandedDrawId(null); }}>
+            <Card style={{ marginBottom: 12, backgroundColor: listRowColor(index) }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, flex: 1 }}>{c.name}</Text>
                 <Badge status={c.status} />
@@ -552,11 +570,11 @@ export default function ManagerChitsScreen() {
                 {(draws as any[]).length === 0 ? (
                   <EmptyState title="No draws yet" message="Open the first draw when ready." />
                 ) : (
-                  sortedDraws.map((d: any) => {
+                  sortedDraws.map((d: any, i: number) => {
                     const isExpanded = expandedDrawId === d.id;
                     const col = DRAW_STATUS_COLOR[d.status] ?? C.gray400;
                     return (
-                      <Card key={d.id} style={{ marginBottom: 10 }}>
+                      <Card key={d.id} style={{ marginBottom: 10, backgroundColor: listRowColor(i) }}>
                         <TouchableOpacity activeOpacity={0.8} onPress={() => setExpandedDrawId(isExpanded ? null : d.id)}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -625,10 +643,10 @@ export default function ManagerChitsScreen() {
                                 drawId={d.id}
                                 drawStatus={d.status}
                                 memberMap={memberMap}
-                                onCollect={(memberId) => {
+                                onCollect={(memberId, outstandingAmount) => {
                                   setCollectDraw(d);
                                   setCollectMemberId(memberId);
-                                  setCollectAmount(String(selected.installmentAmount ?? ''));
+                                  setCollectAmount(String(outstandingAmount > 0 ? outstandingAmount : selected.installmentAmount ?? ''));
                                   setShowCollect(true);
                                 }}
                               />
@@ -654,10 +672,10 @@ export default function ManagerChitsScreen() {
                 {(enrollments as any[]).length === 0 ? (
                   <EmptyState title="No members enrolled" message="Admin enrolls members in this chit." />
                 ) : (
-                  (enrollments as any[]).map((e: any) => {
+                  (enrollments as any[]).map((e: any, i: number) => {
                     const mName = memberMap[e.memberId ?? e.id] ?? e.fullName ?? '—';
                     return (
-                      <Card key={e.id ?? e.memberId} style={{ marginBottom: 8 }}>
+                      <Card key={e.id ?? e.memberId} style={{ marginBottom: 8, backgroundColor: listRowColor(i) }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                           <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
                             <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>{mName[0]?.toUpperCase() ?? '?'}</Text>
@@ -685,7 +703,6 @@ export default function ManagerChitsScreen() {
                   <EmptyState title="No payouts yet" message="Payouts appear after winners are recorded." />
                 ) : (
                   (chitPayouts as any[]).map((p: any) => {
-                    const canDisburse = p.status === 'PENDING' || p.status === 'APPROVED';
                     return (
                       <Card key={p.id} style={{ marginBottom: 10 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -693,7 +710,7 @@ export default function ManagerChitsScreen() {
                             <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
                               {memberMap[p.memberId ?? p.winnerId] ?? '—'}
                             </Text>
-                            <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>Draw #{p.drawNumber}</Text>
+                            <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>Draw #{p.monthNumber ?? p.drawNumber}</Text>
                             <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>{fmtDate(p.createdAt)}</Text>
                           </View>
                           <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -701,19 +718,6 @@ export default function ManagerChitsScreen() {
                             <Amount value={p.netPayoutAmount ?? p.winningAmount ?? 0} size="sm" color={C.gold} />
                           </View>
                         </View>
-                        {canDisburse && (
-                          <TouchableOpacity
-                            onPress={() => {
-                              setDisbursePay(p);
-                              setDisburseAmount(String(p.netPayoutAmount ?? p.winningAmount ?? ''));
-                              setDisburseMode('CASH');
-                              setShowDisburse(true);
-                            }}
-                            style={{ backgroundColor: '#EEF2F8', borderRadius: 10, padding: 9, alignItems: 'center', marginTop: 4 }}
-                          >
-                            <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Disburse Payout</Text>
-                          </TouchableOpacity>
-                        )}
                       </Card>
                     );
                   })
@@ -726,7 +730,7 @@ export default function ManagerChitsScreen() {
                 ) : (
                   (winners as any[]).map((w: any) => {
                     const hasPayout = (chitPayouts as any[]).some(
-                      (p: any) => (p.memberId === w.memberId || p.memberId === w.winnerId) && p.drawNumber === w.monthNumber
+                      (p: any) => (p.memberId === w.memberId || p.memberId === w.winnerId) && Number(p.monthNumber ?? p.drawNumber) === Number(w.monthNumber ?? w.drawNumber)
                     );
                     return (
                       <Card key={w.id} style={{ marginBottom: 8 }}>
@@ -763,7 +767,7 @@ export default function ManagerChitsScreen() {
 
             {/* ── SCHEDULE TAB (read-only) ─────────────────────────────────── */}
             {detailTab === 'schedule' && <ReadDataBoundary label="Schedule" queryKeys={[['m-reservations', selected?.id]]}>{(() => {
-              const slotsList = [...(reservations as any[])].sort(
+              const slotsList = (reservations as any[]).filter((slot) => !slot.orgHeld).sort(
                 (a, b) => (a.slotNumber ?? a.monthNumber ?? 0) - (b.slotNumber ?? b.monthNumber ?? 0)
               );
               const STATUS_COLOR: Record<string, string> = {
@@ -776,15 +780,16 @@ export default function ManagerChitsScreen() {
                   </Text>
                   {slotsList.length === 0 ? (
                     <EmptyState title="No schedule" message="No reservation slots have been set up for this chit." />
-                  ) : slotsList.map((slot: any) => {
+                  ) : slotsList.map((slot: any, i: number) => {
                     const slotNum = slot.slotNumber ?? slot.monthNumber ?? '?';
                     const sColor = STATUS_COLOR[slot.status] ?? C.gray400;
-                    const memberName = slot.orgHeld ? 'Organisation' : (memberMap[String(slot.memberId)] ?? (slot.memberId ? 'Unknown member' : 'Unallocated'));
+                    const memberName = memberMap[String(slot.memberId)] ?? (slot.memberId ? 'Unknown member' : 'Unallocated');
                     const month = slot.reservationMonth ? slot.reservationMonth.substring(0, 7) : '—';
                     return (
                       <View key={slot.id} style={{
                         flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
                         borderBottomWidth: 1, borderBottomColor: C.gray100,
+                        backgroundColor: listRowColor(i), paddingHorizontal: 12,
                       }}>
                         <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: sColor + '18', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                           <Text style={{ fontSize: 13, fontWeight: '700', color: sColor }}>#{slotNum}</Text>
@@ -956,7 +961,7 @@ export default function ManagerChitsScreen() {
                   { label: 'Chit Value', value: selected.chitValue != null ? `₹${Number(selected.chitValue).toLocaleString('en-IN')}` : '—' },
                   { label: 'Monthly', value: selected.installmentAmount != null ? `₹${Number(selected.installmentAmount).toLocaleString('en-IN')}` : '—' },
                   { label: 'Duration', value: (selected.durationMonths ?? selected.totalDraws) != null ? `${selected.durationMonths ?? selected.totalDraws} months` : '—' },
-                  { label: 'Members', value: String(selected.memberCount ?? selected.numberOfMembers ?? '—') },
+                  { label: 'Paying member slots', value: String(selected.payingMemberSlots ?? selected.memberCount ?? '—') },
                   { label: 'Current Draw', value: String(selected.winnersAssigned ?? selected.currentDraw ?? '—') },
                   { label: 'Start Date', value: selected.startDate ? fmtDate(selected.startDate) : '—' },
                   { label: 'Description', value: selected.description ?? '—' },
@@ -990,8 +995,13 @@ export default function ManagerChitsScreen() {
             </TouchableOpacity>
           </View>
           <ReadDataBoundary label="Draw inputs" queryKeys={[[ 'm-enrollments', selected?.id ], [ 'm-winners', selected?.id ], [ 'm-reservations', selected?.id ] ]}>
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+              {drawRequiresAdmin && (
+                <Text accessibilityRole="alert" style={{ color: C.amber, fontSize: 13, marginBottom: 12 }}>
+                  This draw requires an administrator. Please ask an admin to open it.
+                </Text>
+              )}
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number</Text>
               <TextInput
                 value={odDrawNum}
@@ -1007,7 +1017,7 @@ export default function ManagerChitsScreen() {
                   {(() => {
                     const drawNum = Number(odDrawNum) || nextDrawNum;
                     const slot = (reservations as any[]).find((r: any) => r.monthNumber === drawNum && r.status !== 'VOIDED');
-                    return slot?.payoutAmount ? (
+                    return slot?.payoutAmount && !slot.orgHeld ? (
                       <View style={{ backgroundColor: '#FEF3C7', borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600' }}>Draw #{drawNum} Payout</Text>
                         <Text style={{ fontSize: 17, fontWeight: '800', color: C.amber }}>₹{Number(slot.payoutAmount).toLocaleString('en-IN')}</Text>
@@ -1101,7 +1111,7 @@ export default function ManagerChitsScreen() {
                 : (openDrawMut.isPending ? 'Opening…' : 'Open Draw')}
               onPress={() => openDrawMut.mutate()}
               loading={openDrawMut.isPending}
-              disabled={openDrawMut.isPending || (isLotteryChit && lotteryDrawMode === 'PICK' && !lotteryPickedWinnerId) || (isLotteryChit && lotteryEligibleIds.length === 0)}
+              disabled={openDrawMut.isPending || drawRequiresAdmin || (isLotteryChit && lotteryDrawMode === 'PICK' && !lotteryPickedWinnerId) || (isLotteryChit && lotteryEligibleIds.length === 0)}
             />
           </View>
           </ReadDataBoundary>
@@ -1115,8 +1125,8 @@ export default function ManagerChitsScreen() {
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Skip Draw #{skipTarget?.drawNumber}</Text>
             <TouchableOpacity onPress={() => setShowSkip(false)}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
           </View>
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason</Text>
               <TextInput
                 value={skipReason}
@@ -1140,11 +1150,11 @@ export default function ManagerChitsScreen() {
       <ChitActionDialog visible={showCollect} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowCollect(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
-            <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Collect Payment</Text>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Record Cash Collected</Text>
             <TouchableOpacity onPress={() => setShowCollect(false)}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
           </View>
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
               <View>
                 <Text style={{ fontSize: 12, color: C.gray500 }}>Member</Text>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy }}>{memberMap[collectMemberId] ?? collectMemberId}</Text>
@@ -1157,23 +1167,11 @@ export default function ManagerChitsScreen() {
                   style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900 }}
                 />
               </View>
-              <View>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Payment Mode</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {['CASH', 'UPI', 'BANK_TRANSFER'].map((m) => (
-                    <TouchableOpacity key={m} onPress={() => setCollectMode(m)}
-                      style={{ flex: 1, backgroundColor: collectMode === m ? C.navy : C.gray100, borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: collectMode === m ? '#fff' : C.gray700 }}>
-                        {m === 'BANK_TRANSFER' ? 'Bank' : m}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+              <Text style={{ fontSize: 12, color: C.gray500 }}>For cash already received. The admin must confirm remittance before the member's installments are credited.</Text>
             </ScrollView>
           </KeyboardAvoidingView>
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
-            <Button label={collectMut.isPending ? 'Recording…' : 'Record Payment'} onPress={() => collectMut.mutate()} loading={collectMut.isPending} disabled={!collectAmount || !collectMemberId} />
+            <Button label={collectMut.isPending ? 'Recording…' : 'Record Cash Collected'} onPress={confirmCashCollection} loading={collectMut.isPending} disabled={!collectAmount || !collectMemberId} />
           </View>
         </SafeAreaView>
       </ChitActionDialog>
@@ -1185,8 +1183,8 @@ export default function ManagerChitsScreen() {
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Create Payout</Text>
             <TouchableOpacity onPress={() => setShowPayout(false)}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
           </View>
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
               <View>
                 <Text style={{ fontSize: 12, color: C.gray500 }}>Winner</Text>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy }}>
@@ -1209,50 +1207,6 @@ export default function ManagerChitsScreen() {
         </SafeAreaView>
       </ChitActionDialog>
 
-      {/* ── Disburse Payout Modal ────────────────────────────────────────────── */}
-      <ChitActionDialog visible={showDisburse} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowDisburse(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
-            <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Disburse Payout</Text>
-            <TouchableOpacity onPress={() => setShowDisburse(false)}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
-          </View>
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
-              <View>
-                <Text style={{ fontSize: 12, color: C.gray500 }}>Recipient</Text>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy }}>
-                  {memberMap[disbursePay?.memberId ?? disbursePay?.winnerId] ?? '—'}
-                </Text>
-                <Amount value={disbursePay?.netPayoutAmount ?? disbursePay?.winningAmount ?? 0} size="lg" color={C.gold} />
-              </View>
-              <View>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Actual Amount (₹)</Text>
-                <TextInput
-                  value={disburseAmount} onChangeText={setDisburseAmount}
-                  keyboardType="numeric" placeholder={String(disbursePay?.netPayoutAmount ?? '')}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900 }}
-                />
-              </View>
-              <View>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Mode</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {['CASH', 'UPI', 'BANK_TRANSFER'].map((m) => (
-                    <TouchableOpacity key={m} onPress={() => setDisburseMode(m)}
-                      style={{ flex: 1, backgroundColor: disburseMode === m ? C.navy : C.gray100, borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: disburseMode === m ? '#fff' : C.gray700 }}>
-                        {m === 'BANK_TRANSFER' ? 'Bank' : m}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </ScrollView>
-          </KeyboardAvoidingView>
-          <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
-            <Button label={disburseMut.isPending ? 'Disbursing…' : 'Confirm Disburse'} onPress={() => disburseMut.mutate()} loading={disburseMut.isPending} />
-          </View>
-        </SafeAreaView>
-      </ChitActionDialog>
         </ChitDialogHost>
       </Modal>
       </ReadDataBoundary>

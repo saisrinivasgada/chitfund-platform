@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import {
   hubListEmployees, hubStartDm, hubListDms, hubGetDmMessages, hubSendDm,
@@ -6,7 +6,7 @@ import {
   hubGetGroupMessages, hubSendGroupMessage, hubDeleteGroupMessage,
   getHubToken,
 } from '../../services/api';
-import { MessageSquare, Users, Plus, Send, Trash2, ChevronUp, X, Search } from 'lucide-react';
+import { MessageSquare, Users, Plus, Send, Trash2, ChevronUp, ChevronLeft, X, Search } from 'lucide-react';
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
 
@@ -22,15 +22,15 @@ function genId() {
 }
 
 // ── New DM Modal ─────────────────────────────────────────────────────────────
-function NewDmModal({ employees, myId, onSelect, onClose }) {
+function NewDmModal({ employees, myId, onSelect, onClose, isStarting, error }) {
   const [q, setQ] = useState('');
   const filtered = employees.filter(e =>
     e.id !== myId && e.username !== myId &&
-    e.username?.toLowerCase().includes(q.toLowerCase())
+    `${e.username ?? ''} ${e.fullName ?? ''}`.toLowerCase().includes(q.toLowerCase())
   );
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-4 sm:p-5 space-y-3 max-h-[95dvh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-gray-900">New Direct Message</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
@@ -50,8 +50,9 @@ function NewDmModal({ employees, myId, onSelect, onClose }) {
           {filtered.map(emp => (
             <button
               key={emp.id}
-              onClick={() => { onSelect(emp); onClose(); }}
-              className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
+              onClick={() => onSelect(emp)}
+              disabled={isStarting}
+              className="w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: '#1E3A5F' }}>
                 {emp.username?.[0]?.toUpperCase() ?? '?'}
@@ -63,13 +64,14 @@ function NewDmModal({ employees, myId, onSelect, onClose }) {
             </button>
           ))}
         </div>
+        {error && <p role="alert" className="text-xs text-red-600">Could not start the conversation. Try again.</p>}
       </div>
     </div>
   );
 }
 
 // ── New Group Modal ───────────────────────────────────────────────────────────
-function NewGroupModal({ employees, myId, onCreate, onClose }) {
+function NewGroupModal({ employees, myId, onCreate, onClose, isCreating, createError }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selected, setSelected] = useState([]);
@@ -79,7 +81,7 @@ function NewGroupModal({ employees, myId, onCreate, onClose }) {
   const filtered = employees.filter(e =>
     e.id !== myId && e.username !== myId &&
     !selected.find(s => s.id === e.id) &&
-    e.username?.toLowerCase().includes(q.toLowerCase())
+    `${e.username ?? ''} ${e.fullName ?? ''}`.toLowerCase().includes(q.toLowerCase())
   );
 
   function toggle(emp) {
@@ -89,8 +91,8 @@ function NewGroupModal({ employees, myId, onCreate, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-4 sm:p-5 space-y-3 max-h-[95dvh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-gray-900">New Group</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
@@ -138,19 +140,19 @@ function NewGroupModal({ employees, myId, onCreate, onClose }) {
           ))}
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
+        {createError && <p role="alert" className="text-xs text-red-600">Could not create the group. Your choices are still here; try again.</p>}
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 px-4 py-2 text-sm rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50">Cancel</button>
           <button
-            disabled={!name.trim()}
+            disabled={!name.trim() || isCreating}
             onClick={() => {
               if (!name.trim()) { setError('Name is required'); return; }
               onCreate({ name: name.trim(), description: description.trim(), memberIds: selected.map(s => s.id) });
-              onClose();
             }}
             className="flex-1 px-4 py-2 text-sm rounded-xl text-white font-medium disabled:opacity-40"
             style={{ backgroundColor: '#1E3A5F' }}
           >
-            Create Group
+            {isCreating ? 'Creating…' : 'Create Group'}
           </button>
         </div>
       </div>
@@ -162,29 +164,54 @@ function NewGroupModal({ employees, myId, onCreate, onClose }) {
 function ChatView({ type, item, myId, myUsername }) {
   const qc = useQueryClient();
   const [content, setContent] = useState('');
-  const [hoveredMsg, setHoveredMsg] = useState(null);
+  const [socketConnected, setSocketConnected] = useState(false);
   const bottomRef = useRef(null);
-  const stompRef = useRef(null);
+  const messagesRef = useRef(null);
+  const olderScrollRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const initialScrollRef = useRef(false);
+  const retryDraftRef = useRef(null);
 
   const isDm = type === 'dm';
   const queryKey = isDm ? ['hub-dm-messages', item.id] : ['hub-group-messages', item.id];
 
-  const { data: pages, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+  const { data: pages, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey,
     queryFn: ({ pageParam }) =>
       isDm
         ? hubGetDmMessages(item.id, { cursor: pageParam, limit: 50 })
         : hubGetGroupMessages(item.id, { cursor: pageParam, limit: 50 }),
     getNextPageParam: (last) => last?.hasNext ? last.nextCursor : undefined,
-    refetchInterval: 15000,
+    refetchInterval: socketConnected ? 60000 : 15000,
     staleTime: 10000,
   });
 
   const messages = (pages?.pages ?? []).flatMap(p => p?.items ?? []).reverse();
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  useLayoutEffect(() => {
+    const panel = messagesRef.current;
+    const previous = olderScrollRef.current;
+    if (panel && previous) {
+      panel.scrollTop = previous.top + panel.scrollHeight - previous.height;
+      olderScrollRef.current = null;
+      return;
+    }
+    if (!initialScrollRef.current || nearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: initialScrollRef.current ? 'smooth' : 'auto' });
+    }
+    initialScrollRef.current = true;
   }, [messages.length]);
+
+  const loadOlder = async () => {
+    const panel = messagesRef.current;
+    if (panel) olderScrollRef.current = { top: panel.scrollTop, height: panel.scrollHeight };
+    try {
+      const result = await fetchNextPage();
+      if (result.isError) olderScrollRef.current = null;
+    } catch {
+      olderScrollRef.current = null;
+    }
+  };
 
   // Mark read on open
   useEffect(() => {
@@ -193,15 +220,19 @@ function ChatView({ type, item, myId, myUsername }) {
 
   // WebSocket real-time
   useEffect(() => {
-    const token = getHubToken();
-    if (!token) return;
+    if (!getHubToken()) return;
     const topic = isDm ? `/topic/hub.dm.${item.id}` : `/topic/hub.group.${item.id}`;
 
     const client = new Client({
-      webSocketFactory: () => new SockJS('/api/ws/support'),
-      connectHeaders: { Authorization: `Bearer ${token}` },
+      webSocketFactory: () => new SockJS('/ws/support'),
+      beforeConnect: (current) => {
+        const token = getHubToken();
+        current.connectHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+      },
       reconnectDelay: 4000,
       onConnect: () => {
+        setSocketConnected(true);
+        qc.invalidateQueries({ queryKey });
         client.subscribe(topic, (frame) => {
           try {
             const payload = JSON.parse(frame.body);
@@ -231,30 +262,40 @@ function ChatView({ type, item, myId, myUsername }) {
                   pages: [{ ...firstPage, items: [payload, ...(firstPage.items ?? [])] }, ...old.pages.slice(1)],
                 };
               });
-              if (isDm) hubMarkDmRead(item.id).catch(() => {});
+              if (isDm && nearBottomRef.current) hubMarkDmRead(item.id).catch(() => {});
             }
           } catch { /* ignore WebSocket message parse errors */ }
         });
       },
+      onWebSocketClose: () => setSocketConnected(false),
+      onStompError: () => setSocketConnected(false),
     });
     client.activate();
-    stompRef.current = client;
     return () => { client.deactivate(); };
   }, [isDm, item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendMut = useMutation({
-    mutationFn: () => {
-      const cid = genId();
+    mutationFn: ({ content: text, clientMessageId }) => {
       return isDm
-        ? hubSendDm(item.id, content.trim(), cid)
-        : hubSendGroupMessage(item.id, content.trim(), cid);
+        ? hubSendDm(item.id, text, clientMessageId)
+        : hubSendGroupMessage(item.id, text, clientMessageId);
     },
-    onSuccess: () => {
-      setContent('');
+    onSuccess: (_, variables) => {
+      retryDraftRef.current = null;
+      setContent((current) => current.trim() === variables.content ? '' : current);
       qc.invalidateQueries({ queryKey });
       qc.invalidateQueries({ queryKey: isDm ? ['hub-dms'] : ['hub-chat-groups'] });
     },
   });
+
+  const handleSend = () => {
+    const text = content.trim();
+    if (!text || sendMut.isPending) return;
+    const clientMessageId = retryDraftRef.current?.content === text
+      ? retryDraftRef.current.clientMessageId : genId();
+    retryDraftRef.current = { content: text, clientMessageId };
+    sendMut.mutate({ content: text, clientMessageId });
+  };
 
   const deleteMut = useMutation({
     mutationFn: (msgId) =>
@@ -274,7 +315,7 @@ function ChatView({ type, item, myId, myUsername }) {
     : (item.name ?? 'Group');
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Chat header */}
       <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2.5 flex-shrink-0">
         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${isDm ? 'bg-[#1E3A5F]' : 'bg-emerald-600'}`}>
@@ -282,7 +323,7 @@ function ChatView({ type, item, myId, myUsername }) {
         </div>
         <div>
           <p className="text-sm font-semibold text-gray-900">{title}</p>
-          {isDm && <p className="text-xs text-green-500">● Online</p>}
+          {isDm && <p className="text-xs text-gray-400">Team conversation</p>}
           {!isDm && item.memberCount != null && (
             <p className="text-xs text-gray-400">{item.memberCount} members</p>
           )}
@@ -290,11 +331,14 @@ function ChatView({ type, item, myId, myUsername }) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div ref={messagesRef} onScroll={(event) => {
+        const panel = event.currentTarget;
+        nearBottomRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 120;
+      }} className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3">
         {hasNextPage && (
           <div className="flex justify-center">
             <button
-              onClick={() => fetchNextPage()}
+              onClick={loadOlder}
               disabled={isFetchingNextPage}
               className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50"
             >
@@ -306,6 +350,8 @@ function ChatView({ type, item, myId, myUsername }) {
 
         {isLoading ? (
           <p className="text-center text-sm text-gray-400 py-10">Loading messages…</p>
+        ) : isError ? (
+          <button type="button" onClick={() => qc.invalidateQueries({ queryKey })} className="block mx-auto text-sm text-red-600 py-10 underline">Messages unavailable. Try again.</button>
         ) : messages.length === 0 ? (
           <p className="text-center text-sm text-gray-400 py-10">No messages yet. Say hello!</p>
         ) : (
@@ -316,10 +362,8 @@ function ChatView({ type, item, myId, myUsername }) {
               <div
                 key={msg.id}
                 className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
-                onMouseEnter={() => setHoveredMsg(msg.id)}
-                onMouseLeave={() => setHoveredMsg(null)}
               >
-                <div className="relative max-w-[70%]">
+                <div className="relative max-w-[88%] sm:max-w-[70%] min-w-0 break-words">
                   {!isDm && !isMe && (
                     <p className="text-[11px] text-gray-400 mb-0.5">
                       {msg.senderName ?? msg.senderUsername ?? 'Hub Staff'}
@@ -336,11 +380,12 @@ function ChatView({ type, item, myId, myUsername }) {
                   </div>
                   <div className={`flex items-center gap-2 mt-0.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <span className="text-[11px] text-gray-400">{formatTime(msg.createdAt)}</span>
-                    {!isDeleted && canDelete(msg) && hoveredMsg === msg.id && (
+                    {!isDeleted && canDelete(msg) && (
                       <button
                         onClick={() => deleteMut.mutate(msg.id)}
                         disabled={deleteMut.isPending}
-                        className="text-gray-300 hover:text-red-500 transition-colors"
+                        aria-label="Delete message"
+                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
                       >
                         <Trash2 size={12} />
                       </button>
@@ -362,15 +407,15 @@ function ChatView({ type, item, myId, myUsername }) {
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey && content.trim()) {
               e.preventDefault();
-              sendMut.mutate();
+              handleSend();
             }
           }}
           rows={2}
           placeholder="Type a message…"
-          className="flex-1 resize-none px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+          className="flex-1 min-w-0 resize-none px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
         />
         <button
-          onClick={() => sendMut.mutate()}
+          onClick={handleSend}
           disabled={!content.trim() || sendMut.isPending}
           className="flex items-center justify-center w-10 h-10 rounded-xl text-white transition-opacity disabled:opacity-40 flex-shrink-0"
           style={{ backgroundColor: '#1E3A5F' }}
@@ -378,6 +423,7 @@ function ChatView({ type, item, myId, myUsername }) {
           <Send size={16} />
         </button>
       </div>
+      {sendMut.isError && <p role="alert" className="px-3 pb-2 text-xs text-red-600">Message was not sent. Your draft is still here; tap send to retry.</p>}
     </div>
   );
 }
@@ -417,6 +463,7 @@ export default function HubChatPage() {
     mutationFn: (emp) => hubStartDm(emp.id),
     onSuccess: (dm) => {
       qc.invalidateQueries({ queryKey: ['hub-dms'] });
+      setShowNewDm(false);
       setSelected({ type: 'dm', item: dm });
     },
   });
@@ -425,25 +472,26 @@ export default function HubChatPage() {
     mutationFn: (body) => hubCreateChatGroup(body),
     onSuccess: (group) => {
       qc.invalidateQueries({ queryKey: ['hub-chat-groups'] });
+      setShowNewGroup(false);
       setSelected({ type: 'group', item: group });
     },
   });
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="flex h-full min-h-0 min-w-0 bg-white lg:rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       {/* Left panel */}
-      <div className="w-72 flex-shrink-0 border-r border-gray-100 flex flex-col">
+      <div className={`${selected ? 'hidden xl:flex' : 'flex'} w-full xl:w-72 min-w-0 flex-shrink-0 border-r border-gray-100 flex-col`}>
         <div className="px-4 py-3 border-b border-gray-50">
           <h2 className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>Team Chat</h2>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {/* Direct Messages */}
           <div className="px-3 pt-3">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Direct Messages</span>
               <button
-                onClick={() => setShowNewDm(true)}
+                onClick={() => { startDmMut.reset(); setShowNewDm(true); }}
                 className="text-gray-400 hover:text-[#1E3A5F] transition-colors"
                 title="New DM"
               >
@@ -471,9 +519,9 @@ export default function HubChatPage() {
                         <p className={`text-xs truncate ${isActive ? 'text-white/70' : 'text-gray-400'}`}>{dm.lastMessagePreview}</p>
                       )}
                     </div>
-                    {dm.unread > 0 && (
+                    {dm.unreadCount > 0 && (
                       <span className="w-4 h-4 bg-blue-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0">
-                        {dm.unread}
+                        {dm.unreadCount}
                       </span>
                     )}
                   </button>
@@ -487,7 +535,7 @@ export default function HubChatPage() {
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Groups</span>
               <button
-                onClick={() => setShowNewGroup(true)}
+                onClick={() => { createGroupMut.reset(); setShowNewGroup(true); }}
                 className="text-gray-400 hover:text-[#1E3A5F] transition-colors"
                 title="New Group"
               >
@@ -523,28 +571,36 @@ export default function HubChatPage() {
       </div>
 
       {/* Right panel — chat view */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={`${selected ? 'flex' : 'hidden xl:flex'} flex-1 flex-col min-w-0 min-h-0`}>
         {selected ? (
-          <ChatView
-            key={`${selected.type}-${selected.item.id}`}
-            type={selected.type}
-            item={selected.item}
-            myId={hubUser.id}
-            myUsername={hubUser.username}
-          />
+          <>
+            <button type="button" onClick={() => setSelected(null)}
+              className="xl:hidden flex-shrink-0 flex items-center gap-1 px-3 py-2 border-b border-gray-100 text-sm font-semibold text-[#1E3A5F]">
+              <ChevronLeft size={17} /> Back to chats
+            </button>
+            <div className="flex-1 min-h-0">
+              <ChatView
+                key={`${selected.type}-${selected.item.id}`}
+                type={selected.type}
+                item={selected.item}
+                myId={hubUser.id}
+                myUsername={hubUser.username}
+              />
+            </div>
+          </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
             <MessageSquare size={40} className="opacity-20" />
             <p className="text-sm">Select a conversation or start a new one</p>
             <div className="flex gap-2 mt-1">
               <button
-                onClick={() => setShowNewDm(true)}
+                onClick={() => { startDmMut.reset(); setShowNewDm(true); }}
                 className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50"
               >
                 <Plus size={14} /> New DM
               </button>
               <button
-                onClick={() => setShowNewGroup(true)}
+                onClick={() => { createGroupMut.reset(); setShowNewGroup(true); }}
                 className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50"
               >
                 <Plus size={14} /> New Group
@@ -561,6 +617,8 @@ export default function HubChatPage() {
           myId={hubUser.id ?? hubUser.username}
           onSelect={(emp) => startDmMut.mutate(emp)}
           onClose={() => setShowNewDm(false)}
+          isStarting={startDmMut.isPending}
+          error={startDmMut.isError}
         />
       )}
       {showNewGroup && (
@@ -569,6 +627,8 @@ export default function HubChatPage() {
           myId={hubUser.id ?? hubUser.username}
           onCreate={(body) => createGroupMut.mutate(body)}
           onClose={() => setShowNewGroup(false)}
+          isCreating={createGroupMut.isPending}
+          createError={createGroupMut.isError}
         />
       )}
     </div>

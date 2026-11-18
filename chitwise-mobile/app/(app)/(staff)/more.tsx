@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { C, T } from '../../../components/ui';
 import { useAuthStore } from '../../../store/authStore';
 import { ToolkitSettingsRow } from '../../../components/ToolkitSettingsRow';
-import { MoreSection } from '../../../components/MoreNavigation';
+import { MoreSection, MoreNavigationRows } from '../../../components/MoreNavigation';
 import { TutorialSettingsRow } from '../../../tutorials/TutorialProvider';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -22,6 +22,9 @@ export default function StaffMoreScreen() {
         </View>
 
         <MoreSection title="App settings"><ToolkitSettingsRow /><TutorialSettingsRow /></MoreSection>
+        {user?.chatEnabled && <MoreSection title="Communication"><MoreNavigationRows items={[
+          { emoji: '💬', label: 'Group Chats', description: 'Messages from your assigned groups', route: '/(app)/(staff)/messages' },
+        ]} labels={['Group Chats']} /></MoreSection>}
 
         <View style={{ marginTop: 28, alignItems: 'center' }}>
           <Text style={{ fontSize: 12, color: C.gray400 }}>

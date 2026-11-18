@@ -144,6 +144,12 @@ export class ErrorBoundary extends Component {
     };
 
     const reload = () => {
+      // A failed route download is cached by React.lazy. Reload the document so
+      // the browser can request the current bundle instead of retrying it in place.
+      if (/dynamically imported module|importing a module script|chunkloaderror|loading chunk/i.test(this.state.error?.message ?? '')) {
+        window.location.reload();
+        return;
+      }
       this.setState({ hasError: false, error: null });
     };
 

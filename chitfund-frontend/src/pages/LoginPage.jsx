@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, adminForgotPassword, adminVerifyResetOtp, adminResetPassword, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, signInWithGoogle, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, adminForgotPassword, adminVerifyResetOtp, adminResetPassword, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
+import { browserKeyForUsername, browserKeyForMobile, browserKeyForGoogle,
+  rememberActiveBrowserKey } from '../utils/trustedBrowser';
+import { centralGoogleLoginUrl, loginTenantSlug, tenantHandoffActive, shouldHandoffToTenant, tenantHandoffUrl } from '../utils/tenantHandoff';
+import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import Button from '../components/ui/Button';
 import DevOtpBanner from '../components/ui/DevOtpBanner';
 import { Input } from '../components/ui/FormField';
@@ -49,6 +53,7 @@ function ForgotPasswordFlow({ onClose }) {
   const [resendBlocked, setResendBlocked] = useState(false);
   const lockoutRef = useRef(null);
   const resendRef  = useRef(null);
+  const resetOtpInFlight = useRef(false);
 
   useEffect(() => () => {
     clearInterval(lockoutRef.current);
@@ -105,18 +110,21 @@ function ForgotPasswordFlow({ onClose }) {
     } finally { setLoading(false); }
   }
 
-  async function handleVerifyEmailOtp(e) {
-    e.preventDefault();
-    if (otp.length !== 6) { setError('Enter all 6 OTP digits'); return; }
+  async function handleVerifyEmailOtp(eOrCode) {
+    if (typeof eOrCode !== 'string') eOrCode?.preventDefault();
+    const code = typeof eOrCode === 'string' ? eOrCode : otp;
+    if (code.length !== 6) { setError('Enter all 6 OTP digits'); return; }
+    if (resetOtpInFlight.current) return;
+    resetOtpInFlight.current = true;
     setError(''); setLoading(true);
     try {
-      const data = await adminVerifyResetOtp({ userId: lookup.userId, code: otp });
+      const data = await adminVerifyResetOtp({ userId: lookup.userId, code });
       setResetToken(data.resetToken);
       setStep('password');
     } catch (err) {
       setError(err.response?.data?.message ?? 'Incorrect or expired OTP. Try again.');
       setOtp('');
-    } finally { setLoading(false); }
+    } finally { resetOtpInFlight.current = false; setLoading(false); }
   }
 
   async function handleSendOtp(e) {
@@ -138,13 +146,16 @@ function ForgotPasswordFlow({ onClose }) {
     } finally { setLoading(false); }
   }
 
-  async function handleVerifyOtp(e) {
-    e.preventDefault();
+  async function handleVerifyOtp(eOrCode) {
+    if (typeof eOrCode !== 'string') eOrCode?.preventDefault();
+    const nextCode = typeof eOrCode === 'string' ? eOrCode : otp;
     if (otpLockout > 0) return;
-    if (otp.length !== 6) { setError('Enter all 6 OTP digits'); return; }
+    if (nextCode.length !== 6) { setError('Enter all 6 OTP digits'); return; }
+    if (resetOtpInFlight.current) return;
+    resetOtpInFlight.current = true;
     setError(''); setLoading(true);
     try {
-      const data = await forgotPasswordVerifyOtp({ userId: lookup.userId, code: otp });
+      const data = await forgotPasswordVerifyOtp({ userId: lookup.userId, code: nextCode });
       setResetToken(data.resetToken);
       setStep('password');
     } catch (err) {
@@ -154,13 +165,16 @@ function ForgotPasswordFlow({ onClose }) {
         setOtp('');
         setOtpLockout(0);
         clearInterval(lockoutRef.current);
-      } else {
+      } else if (code === 'OTP_003') {
         // Wrong OTP — start 5-min lockout
         setError('Incorrect OTP. Try again in 5 minutes.');
         setOtp('');
         startLockout();
+      } else {
+        // Transport failures and throttling are not evidence of a wrong code.
+        setError(err.response?.data?.message ?? 'Could not verify the OTP. Please try again.');
       }
-    } finally { setLoading(false); }
+    } finally { resetOtpInFlight.current = false; setLoading(false); }
   }
 
   async function handleReset(e) {
@@ -253,6 +267,8 @@ function ForgotPasswordFlow({ onClose }) {
         <OtpCodeInput
           value={otp}
           onChange={(value) => { setOtp(value); setError(''); }}
+          onComplete={handleVerifyOtp}
+          status={loading ? 'loading' : error ? 'error' : 'idle'}
           disabled={otpLockout > 0}
           autoFocus
           ariaLabel="Password reset OTP"
@@ -328,10 +344,12 @@ function ForgotPasswordFlow({ onClose }) {
   if (step === 'email-otp') return (
     <div className="mt-5 space-y-4">
       <div className="px-4 py-3 rounded-xl border border-blue-200 bg-blue-50">
-        <p className="text-sm text-blue-700">OTP sent to {emailInput}. Enter it below.</p>
+        <p className="text-sm text-blue-700">Email code sent to {emailInput}. Enter it below.</p>
       </div>
       <form onSubmit={handleVerifyEmailOtp} className="space-y-3">
-        <OtpCodeInput value={otp} onChange={(v) => { setOtp(v); setError(''); }} autoFocus ariaLabel="Email reset OTP" />
+        <OtpCodeInput value={otp} onChange={(v) => { setOtp(v); setError(''); }}
+          onComplete={handleVerifyEmailOtp} status={loading ? 'loading' : error ? 'error' : 'idle'}
+          autoFocus ariaLabel="Email reset OTP" />
         {error && <p className="text-sm text-red-600">{error}</p>}
         <Button type="submit" loading={loading} disabled={otp.length !== 6} className="w-full">Verify OTP</Button>
         <button type="button" onClick={() => { setStep('no-phone'); setOtp(''); setError(''); }}
@@ -428,13 +446,6 @@ const SLIDE = {
   transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] },
 };
 
-function getSubdomainSlug() {
-  const hostname = window.location.hostname;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') return null;
-  const parts = hostname.split('.');
-  return parts.length >= 2 ? parts[0] : null;
-}
-
 /* ── Mobile login flow ── */
 function MobileLoginForm({ onSuccess }) {
   const [step, setStep]         = useState('phone');
@@ -466,7 +477,7 @@ function MobileLoginForm({ onSuccess }) {
     setError(''); setLoading(true);
     try {
       const data = await loginByMobile({ phone, phoneCountryCode: countryCode, password, role });
-      await onSuccess(data);
+      await onSuccess(data, browserKeyForMobile(countryCode, phone, role));
     } catch (err) {
       setError(err.response?.data?.message ?? 'Invalid credentials. Please try again.');
     } finally { setLoading(false); }
@@ -542,10 +553,14 @@ export default function LoginPage() {
   const [loginMode, setLoginMode] = useState('mobile');
   const [form, setForm]           = useState({ username: '', password: '' });
   const [error, setError]         = useState('');
+  const [googleError, setGoogleError] = useState('');
+  const [googleAccountMissing, setGoogleAccountMissing] = useState(false);
   const [loading, setLoading]     = useState(false);
   const [showOtpReset, setShowOtpReset] = useState(false);
   const [loginOtpState, setLoginOtpState] = useState(null); // { otpToken, maskedPhone }
   const [loginOtp, setLoginOtp]   = useState('');
+  const otpVerifyInFlight = useRef(false);
+  const emailOtpVerifyInFlight = useRef(false);
   const [loginEmailState, setLoginEmailState] = useState(null); // { emailVerificationToken, maskedEmail }
   const [loginEmailOtp, setLoginEmailOtp] = useState('');
   const [rememberDevice, setRememberDevice] = useState(false);
@@ -561,7 +576,7 @@ export default function LoginPage() {
     return <Navigate to={dest} replace />;
   }
 
-  async function handleScopedAuth(authResponse, tenantInfo = null) {
+  async function handleScopedAuth(authResponse, tenantInfo = null, browserKey = null) {
     tenantInfo = authResponse?.tenant ?? tenantInfo;
     const accessToken = authResponse?.accessToken ?? authResponse?.token;
     const role = tenantInfo?.role ?? authResponse?.user?.role ?? 'ADMIN';
@@ -582,6 +597,7 @@ export default function LoginPage() {
           analyticsEnabled: tenantInfo.analyticsEnabled === true,
           chatEnabled: tenantInfo.chatEnabled === true,
           settlementEnabled: tenantInfo.settlementEnabled === true,
+          addOns: Array.isArray(tenantInfo.addOns) ? tenantInfo.addOns : [],
           offlineEnabled: typeof tenantInfo.offlineEnabled === 'boolean' ? tenantInfo.offlineEnabled : undefined,
           adminPhone: tenantInfo.adminPhone ?? null,
           adminEmail: tenantInfo.adminEmail ?? null,
@@ -589,30 +605,38 @@ export default function LoginPage() {
         }
       : {};
     login(accessToken, userData, tenantData);
+    rememberActiveBrowserKey(userData.id, browserKey);
     if (mustChangePassword) navigate('/change-password', { replace: true });
     else if (role === 'SUPER_ADMIN') navigate('/superadmin', { replace: true });
     else navigate(role === 'MEMBER' ? '/member' : role === 'STAFF' ? '/tasks' : '/dashboard', { replace: true });
   }
 
-  async function handleLoginResponse(loginResponse) {
+  async function handleLoginResponse(loginResponse, source = 'mobile', browserKey = null, inheritedRememberBrowser = false, rememberRequested = false) {
+    const canRememberBrowser = source === 'username' || inheritedRememberBrowser || loginResponse.canRememberDevice === true;
     if (loginResponse.requiresEmailVerification) {
       setLoginEmailState({
         emailVerificationToken: loginResponse.emailVerificationToken,
         maskedEmail: loginResponse.maskedEmail,
         devOtp: loginResponse.devOtp ?? null,
+        source,
+        browserKey,
+        canRememberBrowser,
+        rememberRequested,
       });
       setLoginEmailOtp('');
       setStep('login-email-otp');
       return;
     }
     if (loginResponse.requiresOtp) {
-      setLoginOtpState({ otpToken: loginResponse.otpToken, maskedPhone: loginResponse.maskedPhone });
+      setLoginOtpState({ otpToken: loginResponse.otpToken, maskedPhone: loginResponse.maskedPhone,
+        source, browserKey, canRememberBrowser: canRememberBrowser && !!browserKey });
       setLoginOtp('');
+      setRememberDevice(rememberRequested);
       setStep('login-otp');
       return;
     }
     if (!loginResponse.requiresTenantSelection && loginResponse.authResponse) {
-      await handleScopedAuth(loginResponse.authResponse);
+      await handleScopedAuth(loginResponse.authResponse, null, browserKey);
       return;
     }
     const tenants = loginResponse.tenants ?? [];
@@ -622,12 +646,17 @@ export default function LoginPage() {
     }
 
     // Subdomain-based auto-selection: apple.localhost → select apple tenant
-    const slug = getSubdomainSlug();
+    const slug = loginTenantSlug();
     if (slug) {
       const match = tenants.find(t => t.slug === slug);
       if (match) {
-        const authData = await selectTenant({ loginToken: loginResponse.loginToken, tenantId: match.tenantId });
-        await handleScopedAuth(authData, match);
+        const useHandoff = shouldHandoffToTenant(match.slug);
+        const authData = await selectTenant({ loginToken: loginResponse.loginToken, tenantId: match.tenantId,
+          rememberDevice: rememberRequested && useHandoff, webHandoff: useHandoff });
+        const handoffUrl = useHandoff ? tenantHandoffUrl(authData, match.slug, browserKey) : null;
+        if (handoffUrl) { window.location.replace(handoffUrl); return; }
+        if (useHandoff) throw new Error('Organization sign-in could not continue. Please try again.');
+        await handleScopedAuth(authData, match, browserKey);
         return;
       }
       setError("You don't have an account with this organisation.");
@@ -635,10 +664,17 @@ export default function LoginPage() {
     }
 
     if (tenants.length === 1) {
-      const authData = await selectTenant({ loginToken: loginResponse.loginToken, tenantId: tenants[0].tenantId });
-      await handleScopedAuth(authData, tenants[0]);
+      const selected = tenants[0];
+      const useHandoff = shouldHandoffToTenant(selected.slug);
+      const authData = await selectTenant({ loginToken: loginResponse.loginToken,
+        tenantId: selected.tenantId,
+        rememberDevice: rememberRequested && useHandoff, webHandoff: useHandoff });
+      const handoffUrl = useHandoff ? tenantHandoffUrl(authData, selected.slug, browserKey) : null;
+      if (handoffUrl) { window.location.replace(handoffUrl); return; }
+      if (useHandoff) throw new Error('Organization sign-in could not continue. Please try again.');
+      await handleScopedAuth(authData, tenants[0], browserKey);
     } else {
-      navigate('/select-company', { state: { loginToken: loginResponse.loginToken, tenants } });
+      navigate('/select-company', { state: { loginToken: loginResponse.loginToken, tenants, browserKey, rememberRequested } });
     }
   }
 
@@ -647,10 +683,27 @@ export default function LoginPage() {
     setError(''); setLoading(true);
     try {
       const data = await loginApi(form);
-      await handleLoginResponse(data);
+      await handleLoginResponse(data, 'username', browserKeyForUsername(form.username));
     } catch (err) {
       setError(err.response?.data?.message ?? 'Invalid credentials. Please try again.');
     } finally { setLoading(false); }
+  }
+
+  async function handleGoogleCredential(idToken) {
+    setGoogleError('');
+    setGoogleAccountMissing(false);
+    setLoading(true);
+    try {
+      await handleLoginResponse(await signInWithGoogle(idToken), 'google', browserKeyForGoogle(idToken), false, rememberDevice);
+    } catch (err) {
+      const missing = err.response?.data?.errorCode === 'AUTH_006';
+      setGoogleAccountMissing(missing);
+      setGoogleError(missing
+        ? 'This Google account is not linked to a ChitWise account.'
+        : err.response?.data?.message ?? 'Google sign-in could not finish. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleResendLoginOtp() {
@@ -681,39 +734,64 @@ export default function LoginPage() {
     } finally { setLoading(false); }
   }
 
-  async function handleLoginOtpSubmit(e) {
-    e.preventDefault();
-    if (!loginOtp || loginOtp.length !== 6) return;
+  async function handleLoginOtpSubmit(eOrCode) {
+    if (typeof eOrCode !== 'string') eOrCode?.preventDefault();
+    const code = typeof eOrCode === 'string' ? eOrCode : loginOtp;
+    if (code.length !== 6 || otpVerifyInFlight.current) return;
+    otpVerifyInFlight.current = true;
     setError(''); setLoading(true);
     try {
-      const data = await verifyLoginOtp({ otpToken: loginOtpState.otpToken, code: loginOtp, rememberDevice });
+      const canRememberBrowser = loginOtpState?.canRememberBrowser === true;
+      const rememberRequested = canRememberBrowser && rememberDevice;
+      const rememberOnThisHost = rememberRequested && !tenantHandoffActive();
+      const data = await verifyLoginOtp({ otpToken: loginOtpState.otpToken, code,
+        rememberDevice: rememberOnThisHost });
       if (data.requiresOtp) {
         setError('OTP verification failed. Please try again.');
         return;
       }
-      if (rememberDevice && data.deviceToken) {
-        saveDeviceToken(data.deviceToken);
+      if (rememberOnThisHost && data.deviceToken) {
+        saveDeviceToken(loginOtpState.browserKey, data.deviceToken);
       }
-      await handleLoginResponse(data);
+      await handleLoginResponse(data, loginOtpState.source, loginOtpState.browserKey, false, rememberRequested);
     } catch (err) {
-      setError(err.response?.data?.message ?? 'Incorrect OTP. Please try again.');
-    } finally { setLoading(false); }
+      if (err.response?.data?.errorCode === 'AUTH_004') {
+        setLoginOtpState(null);
+        setLoginOtp('');
+        setStep('login');
+        setError('Your sign-in session ended. Please sign in again.');
+      } else {
+        setError(err.response?.data?.message ?? 'Could not verify the OTP. Please try again.');
+        if (err.response?.status !== 429) setLoginOtp('');
+      }
+    } finally { otpVerifyInFlight.current = false; setLoading(false); }
   }
 
-  async function handleLoginEmailOtpSubmit(e) {
-    e.preventDefault();
-    if (!loginEmailState || loginEmailOtp.length !== 6) return;
+  async function handleLoginEmailOtpSubmit(eOrCode) {
+    if (typeof eOrCode !== 'string') eOrCode?.preventDefault();
+    const code = typeof eOrCode === 'string' ? eOrCode : loginEmailOtp;
+    if (!loginEmailState || code.length !== 6 || emailOtpVerifyInFlight.current) return;
+    emailOtpVerifyInFlight.current = true;
     setError(''); setLoading(true);
     try {
       const data = await verifyLoginEmailOtp({
         emailVerificationToken: loginEmailState.emailVerificationToken,
-        code: loginEmailOtp,
+        code,
       });
       setLoginEmailState(null);
-      await handleLoginResponse(data);
+      await handleLoginResponse(data, loginEmailState.source, loginEmailState.browserKey,
+        loginEmailState.canRememberBrowser, loginEmailState.rememberRequested);
     } catch (err) {
-      setError(err.response?.data?.message ?? 'Incorrect email OTP. Please try again.');
-    } finally { setLoading(false); }
+      if (err.response?.data?.errorCode === 'AUTH_004') {
+        setLoginEmailState(null);
+        setLoginEmailOtp('');
+        setStep('login');
+        setError('Your sign-in session ended. Please sign in again.');
+      } else {
+        setError(err.response?.data?.message ?? 'Could not verify the email OTP. Please try again.');
+        if (err.response?.status !== 429) setLoginEmailOtp('');
+      }
+    } finally { emailOtpVerifyInFlight.current = false; setLoading(false); }
   }
 
   async function handleResendLoginEmailOtp() {
@@ -731,6 +809,7 @@ export default function LoginPage() {
     setSelectedRole(r);
     setStep('login');
     setError('');
+    setGoogleError('');
     setLoginMode('mobile');
   }
 
@@ -799,22 +878,20 @@ export default function LoginPage() {
           </AnimatePresence>
         </div>
 
-        <div className="relative z-10 grid grid-cols-2 gap-3">
+        <div className="relative z-10">
           <AnimatePresence mode="wait" initial={false}>
-            {(selectedRole?.stats ?? [
-              { label: 'Your data',   value: 'Always private' },
-              { label: 'Connections', value: 'HTTPS secured' },
-            ]).map(({ label, value }) => (
-              <motion.div
-                key={label}
-                {...SLIDE}
-                className="rounded-xl p-4"
-                style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}
-              >
-                <p className="text-white/50 text-xs mb-1">{label}</p>
-                <p className="text-white font-bold text-base">{value}</p>
-              </motion.div>
-            ))}
+            <motion.div key={(selectedRole?.key ?? 'default') + '-stats'} {...SLIDE} className="grid grid-cols-2 gap-3">
+              {(selectedRole?.stats ?? [
+                { label: 'Your data',   value: 'Always private' },
+                { label: 'Connections', value: 'HTTPS secured' },
+              ]).map(({ label, value }) => (
+                <div key={label} className="rounded-xl p-4"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <p className="text-white/50 text-xs mb-1">{label}</p>
+                  <p className="text-white font-bold text-base">{value}</p>
+                </div>
+              ))}
+            </motion.div>
           </AnimatePresence>
         </div>
       </div>
@@ -883,6 +960,8 @@ export default function LoginPage() {
                       <button onClick={() => navigate('/privacy')} className="hover:text-gray-500 cursor-pointer underline">Privacy Policy</button>
                       {' · '}
                       <button onClick={() => navigate('/terms')} className="hover:text-gray-500 cursor-pointer underline">Terms of Service</button>
+                      {' · '}
+                      <button onClick={() => navigate('/delete-account')} className="hover:text-gray-500 cursor-pointer underline">Delete account</button>
                     </p>
                   </div>
                 </div>
@@ -961,12 +1040,37 @@ export default function LoginPage() {
                       )}
 
                       {/* Mobile login */}
-                      {loginMode === 'mobile' && <MobileLoginForm onSuccess={handleLoginResponse} />}
+                      {loginMode === 'mobile' && <MobileLoginForm onSuccess={(data, browserKey) => handleLoginResponse(data, 'mobile', browserKey)} />}
+
+                      {roleObj.key === 'admin' && import.meta.env.VITE_GOOGLE_CLIENT_ID
+                        && (!centralGoogleLoginUrl() || tenantHandoffActive()) && (
+                        <div className="mt-6 pt-5 border-t border-gray-100">
+                          <p className="text-xs text-gray-500 text-center mb-3">Or sign in with your linked Google account</p>
+                          {centralGoogleLoginUrl()
+                            ? <a href={centralGoogleLoginUrl()} className="block max-w-[300px] mx-auto rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50">Continue with Google</a>
+                            : <GoogleSignInButton onCredential={handleGoogleCredential} text="signin_with" />}
+                          {!centralGoogleLoginUrl() && tenantHandoffActive() && <label className="flex items-center justify-center gap-2 mt-3 text-xs text-gray-600 cursor-pointer">
+                            <input type="checkbox" checked={rememberDevice} onChange={(e) => setRememberDevice(e.target.checked)}
+                              className="accent-[#1E3A5F]" />
+                            Trust this browser for up to 30 days
+                          </label>}
+                          {loading && <p className="text-xs text-gray-500 text-center mt-2">Signing in…</p>}
+                          {googleError && (
+                            <div role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                              <p>{googleError}</p>
+                              {googleAccountMissing && <p className="mt-1">Applied to register an organization? Check your application email or <a href="mailto:help@thechitwise.com" className="underline">contact support</a>.</p>}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <div className="mt-8 pt-6 border-t border-gray-100 text-center">
                         <p className="text-sm text-gray-400">
                           New chit fund?{' '}
-                          <button onClick={() => navigate('/register')} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
+                          <button onClick={() => {
+                            if (centralGoogleLoginUrl()) window.location.assign('https://thechitwise.com/register');
+                            else navigate('/register');
+                          }} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
                             Register your organization
                           </button>
                         </p>
@@ -974,6 +1078,8 @@ export default function LoginPage() {
                           <button onClick={() => navigate('/privacy')} className="hover:text-gray-500 cursor-pointer underline">Privacy Policy</button>
                           {' · '}
                           <button onClick={() => navigate('/terms')} className="hover:text-gray-500 cursor-pointer underline">Terms of Service</button>
+                          {' · '}
+                          <button onClick={() => navigate('/delete-account')} className="hover:text-gray-500 cursor-pointer underline">Delete account</button>
                         </p>
                       </div>
                     </>
@@ -995,22 +1101,26 @@ export default function LoginPage() {
                       Verify your identity
                     </h2>
                     <p className="text-sm text-gray-500 mt-2">
-                      A 6-digit OTP was sent to <span className="font-semibold">{loginOtpState?.maskedPhone}</span>.
+                      A 6-digit WhatsApp code was sent to <span className="font-semibold">{loginOtpState?.maskedPhone}</span>.
                     </p>
                   </div>
                   <form onSubmit={handleLoginOtpSubmit} className="space-y-5">
+                    {loginOtpState?.canRememberBrowser && (
+                      <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                        <input type="checkbox" checked={rememberDevice} onChange={(e) => setRememberDevice(e.target.checked)}
+                          className="w-4 h-4 rounded border-gray-300 text-[#1E3A5F] focus:ring-[#1E3A5F]/30 cursor-pointer" />
+                        <span className="text-sm text-gray-600">Trust this browser for up to 30 days</span>
+                      </label>
+                    )}
                     <OtpCodeInput
                       value={loginOtp}
                       onChange={(value) => { setLoginOtp(value); setError(''); }}
+                      onComplete={handleLoginOtpSubmit}
+                      status={loading ? 'loading' : error ? 'error' : 'idle'}
                       autoFocus
                       ariaLabel="Login verification OTP"
                     />
                     {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}
-                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                      <input type="checkbox" checked={rememberDevice} onChange={(e) => setRememberDevice(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-[#1E3A5F] focus:ring-[#1E3A5F]/30 cursor-pointer" />
-                      <span className="text-sm text-gray-600">Remember this device — skip OTP next time</span>
-                    </label>
                     <Button type="submit" loading={loading} disabled={loginOtp.length !== 6} className="w-full">Verify &amp; Sign In</Button>
                     <div className="text-center text-xs text-gray-400 pt-1">
                       {otpResendBlocked
@@ -1039,11 +1149,12 @@ export default function LoginPage() {
                       Verify your email
                     </h2>
                     <p className="text-sm text-gray-500 mt-2">
-                      Enter the 6-digit code generated for <span className="font-semibold">{loginEmailState?.maskedEmail}</span>.
+                      Enter the 6-digit email code sent to <span className="font-semibold">{loginEmailState?.maskedEmail}</span>.
                     </p>
                   </div>
                   <form onSubmit={handleLoginEmailOtpSubmit} className="space-y-5">
                     <OtpCodeInput value={loginEmailOtp} onChange={(value) => { setLoginEmailOtp(value); setError(''); }}
+                      onComplete={handleLoginEmailOtpSubmit} status={loading ? 'loading' : error ? 'error' : 'idle'}
                       autoFocus ariaLabel="Email verification OTP" />
                     <DevOtpBanner otp={loginEmailState?.devOtp} />
                     {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}

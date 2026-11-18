@@ -12,6 +12,7 @@ import {
 import { X, ChevronLeft, Send, Trash2, MessageSquare, Search, Loader2, Plus, Users, UserMinus, Minus, Maximize2 } from 'lucide-react';
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
+import { accessTokenForAccount, activeAccountScope } from '../../offline/accountClient';
 import NewChatModal from './NewChatModal';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -36,12 +37,21 @@ function generateClientId() {
     : Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+async function currentChatToken() {
+  const proxyToken = sessionStorage.getItem('token');
+  if (proxyToken) return proxyToken;
+  const scope = activeAccountScope();
+  return scope ? accessTokenForAccount(scope) : getAuthToken();
+}
+
 // ── UnifiedConversationList (admin/manager/staff view) ─────────────────────────
 
 function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, search, filter, canDm, canCreateGroup, isMember, memberConv, tenantName }) {
   const queryClient = useQueryClient();
+  const [startingMemberId, setStartingMemberId] = useState(null);
+  const [startError, setStartError] = useState('');
 
-  const { data: convData, isLoading: convLoading } = useQuery({
+  const { data: convData, isLoading: convLoading, isError: convError, refetch: refetchConversations } = useQuery({
     queryKey: ['conversations'],
     queryFn: () => listConversations({ size: 50 }),
     enabled: canDm,
@@ -49,7 +59,7 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
     refetchInterval: 30_000,
   });
 
-  const { data: groupData, isLoading: groupLoading } = useQuery({
+  const { data: groupData, isLoading: groupLoading, isError: groupError, refetch: refetchGroups } = useQuery({
     queryKey: ['groups'],
     queryFn: () => listGroups({ size: 50 }),
     staleTime: 15_000,
@@ -142,6 +152,8 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {(convError || groupError) && <button type="button" role="alert" onClick={() => { if (convError) refetchConversations(); if (groupError) refetchGroups(); }} className="px-4 py-2 text-xs text-red-600 bg-red-50 text-left">Some conversations could not load. Tap to retry.</button>}
+      {startError && <p role="alert" className="px-4 py-2 text-xs text-red-600 bg-red-50">{startError}</p>}
       <div className="flex-1 overflow-y-auto">
         {/* Contact suggestions (WhatsApp-style: show member to start new chat) */}
         {contactSuggestions.length > 0 && (
@@ -152,22 +164,30 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
             {contactSuggestions.map((m) => (
               <button
                 key={m.memberId ?? m.id}
-                onClick={() => {
-                  startConversation({ memberId: m.userId ?? m.memberId ?? m.id, memberName: m.fullName ?? m.name })
-                    .then((conv) => {
-                      queryClient.invalidateQueries({ queryKey: ['conversations'] });
-                      onSelectMember(conv);
-                    })
-                    .catch(() => {});
+                type="button"
+                disabled={startingMemberId !== null}
+                onClick={async () => {
+                  const memberId = m.userId ?? m.memberId ?? m.id;
+                  setStartError('');
+                  setStartingMemberId(memberId);
+                  try {
+                    const conv = await startConversation({ memberId, memberName: m.fullName ?? m.name });
+                    queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                    onSelectMember(conv);
+                  } catch {
+                    setStartError('Could not start this chat. Please try again.');
+                  } finally {
+                    setStartingMemberId(null);
+                  }
                 }}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-100 text-left"
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-100 text-left disabled:opacity-60"
               >
                 <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-sm text-blue-700 flex-shrink-0">
                   {(m.fullName ?? m.name ?? '?')[0].toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-semibold text-gray-900 block truncate">{m.fullName ?? m.name}</span>
-                  <span className="text-xs text-blue-600">Tap to start a conversation</span>
+                  <span className="text-xs text-blue-600">{startingMemberId === (m.userId ?? m.memberId ?? m.id) ? 'Starting chat…' : 'Tap to start a conversation'}</span>
                 </div>
               </button>
             ))}
@@ -264,6 +284,11 @@ function MembersDrawer({ groupId, isAdmin, onClose }) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {removeMutation.isError && (
+          <p role="alert" className="border-b border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700">
+            Could not remove this member. Please try again.
+          </p>
+        )}
         {isLoading ? (
           <div className="flex justify-center py-8"><Loader2 className="animate-spin text-gray-400" size={20} /></div>
         ) : members.length === 0 ? (
@@ -287,6 +312,7 @@ function MembersDrawer({ groupId, isAdmin, onClose }) {
                   disabled={removeMutation.isPending}
                   className="text-gray-300 hover:text-red-500 cursor-pointer"
                   title="Remove member"
+                  aria-label={`Remove ${m.userName ?? 'member'} from group`}
                 >
                   <UserMinus size={13} />
                 </button>
@@ -309,6 +335,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const retryDraftRef = useRef(null);
   const stompClientRef = useRef(null);
 
   // If we opened in draft mode but the conversations list has already loaded with a real conv for
@@ -325,7 +352,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
     if (found) setConv(found);
   }, [convList, hasId, conv.memberId]);
 
-  const { data: msgData, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+  const { data: msgData, isLoading: messagesLoading, isError: messagesError, refetch: refetchMessages, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ['chatMessages', conv.id],
     queryFn: ({ pageParam }) => getChatMessages(conv.id, { cursor: pageParam, limit: 50 }),
     getNextPageParam: (last) => last?.nextCursor ?? undefined,
@@ -349,12 +376,16 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
   // WebSocket only connects once a real conversation id exists
   useEffect(() => {
     if (!hasId) return;
-    const token = getAuthToken();
     const client = new Client({
-      webSocketFactory: () => new SockJS('/api/ws/support'),
-      connectHeaders: { Authorization: token ? `Bearer ${token}` : '' },
+      webSocketFactory: () => new SockJS('/ws/support'),
+      beforeConnect: async (current) => {
+        const token = await currentChatToken();
+        current.connectHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+      },
       reconnectDelay: 3000,
       onConnect: () => {
+        queryClient.invalidateQueries({ queryKey: ['chatMessages', conv.id] });
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
         client.subscribe(`/topic/conversation.${conv.id}`, (frame) => {
           try {
             const payload = JSON.parse(frame.body);
@@ -410,7 +441,9 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
       const msg = await sendChatMessage(convId, content, clientMessageId);
       return { msg, createdConv, convId };
     },
-    onSuccess: ({ msg, createdConv, convId }) => {
+    onSuccess: ({ msg, createdConv, convId }, variables) => {
+      retryDraftRef.current = null;
+      setInput((current) => current.trim() === variables.content ? '' : current);
       if (createdConv) {
         setConv(createdConv);
         queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -450,8 +483,9 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
   const handleSend = useCallback(() => {
     const content = input.trim();
     if (!content || sendMutation.isPending) return;
-    const clientMessageId = generateClientId();
-    setInput('');
+    const clientMessageId = retryDraftRef.current?.content === content
+      ? retryDraftRef.current.clientMessageId : generateClientId();
+    retryDraftRef.current = { content, clientMessageId };
     sendMutation.mutate({ content, clientMessageId });
     inputRef.current?.focus();
   }, [input, sendMutation]);
@@ -495,7 +529,9 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-        {messages.length === 0 && (
+        {messagesLoading && <p className="text-center text-xs text-gray-400 py-8">Loading messages…</p>}
+        {messagesError && <button type="button" onClick={() => refetchMessages()} className="block mx-auto text-xs text-red-600 py-8">Could not load messages. Tap to retry.</button>}
+        {!messagesLoading && !messagesError && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
             <MessageSquare size={32} className="opacity-30" />
             <p className="text-xs">No messages yet. Say hello!</p>
@@ -528,8 +564,10 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
                   {mine && !msg.deleted && canDelete(msg.createdAt) && (
                     <button
                       onClick={() => deleteMutation.mutate(msg.id)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity cursor-pointer"
+                      disabled={deleteMutation.isPending}
+                      className="text-gray-400 hover:text-red-500 cursor-pointer disabled:opacity-50"
                       title="Delete message"
+                      aria-label="Delete this message"
                     >
                       <Trash2 size={11} />
                     </button>
@@ -541,6 +579,9 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
         })}
         <div ref={messagesEndRef} />
       </div>
+      {deleteMutation.isError && (
+        <p role="alert" className="px-4 pb-2 text-xs text-red-600">Could not delete the message. Please try again.</p>
+      )}
 
       <div className="border-t border-gray-100 p-3 flex gap-2 items-end">
         <textarea
@@ -563,6 +604,9 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
             : <Send size={14} />}
         </button>
       </div>
+      {sendMutation.isError && (
+        <p role="alert" className="px-4 pb-2 text-xs text-red-600">Message was not sent. Your draft is still here; tap send to retry.</p>
+      )}
     </div>
   );
 }
@@ -575,11 +619,12 @@ function GroupChatView({ group, userId, role, onBack }) {
   const [showMembers, setShowMembers] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const retryDraftRef = useRef(null);
   const stompClientRef = useRef(null);
 
   const isAdmin = role === 'ADMIN' || role === 'MANAGER';
 
-  const { data: msgData, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+  const { data: msgData, isLoading: messagesLoading, isError: messagesError, refetch: refetchMessages, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ['groupMessages', group.id],
     queryFn: ({ pageParam }) => getGroupMessages(group.id, { cursor: pageParam, limit: 50 }),
     getNextPageParam: (last) => last?.nextCursor ?? undefined,
@@ -593,12 +638,16 @@ function GroupChatView({ group, userId, role, onBack }) {
   }, [messages.length]);
 
   useEffect(() => {
-    const token = getAuthToken();
     const client = new Client({
-      webSocketFactory: () => new SockJS('/api/ws/support'),
-      connectHeaders: { Authorization: token ? `Bearer ${token}` : '' },
+      webSocketFactory: () => new SockJS('/ws/support'),
+      beforeConnect: async (current) => {
+        const token = await currentChatToken();
+        current.connectHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+      },
       reconnectDelay: 3000,
       onConnect: () => {
+        queryClient.invalidateQueries({ queryKey: ['groupMessages', group.id] });
+        queryClient.invalidateQueries({ queryKey: ['groups'] });
         client.subscribe(`/topic/group.${group.id}`, (frame) => {
           try {
             const payload = JSON.parse(frame.body);
@@ -638,7 +687,9 @@ function GroupChatView({ group, userId, role, onBack }) {
 
   const sendMutation = useMutation({
     mutationFn: ({ content, clientMessageId }) => sendGroupMessage(group.id, content, clientMessageId),
-    onSuccess: (newMsg) => {
+    onSuccess: (newMsg, variables) => {
+      retryDraftRef.current = null;
+      setInput((current) => current.trim() === variables.content ? '' : current);
       queryClient.setQueryData(['groupMessages', group.id], (old) => {
         if (!old) return { pages: [{ items: [newMsg], nextCursor: null }], pageParams: [undefined] };
         const exists = old.pages.some((p) => (p.items ?? []).some((m) => m.id === newMsg.id));
@@ -673,8 +724,9 @@ function GroupChatView({ group, userId, role, onBack }) {
   const handleSend = useCallback(() => {
     const content = input.trim();
     if (!content || sendMutation.isPending) return;
-    const clientMessageId = generateClientId();
-    setInput('');
+    const clientMessageId = retryDraftRef.current?.content === content
+      ? retryDraftRef.current.clientMessageId : generateClientId();
+    retryDraftRef.current = { content, clientMessageId };
     sendMutation.mutate({ content, clientMessageId });
     inputRef.current?.focus();
   }, [input, sendMutation]);
@@ -720,7 +772,9 @@ function GroupChatView({ group, userId, role, onBack }) {
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-        {messages.length === 0 && (
+        {messagesLoading && <p className="text-center text-xs text-gray-400 py-8">Loading messages…</p>}
+        {messagesError && <button type="button" onClick={() => refetchMessages()} className="block mx-auto text-xs text-red-600 py-8">Could not load messages. Tap to retry.</button>}
+        {!messagesLoading && !messagesError && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
             <Users size={32} className="opacity-30" />
             <p className="text-xs">No messages yet. Start the conversation!</p>
@@ -748,8 +802,10 @@ function GroupChatView({ group, userId, role, onBack }) {
                   {mine && !msg.deleted && canDelete(msg.createdAt) && (
                     <button
                       onClick={() => deleteMutation.mutate(msg.id)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity cursor-pointer"
+                      disabled={deleteMutation.isPending}
+                      className="text-gray-400 hover:text-red-500 cursor-pointer disabled:opacity-50"
                       title="Delete message"
+                      aria-label="Delete this message"
                     >
                       <Trash2 size={11} />
                     </button>
@@ -761,6 +817,9 @@ function GroupChatView({ group, userId, role, onBack }) {
         })}
         <div ref={messagesEndRef} />
       </div>
+      {deleteMutation.isError && (
+        <p role="alert" className="px-4 pb-2 text-xs text-red-600">Could not delete the message. Please try again.</p>
+      )}
 
       <div className="border-t border-gray-100 p-3 flex gap-2 items-end">
         <textarea
@@ -781,6 +840,9 @@ function GroupChatView({ group, userId, role, onBack }) {
           {sendMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
         </button>
       </div>
+      {sendMutation.isError && (
+        <p role="alert" className="px-4 pb-2 text-xs text-red-600">Message was not sent. Your draft is still here; tap send to retry.</p>
+      )}
 
       {showMembers && (
         <MembersDrawer groupId={group.id} isAdmin={isAdmin} onClose={() => setShowMembers(false)} />

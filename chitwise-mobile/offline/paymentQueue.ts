@@ -1,5 +1,6 @@
 import { refreshPostedCollection } from './financialRefresh';
 import axios from 'axios';
+import { retryAfterDelayMs } from '../../shared/rateLimitMessage';
 import * as Crypto from 'expo-crypto';
 import NetInfo from '@react-native-community/netinfo';
 import { recordPayment } from '../services/api';
@@ -191,8 +192,8 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
 
       await complete('RETRYABLE_FAILURE', {
         attempts,
-        nextAttemptAt: Date.now() + retryDelay(attempts),
-        errorCode: details.code,
+        nextAttemptAt: Date.now() + Math.max(retryDelay(attempts), retryAfterDelayMs(error) ?? 0),
+        errorCode: details.status === 429 ? 'RATE_LIMITED' : details.code,
         errorMessage: details.message,
       });
       return { kind: 'retryable', error };

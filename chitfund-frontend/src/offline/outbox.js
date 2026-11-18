@@ -1,4 +1,5 @@
 import { refreshFinancialSnapshots } from '../../../shared/offline/financialRefresh';
+import { retryAfterDelayMs } from '../../../shared/rateLimitMessage';
 import { saveCachedResponse } from './cache';
 import { runAccountTasks } from '../../../shared/offline/scheduling';
 import { accountScope, requestForAccount } from './accountClient';
@@ -146,7 +147,9 @@ export async function syncSavedPayments({ deadline = Date.now() + 60_000, scope:
         await mutateRow('outbox', claimed.key, (current) => current?.leaseId === claimed.leaseId
           ? { ...current, status: outcome,
             reviewId: error.reviewId ?? current.reviewId,
-            nextAttemptAt: Date.now() + (paused ? 300_000 : Math.min(300_000, 2 ** Math.min(claimed.attempts, 6) * 5_000)),
+            nextAttemptAt: Date.now() + (paused ? 300_000 : Math.max(
+              Math.min(300_000, 2 ** Math.min(claimed.attempts, 6) * 5_000),
+              retryAfterDelayMs(error) ?? 0)),
             errorMessage: String(error.message ?? 'Sync will retry').slice(0, 300) } : undefined);
         pauseAccount = ['AUTH_REQUIRED', 'RETRYABLE_FAILURE', 'PAUSED_ACCESS'].includes(outcome);
       }

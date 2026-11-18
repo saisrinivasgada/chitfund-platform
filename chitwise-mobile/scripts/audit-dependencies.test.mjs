@@ -26,7 +26,7 @@ function run(vulnerabilities, counts = {}) {
   });
 }
 
-test('permits only the version-pinned Expo build-tool advisories', () => {
+test('permits only the version-pinned Expo build-tool advisory', () => {
   const result = run({
     braces: {
       severity: 'high',
@@ -35,14 +35,7 @@ test('permits only the version-pinned Expo build-tool advisories', () => {
         url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm',
       }],
     },
-    'node-forge': {
-      severity: 'high',
-      via: [{
-        severity: 'high',
-        url: 'https://github.com/advisories/GHSA-86w9-cpqp-85rv',
-      }],
-    },
-  }, { high: 2 });
+  }, { high: 1 });
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /Accepted Expo build-tool advisories/);
@@ -55,6 +48,21 @@ test('fails closed for an unknown High advisory', () => {
       via: [{
         severity: 'high',
         url: 'https://github.com/advisories/GHSA-xxxx-yyyy-zzzz',
+      }],
+    },
+  }, { high: 1 });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unapproved High advisory/);
+});
+
+test('no longer accepts the patched node-forge advisory', () => {
+  const result = run({
+    'node-forge': {
+      severity: 'high',
+      via: [{
+        severity: 'high',
+        url: 'https://github.com/advisories/GHSA-86w9-cpqp-85rv',
       }],
     },
   }, { high: 1 });

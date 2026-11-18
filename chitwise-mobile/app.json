@@ -26,7 +26,10 @@
         "backgroundColor": "#1E3A5F"
       },
       "package": "com.chitwise.mobile",
-      "versionCode": 6
+      "versionCode": 10,
+      "blockedPermissions": [
+        "android.permission.ACTIVITY_RECOGNITION"
+      ]
     },
     "web": {
       "bundler": "metro",

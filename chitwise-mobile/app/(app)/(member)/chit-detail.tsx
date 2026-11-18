@@ -12,7 +12,7 @@ import {
   getPaymentHistory, getMyDraws, getWinners, getPayoutsForMember,
   listAuctions, getAuction, placeBid, getMyReservations,
 } from '../../../services/api';
-import { C, fmtDate } from '../../../components/ui';
+import { C, fmtDate, listRowColor } from '../../../components/ui';
 
 const MONTH_STATUS_COLOR: Record<string, string> = {
   SETTLED:            C.green,
@@ -219,6 +219,7 @@ export default function ChitDetailScreen() {
 
   return (
     <ReadDataBoundary label="Chit details" queryKeys={readKeys}><SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top']}>
+      <View style={{ width: '100%', maxWidth: 900, alignSelf: 'center' }}>
       {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
         <TouchableOpacity
@@ -423,8 +424,11 @@ export default function ChitDetailScreen() {
           ))}
         </View>
       )}
+      </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+      <ScrollView showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 900, alignSelf: 'center' }}
+        keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
         {tab === 'auction' ? (
           /* ── Auction Tab ── */
           !displayAuction ? (
@@ -742,13 +746,13 @@ export default function ChitDetailScreen() {
             ) : (
               <View>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>Draw History</Text>
-                {histArr.map((r: any) => {
+                {histArr.map((r: any, i: number) => {
                   const color = MONTH_STATUS_COLOR[r.status] ?? C.gray400;
                   const label = MONTH_STATUS_LABEL[r.status] ?? r.status;
                   const won = winnerByMonth[r.monthNumber]?.memberId === memberId;
                   const pct = r.amountDue > 0 ? Math.min(100, Math.round((r.amountPaid / r.amountDue) * 100)) : 0;
                   return (
-                    <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: C.surface }}>
+                    <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: listRowColor(i) }}>
                       <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: C.white }}>{r.monthNumber}</Text>
                       </View>

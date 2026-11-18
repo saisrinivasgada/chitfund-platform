@@ -41,7 +41,7 @@ export default function Modal({ title, onClose, children, size = 'md', footer })
         className={[
           'relative bg-white w-full flex flex-col',
           // Mobile: full-width sheet from bottom
-          'rounded-t-2xl max-h-[94vh]',
+          'rounded-t-2xl max-h-[94dvh]',
           // Tablet+: centred card
           `sm:rounded-2xl sm:shadow-2xl ${maxW}`,
         ].join(' ')}
