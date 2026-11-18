@@ -33,7 +33,7 @@ function validatePassword(pw) {
 const OTP_LOCKOUT_SECS = 300; // 5-minute lockout after wrong OTP
 
 function ForgotPasswordFlow({ onClose }) {
-  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone'
+  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone' | 'email-otp'
   const [step, setStep]             = useState('lookup');
   const [input, setInput]           = useState('');
   const [lookup, setLookup]         = useState(null); // { userId, maskedPhone, locked, role }
@@ -50,6 +50,7 @@ function ForgotPasswordFlow({ onClose }) {
   const [resendTimer, setResendTimer] = useState(0);
   const [sendCount, setSendCount]     = useState(0);
   const [resendBlocked, setResendBlocked] = useState(false);
+  const [emailInput, setEmailInput]   = useState('');
   const lockoutRef = useRef(null);
   const resendRef  = useRef(null);
   const resetOtpInFlight = useRef(false);
@@ -323,20 +324,23 @@ function ForgotPasswordFlow({ onClose }) {
         <div className="flex items-start gap-3">
           <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-amber-900 mb-1">Phone number required for account recovery</p>
-            <p className="text-sm text-amber-800 mb-3">
-              This account does not have a verified phone number. Password recovery requires phone verification via the ChitWise mobile app.
-            </p>
-            <p className="text-sm text-amber-700">
-              Please contact your ChitWise administrator or reach us at{' '}
-              <a href="mailto:help@thechitwise.com" className="underline font-medium">help@thechitwise.com</a>{' '}
-              to regain access.
+            <p className="text-sm font-semibold text-amber-900 mb-1">No phone number on this account</p>
+            <p className="text-sm text-amber-800">
+              Enter your account email below to receive a one-time code for password recovery.
             </p>
           </div>
         </div>
+      </div>
+      <form onSubmit={handleEmailReset} className="space-y-3">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Account email address</label>
+          <input type="email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setError(''); }}
+            placeholder="e.g. admin@example.com" required
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]" autoFocus />
+        </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={loading} className="w-full">Send Reset OTP</Button>
-        <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); }}
+        <Button type="submit" loading={loading} disabled={!emailInput.trim()} className="w-full">Send Reset OTP</Button>
+        <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); setEmailInput(''); }}
           className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Change account</button>
       </form>
     </div>

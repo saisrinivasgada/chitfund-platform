@@ -265,9 +265,9 @@ public class TenantService {
             User existingAdmin = admins.get(0);
             try {
                 String html = EmailService.buildApprovalEmailHtml(
-                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), planLimits);
+                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), null, planLimits);
                 String text = EmailService.buildApprovalEmailText(
-                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), planLimits);
+                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), null, planLimits);
                 notificationEventPublisher.publishEmail(
                         t.getContactEmail(),
                         "Your ChitWise account is now active — " + t.getName(),
@@ -1418,8 +1418,8 @@ public class TenantService {
                             .stream().findFirst().map(User::getUsername).orElse(null);
                     String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
                     PlanLimits planLimits = planLimitsRepository.findById(planCode).orElse(null);
-                    html = EmailService.buildApprovalEmailHtml(null, t.getName(), t.getSlug(), adminUsername, planLimits);
-                    text = EmailService.buildApprovalEmailText(null, t.getName(), t.getSlug(), adminUsername, planLimits);
+                    html = EmailService.buildApprovalEmailHtml(null, t.getName(), t.getSlug(), adminUsername, null, planLimits);
+                    text = EmailService.buildApprovalEmailText(null, t.getName(), t.getSlug(), adminUsername, null, planLimits);
                     subject = "Your ChitWise account is now active — " + t.getName();
                 }
                 case "REJECTED" -> {
