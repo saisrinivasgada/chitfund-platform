@@ -1,65 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { registerOrg, getPublicPlans, sendRegistrationOtp, verifyRegistrationOtp, validatePromoCode, checkSlugAvailability } from '../services/api';
+import { registerOrg, getPublicPlans, sendRegistrationOtp, verifyRegistrationOtp, validatePromoCode } from '../services/api';
 import useUsernameAvailability, { isValidUsername, normalizeUsernameInput } from '../hooks/useUsernameAvailability';
 import {
   BookOpen, Building2, CheckCircle, ChevronRight, ChevronLeft,
-  Zap, Shield, Users, BarChart2, Check, HelpCircle,
+  Zap, Shield, Users, BarChart2, Check,
 } from 'lucide-react';
 import OtpInput from '../components/ui/OtpInput';
 import LegalAcceptanceCheckbox from '../components/legal/LegalAcceptanceCheckbox';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import { googleProfileHint } from '../utils/googleCredential';
-const RESERVED_TENANT_SLUGS = new Set([
-  'hub', 'www', 'api', 'app', 'mail', 'admin', 'support', 'help',
-  'status', 'cdn', 'static', 'assets', 'login', 'signup', 'register',
-  'dashboard', 'billing', 'dev', 'staging', 'test', 'demo',
-]);
-
-
 const FEATURES = [
   { icon: Shield,    title: 'Secure & compliant',    desc: 'Role-based access for admins, staff, and members — with full audit trail' },
   { icon: Zap,       title: 'Live draw tracking',    desc: 'Record installments and track pending members per draw in real time' },
   { icon: Users,     title: 'Separate portals',      desc: 'Admin dashboard, staff field app, and member self-service — all included' },
   { icon: BarChart2, title: 'Chit group reports',   desc: 'Draw-wise collection, dividend calculation, and treasury summary — auto-generated' },
 ];
-
-function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function SlugTooltip() {
-  const [open, setOpen] = useState(false);
-  return (
-    <span className="relative inline-flex items-center ml-1.5">
-      <button
-        type="button"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        className="text-gray-400 hover:text-gray-600 cursor-help transition-colors"
-        aria-label="What is a subdomain?"
-      >
-        <HelpCircle size={14} />
-      </button>
-      {open && (
-        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-64 bg-gray-900 text-white text-xs rounded-xl px-3 py-2.5 shadow-lg pointer-events-none">
-          <p className="font-semibold mb-1">What is a subdomain?</p>
-          <p className="text-gray-300 leading-relaxed mb-2">
-            Your subdomain is the unique address for your organization's login page —
-            e.g. <span className="text-white font-medium">yourname.thechitwise.com</span>. Members and staff use this to access your portal.
-          </p>
-          <p className="text-gray-400">
-            <span className="text-amber-400 font-medium">Reserved (unavailable):</span>{' '}
-            hub, www, api, app, admin, support, help, login, staging, demo, test &amp; others
-          </p>
-          <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0" style={{ borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '6px solid #111827' }} />
-        </div>
-      )}
-    </span>
-  );
-}
 
 function FieldLabel({ children, required }) {
   return (
@@ -112,7 +68,7 @@ export default function RegisterOrgPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState({
-    orgName: '', slug: '', adminFullName: '', adminUsername: '', adminEmail: '',
+    orgName: '', adminFullName: '', adminUsername: '', adminEmail: '',
     adminPhone: '', adminPhoneCountryCode: '+91', plan: 'BASIC',
     promoCode: '',
   });
@@ -121,12 +77,6 @@ export default function RegisterOrgPage() {
   const planScrollRef = useRef(null);
   const [planCanLeft, setPlanCanLeft] = useState(false);
   const [planCanRight, setPlanCanRight] = useState(true);
-  const [slugEdited, setSlugEdited]   = useState(false);
-  const [slugCheck, setSlugCheck]     = useState({ slug: '', status: null });
-  const slugStatus = RESERVED_TENANT_SLUGS.has(form.slug) ? 'taken'
-    : /^[a-z0-9]{3,50}$/.test(form.slug)
-      ? (slugCheck.slug === form.slug ? slugCheck.status : 'checking')
-      : null;
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [fe, setFe]                   = useState({});
@@ -169,51 +119,13 @@ export default function RegisterOrgPage() {
     return () => { el.removeEventListener('scroll', check); ro.disconnect(); };
   }, [plans]);
 
-  // A server result belongs only to the exact slug that was checked.
-  useEffect(() => {
-    const slug = form.slug;
-    if (!/^[a-z0-9]{3,50}$/.test(slug)) return;
-
-    if (RESERVED_TENANT_SLUGS.has(slug)) {
-      setSlugCheck({ slug, status: 'taken' });
-      setFe((f) => ({ ...f, slug: `"${slug}" is a reserved name and cannot be used.` }));
-      return;
-    }
-
-    let active = true;
-    const controller = new AbortController();
-    setSlugCheck({ slug, status: 'checking' });
-    const timer = setTimeout(async () => {
-      try {
-        const result = await checkSlugAvailability(slug, controller.signal);
-        if (!active) return;
-        setSlugCheck({ slug, status: result.available ? 'available' : 'taken' });
-        if (!result.available) {
-          setFe((f) => ({ ...f, slug: `"${slug}" is already taken — try a different subdomain.` }));
-        } else {
-          setFe((f) => ({ ...f, slug: undefined }));
-        }
-      } catch {
-        if (active) setSlugCheck({ slug, status: null });
-      }
-    }, 650);
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [form.slug]);
-
   function set(key, value) {
     setForm((p) => ({ ...p, [key]: value }));
     setFe((f) => ({ ...f, [key]: undefined }));
   }
 
   function handleOrgNameChange(e) {
-    const val = e.target.value;
-    set('orgName', val);
-    if (!slugEdited) set('slug', slugify(val));
+    set('orgName', e.target.value);
   }
 
   function handleGoogleCredential(idToken) {
@@ -281,22 +193,6 @@ export default function RegisterOrgPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-    if (!/^[a-z0-9]{3,50}$/.test(form.slug)) {
-      setError('Subdomain must be 3–50 lowercase English letters and numbers.');
-      return;
-    }
-    if (RESERVED_TENANT_SLUGS.has(form.slug)) {
-      setFe((f) => ({ ...f, slug: `"${form.slug}" is a reserved name and cannot be used.` }));
-      return;
-    }
-    if (slugStatus === 'taken') {
-      setFe((f) => ({ ...f, slug: `"${form.slug}" is already taken — try a different subdomain.` }));
-      return;
-    }
-    if (slugStatus === 'checking') {
-      setError('Please wait — checking subdomain availability.');
-      return;
-    }
     if (!isValidUsername(form.adminUsername)) {
       setFe((f) => ({ ...f, adminUsername: 'Use 3–30 characters: lowercase English letters, numbers, periods, or underscores. Start with a letter or number.' }));
       return;
@@ -340,8 +236,6 @@ export default function RegisterOrgPage() {
         setFe({ adminUsername: 'This username is already taken.' });
       } else if (code === 'USER_003' || msg.toLowerCase().includes('email')) {
         setFe({ adminEmail: 'This email is already registered.' });
-      } else if (msg.toLowerCase().includes('subdomain') || msg.toLowerCase().includes('slug')) {
-        setFe({ slug: msg });
       } else {
         setError(msg || 'Registration failed. Please try again.');
       }
@@ -374,9 +268,6 @@ export default function RegisterOrgPage() {
             </p>
             <p className="text-white/60 text-xs mt-2">
               Check <strong className="text-white/80">{form.adminEmail}</strong> for updates about your application.
-            </p>
-            <p className="text-white/80 text-xs mt-2">
-              Your portal address after approval: <strong>{form.slug}.thechitwise.com</strong>
             </p>
           </div>
 
@@ -538,52 +429,6 @@ export default function RegisterOrgPage() {
                     error={fe.orgName}
                   />
                   <FieldError msg={fe.orgName} />
-                </div>
-                <div data-field="slug">
-                  <FieldLabel required>
-                    <span className="inline-flex items-center gap-1">
-                      Subdomain
-                      <SlugTooltip />
-                    </span>
-                    <span className="text-gray-400 font-normal ml-1 text-xs">— your login URL</span>
-                  </FieldLabel>
-                  <div className={`flex items-stretch rounded-xl border overflow-hidden transition-all focus-within:ring-2 ${
-                    slugStatus === 'taken' || fe.slug
-                      ? 'border-red-400 focus-within:border-red-400 focus-within:ring-red-400/10'
-                      : slugStatus === 'available'
-                      ? 'border-emerald-400 focus-within:border-emerald-400 focus-within:ring-emerald-400/10'
-                      : 'border-gray-200 focus-within:border-[#1E3A5F] focus-within:ring-[#1E3A5F]/10'
-                  }`}>
-                    <input
-                      className="flex-1 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none bg-white"
-                      value={form.slug}
-                      onChange={(e) => { setSlugEdited(true); set('slug', slugify(e.target.value)); }}
-                      placeholder="kethaki"
-                      required
-                      minLength={3}
-                      maxLength={50}
-                    />
-                    <span className="flex items-center px-3 py-3 bg-gray-50 text-gray-400 text-xs sm:text-sm border-l border-gray-200 whitespace-nowrap select-none">
-                      .thechitwise.com
-                    </span>
-                    <span className="flex items-center pr-3 pl-1 bg-white">
-                      {slugStatus === 'checking' && (
-                        <span className="w-4 h-4 border-2 border-gray-300 border-t-[#1E3A5F] rounded-full animate-spin block" />
-                      )}
-                      {slugStatus === 'available' && (
-                        <CheckCircle size={16} className="text-emerald-500" />
-                      )}
-                      {slugStatus === 'taken' && (
-                        <span className="text-red-500 text-lg font-bold leading-none">✕</span>
-                      )}
-                    </span>
-                  </div>
-                  {fe.slug
-                    ? <FieldError msg={fe.slug} />
-                    : slugStatus === 'available'
-                    ? <p className="text-xs text-emerald-600 mt-2 font-medium">✓ Available</p>
-                    : <p className="text-xs text-gray-400 mt-2">Lowercase English letters and numbers only. Spaces are joined automatically.</p>
-                  }
                 </div>
               </div>
             </div>

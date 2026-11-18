@@ -39,12 +39,6 @@ import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentM
 import ManageCreditModal from '../../components/superadmin/ManageCreditModal';
 import { openProxyWindow, transferProxySession } from '../../utils/proxySessionTransfer';
 
-const RESERVED_SLUGS = new Set([
-  'hub', 'www', 'api', 'app', 'mail', 'admin', 'support', 'help',
-  'status', 'cdn', 'static', 'assets', 'login', 'signup', 'register',
-  'dashboard', 'billing', 'dev', 'staging', 'test', 'demo',
-]);
-
 const STATUS_CONFIG = {
   ACTIVE:    { label: 'Active',    icon: CheckCircle, cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
   PENDING:   { label: 'Pending',   icon: Clock,       cls: 'bg-amber-50 text-amber-700 border-amber-100' },
@@ -735,7 +729,6 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
 
 function RenameModal({ tenant, onClose, onSuccess }) {
   const [name, setName] = useState(tenant.name ?? '');
-  const [slug, setSlug] = useState(tenant.slug ?? '');
   const [businessRegNumber, setBusinessRegNumber] = useState(tenant.businessRegNumber ?? '');
   const [supportPhoneNumber, setSupportPhoneNumber] = useState(tenant.supportPhoneNumber ?? '');
   const [loading, setLoading] = useState(false);
@@ -743,14 +736,10 @@ function RenameModal({ tenant, onClose, onSuccess }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (slug && RESERVED_SLUGS.has(slug.toLowerCase())) {
-      setError(`"${slug}" is a reserved name and cannot be used.`);
-      return;
-    }
     setError('');
     setLoading(true);
     try {
-      await superAdminUpdateTenant(tenant.id, { name, slug, businessRegNumber, supportPhoneNumber });
+      await superAdminUpdateTenant(tenant.id, { name, businessRegNumber, supportPhoneNumber });
       onSuccess('Org updated successfully');
       onClose();
     } catch (err) {
@@ -778,18 +767,6 @@ function RenameModal({ tenant, onClose, onSuccess }) {
               onChange={(e) => setName(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-blue-400"
             />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Subdomain / Slug</label>
-            <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
-              <span className="px-3 py-2 bg-gray-50 text-gray-400 text-xs border-r border-gray-200">chitwise.app/</span>
-              <input
-                value={slug}
-                onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                className="min-w-0 flex-1 px-3 py-2 text-base sm:text-sm focus:outline-none"
-                placeholder="your-org"
-              />
-            </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Registration Number</label>
@@ -1109,7 +1086,6 @@ export default function SuperAdminOrgDetailPage() {
                   </button>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                  <span className="break-all text-sm text-gray-500 font-mono">@{tenant.slug}</span>
                   <div className="relative">
                     <button
                       type="button"
@@ -1461,10 +1437,6 @@ export default function SuperAdminOrgDetailPage() {
                 <span className="text-xs font-medium text-gray-700">
                   {tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
                 </span>
-              </div>
-              <div className="flex justify-between items-start">
-                <span className="text-xs text-gray-400">Subdomain</span>
-                <span className="text-xs font-mono font-medium text-gray-700">@{tenant.slug}</span>
               </div>
               {tenant.contactEmail && (
                 <div className="flex justify-between items-start gap-3">
@@ -2171,22 +2143,15 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
 }
 
 function ReactivateModal({ tenant, onClose, onSuccess }) {
-  const [slug, setSlug] = useState(tenant.slug ?? '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!slug.trim()) { setError('Subdomain is required'); return; }
-    if (RESERVED_SLUGS.has(slug.trim().toLowerCase())) {
-      setError(`"${slug.trim()}" is a reserved name and cannot be used.`);
-      return;
-    }
     setError('');
     setLoading(true);
     try {
-      const newSlug = slug.trim() !== tenant.slug ? slug.trim() : undefined;
-      await superAdminReactivateTenant(tenant.id, newSlug);
+      await superAdminReactivateTenant(tenant.id);
       onSuccess('Registration reactivated — now PENDING review');
     } catch (err) {
       setError(err.response?.data?.message ?? 'Failed to reactivate');
@@ -2204,23 +2169,8 @@ function ReactivateModal({ tenant, onClose, onSuccess }) {
         </div>
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           <p className="text-sm text-gray-500">
-            Reactivating <strong className="text-gray-900">{tenant.name}</strong> will move it back to <span className="text-amber-600 font-semibold">PENDING</span>. Verify the subdomain is available.
+            Reactivating <strong className="text-gray-900">{tenant.name}</strong> will move it back to <span className="text-amber-600 font-semibold">PENDING</span> for review.
           </p>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Subdomain</label>
-            <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:border-blue-400">
-              <span className="px-3 py-2.5 text-sm text-gray-400 bg-gray-50 border-r border-gray-200 flex-shrink-0">app.chitwise.com/</span>
-              <input
-                type="text"
-                value={slug}
-                onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-_.]/g, ''))}
-                className="min-w-0 flex-1 px-3 py-2.5 text-base sm:text-sm font-mono focus:outline-none"
-              />
-            </div>
-            {slug !== tenant.slug && (
-              <p className="text-xs text-amber-600 mt-1">Changed from original: <span className="font-mono">{tenant.slug}</span></p>
-            )}
-          </div>
           {error && (
             <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">
               <AlertCircle size={14} />{error}

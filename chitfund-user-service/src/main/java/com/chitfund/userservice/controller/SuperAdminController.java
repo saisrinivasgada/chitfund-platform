@@ -100,10 +100,9 @@ public class SuperAdminController {
     @PostMapping("/{tenantId}/reactivate")
     public ResponseEntity<ApiResponse<TenantResponse>> reactivate(
             @PathVariable UUID tenantId,
-            @RequestParam(required = false) String newSlug,
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.reactivateTenant(tenantId, newSlug, principal.getId().toString()), "Tenant reactivated"));
+                tenantService.reactivateTenant(tenantId, principal.getId().toString()), "Tenant reactivated"));
     }
 
     @PostMapping("/{tenantId}/plan")

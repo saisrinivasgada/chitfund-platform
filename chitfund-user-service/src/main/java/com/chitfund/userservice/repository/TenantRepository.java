@@ -17,12 +17,6 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
     @Query("SELECT t FROM Tenant t WHERE t.id = :id")
     Optional<Tenant> findByIdForUpdate(@Param("id") UUID id);
 
-    Optional<Tenant> findBySlug(String slug);
-
-    boolean existsBySlug(String slug);
-
-    boolean existsBySlugAndStatusNot(String slug, String status);
-
     List<Tenant> findAllByStatusOrderByCreatedAtDesc(String status);
 
     List<Tenant> findAllByStatusNotOrderByCreatedAtDesc(String status);

@@ -40,14 +40,6 @@ public class AuthController {
 
     // ── Public: org self-registration ────────────────────────────────────────
 
-    @GetMapping("/check-slug")
-    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> checkSlug(
-            @RequestParam String slug) {
-        boolean available = !authService.slugExists(slug);
-        return ResponseEntity.ok(ApiResponse.success(
-                java.util.Map.of("slug", slug, "available", available), "ok"));
-    }
-
     @GetMapping("/check-username")
     public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> checkUsername(
             @RequestParam String username) {

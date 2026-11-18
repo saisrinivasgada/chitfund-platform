@@ -26,7 +26,7 @@ public class Tenant {
     @Column(nullable = false, length = 100)
     private String name;
 
-    @Column(nullable = false, length = 50, unique = true)
+    @Column(length = 50)
     private String slug;
 
     @Column(nullable = false, length = 20)

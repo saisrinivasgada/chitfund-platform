@@ -501,9 +501,8 @@ public class EmailService {
     public static String buildRegistrationConfirmationHtml(String adminName, String orgName, String slug, String plan) {
         String name = escapeHtml(adminName != null && !adminName.isBlank() ? adminName : "there");
         String safeOrg = escapeHtml(orgName != null ? orgName : "");
-        String safeSlug = escapeHtml(slug != null ? slug : "");
         String safePlan = escapeHtml(plan != null ? plan : "");
-        String portalUrl = "https://" + safeSlug + ".thechitwise.com";
+        String portalUrl = "https://thechitwise.com";
         String hero = statusHero(
             "#EFF6FF",
             "<svg width=\"40\" height=\"40\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">" +
@@ -557,7 +556,7 @@ public class EmailService {
                 Thank you for registering %s on ChitWise! Your application is under review.
 
                 Organization: %s
-                Your portal: https://%s.thechitwise.com
+                Login at: https://thechitwise.com
                 Plan: %s
 
                 What happens next?
@@ -568,7 +567,7 @@ public class EmailService {
                 Questions? Reach us at help@thechitwise.com.
 
                 — The ChitWise Team
-                """.formatted(name, orgName, orgName, slug, plan);
+                """.formatted(name, orgName, orgName, plan);
     }
 
     // ── App-access approved (member) ──────────────────────────────────────────
@@ -671,10 +670,9 @@ public class EmailService {
                                                 com.chitfund.userservice.domain.entity.PlanLimits planLimits) {
         String name = escapeHtml(adminName != null && !adminName.isBlank() ? adminName : "there");
         String safeOrg  = escapeHtml(orgName  != null ? orgName  : "");
-        String safeSlug = escapeHtml(slug     != null ? slug     : "");
         String safeUser = escapeHtml(username != null ? username : "");
         String safeTmp  = escapeHtml(tempPassword != null ? tempPassword : "");
-        String portalUrl = "https://" + safeSlug + ".thechitwise.com";
+        String portalUrl = "https://thechitwise.com";
         String hero = statusHero(
             "#F0FDF4",
             "<svg width=\"40\" height=\"40\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">" +
@@ -762,14 +760,14 @@ public class EmailService {
                 Great news! Your %s account on ChitWise has been approved and is now active.
 
                 %s
-                Portal: https://%s.thechitwise.com
+                Login at: https://thechitwise.com
 
                 %sClick the link above to log in and get started.
 
                 Questions? Reach us at help@thechitwise.com.
 
                 — The ChitWise Team
-                """.formatted(name, orgName, credentials, slug, planText);
+                """.formatted(name, orgName, credentials, planText);
     }
 
     private static String buildPlanSummaryBlock(com.chitfund.userservice.domain.entity.PlanLimits p) {

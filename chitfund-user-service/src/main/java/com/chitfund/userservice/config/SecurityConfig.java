@@ -71,7 +71,6 @@ public class SecurityConfig {
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET,
-                    "/api/auth/check-slug",
                     "/api/auth/check-username",
                     "/api/plans/public").permitAll()
                 .requestMatchers(HttpMethod.POST,

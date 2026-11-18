@@ -86,14 +86,6 @@ public class TenantService {
     // ── Public org self-registration ─────────────────────────────────────────
 
     public TenantResponse registerOrg(RegisterOrgRequest req) {
-        if (RESERVED_SLUGS.contains(req.getSlug().toLowerCase())) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Subdomain '" + req.getSlug() + "' is reserved and cannot be used", HttpStatus.CONFLICT);
-        }
-        if (tenantRepository.existsBySlugAndStatusNot(req.getSlug(), "REJECTED")) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Subdomain '" + req.getSlug() + "' is already taken", HttpStatus.CONFLICT);
-        }
         if (userRepository.existsByEmail(req.getAdminEmail())) {
             throw new BusinessException(ErrorCode.EMAIL_TAKEN,
                     "An account with this email already exists");
@@ -106,10 +98,11 @@ public class TenantService {
                         "Select a public active subscription plan"));
 
         // Create tenant (status = PENDING until super-admin activates)
-        String referralCode = "REF-" + req.getSlug().toUpperCase().replace("-", "");
+        String orgNameSanitized = req.getOrgName().replaceAll("[^A-Za-z0-9]", "").toUpperCase();
+        String refSuffix = orgNameSanitized.isEmpty() ? "ORG" : orgNameSanitized.substring(0, Math.min(8, orgNameSanitized.length()));
+        String referralCode = "REF-" + refSuffix;
         Tenant tenant = Tenant.builder()
                 .name(req.getOrgName())
-                .slug(req.getSlug())
                 .status("PENDING")
                 .plan(plan)
                 .contactPhone(req.getAdminPhone())
@@ -130,7 +123,7 @@ public class TenantService {
         // Create admin user for this org
         String username = req.getAdminUsername() != null && !req.getAdminUsername().isBlank()
                 ? req.getAdminUsername().toLowerCase()
-                : generateUsername(req.getAdminEmail(), req.getSlug());
+                : generateUsername(req.getAdminEmail(), req.getOrgName());
         if (userRepository.existsByUsername(username)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Username '" + username + "' is already taken", HttpStatus.CONFLICT);
@@ -159,9 +152,9 @@ public class TenantService {
 
         try {
             String html = EmailService.buildRegistrationConfirmationHtml(
-                    req.getAdminFullName(), req.getOrgName(), req.getSlug(), plan);
+                    req.getAdminFullName(), req.getOrgName(), null, plan);
             String text = EmailService.buildRegistrationConfirmationText(
-                    req.getAdminFullName(), req.getOrgName(), req.getSlug(), plan);
+                    req.getAdminFullName(), req.getOrgName(), null, plan);
             notificationEventPublisher.publishEmail(
                     req.getAdminEmail(),
                     "Your ChitWise registration is under review — " + req.getOrgName(),
@@ -365,17 +358,6 @@ public class TenantService {
         return toResponse(t);
     }
 
-    private static final java.util.Set<String> RESERVED_SLUGS = java.util.Set.of(
-            "hub", "www", "api", "app", "mail", "admin", "support", "help",
-            "status", "cdn", "static", "assets", "login", "signup", "register",
-            "dashboard", "billing", "dev", "staging", "test", "demo"
-    );
-
-    public boolean slugExists(String slug) {
-        if (RESERVED_SLUGS.contains(slug.toLowerCase())) return true;
-        return tenantRepository.existsBySlugAndStatusNot(slug, "REJECTED");
-    }
-
     public TenantResponse setTenantStatus(UUID tenantId, String newStatus, String actorId) {
         String upper = newStatus.toUpperCase();
         if (!java.util.Set.of("PENDING", "ACTIVE", "SUSPENDED", "REJECTED").contains(upper)) {
@@ -397,34 +379,19 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public TenantResponse reactivateTenant(UUID tenantId, String newSlug, String actorId) {
+    public TenantResponse reactivateTenant(UUID tenantId, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         if (!"REJECTED".equals(t.getStatus())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Only rejected tenants can be reactivated");
         }
-        String targetSlug = (newSlug != null && !newSlug.isBlank()) ? newSlug.toLowerCase().trim() : t.getSlug();
-        if (RESERVED_SLUGS.contains(targetSlug)) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Subdomain '" + targetSlug + "' is reserved and cannot be used", HttpStatus.CONFLICT);
-        }
-        // Check slug availability (excluding this tenant itself and other REJECTED tenants)
-        boolean slugTaken = tenantRepository.existsBySlugAndStatusNot(targetSlug, "REJECTED")
-                || tenantRepository.findAllByStatusOrderByCreatedAtDesc("REJECTED").stream()
-                   .anyMatch(other -> !other.getId().equals(tenantId) && targetSlug.equals(other.getSlug()));
-        if (slugTaken) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Subdomain '" + targetSlug + "' is already taken — please choose another", HttpStatus.CONFLICT);
-        }
-        String previousSlug = t.getSlug();
         String previousStatus = t.getStatus();
-        t.setSlug(targetSlug);
         t.setStatus("PENDING");
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
                 "TENANT_REACTIVATED", actorId, "ROLE_SUPER_ADMIN",
-                java.util.Map.of("status", previousStatus, "slug", previousSlug),
-                java.util.Map.of("status", "PENDING", "slug", targetSlug), tenantId.toString());
+                java.util.Map.of("status", previousStatus),
+                java.util.Map.of("status", "PENDING"), tenantId.toString());
         return toResponse(t);
     }
 
@@ -638,18 +605,6 @@ public class TenantService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         java.util.Map<String, Object> before = tenantAuditSnapshot(t);
         t.setName(req.getName().trim());
-        if (req.getSlug() != null && !req.getSlug().isBlank()) {
-            String newSlug = req.getSlug().toLowerCase().trim();
-            if (RESERVED_SLUGS.contains(newSlug)) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "Subdomain '" + newSlug + "' is reserved and cannot be used", HttpStatus.CONFLICT);
-            }
-            if (!newSlug.equals(t.getSlug()) && tenantRepository.existsBySlug(newSlug)) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "Subdomain '" + newSlug + "' is already taken", HttpStatus.CONFLICT);
-            }
-            t.setSlug(newSlug);
-        }
         if (req.getBusinessRegNumber() != null) {
             t.setBusinessRegNumber(req.getBusinessRegNumber().isBlank() ? null : req.getBusinessRegNumber().trim());
         }
@@ -1365,7 +1320,6 @@ public class TenantService {
     private static java.util.Map<String, Object> tenantAuditSnapshot(Tenant tenant) {
         java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
         snapshot.put("name", tenant.getName());
-        snapshot.put("slug", tenant.getSlug());
         snapshot.put("businessRegNumber", tenant.getBusinessRegNumber());
         snapshot.put("supportPhoneNumber", tenant.getSupportPhoneNumber());
         return snapshot;
@@ -1379,7 +1333,6 @@ public class TenantService {
                 .map(t -> {
                     java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
                     m.put("name", t.getName());
-                    m.put("slug", t.getSlug());
                     m.put("businessRegNumber", t.getBusinessRegNumber());
                     m.put("supportPhoneNumber", t.getSupportPhoneNumber());
                     return m;
@@ -1440,10 +1393,11 @@ public class TenantService {
         }
     }
 
-    private String generateUsername(String email, String slug) {
-        // email prefix + slug suffix, sanitized
+    private String generateUsername(String email, String orgNameHint) {
         String prefix = email.split("@")[0].replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
-        String base = prefix + "_" + slug;
+        String hint = orgNameHint.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+        if (hint.length() > 10) hint = hint.substring(0, 10);
+        String base = hint.isEmpty() ? prefix : prefix + "_" + hint;
         if (base.length() > 45) base = base.substring(0, 45);
         // Ensure uniqueness
         String candidate = base;

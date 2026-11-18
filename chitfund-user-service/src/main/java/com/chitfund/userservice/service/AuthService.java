@@ -71,10 +71,6 @@ public class AuthService {
         return tenantService.registerOrg(req);
     }
 
-    public boolean slugExists(String slug) {
-        return tenantService.slugExists(slug);
-    }
-
     public boolean usernameExists(String username) {
         return userRepository.existsByUsername(username);
     }

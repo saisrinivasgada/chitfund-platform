@@ -15,11 +15,6 @@ public class RegisterOrgRequest {
     private String orgName;
 
     @NotBlank
-    @Size(min = 3, max = 50)
-    @Pattern(regexp = "^[a-z0-9][a-z0-9-]*[a-z0-9]$", message = "Slug must be lowercase letters, digits, and hyphens (no leading/trailing hyphens)")
-    private String slug;
-
-    @NotBlank
     @Size(min = 2, max = 50)
     private String adminFullName;
 

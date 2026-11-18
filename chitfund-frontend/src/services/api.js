@@ -272,12 +272,6 @@ export const selectTenant = async ({ loginToken, tenantId, rememberDevice = fals
 };
 
 
-// Public: org self-registration (status = PENDING until super-admin activates)
-export const checkSlugAvailability = async (slug, signal) => {
-  const res = await api.get('/auth/check-slug', { params: { slug }, signal });
-  return res.data.data; // { slug, available }
-};
-
 export const checkUsernameAvailability = async (username, signal) => {
   const res = await api.get('/auth/check-username', { params: { username }, signal });
   return res.data.data; // { username, available }
@@ -415,9 +409,8 @@ export const applyDowngrade = (toPlan) =>
     reason: 'Organization admin requested immediate downgrade',
   });
 
-export const superAdminReactivateTenant = async (tenantId, newSlug) => {
-  const params = newSlug ? { newSlug } : {};
-  const res = await api.post(`/super-admin/tenants/${tenantId}/reactivate`, null, { params });
+export const superAdminReactivateTenant = async (tenantId) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/reactivate`);
   return res.data.data;
 };
 
@@ -465,8 +458,8 @@ export const requestRenewal = async () => {
   return res.data;
 };
 
-export const superAdminUpdateTenant = async (tenantId, { name, slug, businessRegNumber, supportPhoneNumber }) => {
-  const res = await api.put(`/super-admin/tenants/${tenantId}`, { name, slug, businessRegNumber, supportPhoneNumber });
+export const superAdminUpdateTenant = async (tenantId, { name, businessRegNumber, supportPhoneNumber }) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}`, { name, businessRegNumber, supportPhoneNumber });
   return res.data.data;
 };
 
