@@ -98,6 +98,10 @@ services:
     build:
       context: .
       dockerfile: chitfund-user-service/Dockerfile
+      cache_from:
+        - type=gha,scope=test-compose-user-service
+      cache_to:
+        - type=gha,mode=max,scope=test-compose-user-service
     container_name: chitwise-test-user
     environment:
       <<: [*test-common, *test-db]
@@ -130,6 +134,10 @@ services:
     build:
       context: .
       dockerfile: chitfund-chit-service/Dockerfile
+      cache_from:
+        - type=gha,scope=test-compose-chit-service
+      cache_to:
+        - type=gha,mode=max,scope=test-compose-chit-service
     container_name: chitwise-test-chit
     environment:
       <<: [*test-common, *test-db]
@@ -155,6 +163,10 @@ services:
     build:
       context: .
       dockerfile: chitfund-payment-service/Dockerfile
+      cache_from:
+        - type=gha,scope=test-compose-payment-service
+      cache_to:
+        - type=gha,mode=max,scope=test-compose-payment-service
     container_name: chitwise-test-payment
     environment:
       <<: [*test-common, *test-db]
@@ -185,6 +197,10 @@ services:
     build:
       context: .
       dockerfile: chitfund-payout-service/Dockerfile
+      cache_from:
+        - type=gha,scope=test-compose-payout-service
+      cache_to:
+        - type=gha,mode=max,scope=test-compose-payout-service
     container_name: chitwise-test-payout
     environment:
       <<: [*test-common, *test-db]
@@ -213,6 +229,10 @@ services:
     build:
       context: .
       dockerfile: chitfund-member-service/Dockerfile
+      cache_from:
+        - type=gha,scope=test-compose-member-service
+      cache_to:
+        - type=gha,mode=max,scope=test-compose-member-service
     container_name: chitwise-test-member
     environment:
       <<: [*test-common, *test-db]
@@ -237,6 +257,10 @@ services:
     build:
       context: .
       dockerfile: chitfund-api-gateway/Dockerfile
+      cache_from:
+        - type=gha,scope=test-compose-api-gateway
+      cache_to:
+        - type=gha,mode=max,scope=test-compose-api-gateway
     container_name: chitwise-test-gateway
     environment:
       <<: *test-common
@@ -277,6 +301,10 @@ services:
     build:
       context: .
       dockerfile: chitwise-management-service/Dockerfile
+      cache_from:
+        - type=gha,scope=test-compose-management-service
+      cache_to:
+        - type=gha,mode=max,scope=test-compose-management-service
     image: chitwise-management-service:local
     container_name: chitwise-test-management
     environment:

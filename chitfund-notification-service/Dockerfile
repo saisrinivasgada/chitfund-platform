@@ -19,12 +19,12 @@ COPY chitfund-payout-service/pom.xml chitfund-payout-service/
 COPY chitfund-api-gateway/pom.xml chitfund-api-gateway/
 COPY chitwise-management-service/pom.xml chitwise-management-service/
 
-RUN mvn -pl chitfund-common,chitfund-notification-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
+RUN --mount=type=cache,target=/root/.m2 mvn -pl chitfund-common,chitfund-notification-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
 
 COPY chitfund-common/src chitfund-common/src
 COPY chitfund-notification-service/src chitfund-notification-service/src
 
-RUN mvn -pl chitfund-common,chitfund-notification-service -am package -DskipTests -q --no-transfer-progress
+RUN --mount=type=cache,target=/root/.m2 mvn -pl chitfund-common,chitfund-notification-service -am package -DskipTests -q --no-transfer-progress
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 # WHY JRE not JDK? Runtime needs only the JRE (~85MB vs ~400MB for JDK).
