@@ -26,7 +26,12 @@ public class OrgUserSetupController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<OrgUserSetupPublicResponse>> getDetails(
-            @RequestParam("token") String token) {
+            @RequestParam("token") String token,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeOrgUserSetupOtp(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error(
+                    "RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
         return ResponseEntity.ok(ApiResponse.success(
                 service.getPublicDetails(token), "Setup token details"));
     }

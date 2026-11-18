@@ -58,8 +58,8 @@ public class AccountEmailOtpService {
                         referenceId, email, purpose, LocalDateTime.now())
                 .orElseThrow(() -> new BusinessException(ErrorCode.OTP_EXPIRED, "Email OTP expired or not found"));
         if (record.getAttempts() >= MAX_ATTEMPTS) throw new BusinessException(ErrorCode.OTP_MAX_ATTEMPTS);
-        record.setAttempts(record.getAttempts() + 1);
         if (!code.equals(record.getVerificationCode())) {
+            record.setAttempts(record.getAttempts() + 1);
             repository.save(record);
             throw new BusinessException(ErrorCode.OTP_INVALID, "Incorrect email OTP");
         }
