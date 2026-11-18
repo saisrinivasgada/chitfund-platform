@@ -229,7 +229,6 @@ class TenantPlanAssignmentTest {
     @Test
     void registrationCannotSelectPrivateInactiveOrUnknownPlan() {
         RegisterOrgRequest request = new RegisterOrgRequest();
-        request.setSlug("new-chitfund");
         request.setAdminEmail("admin@example.com");
         request.setPlan("PRIVATE_ENTERPRISE");
         PlanLimits privatePlan = PlanLimits.builder()
