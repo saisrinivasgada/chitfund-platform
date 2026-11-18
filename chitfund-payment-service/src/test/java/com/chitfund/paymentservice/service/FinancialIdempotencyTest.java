@@ -162,13 +162,6 @@ class FinancialIdempotencyTest {
                 .thenReturn(Optional.empty());
         when(memberServiceClient.isMemberActive(any())).thenReturn(true);
         when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
-                anyString(), any(), any())).thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                anyString(), any(), any(), any())).thenReturn(java.util.List.of());
-        when(paymentRecordRepository.findOutstandingAcrossOtherChitsForUpdateByTenant(
-                anyString(), any(), any(), any()))
-                .thenReturn(java.util.List.of());
         when(batchRepository.saveAndFlush(any())).thenAnswer(inv -> {
             PaymentBatch b = inv.getArgument(0);
             b.setId(UUID.randomUUID());

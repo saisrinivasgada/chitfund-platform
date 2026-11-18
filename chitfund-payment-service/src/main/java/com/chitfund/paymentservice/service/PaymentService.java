@@ -293,21 +293,6 @@ public class PaymentService {
                 return toBatchResponse(b, allocationRepository.findByTenantIdAndBatchId(tenantId, b.getId()));
             }
         }
-        // Online automatic allocation must be reviewed against a current server
-        // snapshot. The idempotent replay above intentionally wins over a stale
-        // review: a successful receipt remains replayable after balances move.
-        if (idempotencyKey != null && offlineGrantId == null && !legacyReviewed
-                && (request.getAllocations() == null || request.getAllocations().isEmpty())) {
-            if (request.getBalanceVersion() == null || request.getBalanceVersion().isBlank()) {
-                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
-                        "Review the current payment allocation before recording it", HttpStatus.CONFLICT);
-            }
-            String currentVersion = offlineBalanceSnapshot(request, true).version();
-            if (!request.getBalanceVersion().equals(currentVersion)) {
-                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
-                        "Member balances changed during review. Refresh the figures and review again.", HttpStatus.CONFLICT);
-            }
-        }
         if (idempotencyKey != null && reviewedBalanceVersion == null) {
             var held = offlineReviews.findOperation(idempotencyKey);
             if (held.isPresent()) {
@@ -347,6 +332,26 @@ public class PaymentService {
         if (request.getAmount().compareTo(BigDecimal.ZERO) > 0 && reviewedBalanceVersion == null
                 && offlineGrantId == null && !request.isConfirmDuplicate()) {
             assertNoRecentDuplicate(tenantId, request.getMemberId(), request.getChitId(), request.getAmount());
+        }
+        // Online automatic allocation must be reviewed against a current server
+        // snapshot. The idempotent replay above intentionally wins over a stale
+        // review: a successful receipt remains replayable after balances move.
+        // Runs after all hard-stop guards (reference dupe, member-inactive, recent
+        // dupe) so those fire first with the correct rejection reason.
+        // Skipped for confirmDuplicate: the client already passed review in the
+        // first attempt before the duplicate-confirmation prompt was shown.
+        if (idempotencyKey != null && offlineGrantId == null && !legacyReviewed
+                && !request.isConfirmDuplicate()
+                && (request.getAllocations() == null || request.getAllocations().isEmpty())) {
+            if (request.getBalanceVersion() == null || request.getBalanceVersion().isBlank()) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Review the current payment allocation before recording it", HttpStatus.CONFLICT);
+            }
+            String currentVersion = offlineBalanceSnapshot(request, true).version();
+            if (!request.getBalanceVersion().equals(currentVersion)) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Member balances changed during review. Refresh the figures and review again.", HttpStatus.CONFLICT);
+            }
         }
         if (offlineGrantId != null || legacyReviewed) {
             var current = offlineBalanceSnapshot(request, true);
