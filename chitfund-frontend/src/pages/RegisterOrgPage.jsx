@@ -10,7 +10,11 @@ import OtpInput from '../components/ui/OtpInput';
 import LegalAcceptanceCheckbox from '../components/legal/LegalAcceptanceCheckbox';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import { googleProfileHint } from '../utils/googleCredential';
-import { RESERVED_TENANT_SLUGS, centralGoogleLoginUrl } from '../utils/tenantHandoff';
+const RESERVED_TENANT_SLUGS = new Set([
+  'hub', 'www', 'api', 'app', 'mail', 'admin', 'support', 'help',
+  'status', 'cdn', 'static', 'assets', 'login', 'signup', 'register',
+  'dashboard', 'billing', 'dev', 'staging', 'test', 'demo',
+]);
 
 
 const FEATURES = [
@@ -107,11 +111,6 @@ function fmtPrice(effectivePaise, originalPaise, discountPct) {
 export default function RegisterOrgPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  useEffect(() => {
-    if (centralGoogleLoginUrl()) {
-      window.location.replace(`https://thechitwise.com/register${window.location.search}`);
-    }
-  }, []);
   const [form, setForm] = useState({
     orgName: '', slug: '', adminFullName: '', adminUsername: '', adminEmail: '',
     adminPhone: '', adminPhoneCountryCode: '+91', plan: 'BASIC',

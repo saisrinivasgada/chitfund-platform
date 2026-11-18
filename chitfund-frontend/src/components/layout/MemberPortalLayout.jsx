@@ -3,7 +3,6 @@ import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread, getMyChitfundRequests } from '../../services/api';
-import { shouldHandoffToTenant, tenantHandoffUrl } from '../../utils/tenantHandoff';
 import { LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail, UserPlus, MoreHorizontal } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
 import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
@@ -128,11 +127,7 @@ function SwitchOrgModal({ currentTenantId, currentTenantName, onClose }) {
   async function handleSwitch(tenant) {
     setSwitching(tenant.tenantId);
     try {
-      const useHandoff = shouldHandoffToTenant(tenant.slug);
-      const data = await selectTenant({ loginToken, tenantId: tenant.tenantId, webHandoff: useHandoff });
-      const handoffUrl = useHandoff ? tenantHandoffUrl(data, tenant.slug) : null;
-      if (handoffUrl) { window.location.replace(handoffUrl); return; }
-      if (useHandoff) throw new Error('Organization switch could not continue. Please try again.');
+      const data = await selectTenant({ loginToken, tenantId: tenant.tenantId });
       const accessToken = data.accessToken ?? data.token;
       const scopedTenant = data.tenant ?? tenant;
       login(accessToken, {

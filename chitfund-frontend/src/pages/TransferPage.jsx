@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { exchangeTenantHandoff, saveDeviceToken } from '../services/api';
 import { rememberActiveBrowserKey } from '../utils/trustedBrowser';
-import { tenantSlugFromHostname } from '../utils/tenantHandoff';
 import { BookOpen, AlertCircle } from 'lucide-react';
 
 export default function TransferPage() {
@@ -16,7 +15,7 @@ export default function TransferPage() {
     return { code: fragment.get('handoff'), browserKey: fragment.get('browserKey') };
   });
 
-  const tenantSlug = tenantSlugFromHostname();
+  const tenantSlug = null;
 
   useEffect(() => {
     if (started.current) return;

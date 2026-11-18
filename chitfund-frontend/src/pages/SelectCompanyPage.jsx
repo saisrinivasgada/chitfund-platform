@@ -3,7 +3,6 @@ import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { selectTenant } from '../services/api';
 import { rememberActiveBrowserKey } from '../utils/trustedBrowser';
-import { shouldHandoffToTenant, tenantHandoffUrl } from '../utils/tenantHandoff';
 import { BookOpen, Building2, ChevronRight, Shield, Users, Briefcase } from 'lucide-react';
 
 function roleLabel(role) {
@@ -88,12 +87,8 @@ export default function SelectCompanyPage() {
     setError('');
     setLoading(true);
     try {
-      const useHandoff = shouldHandoffToTenant(tenant.slug);
       const authData = await selectTenant({ loginToken, tenantId: tenant.tenantId,
-        rememberDevice: rememberRequested && useHandoff, webHandoff: useHandoff });
-      const handoffUrl = useHandoff ? tenantHandoffUrl(authData, tenant.slug, browserKey) : null;
-      if (handoffUrl) { window.location.replace(handoffUrl); return; }
-      if (useHandoff) throw new Error('Organization sign-in could not continue. Please try again.');
+        rememberDevice: rememberRequested });
       const scopedTenant = authData?.tenant ?? tenant;
       const accessToken = authData?.accessToken ?? authData?.token;
       const role = authData?.user?.role ?? 'MEMBER';

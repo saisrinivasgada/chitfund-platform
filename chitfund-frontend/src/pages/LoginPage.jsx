@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import { login as loginApi, mobileLookup, loginByMobile, selectTenant, signInWithGoogle, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
 import { browserKeyForUsername, browserKeyForMobile, browserKeyForGoogle,
   rememberActiveBrowserKey } from '../utils/trustedBrowser';
-import { centralGoogleLoginUrl, loginTenantSlug, tenantHandoffActive, shouldHandoffToTenant, tenantHandoffUrl } from '../utils/tenantHandoff';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import Button from '../components/ui/Button';
 import DevOtpBanner from '../components/ui/DevOtpBanner';
@@ -596,33 +595,9 @@ export default function LoginPage() {
       return;
     }
 
-    // Subdomain-based auto-selection: apple.localhost → select apple tenant
-    const slug = loginTenantSlug();
-    if (slug) {
-      const match = tenants.find(t => t.slug === slug);
-      if (match) {
-        const useHandoff = shouldHandoffToTenant(match.slug);
-        const authData = await selectTenant({ loginToken: loginResponse.loginToken, tenantId: match.tenantId,
-          rememberDevice: rememberRequested && useHandoff, webHandoff: useHandoff });
-        const handoffUrl = useHandoff ? tenantHandoffUrl(authData, match.slug, browserKey) : null;
-        if (handoffUrl) { window.location.replace(handoffUrl); return; }
-        if (useHandoff) throw new Error('Organization sign-in could not continue. Please try again.');
-        await handleScopedAuth(authData, match, browserKey);
-        return;
-      }
-      setError("You don't have an account with this organisation.");
-      return;
-    }
-
     if (tenants.length === 1) {
       const selected = tenants[0];
-      const useHandoff = shouldHandoffToTenant(selected.slug);
-      const authData = await selectTenant({ loginToken: loginResponse.loginToken,
-        tenantId: selected.tenantId,
-        rememberDevice: rememberRequested && useHandoff, webHandoff: useHandoff });
-      const handoffUrl = useHandoff ? tenantHandoffUrl(authData, selected.slug, browserKey) : null;
-      if (handoffUrl) { window.location.replace(handoffUrl); return; }
-      if (useHandoff) throw new Error('Organization sign-in could not continue. Please try again.');
+      const authData = await selectTenant({ loginToken: loginResponse.loginToken, tenantId: selected.tenantId });
       await handleScopedAuth(authData, tenants[0], browserKey);
     } else {
       navigate('/select-company', { state: { loginToken: loginResponse.loginToken, tenants, browserKey, rememberRequested } });
@@ -694,7 +669,7 @@ export default function LoginPage() {
     try {
       const canRememberBrowser = loginOtpState?.canRememberBrowser === true;
       const rememberRequested = canRememberBrowser && rememberDevice;
-      const rememberOnThisHost = rememberRequested && !tenantHandoffActive();
+      const rememberOnThisHost = rememberRequested;
       const data = await verifyLoginOtp({ otpToken: loginOtpState.otpToken, code,
         rememberDevice: rememberOnThisHost });
       if (data.requiresOtp) {
@@ -993,18 +968,15 @@ export default function LoginPage() {
                       {/* Mobile login */}
                       {loginMode === 'mobile' && <MobileLoginForm onSuccess={(data, browserKey) => handleLoginResponse(data, 'mobile', browserKey)} />}
 
-                      {roleObj.key === 'admin' && import.meta.env.VITE_GOOGLE_CLIENT_ID
-                        && (!centralGoogleLoginUrl() || tenantHandoffActive()) && (
+                      {roleObj.key === 'admin' && import.meta.env.VITE_GOOGLE_CLIENT_ID && (
                         <div className="mt-6 pt-5 border-t border-gray-100">
                           <p className="text-xs text-gray-500 text-center mb-3">Or sign in with your linked Google account</p>
-                          {centralGoogleLoginUrl()
-                            ? <a href={centralGoogleLoginUrl()} className="block max-w-[300px] mx-auto rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-gray-700 hover:bg-gray-50">Continue with Google</a>
-                            : <GoogleSignInButton onCredential={handleGoogleCredential} text="signin_with" />}
-                          {!centralGoogleLoginUrl() && tenantHandoffActive() && <label className="flex items-center justify-center gap-2 mt-3 text-xs text-gray-600 cursor-pointer">
+                          <GoogleSignInButton onCredential={handleGoogleCredential} text="signin_with" />
+                          <label className="flex items-center justify-center gap-2 mt-3 text-xs text-gray-600 cursor-pointer">
                             <input type="checkbox" checked={rememberDevice} onChange={(e) => setRememberDevice(e.target.checked)}
                               className="accent-[#1E3A5F]" />
                             Trust this browser for up to 30 days
-                          </label>}
+                          </label>
                           {loading && <p className="text-xs text-gray-500 text-center mt-2">Signing in…</p>}
                           {googleError && (
                             <div role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -1018,10 +990,7 @@ export default function LoginPage() {
                       <div className="mt-8 pt-6 border-t border-gray-100 text-center">
                         <p className="text-sm text-gray-400">
                           New chit fund?{' '}
-                          <button onClick={() => {
-                            if (centralGoogleLoginUrl()) window.location.assign('https://thechitwise.com/register');
-                            else navigate('/register');
-                          }} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
+                          <button onClick={() => navigate('/register')} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
                             Register your organization
                           </button>
                         </p>

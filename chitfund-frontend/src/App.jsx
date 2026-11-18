@@ -39,7 +39,6 @@ const SetupAccountPage = loadPage(() => import('./pages/SetupAccountPage'));
 const AdminSetupPage = loadPage(() => import('./pages/AdminSetupPage'));
 const ChitfundRequestLandingPage = loadPage(() => import('./pages/ChitfundRequestLandingPage'));
 const TransferPage = loadPage(() => import('./pages/TransferPage'));
-const GoogleProofPage = loadPage(() => import('./pages/GoogleProofPage'));
 const RegisterOrgPage = loadPage(() => import('./pages/RegisterOrgPage'));
 const ProxyPage = loadPage(() => import('./pages/ProxyPage'));
 const OrgUserSetupPage = loadPage(() => import('./pages/OrgUserSetupPage'));
@@ -139,7 +138,6 @@ export default function App() {
       <Route path="/org-user-setup" element={<OrgUserSetupPage />} />
       <Route path="/chitfund-request" element={<ChitfundRequestLandingPage />} />
       <Route path="/auth/transfer" element={<TransferPage />} />
-      <Route path="/auth/google-proof" element={<GoogleProofPage />} />
       <Route path="/proxy" element={<ProxyPage />} />
       {/* Forced password change — accessible to any authenticated user */}
       <Route path="/change-password" element={<ChangePasswordPage />} />

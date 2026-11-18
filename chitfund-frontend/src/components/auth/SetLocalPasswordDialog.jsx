@@ -1,9 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import GoogleSignInButton from './GoogleSignInButton';
 import { setLocalPassword } from '../../services/api';
-import { centralGoogleLoginUrl } from '../../utils/tenantHandoff';
-
 function passwordError(password) {
   if (password.length < 8) return 'Use at least 8 characters.';
   if (!/[A-Z]/.test(password) || !/[a-z]/.test(password)
@@ -15,45 +13,11 @@ function passwordError(password) {
 
 export default function SetLocalPasswordDialog({ onClose }) {
   const queryClient = useQueryClient();
-  const popupRef = useRef(null);
-  const proofStateRef = useRef(null);
   const [googleIdToken, setGoogleIdToken] = useState(null);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const needsMainSite = Boolean(centralGoogleLoginUrl());
-
-  useEffect(() => {
-    function receiveProof(event) {
-      if (event.origin !== 'https://thechitwise.com'
-        || event.source !== popupRef.current
-        || event.data?.type !== 'chitwise:google-proof'
-        || event.data?.state !== proofStateRef.current
-        || typeof event.data?.idToken !== 'string') return;
-      setGoogleIdToken(event.data.idToken);
-      setError('');
-      proofStateRef.current = null;
-      popupRef.current?.close();
-      popupRef.current = null;
-    }
-    window.addEventListener('message', receiveProof);
-    return () => {
-      window.removeEventListener('message', receiveProof);
-      popupRef.current?.close();
-    };
-  }, []);
-
-  function verifyOnMainSite() {
-    setError('');
-    const state = crypto.randomUUID();
-    proofStateRef.current = state;
-    const url = new URL('https://thechitwise.com/auth/google-proof');
-    url.searchParams.set('returnOrigin', window.location.origin);
-    url.searchParams.set('state', state);
-    popupRef.current = window.open(url.toString(), 'chitwise-google-proof', 'width=520,height=680');
-    if (!popupRef.current) setError('Your browser blocked the verification window. Allow pop-ups and try again.');
-  }
 
   async function submit(event) {
     event.preventDefault();
@@ -96,9 +60,7 @@ export default function SetLocalPasswordDialog({ onClose }) {
             <input type="password" autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2.5" required />
           </label>
           <div>
-            {needsMainSite
-              ? <button type="button" onClick={verifyOnMainSite} className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">Verify with Google</button>
-              : <GoogleSignInButton onCredential={(token) => { setGoogleIdToken(token); setError(''); }} text="continue_with" />}
+            <GoogleSignInButton onCredential={(token) => { setGoogleIdToken(token); setError(''); }} text="continue_with" />
             {googleIdToken && <p className="mt-2 text-center text-sm text-green-700">Google account selected. We’ll verify it when you save.</p>}
           </div>
           {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
