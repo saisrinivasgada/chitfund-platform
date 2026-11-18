@@ -17,6 +17,7 @@ import AboutPage from './pages/AboutPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import SelectCompanyPage from './pages/SelectCompanyPage';
 import SetupAccountPage from './pages/SetupAccountPage';
+import OrgUserSetupPage from './pages/OrgUserSetupPage';
 import ChitfundRequestLandingPage from './pages/ChitfundRequestLandingPage';
 import TransferPage from './pages/TransferPage';
 import RegisterOrgPage from './pages/RegisterOrgPage';
@@ -95,6 +96,7 @@ export default function App() {
       <Route path="/register" element={<RegisterOrgPage />} />
       <Route path="/select-company" element={<SelectCompanyPage />} />
       <Route path="/setup-account" element={<SetupAccountPage />} />
+      <Route path="/org-user-setup" element={<OrgUserSetupPage />} />
       <Route path="/chitfund-request" element={<ChitfundRequestLandingPage />} />
       <Route path="/auth/transfer" element={<TransferPage />} />
       <Route path="/proxy" element={<ProxyPage />} />

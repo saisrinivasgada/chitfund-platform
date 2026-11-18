@@ -133,6 +133,9 @@ public class User implements UserDetails {
     @Column(length = 20)
     private String termsVersion;
 
+    @Column(name = "org_user_setup_completed_at")
+    private LocalDateTime orgUserSetupCompletedAt;
+
     private LocalDateTime lastLoginAt;
 
     private LocalDateTime deletedAt;

@@ -26,7 +26,7 @@ function run(vulnerabilities, counts = {}) {
   });
 }
 
-test('permits only the version-pinned Expo build-tool advisories', () => {
+test('permits only the version-pinned Expo vendor exceptions', () => {
   const result = run({
     braces: {
       severity: 'high',
@@ -45,7 +45,7 @@ test('permits only the version-pinned Expo build-tool advisories', () => {
   }, { high: 2 });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stderr, /Accepted Expo build-tool advisories/);
+  assert.match(result.stderr, /Accepted Expo vendor exceptions/);
 });
 
 test('fails closed for an unknown High advisory', () => {

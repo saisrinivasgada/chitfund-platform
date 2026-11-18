@@ -263,6 +263,7 @@ public class AuthService {
         AccountSetupToken token = AccountSetupToken.builder()
                 .userId(userId)
                 .chitfundRequestId(chitfundRequestId)
+                .purpose(com.chitfund.userservice.domain.enums.SetupTokenPurpose.CHITFUND_REQUEST)
                 .tokenHash(hash)
                 .expiresAt(LocalDateTime.now().plusHours(72))
                 .build();

@@ -287,17 +287,9 @@ export const forgotPasswordVerifyOtp = async ({ userId, code }) => {
 export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }) => {
   await api.post('/auth/forgot-password/reset-with-token', { resetToken, newPassword });
 };
-export const adminForgotPassword = async ({ email }) => {
-  const res = await api.post('/auth/admin/forgot-password', { email });
-  return res.data.data; // { userId }
-};
-export const adminVerifyResetOtp = async ({ userId, code }) => {
-  const res = await api.post('/auth/admin/verify-reset-otp', { userId, code });
-  return res.data.data; // { resetToken }
-};
-export const adminResetPassword = async ({ resetToken, newPassword }) => {
-  await api.post('/auth/admin/reset-password', { resetToken, newPassword });
-};
+// adminForgotPassword, adminVerifyResetOtp, adminResetPassword removed —
+// those endpoints are retired (410 GONE). Account recovery uses the
+// mobile OTP flow via /api/auth/forgot-password/send-otp.
 
 // Legacy (kept for backward compat)
 export const sendForgotPasswordOtp = async ({ phone, countryCode }) => {
@@ -632,6 +624,41 @@ export const lockUser = async (id) => {
 
 export const unlockUser = async (id) => {
   const res = await api.put(`/users/${id}/unlock`);
+  return res.data.data;
+};
+
+// ── Super Admin tenant-scoped lock/unlock (with audit reason) ─────────────────
+
+export const superAdminLockOrgUser = async (tenantId, userId, reason) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/users/${userId}/lock`, { reason });
+  return res.data.data;
+};
+
+export const superAdminUnlockOrgUser = async (tenantId, userId, reason) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/users/${userId}/unlock`, { reason });
+  return res.data.data;
+};
+
+export const superAdminResendOrgUserSetup = async (tenantId, userId) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/resend-setup`);
+  return res.data.data;
+};
+
+// ── Org-user account-setup flow (public, token-gated) ────────────────────────
+
+export const getOrgUserSetupDetails = async (token) => {
+  const res = await api.get('/auth/org-user-setup', { params: { token } });
+  return res.data.data;
+};
+
+export const sendOrgUserSetupEmailOtp = async (token) => {
+  await api.post('/auth/org-user-setup/email-otp', { token });
+};
+
+export const completeOrgUserSetup = async ({ token, emailOtp, newPassword, termsAccepted }) => {
+  const res = await api.post('/auth/org-user-setup/complete', {
+    token, emailOtp, newPassword, termsAccepted,
+  });
   return res.data.data;
 };
 

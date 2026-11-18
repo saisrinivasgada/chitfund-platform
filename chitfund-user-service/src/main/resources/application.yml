@@ -82,6 +82,9 @@ app:
     max-per-phone-all-purposes-per-day: ${OTP_MAX_TOTAL_PER_DAY:100}
     cooldown:
       enabled: ${OTP_COOLDOWN_ENABLED:true}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    hmac-key: ${RATE_LIMIT_HMAC_KEY:}
 
 whatsapp:
   phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:NOT_CONFIGURED}

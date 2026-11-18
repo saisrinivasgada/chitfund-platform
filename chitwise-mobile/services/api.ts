@@ -1436,6 +1436,20 @@ export const unlockUser = async (id: string): Promise<any> => {
   return res.data.data;
 };
 
+export const superAdminLockOrgUser = async (tenantId: string, userId: string, reason: string): Promise<any> => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/users/${userId}/lock`, { reason });
+  return res.data.data;
+};
+
+export const superAdminUnlockOrgUser = async (tenantId: string, userId: string, reason: string): Promise<any> => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/users/${userId}/unlock`, { reason });
+  return res.data.data;
+};
+
+export const superAdminResendOrgUserSetup = async (tenantId: string, userId: string): Promise<void> => {
+  await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/resend-setup`);
+};
+
 // ── Super-admin: tenant subscription lifecycle ────────────────────────────────
 export const superAdminCancelTenant = async (tenantId: string): Promise<any> => {
   const res = await api.post(`/super-admin/tenants/${tenantId}/cancel`);

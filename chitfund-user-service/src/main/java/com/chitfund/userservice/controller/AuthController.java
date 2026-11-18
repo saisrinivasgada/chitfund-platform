@@ -230,7 +230,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<ForgotPasswordLookupResponse>> forgotPasswordLookup(
             @Valid @RequestBody ForgotPasswordLookupRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpLookup(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         return ResponseEntity.ok(ApiResponse.success(
@@ -241,7 +241,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPasswordSendOtp(
             @Valid @RequestBody ForgotPasswordSendOtpRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpOtp(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         authService.sendForgotPasswordOtpNew(req.getUserId(), req.getLast4());
@@ -252,7 +252,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<ForgotPasswordVerifyOtpResponse>> forgotPasswordVerifyOtp(
             @Valid @RequestBody ForgotPasswordVerifyOtpRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpOtpVerify(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         return ResponseEntity.ok(ApiResponse.success(
@@ -263,7 +263,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> forgotPasswordResetWithToken(
             @Valid @RequestBody ForgotPasswordResetWithTokenRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+        if (!rateLimiter.tryConsumeFpReset(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         authService.resetPasswordWithToken(req.getResetToken(), req.getNewPassword());
@@ -291,32 +291,29 @@ public class AuthController {
                 "AUTH_FLOW_RETIRED", "Update the app and use the account recovery flow."));
     }
 
-    // ── Admin email-OTP password reset ──────────────────────────────────────
+    // ── Retired admin email-OTP password reset (now 410) ────────────────────
+    // Admin/manager/staff accounts use the mobile OTP recovery flow:
+    //   POST /api/auth/otp/send  →  /api/auth/forgot-password/verify-otp  →  /api/auth/forgot-password/reset-with-token
 
     @PostMapping("/admin/forgot-password")
-    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminForgotPasswordSendOtp(
-            @RequestBody java.util.Map<String, String> body) {
-        String userId = adminPasswordResetService.sendOtp(body.get("email"));
-        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("userId", userId)));
+    public ResponseEntity<ApiResponse<Void>> adminForgotPasswordRetired() {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use the mobile OTP account recovery flow."));
     }
 
     @PostMapping("/admin/verify-reset-otp")
-    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminVerifyResetOtp(
-            @RequestBody java.util.Map<String, String> body) {
-        String userId = body.get("userId");
-        String otp    = body.get("code");
-        String resetToken = adminPasswordResetService.verifyOtp(userId, otp);
-        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("resetToken", resetToken)));
+    public ResponseEntity<ApiResponse<Void>> adminVerifyResetOtpRetired() {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use the mobile OTP account recovery flow."));
     }
 
     @PostMapping("/admin/reset-password")
-    public ResponseEntity<ApiResponse<Void>> adminResetPasswordWithToken(
-            @RequestBody java.util.Map<String, String> body) {
-        adminPasswordResetService.resetPassword(body.get("resetToken"), body.get("newPassword"));
-        return ResponseEntity.ok(ApiResponse.success(null));
+    public ResponseEntity<ApiResponse<Void>> adminResetPasswordRetired() {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use the mobile OTP account recovery flow."));
     }
 
-    // ── Retired admin email-OTP password reset ──────────────────────────────
+    // ── Retired general email-OTP password reset ────────────────────────────
     // General login recovery is mobile OTP for every organization role. Email
     // recovery is purpose-bound to an existing-member Chitfund Request only.
 
@@ -402,9 +399,10 @@ public class AuthController {
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 
+    // Trust only the gateway-set header; never the client-supplied X-Real-IP.
     private String getClientIp(HttpServletRequest request) {
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) return realIp.trim();
+        String trusted = request.getHeader("X-ChitWise-Client-IP");
+        if (trusted != null && !trusted.isBlank()) return trusted.trim();
         return request.getRemoteAddr();
     }
 }

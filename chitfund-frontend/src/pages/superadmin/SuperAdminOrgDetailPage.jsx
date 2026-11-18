@@ -27,8 +27,9 @@ import {
   superAdminReactivateTenant,
   resetMemberPassword,
   superAdminProxyAs,
-  lockUser,
-  unlockUser,
+  superAdminLockOrgUser,
+  superAdminUnlockOrgUser,
+  superAdminResendOrgUserSetup,
   superAdminListAddOns,
   superAdminCancelTenant,
   superAdminResumeTenant,
@@ -245,10 +246,10 @@ function CredentialsPopup({ username, password, onDone, title = 'User Created', 
 }
 
 function AddUserModal({ tenantId, onClose, onSuccess }) {
-  const [form, setForm] = useState({ fullName: '', countryCode: '+91', phone: '', email: '', role: 'ADMIN', password: '' });
+  const [form, setForm] = useState({ fullName: '', countryCode: '+91', phone: '', email: '', role: 'ADMIN' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [credentials, setCredentials] = useState(null);
+  const [setupResult, setSetupResult] = useState(null);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -261,9 +262,8 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
         phoneCountryCode: form.countryCode,
         email: form.email.trim(),
         role: form.role,
-        password: form.password || null,
       });
-      setCredentials({ username: result.username, password: result.tempPassword });
+      setSetupResult(result);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Failed to add user');
     } finally {
@@ -271,13 +271,26 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
     }
   }
 
-  if (credentials) {
+  if (setupResult) {
+    const queued = setupResult.setupEmailQueued;
     return (
-      <CredentialsPopup
-        username={credentials.username}
-        password={credentials.password}
-        onDone={() => { onSuccess('User added successfully'); onClose(); }}
-      />
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
+          <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ${queued ? 'bg-green-100' : 'bg-amber-100'}`}>
+            <CheckCircle size={28} className={queued ? 'text-green-500' : 'text-amber-500'} />
+          </div>
+          <h3 className="font-bold text-gray-900 mb-2">
+            {queued ? 'Setup email queued' : 'Account created'}
+          </h3>
+          <p className="text-sm text-gray-500 mb-6">
+            {queued
+              ? <>The user account was created for <strong>{setupResult.username}</strong>. A setup link has been sent to <strong>{setupResult.maskedEmail}</strong>. They will set their own password via the secure setup page.</>
+              : <>The account for <strong>{setupResult.username}</strong> was created but the setup email could not be queued. Use <strong>Resend Setup</strong> from the user list to retry.</>
+            }
+          </p>
+          <Button onClick={() => { onSuccess(queued ? 'User added — setup email queued' : 'User added — setup email not queued'); onClose(); }}>Done</Button>
+        </div>
+      </div>
     );
   }
 
@@ -351,17 +364,9 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
               required
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Initial Password <span className="text-gray-400 font-normal">(auto-generated if empty)</span></label>
-            <input
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              type="text"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 font-mono"
-              placeholder="Leave empty to auto-generate"
-            />
-          </div>
-          <p className="text-xs text-gray-400">Username is auto-generated from the phone number. The user must change their password on first login.</p>
+          <p className="text-xs text-gray-400">
+            A setup email will be sent to this address. The user sets their own password via the secure link.
+          </p>
           {error && (
             <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">
               <AlertCircle size={14} />
@@ -843,6 +848,9 @@ export default function SuperAdminOrgDetailPage() {
   const [showAddCredit, setShowAddCredit] = useState(false);
   const [proxyingUserId, setProxyingUserId] = useState(null);
   const [lockingUserId, setLockingUserId] = useState(null);
+  const [lockModal, setLockModal] = useState(null); // { userId, locked, username }
+  const [lockReason, setLockReason] = useState('');
+  const [resendingSetupUserId, setResendingSetupUserId] = useState(null);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -1783,23 +1791,9 @@ export default function SuperAdminOrgDetailPage() {
                                   type="button"
                                   disabled={lockingUserId === u.userId}
                                   title={u.locked ? 'Unlock Account' : 'Lock Account'}
-                                  onClick={async () => {
-                                    setLockingUserId(u.userId);
-                                    try {
-                                      if (u.locked) {
-                                        await unlockUser(u.userId);
-                                        setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: false } : x));
-                                        showToast('Account unlocked');
-                                      } else {
-                                        await lockUser(u.userId);
-                                        setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: true } : x));
-                                        showToast('Account locked');
-                                      }
-                                    } catch {
-                                      showToast(u.locked ? 'Failed to unlock' : 'Failed to lock');
-                                    } finally {
-                                      setLockingUserId(null);
-                                    }
+                                  onClick={() => {
+                                    setLockModal({ userId: u.userId, locked: u.locked, username: u.username });
+                                    setLockReason('');
                                   }}
                                   className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors disabled:opacity-50 ${
                                     u.locked
@@ -1810,6 +1804,28 @@ export default function SuperAdminOrgDetailPage() {
                                   {u.locked ? <LockOpen size={12} /> : <Lock size={12} />}
                                   {lockingUserId === u.userId ? '…' : u.locked ? 'Unlock' : 'Lock'}
                                 </button>
+                                {u.setupPending && (
+                                <button
+                                  type="button"
+                                  disabled={resendingSetupUserId === u.userId}
+                                  title="Resend account setup email"
+                                  onClick={async () => {
+                                    setResendingSetupUserId(u.userId);
+                                    try {
+                                      await superAdminResendOrgUserSetup(tenantId, u.userId);
+                                      showToast('Setup email queued');
+                                    } catch {
+                                      showToast('Failed to resend setup email');
+                                    } finally {
+                                      setResendingSetupUserId(null);
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-violet-200 text-violet-700 hover:bg-violet-50 cursor-pointer transition-colors disabled:opacity-50"
+                                >
+                                  <Link size={12} />
+                                  {resendingSetupUserId === u.userId ? '…' : 'Resend Setup'}
+                                </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -1979,6 +1995,62 @@ export default function SuperAdminOrgDetailPage() {
           onClose={() => setShowReactivate(false)}
           onSuccess={(msg) => { showToast(msg); loadAll(); setShowReactivate(false); }}
         />
+      )}
+      {lockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h3 className="font-bold text-gray-900 mb-1">
+              {lockModal.locked ? 'Unlock account' : 'Lock account'}
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              {lockModal.locked
+                ? `Unlock @${lockModal.username} — they will be able to sign in again.`
+                : `Lock @${lockModal.username} — they will not be able to sign in.`}
+            </p>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Reason <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={lockReason}
+              onChange={(e) => setLockReason(e.target.value)}
+              rows={3}
+              minLength={5}
+              maxLength={500}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 resize-none"
+              placeholder="Reason for this action (5–500 characters)"
+              autoFocus
+            />
+            <div className="flex gap-3 mt-4 justify-end">
+              <Button variant="secondary" onClick={() => setLockModal(null)}>Cancel</Button>
+              <Button
+                disabled={lockReason.trim().length < 5 || lockingUserId === lockModal.userId}
+                loading={lockingUserId === lockModal.userId}
+                onClick={async () => {
+                  setLockingUserId(lockModal.userId);
+                  const { userId, locked } = lockModal;
+                  try {
+                    if (locked) {
+                      await superAdminUnlockOrgUser(tenantId, userId, lockReason.trim());
+                      setUsers(prev => prev.map(x => x.userId === userId ? { ...x, locked: false } : x));
+                      showToast('Account unlocked');
+                    } else {
+                      await superAdminLockOrgUser(tenantId, userId, lockReason.trim());
+                      setUsers(prev => prev.map(x => x.userId === userId ? { ...x, locked: true } : x));
+                      showToast('Account locked');
+                    }
+                    setLockModal(null);
+                  } catch {
+                    showToast(locked ? 'Failed to unlock' : 'Failed to lock');
+                  } finally {
+                    setLockingUserId(null);
+                  }
+                }}
+              >
+                {lockModal.locked ? 'Unlock' : 'Lock'}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
       <Toast msg={toast} />
     </>

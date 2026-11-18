@@ -88,6 +88,12 @@ services:
       OFFLINE_SIGNING_KEY_ID: ${OFFLINE_SIGNING_KEY_ID:-v1}
       OFFLINE_PREVIOUS_SIGNING_KEYS: ${OFFLINE_PREVIOUS_SIGNING_KEYS:-}
       OFFLINE_LEGACY_SIGNING_SECRET: ${OFFLINE_LEGACY_SIGNING_SECRET:-}
+      # Rate-limit IP HMAC secret — stored in AWS Secrets Manager under
+      # arn:aws:secretsmanager:ap-south-1:*:secret:chitwise/prod as key RATE_LIMIT_HMAC_KEY.
+      # Must be a cryptographically random 32-byte (256-bit) value, independent of JWT,
+      # DB, internal-service and offline-signing secrets.
+      # Service startup fails immediately if this variable is not set (no default).
+      RATE_LIMIT_HMAC_KEY: ${RATE_LIMIT_HMAC_KEY}
       MANAGEMENT_SERVICE_URL: http://management-service:8091
       AUDIT_SERVICE_URL: http://audit-service:8088
       FRONTEND_URL: ${FRONTEND_URL:-https://thechitwise.com}

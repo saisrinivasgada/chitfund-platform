@@ -100,10 +100,20 @@ public class SecurityConfig {
                     "/api/chitfund-requests/recovery/email-otp",
                     "/api/chitfund-requests/recovery/verify-email-otp").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/chitfund-requests/public").permitAll()
+                // Org-user account setup flow (purpose-bound, separate from chitfund-request setup)
+                .requestMatchers(HttpMethod.GET, "/api/auth/org-user-setup").permitAll()
+                .requestMatchers(HttpMethod.POST,
+                    "/api/auth/org-user-setup/email-otp",
+                    "/api/auth/org-user-setup/complete").permitAll()
                 .requestMatchers(HttpMethod.POST,
                     "/api/auth/otp/send",
                     "/api/auth/otp/verify").permitAll()
                 .requestMatchers("/api/auth/forgot-password/**").permitAll()
+                // Retired email-OTP admin reset endpoints — must remain pre-auth so old clients receive 410 not 401
+                .requestMatchers(HttpMethod.POST,
+                    "/api/auth/admin/forgot-password",
+                    "/api/auth/admin/verify-reset-otp",
+                    "/api/auth/admin/reset-password").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .requestMatchers("/internal/**").permitAll()
