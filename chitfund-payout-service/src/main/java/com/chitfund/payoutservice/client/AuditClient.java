@@ -46,7 +46,7 @@ public class AuditClient {
                     null, null, context.deviceSessionHash(), Instant.now(), null, null);
             outboxStore.enqueue(UUID.randomUUID().toString(), tenantId, entityType, entityId,
                     SqsQueues.EVT_AUDIT_LOG, objectMapper.writeValueAsString(event),
-                    List.of(SqsQueues.AUDIT_EVENTS));
+                    List.of(SqsQueues.auditEvents()));
         } catch (Exception exception) {
             throw new IllegalStateException(
                     "Could not record the payout audit event in the transactional outbox", exception);

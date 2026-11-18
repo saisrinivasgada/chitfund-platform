@@ -40,7 +40,7 @@ public class NotificationEventPublisher {
         String eventId = UUID.randomUUID().toString();
         try {
             outbox.enqueue(eventId, eventType, objectMapper.writeValueAsString(payload),
-                    SqsQueues.NOTIFICATION_EVENTS);
+                    SqsQueues.notificationEvents());
         } catch (Exception e) {
             throw new IllegalStateException("Could not persist " + eventType + " event", e);
         }

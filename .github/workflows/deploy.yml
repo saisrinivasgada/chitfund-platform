@@ -76,17 +76,22 @@ jobs:
               - 'chitfund-common/**'
               - 'chitfund-reporting-service/**'
             management:
+              - 'chitfund-common/**'
               - 'chitwise-management-service/**'
             frontend:
               - 'shared/offline/**'
               - 'chitfund-frontend/**'
               - 'nginx.conf'
+              - 'nginx.staging.conf'
             backend:
               - 'docker-compose.prod.yml'
               - 'scripts/fetch-secrets.sh'
               - 'scripts/prepare-offline-config.py'
               - 'scripts/test-offline-config.py'
               - 'scripts/deploy-mumbai.sh'
+              - 'scripts/deploy-staging.sh'
+              - 'nginx.staging.conf'
+              - 'infra/aws/mumbai-staging/**'
               - '.github/workflows/deploy.yml'
               - 'chitfund-common/**'
               - 'chitfund-user-service/**'
@@ -709,4 +714,213 @@ jobs:
             sleep 10
           done
           echo "Deployment did not finish within 30 minutes" >&2
+          exit 1
+
+  # ── Private staging: build one immutable, internally consistent release ──────
+  # Every release gets one immutable IMAGE_TAG. Changed services are built;
+  # unchanged services have their previous staging manifest copied to the new
+  # tag. The first release builds everything because no staging-current
+  # manifests exist yet. This preserves complete releases without spending CI
+  # minutes rebuilding ten unchanged Java services on every test merge.
+  push-staging-images:
+    name: Build Staging Release Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: [changes, build-summary, financial-e2e]
+    if: |
+      always() &&
+      github.ref == 'refs/heads/test' &&
+      github.event_name == 'push' &&
+      needs.build-summary.result == 'success' &&
+      (needs.financial-e2e.result == 'success' ||
+       (needs.financial-e2e.result == 'skipped' && needs.changes.outputs.e2e != 'true')) &&
+      needs.changes.outputs.backend == 'true'
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: chitwise-staging-images
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push complete staging release
+        env:
+          TAG: staging-${{ github.sha }}
+          CHANGED_GATEWAY: ${{ needs.changes.outputs.gateway }}
+          CHANGED_USER: ${{ needs.changes.outputs.user }}
+          CHANGED_MEMBER: ${{ needs.changes.outputs.member }}
+          CHANGED_CHIT: ${{ needs.changes.outputs.chit }}
+          CHANGED_PAYMENT: ${{ needs.changes.outputs.payment }}
+          CHANGED_PAYOUT: ${{ needs.changes.outputs.payout }}
+          CHANGED_NOTIFICATION: ${{ needs.changes.outputs.notification }}
+          CHANGED_AUDIT: ${{ needs.changes.outputs.audit }}
+          CHANGED_REPORTING: ${{ needs.changes.outputs.reporting }}
+          CHANGED_MANAGEMENT: ${{ needs.changes.outputs.management }}
+        run: |
+          set -euo pipefail
+          publish_service() {
+            local name="$1"
+            local file="$2"
+            local changed="$3"
+            local immutable="${IMAGE_PREFIX}/${name}:${TAG}"
+            local current="${IMAGE_PREFIX}/${name}:staging-current"
+
+            if [ "$changed" = "true" ] || ! docker buildx imagetools inspect "$current" >/dev/null 2>&1; then
+              docker buildx build . \
+              --file "$file" \
+              --tag "$immutable" \
+              --cache-from "type=gha,scope=staging-${name}" \
+              --cache-to "type=gha,mode=max,scope=staging-${name}" \
+              --push
+            else
+              docker buildx imagetools create --tag "$immutable" "$current"
+            fi
+            docker buildx imagetools create --tag "$current" "$immutable"
+          }
+
+          publish_service api-gateway chitfund-api-gateway/Dockerfile "$CHANGED_GATEWAY"
+          publish_service user-service chitfund-user-service/Dockerfile "$CHANGED_USER"
+          publish_service member-service chitfund-member-service/Dockerfile "$CHANGED_MEMBER"
+          publish_service chit-service chitfund-chit-service/Dockerfile "$CHANGED_CHIT"
+          publish_service payment-service chitfund-payment-service/Dockerfile "$CHANGED_PAYMENT"
+          publish_service payout-service chitfund-payout-service/Dockerfile "$CHANGED_PAYOUT"
+          publish_service notification-service chitfund-notification-service/Dockerfile "$CHANGED_NOTIFICATION"
+          publish_service audit-service chitfund-audit-service/Dockerfile "$CHANGED_AUDIT"
+          publish_service reporting-service chitfund-reporting-service/Dockerfile "$CHANGED_REPORTING"
+          publish_service management-service chitwise-management-service/Dockerfile "$CHANGED_MANAGEMENT"
+
+  deploy-staging:
+    name: Deploy Private Mumbai Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    needs: [changes, build-summary, push-staging-images]
+    if: |
+      always() &&
+      github.ref == 'refs/heads/test' &&
+      github.event_name == 'push' &&
+      needs.build-summary.result == 'success' &&
+      (needs.push-staging-images.result == 'success' ||
+       (needs.push-staging-images.result == 'skipped' && needs.changes.outputs.backend != 'true')) &&
+      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: chitwise-staging-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure short-lived staging AWS access
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.STAGING_AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+      - name: Start staging if the cost-saving schedule stopped it
+        run: |
+          set -euo pipefail
+          db_status=$(aws rds describe-db-instances \
+            --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}" \
+            --query 'DBInstances[0].DBInstanceStatus' --output text)
+          if [ "$db_status" = "stopped" ]; then
+            aws rds start-db-instance \
+              --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}" \
+              --no-cli-pager >/dev/null
+          fi
+          aws rds wait db-instance-available \
+            --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}"
+
+          instance_state=$(aws ec2 describe-instances \
+            --instance-ids "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+            --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if [ "$instance_state" = "stopped" ]; then
+            aws ec2 start-instances \
+              --instance-ids "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+              --no-cli-pager >/dev/null
+          fi
+          aws ec2 wait instance-running \
+            --instance-ids "${{ vars.STAGING_AWS_INSTANCE_ID }}"
+
+          for attempt in $(seq 1 60); do
+            ping=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+              --query 'InstanceInformationList[0].PingStatus' --output text)
+            [ "$ping" = "Online" ] && exit 0
+            sleep 10
+          done
+          echo "Staging instance did not become available in Systems Manager" >&2
+          exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: chitfund-frontend/package-lock.json
+      - name: Build staging frontend
+        working-directory: chitfund-frontend
+        run: npm ci && npm run build
+      - name: Prepare encrypted staging release bundle
+        run: |
+          install -d release
+          install -m 0644 docker-compose.prod.yml release/docker-compose.prod.yml
+          install -m 0755 scripts/fetch-secrets.sh release/fetch-secrets.sh
+          install -m 0755 scripts/prepare-offline-config.py release/prepare-offline-config.py
+          install -m 0755 scripts/deploy-staging.sh release/deploy-staging.sh
+          install -m 0644 nginx.staging.conf release/nginx.staging.conf
+          cp -a chitfund-frontend/dist release/frontend
+          tar -C release -czf "chitwise-staging-${GITHUB_SHA}.tar.gz" .
+          aws s3 cp "chitwise-staging-${GITHUB_SHA}.tar.gz" \
+            "s3://${{ vars.STAGING_AWS_DEPLOY_BUCKET }}/releases/${GITHUB_SHA}.tar.gz" \
+            --sse AES256 --only-show-errors
+      - name: Deploy through AWS Systems Manager
+        env:
+          DEPLOY_BACKEND: ${{ needs.changes.outputs.backend }}
+        run: |
+          commands=$(jq -nc \
+            --arg bucket "${{ vars.STAGING_AWS_DEPLOY_BUCKET }}" \
+            --arg sha "$GITHUB_SHA" \
+            --arg backend "$DEPLOY_BACKEND" \
+            '[
+              "set -euo pipefail",
+              "release_dir=/tmp/chitwise-staging-release-\($sha)",
+              "install -d -m 0700 $release_dir",
+              "aws s3 cp s3://\($bucket)/releases/\($sha).tar.gz $release_dir/release.tar.gz --region ap-south-1 --only-show-errors",
+              "tar -C $release_dir -xzf $release_dir/release.tar.gz",
+              "IMAGE_TAG=staging-\($sha) DEPLOY_BACKEND=\($backend) DEPLOY_FRONTEND=true RELEASE_DIR=$release_dir bash $release_dir/deploy-staging.sh"
+            ]')
+          parameters=$(jq -nc --argjson commands "$commands" \
+            '{commands:$commands,executionTimeout:["1800"]}')
+          command_id=$(aws ssm send-command \
+            --instance-ids "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+            --document-name AWS-RunShellScript \
+            --timeout-seconds 120 \
+            --comment "Deploy private staging ${GITHUB_SHA}" \
+            --parameters "$parameters" \
+            --query 'Command.CommandId' --output text)
+          for attempt in $(seq 1 180); do
+            status=$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in
+              Success)
+                aws ssm get-command-invocation --command-id "$command_id" \
+                  --instance-id "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+                  --query StandardOutputContent --output text
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled)
+                aws ssm get-command-invocation --command-id "$command_id" \
+                  --instance-id "${{ vars.STAGING_AWS_INSTANCE_ID }}" \
+                  --query '{Output:StandardOutputContent,Error:StandardErrorContent}' --output json
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo "Staging deployment did not finish within 30 minutes" >&2
           exit 1

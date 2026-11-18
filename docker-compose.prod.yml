@@ -8,6 +8,12 @@ x-common-env: &common-env
   # Mumbai is the production region. The host also supplies this explicitly
   # from its protected environment so every AWS client resolves consistently.
   AWS_REGION: ${AWS_REGION:-ap-south-1}
+  # Empty in production. Staging uses "staging-" so consumers and publishers
+  # can never touch the production queues in the shared AWS account.
+  SQS_QUEUE_PREFIX: ${SQS_QUEUE_PREFIX:-}
+  SQS_POLL_TIMEOUT: ${SQS_POLL_TIMEOUT:-PT20S}
+  SQS_MAX_CONCURRENT_MESSAGES: ${SQS_MAX_CONCURRENT_MESSAGES:-10}
+  SQS_MAX_MESSAGES_PER_POLL: ${SQS_MAX_MESSAGES_PER_POLL:-10}
   # Activates fail-fast production secret validation in every backend service.
   # Keep this in the shared environment so a newly added service cannot
   # accidentally deploy using permissive development defaults.
@@ -23,7 +29,7 @@ services:
 
   # ── API Gateway ─────────────────────────────────────────────────────────────
   api-gateway:
-    image: ghcr.io/saisrinivasgada/api-gateway:latest
+    image: ghcr.io/saisrinivasgada/api-gateway:${IMAGE_TAG:-latest}
     container_name: chitfund-api-gateway
     ports:
       # Nginx is the only public entry point. Binding the gateway to loopback
@@ -73,7 +79,7 @@ services:
 
   # ── User Service ─────────────────────────────────────────────────────────────
   user-service:
-    image: ghcr.io/saisrinivasgada/user-service:latest
+    image: ghcr.io/saisrinivasgada/user-service:${IMAGE_TAG:-latest}
     container_name: chitfund-user-service
     environment:
       <<: [*common-env, *db-env]
@@ -84,6 +90,7 @@ services:
       OFFLINE_LEGACY_SIGNING_SECRET: ${OFFLINE_LEGACY_SIGNING_SECRET:-}
       MANAGEMENT_SERVICE_URL: http://management-service:8091
       AUDIT_SERVICE_URL: http://audit-service:8088
+      FRONTEND_URL: ${FRONTEND_URL:-https://thechitwise.com}
       MAIL_FROM: ${MAIL_FROM:-noreply@thechitwise.com}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
       SES_REGION: ${SES_REGION:-ap-south-1}
@@ -105,7 +112,7 @@ services:
 
   # ── Member Service ───────────────────────────────────────────────────────────
   member-service:
-    image: ghcr.io/saisrinivasgada/member-service:latest
+    image: ghcr.io/saisrinivasgada/member-service:${IMAGE_TAG:-latest}
     container_name: chitfund-member-service
     environment:
       <<: [*common-env, *db-env]
@@ -124,7 +131,7 @@ services:
 
   # ── Chit Service ─────────────────────────────────────────────────────────────
   chit-service:
-    image: ghcr.io/saisrinivasgada/chit-service:latest
+    image: ghcr.io/saisrinivasgada/chit-service:${IMAGE_TAG:-latest}
     container_name: chitfund-chit-service
     environment:
       <<: [*common-env, *db-env]
@@ -133,6 +140,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
       AUDIT_SERVICE_URL: http://audit-service:8088
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-https://thechitwise.com}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
       interval: 30s
@@ -145,7 +153,7 @@ services:
 
   # ── Payment Service ───────────────────────────────────────────────────────────
   payment-service:
-    image: ghcr.io/saisrinivasgada/payment-service:latest
+    image: ghcr.io/saisrinivasgada/payment-service:${IMAGE_TAG:-latest}
     container_name: chitfund-payment-service
     environment:
       <<: [*common-env, *db-env]
@@ -172,7 +180,7 @@ services:
 
   # ── Payout Service ────────────────────────────────────────────────────────────
   payout-service:
-    image: ghcr.io/saisrinivasgada/payout-service:latest
+    image: ghcr.io/saisrinivasgada/payout-service:${IMAGE_TAG:-latest}
     container_name: chitfund-payout-service
     environment:
       <<: [*common-env, *db-env]
@@ -193,7 +201,7 @@ services:
 
   # ── Notification Service ─────────────────────────────────────────────────────
   notification-service:
-    image: ghcr.io/saisrinivasgada/notification-service:latest
+    image: ghcr.io/saisrinivasgada/notification-service:${IMAGE_TAG:-latest}
     container_name: chitfund-notification-service
     environment:
       <<: [*common-env, *db-env]
@@ -218,7 +226,7 @@ services:
 
   # ── Audit Service ─────────────────────────────────────────────────────────────
   audit-service:
-    image: ghcr.io/saisrinivasgada/audit-service:latest
+    image: ghcr.io/saisrinivasgada/audit-service:${IMAGE_TAG:-latest}
     container_name: chitfund-audit-service
     environment:
       <<: [*common-env, *db-env]
@@ -236,7 +244,7 @@ services:
 
   # ── Reporting Service ────────────────────────────────────────────────────────
   reporting-service:
-    image: ghcr.io/saisrinivasgada/reporting-service:latest
+    image: ghcr.io/saisrinivasgada/reporting-service:${IMAGE_TAG:-latest}
     container_name: chitfund-reporting-service
     environment:
       <<: [*common-env, *db-env]
@@ -276,14 +284,14 @@ services:
 
   # ── Management Service ───────────────────────────────────────────────────────
   management-service:
-    image: ghcr.io/saisrinivasgada/management-service:latest
+    image: ghcr.io/saisrinivasgada/management-service:${IMAGE_TAG:-latest}
     container_name: chitwise-management-service
     environment:
       <<: [*common-env, *db-env]
       DB_NAME: chitwise_management
       MANAGEMENT_JWT_SECRET: ${MANAGEMENT_JWT_SECRET}
-      FRONTEND_URL: https://thechitwise.com
-      HUB_URL: https://hub.thechitwise.com
+      FRONTEND_URL: ${FRONTEND_URL:-https://thechitwise.com}
+      HUB_URL: ${HUB_URL:-https://hub.thechitwise.com}
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}

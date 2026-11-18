@@ -61,7 +61,7 @@ class OfflinePaymentReviewPersistenceMySqlTest {
     private RecordPaymentRequest request() {
         var request = new RecordPaymentRequest(); request.setMemberId(UUID.randomUUID()); request.setChitId(UUID.randomUUID());
         request.setAmount(new BigDecimal("1000.00")); request.setPaymentMode(PaymentMode.CASH);
-        request.setRecordedAt(Instant.parse("2026-10-15T12:00:00Z")); request.setOfflineAuthorization("preserved-original-proof");
+        request.setRecordedAt(Instant.now().minusSeconds(60)); request.setOfflineAuthorization("preserved-original-proof");
         return request;
     }
     @Test void reviewSurvivesRollbackOfTheFinancialTransaction() throws Exception {

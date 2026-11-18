@@ -40,7 +40,7 @@ public class PayoutEventPublisher {
     private void route(String eventType, Object event, String payoutId) {
         String eventId = UUID.randomUUID().toString();
         List<String> destinations = List.of(
-                SqsQueues.NOTIFICATION_EVENTS, SqsQueues.REPORTING_EVENTS);
+                SqsQueues.notificationEvents(), SqsQueues.reportingEvents());
         EventDeliveryProperties.Mode mode = properties.getMode();
 
         if (mode.writesOutbox()) {
