@@ -495,9 +495,10 @@ public class ChitfundRequestService {
         AccountSetupToken token = validSetupToken(input.getToken());
         User user = userRepository.findById(token.getUserId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        if (token.getChitfundRequestId() == null) {
+        if (token.getPurpose() != com.chitfund.userservice.domain.enums.SetupTokenPurpose.CHITFUND_REQUEST
+                || token.getChitfundRequestId() == null) {
             throw new BusinessException(ErrorCode.TOKEN_INVALID,
-                    "This setup link is not bound to a Chitfund Request. Ask the organization to resend it.");
+                    "This setup link is not bound to a Chitfund Request.");
         }
         rejectExpired(token.getChitfundRequestId());
         ChitfundAccessRequest request = requestRepository.findByIdForUpdate(token.getChitfundRequestId())

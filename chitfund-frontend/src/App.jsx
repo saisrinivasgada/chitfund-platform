@@ -42,6 +42,7 @@ const TransferPage = loadPage(() => import('./pages/TransferPage'));
 const GoogleProofPage = loadPage(() => import('./pages/GoogleProofPage'));
 const RegisterOrgPage = loadPage(() => import('./pages/RegisterOrgPage'));
 const ProxyPage = loadPage(() => import('./pages/ProxyPage'));
+const OrgUserSetupPage = loadPage(() => import('./pages/OrgUserSetupPage'));
 const SuperAdminHomePage = loadPage(() => import('./pages/superadmin/SuperAdminHomePage'));
 const SuperAdminTenantsPage = loadPage(() => import('./pages/superadmin/SuperAdminTenantsPage'));
 const SuperAdminOrgDetailPage = loadPage(() => import('./pages/superadmin/SuperAdminOrgDetailPage'));
@@ -135,6 +136,7 @@ export default function App() {
       <Route path="/select-company" element={<SelectCompanyPage />} />
       <Route path="/setup-account" element={<SetupAccountPage />} />
       <Route path="/setup" element={<AdminSetupPage />} />
+      <Route path="/org-user-setup" element={<OrgUserSetupPage />} />
       <Route path="/chitfund-request" element={<ChitfundRequestLandingPage />} />
       <Route path="/auth/transfer" element={<TransferPage />} />
       <Route path="/auth/google-proof" element={<GoogleProofPage />} />

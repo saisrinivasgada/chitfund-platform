@@ -45,7 +45,7 @@ public class AuditClient {
                     context.source(), "SUCCESS", null, null, null,
                     context.deviceSessionHash(), Instant.now(), null, null);
             outbox.enqueue(eventId, Objects.requireNonNull(tenantId, "tenantId"),
-                    entityType, entityId, objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);
+                    entityType, entityId, objectMapper.writeValueAsString(event), SqsQueues.auditEvents());
         } catch (Exception exception) {
             throw new IllegalStateException(
                     "Could not record the chit audit event in the business transaction", exception);

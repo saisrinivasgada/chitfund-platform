@@ -33,7 +33,7 @@ function validatePassword(pw) {
 const OTP_LOCKOUT_SECS = 300; // 5-minute lockout after wrong OTP
 
 function ForgotPasswordFlow({ onClose }) {
-  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone' | 'email-otp'
+  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone'
   const [step, setStep]             = useState('lookup');
   const [input, setInput]           = useState('');
   const [lookup, setLookup]         = useState(null); // { userId, maskedPhone, locked, role }
@@ -45,7 +45,6 @@ function ForgotPasswordFlow({ onClose }) {
   const [showPass, setShowPass]     = useState(false);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
-  const [emailInput, setEmailInput] = useState('');
   // OTP-wrong lockout: countdown in seconds (0 = allowed)
   const [otpLockout, setOtpLockout] = useState(0);
   const [resendTimer, setResendTimer] = useState(0);
@@ -90,7 +89,7 @@ function ForgotPasswordFlow({ onClose }) {
       if (data.locked) { setLookup(data); setStep('locked'); return; }
       setLookup(data);
       const isAdmin = data.role === 'ADMIN' || data.role === 'SUPER_ADMIN';
-      if (isAdmin && !data.maskedPhone) { setStep('no-phone'); return; }
+      if (isAdmin && !data.maskedPhone) { setStep('no-phone'); return; } // show support message
       setStep('last4');
     } catch (err) {
       setError(err.response?.data?.message ?? 'No account found. Check the username or phone number.');
@@ -126,6 +125,7 @@ function ForgotPasswordFlow({ onClose }) {
       setOtp('');
     } finally { resetOtpInFlight.current = false; setLoading(false); }
   }
+
 
   async function handleSendOtp(e) {
     e.preventDefault();
@@ -184,11 +184,7 @@ function ForgotPasswordFlow({ onClose }) {
     if (pwError) { setError(pwError); return; }
     setError(''); setLoading(true);
     try {
-      if (emailInput) {
-        await adminResetPassword({ resetToken, newPassword });
-      } else {
-        await forgotPasswordResetWithToken({ resetToken, newPassword });
-      }
+      await forgotPasswordResetWithToken({ resetToken, newPassword });
       setStep('done');
     } catch (err) {
       setError(err.response?.data?.message ?? 'Reset failed. The link may have expired — start over.');
@@ -320,17 +316,23 @@ function ForgotPasswordFlow({ onClose }) {
     </div>
   );
 
-  /* ── No phone — admin email-reset path ── */
+  /* ── No phone — account-access support message ── */
   if (step === 'no-phone') return (
     <div className="mt-5 space-y-4">
-      <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50">
-        <p className="text-sm text-amber-800">No phone number is registered for this account. Enter your email address to receive a reset OTP.</p>
-      </div>
-      <form onSubmit={handleEmailReset} className="space-y-3">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Email address</label>
-          <input type="email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setError(''); }}
-            placeholder="you@example.com" required className={inputCls} autoFocus />
+      <div className="px-4 py-5 rounded-xl border border-amber-200 bg-amber-50">
+        <div className="flex items-start gap-3">
+          <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-900 mb-1">Phone number required for account recovery</p>
+            <p className="text-sm text-amber-800 mb-3">
+              This account does not have a verified phone number. Password recovery requires phone verification via the ChitWise mobile app.
+            </p>
+            <p className="text-sm text-amber-700">
+              Please contact your ChitWise administrator or reach us at{' '}
+              <a href="mailto:help@thechitwise.com" className="underline font-medium">help@thechitwise.com</a>{' '}
+              to regain access.
+            </p>
+          </div>
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <Button type="submit" loading={loading} className="w-full">Send Reset OTP</Button>

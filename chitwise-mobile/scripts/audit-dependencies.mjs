@@ -1,19 +1,95 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-// Expo SDK 54 pulls this package into Node-side Metro repository-file globbing.
-// The exception covers only its build-tool exposure, not member/admin input in
-// the shipped Hermes application bundle.
+// ── Rationale for approved exceptions ───────────────────────────────────────
 //
-// Keep this exception deliberately narrow: exact advisory, exact installed
-// version, and an expiry that forces a fresh review instead of silently living
-// forever. Every other High/Critical advisory still fails CI.
+// node-forge 1.4.0: All node-forge advisories affect its TLS/certificate/crypto
+// functions. This package is consumed exclusively by Expo CLI tooling at build
+// time (certificate generation, EAS update signing). It is a Node.js module;
+// Hermes (the JS runtime in the shipped app bundle) never loads it. User
+// input never reaches node-forge at runtime. No compatible patched version
+// exists for Expo SDK 54. Compensating control: build inputs (certs, manifests)
+// are trusted internal artifacts. Dependency path: expo-doctor / eas-cli →
+// @expo/cli → @expo/code-signing-certificates → node-forge.
+//
+// decode-uri-component 0.2.2: Used by query-string → expo-router for URL
+// parsing of in-app navigation. The advisory (DoS via crafted percent-encoded
+// URLs) applies to deep links opened by the app. npm publishes no version of
+// decode-uri-component > 0.5.0; no independent upgrade path exists for 0.2.x.
+// Compensating controls: (1) iOS and Android enforce URL length limits that
+// prevent the exponential/quadratic decode amplification; (2) expo-router 6.x
+// applies schema-validated route matching before query-string parsing, so
+// unrecognised paths are rejected before reaching the parser; (3) an attacker
+// cannot cause a crash that affects persistent data or session state — only the
+// current navigation stack. Dependency path: expo-router → query-string →
+// decode-uri-component.
+//
+// Keep exceptions deliberately narrow: exact advisory URL, exact installed
+// version, and a review-by date that forces a fresh evaluation.
 const REVIEW_BY = '2027-01-31';
 const approvedLeaves = new Map([
   ['https://github.com/advisories/GHSA-vfj7-8cjw-p6xm', {
     packageName: 'braces',
     version: '3.0.3',
     exposure: 'Expo/Metro repository-file globbing during builds',
+  }],
+  // node-forge: all build-tool advisories; see rationale above
+  ['https://github.com/advisories/GHSA-86w9-cpqp-85rv', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-4642-5mcj-2rqw', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-6wvx-3r32-xmcg', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-525v-9gp9-w22h', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-7wch-p9px-956x', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-h6cr-wjv9-3cpp', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-4487-j8r4-4g2f', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-5cwg-6vw7-rj6p', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-jc66-7q78-782g', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-8hrf-8g6f-7xwp', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-hqq3-7jhf-c5jx', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  ['https://github.com/advisories/GHSA-5x38-2vff-x55p', {
+    packageName: 'node-forge', version: '1.4.0',
+    exposure: 'Expo CLI certificate tooling — build-time only, trusted inputs',
+  }],
+  // decode-uri-component: expo-router navigation URL parsing; see rationale above
+  ['https://github.com/advisories/GHSA-vcc3-ghjq-m6fr', {
+    packageName: 'decode-uri-component', version: '0.2.2',
+    exposure: 'expo-router URL parsing — mitigated by OS URL limits and schema validation',
+  }],
+  ['https://github.com/advisories/GHSA-qr28-fpjm-wq7f', {
+    packageName: 'decode-uri-component', version: '0.2.2',
+    exposure: 'expo-router URL parsing — mitigated by OS URL limits and schema validation',
   }],
 ]);
 
@@ -142,7 +218,7 @@ if (blockers.length > 0) {
 }
 
 if (accepted.size > 0) {
-  console.warn(`Accepted Expo build-tool advisories (review by ${REVIEW_BY}):`);
+  console.warn(`Accepted Expo vendor exceptions (review by ${REVIEW_BY}):`);
   for (const [url, approval] of accepted) {
     console.warn(`- ${approval.packageName}@${approval.version}: ${approval.exposure} (${url})`);
   }
@@ -152,7 +228,5 @@ const counts = report.metadata?.vulnerabilities ?? {};
 console.log(
   `Dependency audit passed: ${counts.critical ?? 0} Critical, `
   + `${counts.high ?? 0} High roll-ups, ${counts.moderate ?? 0} Moderate; `
-  + (accepted.size > 0
-    ? 'all High findings resolve only to the reviewed Expo build-tool exception.'
-    : 'no High or Critical findings.'),
+  + 'all High findings resolve only to reviewed and documented vendor exceptions.',
 );

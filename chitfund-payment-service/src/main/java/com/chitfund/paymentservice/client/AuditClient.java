@@ -76,7 +76,7 @@ public class AuditClient {
                     details.synchronizedAt());
             outboxStore.enqueue(eventId, details.tenantId(), details.entityType(), details.entityId(),
                     SqsQueues.EVT_AUDIT_LOG, objectMapper.writeValueAsString(event),
-                    List.of(SqsQueues.AUDIT_EVENTS));
+                    List.of(SqsQueues.auditEvents()));
         } catch (Exception exception) {
             throw new IllegalStateException(
                     "Could not record the payment audit event in the transactional outbox", exception);

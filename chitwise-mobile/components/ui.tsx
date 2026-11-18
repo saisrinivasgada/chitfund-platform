@@ -283,7 +283,7 @@ export function Badge({ status }: { status: string }) {
 export function Input({
   label, value, onChangeText, placeholder, secureTextEntry = false,
   keyboardType = 'default', autoCapitalize = 'none', multiline = false,
-  error, returnKeyType, onSubmitEditing, editable = true,
+  error, returnKeyType, onSubmitEditing, onBlur, editable = true,
 }: {
   label?: string;
   value: string;
@@ -296,6 +296,7 @@ export function Input({
   error?: string;
   returnKeyType?: any;
   onSubmitEditing?: () => void;
+  onBlur?: () => void;
   editable?: boolean;
 }) {
   return (
@@ -313,6 +314,7 @@ export function Input({
         numberOfLines={multiline ? 3 : 1}
         returnKeyType={returnKeyType}
         onSubmitEditing={onSubmitEditing}
+        onBlur={onBlur}
         editable={editable}
         style={{
           borderWidth: 1,

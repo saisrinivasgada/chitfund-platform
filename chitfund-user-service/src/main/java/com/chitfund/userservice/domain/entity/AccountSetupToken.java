@@ -1,5 +1,6 @@
 package com.chitfund.userservice.domain.entity;
 
+import com.chitfund.userservice.domain.enums.SetupTokenPurpose;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -25,7 +26,11 @@ public class AccountSetupToken {
     @Column(name = "chitfund_request_id", columnDefinition = "char(36)")
     private UUID chitfundRequestId;
 
-    // SHA-256 of the raw token that was sent via SMS — raw token is never stored
+    @Enumerated(EnumType.STRING)
+    @Column(name = "purpose", nullable = false, length = 30)
+    private SetupTokenPurpose purpose;
+
+    // SHA-256 of the raw token that was sent to user — raw token is never stored
     @Column(name = "token_hash", nullable = false, length = 64, unique = true)
     private String tokenHash;
 

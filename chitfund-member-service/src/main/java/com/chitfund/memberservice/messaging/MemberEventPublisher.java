@@ -23,7 +23,7 @@ public class MemberEventPublisher {
         try {
             String payload = objectMapper.writeValueAsString(event);
             outbox.enqueue(eventId, SqsQueues.EVT_MEMBER_UPDATED, payload,
-                    SqsQueues.NOTIFICATION_EVENTS);
+                    SqsQueues.notificationEvents());
             log.debug("Queued MemberUpdatedEvent {} for member {}", eventId, event.memberId());
         } catch (Exception e) {
             throw new IllegalStateException("Could not persist MemberUpdatedEvent " + eventId, e);

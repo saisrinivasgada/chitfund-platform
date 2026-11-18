@@ -3,6 +3,8 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.enums.SmsDeliveryStatus;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -101,9 +103,9 @@ public class WhatsAppSmsService implements SmsService {
             log.info("WhatsApp OTP sent, phone ending {}", maskedSuffix(phone));
             return SmsDeliveryStatus.DELIVERED;
         } catch (HttpStatusCodeException exception) {
-            log.error("WhatsApp OTP provider rejected phone ending {} with status {} body={}",
+            log.error("WhatsApp OTP provider rejected phone ending {} with HTTP {}; code={}",
                     maskedSuffix(phone), exception.getStatusCode().value(),
-                    exception.getResponseBodyAsString());
+                    safeErrorCode(exception.getResponseBodyAsString()));
             return SmsDeliveryStatus.DELIVERY_FAILED;
         } catch (RestClientException e) {
             log.error("WhatsApp OTP provider unavailable for phone ending {} ({})",
@@ -173,5 +175,41 @@ public class WhatsAppSmsService implements SmsService {
 
     private String maskedSuffix(String phone) {
         return phone != null && phone.length() >= 4 ? phone.substring(phone.length() - 4) : "****";
+    }
+
+    // Extract only the provider error code and type via Jackson — whitelist only.
+    // Never logs message, OTP, phone, email, access token or arbitrary response text.
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Pattern SAFE_ERROR_TYPE = Pattern.compile("^[A-Za-z][A-Za-z0-9_]{0,40}$");
+
+    static String safeErrorCode(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) return "no-body";
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(responseBody);
+            JsonNode error = root.path("error");
+            if (error.isMissingNode()) return "no-error-field";
+
+            StringBuilder sb = new StringBuilder();
+            JsonNode codeNode = error.path("code");
+            if (codeNode.isInt() || codeNode.isLong()) {
+                sb.append("code=").append(codeNode.longValue());
+            }
+            JsonNode typeNode = error.path("type");
+            if (typeNode.isTextual()) {
+                String type = typeNode.textValue();
+                if (SAFE_ERROR_TYPE.matcher(type).matches()) {
+                    if (sb.length() > 0) sb.append(' ');
+                    sb.append("type=").append(type);
+                }
+            }
+            JsonNode fbtrace = error.path("fbtrace_id");
+            if (fbtrace.isTextual() && fbtrace.textValue().length() <= 32) {
+                if (sb.length() > 0) sb.append(' ');
+                sb.append("trace=").append(fbtrace.textValue());
+            }
+            return sb.length() > 0 ? sb.toString() : "provider-error-no-code";
+        } catch (Exception ignored) {
+            return "unparseable-provider-error";
+        }
     }
 }

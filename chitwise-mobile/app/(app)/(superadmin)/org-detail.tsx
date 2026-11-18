@@ -33,8 +33,9 @@ import {
   superAdminRemoveDiscount,
   superAdminRemoveCustomLimits,
   resetMemberPassword,
-  lockUser,
-  unlockUser,
+  superAdminLockOrgUser,
+  superAdminUnlockOrgUser,
+  superAdminResendOrgUserSetup,
   superAdminAddTenantCredit,
   superAdminDeductTenantCredit,
 } from '../../../services/api';
@@ -91,6 +92,8 @@ export default function OrgDetailPage() {
   // Credentials surfaced after a password reset — shown once, never re-fetchable.
   const [resetCreds, setResetCreds] = useState<{ username: string; password: string } | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [lockPending, setLockPending] = useState<{ userId: string; locked: boolean } | null>(null);
+  const [lockReason, setLockReason] = useState('');
 
   const { data: org, isLoading: orgLoading, refetch: refetchOrg } = useQuery({
     queryKey: ['sa-org', tenantId],
@@ -235,9 +238,15 @@ export default function OrgDetailPage() {
     onSettled: () => setBusyUserId(null),
   });
   const lockMut = useMutation({
-    mutationFn: ({ userId, locked }: { userId: string; locked: boolean }) =>
-      locked ? unlockUser(userId) : lockUser(userId),
+    mutationFn: ({ userId, locked, reason }: { userId: string; locked: boolean; reason: string }) =>
+      locked ? superAdminUnlockOrgUser(tenantId, userId, reason) : superAdminLockOrgUser(tenantId, userId, reason),
     onSuccess: (_d, v) => { refetchUsers(); toast.saved(v.locked ? 'Account unlocked' : 'Account locked'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onSettled: () => { setBusyUserId(null); setLockPending(null); setLockReason(''); },
+  });
+  const resendSetupMut = useMutation({
+    mutationFn: (userId: string) => superAdminResendOrgUserSetup(tenantId!, userId),
+    onSuccess: () => toast.saved('Setup email queued'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
     onSettled: () => setBusyUserId(null),
   });
@@ -734,7 +743,7 @@ export default function OrgDetailPage() {
                     </Text>
                   </View>}
                   <TouchableOpacity
-                    onPress={() => { setBusyUserId(u.userId ?? u.id); lockMut.mutate({ userId: u.userId ?? u.id, locked: !!u.locked }); }}
+                    onPress={() => { setLockPending({ userId: u.userId ?? u.id, locked: !!u.locked }); setLockReason(''); }}
                     disabled={busyUserId === (u.userId ?? u.id)}
                     style={{
                       flex: 1, borderRadius: 9, paddingVertical: 8, alignItems: 'center',
@@ -746,6 +755,19 @@ export default function OrgDetailPage() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+                {u.role !== 'MEMBER' && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => { setBusyUserId(u.userId ?? u.id); resendSetupMut.mutate(u.userId ?? u.id); }}
+                      disabled={busyUserId === (u.userId ?? u.id)}
+                      style={{ flex: 1, backgroundColor: '#EFF6FF', borderRadius: 9, paddingVertical: 8, alignItems: 'center' }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563EB' }}>
+                        {busyUserId === (u.userId ?? u.id) && resendSetupMut.isPending ? '…' : 'Resend Setup'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             ))
           )
@@ -957,6 +979,21 @@ export default function OrgDetailPage() {
         onConfirm={(reason) => pendingEntitlement?.kind === 'PLAN'
           ? planMut.mutate({ plan: pendingEntitlement.plan!, reason })
           : removeCustomLimitsMut.mutate(reason)}
+      />
+
+      <ReasonModal
+        visible={!!lockPending}
+        title={lockPending?.locked ? 'Unlock Account' : 'Lock Account'}
+        message="This action will be stored in the audit trail. Provide a reason."
+        confirmLabel={lockPending?.locked ? 'Unlock' : 'Lock'}
+        destructive={!lockPending?.locked}
+        busy={lockMut.isPending}
+        onCancel={() => { setLockPending(null); setLockReason(''); }}
+        onConfirm={(reason) => {
+          if (!lockPending) return;
+          setBusyUserId(lockPending.userId);
+          lockMut.mutate({ userId: lockPending.userId, locked: lockPending.locked, reason });
+        }}
       />
 
       {/* Set org discount */}
@@ -1379,6 +1416,10 @@ function RecordPaymentModal({ visible, orgName, orgPlan, onClose, onRecord, load
 }
 
 // ── Add User Modal ─────────────────────────────────────────────────────────────
+function isValidEmail(v: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+}
+
 function AddUserModal({ tenantId, onClose, onAdded }: {
   tenantId: string;
   onClose: () => void;
@@ -1387,47 +1428,61 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone]     = useState('');
   const [email, setEmail]     = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
   const [role, setRole]       = useState('MANAGER');
-  const [password, setPassword] = useState('');
-  const [createdCreds, setCreatedCreds] = useState<{ username: string; tempPassword: string } | null>(null);
+  const [createdResult, setCreatedResult] = useState<{
+    username: string; setupEmailQueued: boolean; maskedEmail: string | null;
+  } | null>(null);
+
+  const emailErr = emailTouched && !isValidEmail(email) ? 'Enter a valid email address' : null;
+  const canSubmit = !!fullName.trim() && !!phone.trim() && isValidEmail(email) && !!role;
 
   const addMut = useMutation({
     mutationFn: () => superAdminAddOrgUser(tenantId, {
-      fullName, phone, email: email || undefined, role,
-      password: password || undefined, phoneCountryCode: '+91',
+      fullName: fullName.trim(), phone: phone.trim(), email: email.trim(), role,
+      phoneCountryCode: '+91',
     }),
     onSuccess: (res: any) => {
-      setCreatedCreds({ username: res?.username ?? '—', tempPassword: res?.tempPassword ?? '—' });
+      setCreatedResult({
+        username: res?.username ?? '—',
+        setupEmailQueued: !!res?.setupEmailQueued,
+        maskedEmail: res?.maskedEmail ?? null,
+      });
     },
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed to add user'),
   });
 
-  // After creation: show credentials screen instead of closing immediately
-  if (createdCreds) {
+  // After creation: show setup email confirmation screen
+  if (createdResult) {
     return (
-      <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { onAdded(); onClose(); }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>User Created ✓</Text>
           </View>
           <View style={{ padding: 20 }}>
-            <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 20, lineHeight: 20 }}>
-              Share these credentials with the user — they won't be shown again.
-            </Text>
-            {[
-              { label: 'Username', value: createdCreds.username },
-              { label: 'Temporary password', value: createdCreds.tempPassword },
-            ].map(({ label, value }) => (
-              <View key={label} style={{ marginBottom: 14, backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400 }}>{label.toUpperCase()}</Text>
-                <Text selectable style={{ fontSize: 17, fontWeight: '700', color: C.navy, fontFamily: 'monospace', marginTop: 4 }}>
-                  {value}
+            <View style={{ marginBottom: 14, backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400 }}>USERNAME</Text>
+              <Text selectable style={{ fontSize: 17, fontWeight: '700', color: C.navy, fontFamily: 'monospace', marginTop: 4 }}>
+                {createdResult.username}
+              </Text>
+            </View>
+            <View style={{
+              marginBottom: 20, borderRadius: 12, padding: 14,
+              backgroundColor: createdResult.setupEmailQueued ? '#F0FDF4' : '#FEF3C7',
+              borderWidth: 1, borderColor: createdResult.setupEmailQueued ? '#BBF7D0' : '#FDE68A',
+            }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: createdResult.setupEmailQueued ? '#166534' : '#92400E', marginBottom: 4 }}>
+                {createdResult.setupEmailQueued ? 'Setup email queued ✓' : 'Setup email could not be queued'}
+              </Text>
+              {createdResult.maskedEmail && (
+                <Text style={{ fontSize: 13, color: createdResult.setupEmailQueued ? '#166534' : '#92400E' }}>
+                  {createdResult.setupEmailQueued
+                    ? `Sent to ${createdResult.maskedEmail} — the user will receive a link to set their password.`
+                    : `Could not send to ${createdResult.maskedEmail}. Ask the user to use the "Forgot password" flow.`}
                 </Text>
-              </View>
-            ))}
-            <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 24, textAlign: 'center' }}>
-              The user will be prompted to change their password on first login.
-            </Text>
+              )}
+            </View>
             <Button label="Done" onPress={() => { onAdded(); onClose(); }} fullWidth size="lg" />
           </View>
         </SafeAreaView>
@@ -1445,8 +1500,16 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
         <ScrollView contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           <Input label="Full Name *" value={fullName} onChangeText={setFullName} placeholder="e.g. Rahul Kumar" />
           <Input label="Phone *" value={phone} onChangeText={setPhone} placeholder="9876543210" keyboardType="phone-pad" />
-          <Input label="Email" value={email} onChangeText={setEmail} placeholder="rahul@example.com" keyboardType="email-address" />
-          <Input label="Password (optional)" value={password} onChangeText={setPassword} placeholder="Leave blank to auto-generate" secureTextEntry />
+          <Input
+            label="Email *"
+            value={email}
+            onChangeText={(v) => { setEmail(v); setEmailTouched(true); }}
+            onBlur={() => setEmailTouched(true)}
+            placeholder="rahul@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          {emailErr && <Text style={{ fontSize: 12, color: C.red, marginTop: -10 }}>{emailErr}</Text>}
 
           {/* Role picker */}
           <View>
@@ -1472,7 +1535,7 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
             label="Add User"
             onPress={() => addMut.mutate()}
             loading={addMut.isPending}
-            disabled={!fullName || !phone}
+            disabled={!canSubmit}
             fullWidth
             size="lg"
           />

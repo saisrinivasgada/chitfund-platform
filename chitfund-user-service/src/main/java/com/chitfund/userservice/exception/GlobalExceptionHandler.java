@@ -3,6 +3,7 @@ package com.chitfund.userservice.exception;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.exception.IncorrectOtpException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,6 +48,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException ex) {
         return ResponseEntity.status(ex.getHttpStatus())
+                .body(ApiResponse.error(ex.getErrorCode().getCode(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(IncorrectOtpException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIncorrectOtp(IncorrectOtpException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(ex.getErrorCode().getCode(), ex.getMessage()));
     }
 

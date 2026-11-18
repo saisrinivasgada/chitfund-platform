@@ -21,6 +21,43 @@ public final class SqsQueues {
     public static final String AUDIT_EVENTS        = "chitfund-audit-events";
     public static final String REPORTING_EVENTS    = "chitfund-reporting-events";
 
+    // @SqsListener requires a compile-time constant. Spring resolves the
+    // environment placeholder when the consumer container is created.
+    public static final String NOTIFICATION_EVENTS_LISTENER =
+            "${SQS_QUEUE_PREFIX:}" + NOTIFICATION_EVENTS;
+    public static final String AUDIT_EVENTS_LISTENER =
+            "${SQS_QUEUE_PREFIX:}" + AUDIT_EVENTS;
+    public static final String REPORTING_EVENTS_LISTENER =
+            "${SQS_QUEUE_PREFIX:}" + REPORTING_EVENTS;
+
+    private static final String QUEUE_PREFIX = validatePrefix(
+            System.getenv().getOrDefault("SQS_QUEUE_PREFIX", ""));
+
+    public static String notificationEvents() {
+        return QUEUE_PREFIX + NOTIFICATION_EVENTS;
+    }
+
+    public static String auditEvents() {
+        return QUEUE_PREFIX + AUDIT_EVENTS;
+    }
+
+    public static String reportingEvents() {
+        return QUEUE_PREFIX + REPORTING_EVENTS;
+    }
+
+    static String prefixed(String prefix, String queueName) {
+        return validatePrefix(prefix) + queueName;
+    }
+
+    static String validatePrefix(String value) {
+        String prefix = value == null ? "" : value.trim();
+        if (prefix.length() > 40 || !prefix.matches("[A-Za-z0-9_-]*")) {
+            throw new IllegalStateException(
+                    "SQS_QUEUE_PREFIX must contain only letters, digits, hyphens or underscores");
+        }
+        return prefix;
+    }
+
     // ── Event type constants used inside SqsEventEnvelope.eventType ─────────────
     public static final String EVT_MONTH_OPENED            = "MONTH_OPENED";
     public static final String EVT_MONTH_SKIPPED           = "MONTH_SKIPPED";

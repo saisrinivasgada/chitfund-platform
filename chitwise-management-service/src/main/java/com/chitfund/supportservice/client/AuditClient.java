@@ -51,7 +51,7 @@ public class AuditClient {
                     "SUCCESS", reason, null, null, context.deviceSessionHash(),
                     Instant.now(), null, null);
             outbox.enqueue(eventId, tenantId, entityType, entityId,
-                    objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);
+                    objectMapper.writeValueAsString(event), SqsQueues.auditEvents());
         } catch (Exception exception) {
             throw new IllegalStateException(
                     "Could not record the management audit event in the business transaction",

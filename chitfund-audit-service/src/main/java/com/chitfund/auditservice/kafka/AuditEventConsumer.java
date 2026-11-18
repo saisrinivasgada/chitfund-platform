@@ -29,7 +29,7 @@ public class AuditEventConsumer {
     private final ObjectMapper objectMapper;
     private final EventInboxRepository inboxRepository;
 
-    @SqsListener(SqsQueues.AUDIT_EVENTS)
+    @SqsListener(SqsQueues.AUDIT_EVENTS_LISTENER)
     @Transactional
     public void onEvent(String raw) {
         try {
