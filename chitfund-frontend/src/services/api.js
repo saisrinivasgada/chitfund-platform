@@ -271,10 +271,6 @@ export const selectTenant = async ({ loginToken, tenantId, rememberDevice = fals
   return res.data.data;
 };
 
-export const exchangeTenantHandoff = async ({ code, tenantSlug }) => {
-  const res = await api.post('/auth/handoff-exchange', { code, tenantSlug });
-  return res.data.data;
-};
 
 // Public: org self-registration (status = PENDING until super-admin activates)
 export const checkSlugAvailability = async (slug, signal) => {
