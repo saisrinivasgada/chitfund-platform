@@ -91,7 +91,8 @@ async function responseBody(response) {
   let body;
   try { body = await response.json(); } catch { /* A failed proxy may return HTML. */ }
   if (!response.ok || body?.success === false) throw Object.assign(new Error(body?.message ?? 'Server request failed'),
-    { status: response.ok ? 400 : response.status, errorCode: body?.errorCode, reviewId: body?.data?.reviewId });
+    { status: response.ok ? 400 : response.status, errorCode: body?.errorCode, reviewId: body?.data?.reviewId,
+      retryAfter: response.headers.get('Retry-After') });
   return body?.data ?? body;
 }
 

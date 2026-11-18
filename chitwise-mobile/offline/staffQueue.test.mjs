@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { createHash } from 'node:crypto';
+import { retryAfterDelayMs } from '../../shared/rateLimitMessage.js';
 const source=ts.transpileModule(await readFile(new URL('./staffQueue.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
 const expected='2026-01-01T10:00:00';
 async function phone({saved=true,storageFails=false,enabled=false,reachable=true}={}) {
@@ -12,6 +13,7 @@ async function phone({saved=true,storageFails=false,enabled=false,reachable=true
   let loseAck=true;const requests=[];let refreshes=0;
   const access={serverTime:Date.now(),checkedAt:Date.now()};const store=(value)=>({getState:()=>value});
   const deps={
+    '../../shared/rateLimitMessage':{retryAfterDelayMs},
     '../../shared/offline/legacyStaffEvidence':{legacyStaffEvidence},
     axios:{default:{isAxiosError:(e)=>!!e?.isAxiosError}},
     'expo-crypto':{CryptoDigestAlgorithm:{SHA256:'sha256'},digestStringAsync:async(_,s)=>createHash('sha256').update(s).digest('hex')},
@@ -55,6 +57,7 @@ for (const mode of ['signed','unsigned','corrupt']) test(`${mode} older pickups 
   const originalPayload=JSON.stringify(operation.payload);let requestCount=0;
   const context=vm.createContext({});const module=new vm.SourceTextModule(source,{context});
   const deps={
+    '../../shared/rateLimitMessage':{retryAfterDelayMs},
     '../../shared/offline/legacyStaffEvidence':{legacyStaffEvidence},
     axios:{default:{isAxiosError:e=>!!e?.isAxiosError}},'expo-crypto':{},'@react-native-community/netinfo':{default:{}},
     '../store/authStore':{useAuthStore:{}},'./accountScope':{requireOrganizationScope(){}},

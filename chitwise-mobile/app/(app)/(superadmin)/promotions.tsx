@@ -8,7 +8,7 @@ import {
   superAdminSetPromotionVisibility, superAdminDeactivatePromotion, superAdminListReferralCredits,
   superAdminListPlans,
 } from '../../../services/api';
-import { C, fmtDate } from '../../../components/ui';
+import { C, fmtDate, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
 const DURATION_LABELS: Record<string, string> = {
@@ -87,7 +87,7 @@ function PromoFormModal({ visible, promo, onClose, onDone }: {
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           {/* Type selector (create only) */}
           {!isEdit && (
             <View>
@@ -298,7 +298,7 @@ export default function PromotionsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         showsVerticalScrollIndicator={false}
       >
@@ -360,11 +360,11 @@ export default function PromotionsScreen() {
             <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 8, textTransform: 'uppercase' }}>
               Referral Credit Pipeline
             </Text>
-            {(referralCredits as any[]).map((rc: any) => {
+            {(referralCredits as any[]).map((rc: any, i: number) => {
               const isCredited = rc.status === 'CREDITED';
               return (
                 <View key={rc.id} style={{
-                  backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8,
+                  backgroundColor: listRowColor(i), borderRadius: 12, padding: 12, marginBottom: 8,
                   flexDirection: 'row', alignItems: 'center', gap: 10,
                   borderWidth: 1, borderColor: C.gray100,
                 }}>
@@ -400,9 +400,9 @@ export default function PromotionsScreen() {
             <Text style={{ fontSize: 13, color: C.gray400, marginTop: 6 }}>Create a promo code to offer discounts.</Text>
           </View>
         ) : (
-          standardPromos.map((p: any) => (
+          standardPromos.map((p: any, i: number) => (
             <View key={p.id ?? p.code} style={{
-              backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 12,
+              backgroundColor: listRowColor(i), borderRadius: 16, padding: 16, marginBottom: 12,
               borderWidth: 1, borderColor: C.gray100,
               opacity: p.isActive === false ? 0.6 : 1,
             }}>

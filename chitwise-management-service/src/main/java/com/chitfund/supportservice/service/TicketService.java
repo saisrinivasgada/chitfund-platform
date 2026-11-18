@@ -211,17 +211,17 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public PagedResponse<TicketResponse> listForOrg(String tenantId, int page, int size) {
+    public PagedResponse<TicketResponse> listForOrg(String tenantId, String requesterId, int page, int size) {
         Page<SupportTicket> tickets = ticketRepository.findByTenantIdOrderByCreatedAtDesc(
                 tenantId, PageRequest.of(page, size));
-        return toPagedResponse(tickets, tenantId);
+        return toPagedResponse(tickets, requesterId);
     }
 
     @Transactional(readOnly = true)
     public PagedResponse<TicketResponse> listForMember(String tenantId, String userId, int page, int size) {
         Page<SupportTicket> tickets = ticketRepository.findByTenantIdAndCreatedByOrderByCreatedAtDesc(
                 tenantId, userId, PageRequest.of(page, size));
-        return toPagedResponse(tickets, tenantId);
+        return toPagedResponse(tickets, userId);
     }
 
     @Transactional(readOnly = true)
@@ -245,7 +245,7 @@ public class TicketService {
 
         return PagedResponse.<TicketResponse>builder()
                 .items(tickets.getContent().stream()
-                        .map(t -> toResponse(t, countUnread(t.getId(), true)))
+                        .map(t -> toResponse(t, countUnread(t.getId(), true, false)))
                         .toList())
                 .page(tickets.getNumber())
                 .size(tickets.getSize())
@@ -260,7 +260,8 @@ public class TicketService {
                                     String requesterId, boolean restrictToCreator) {
         SupportTicket ticket = findTicketSecure(
                 ticketId, tenantId, isHub, requesterId, restrictToCreator);
-        return toResponse(ticket, countUnread(ticketId, isHub));
+        return toResponse(ticket, countUnread(ticketId, isHub,
+                java.util.Objects.equals(ticket.getCreatedBy(), requesterId)));
     }
 
     @Transactional(readOnly = true)
@@ -380,11 +381,11 @@ public class TicketService {
     @Transactional
     public void markRead(String ticketId, String tenantId, boolean isHub,
                          String requesterId, boolean restrictToCreator) {
-        findTicketSecure(ticketId, tenantId, isHub, requesterId, restrictToCreator);
+        SupportTicket ticket = findTicketSecure(ticketId, tenantId, isHub, requesterId, restrictToCreator);
         if (isHub) {
-            messageRepository.markReadByHandler(ticketId);
-        } else {
-            messageRepository.markReadByCreator(ticketId);
+            messageRepository.markReadByHandler(ticketId, List.of(SenderType.ORG_ADMIN, SenderType.ORG_MEMBER));
+        } else if (java.util.Objects.equals(ticket.getCreatedBy(), requesterId)) {
+            messageRepository.markReadByCreator(ticketId, List.of(SenderType.SUPER_ADMIN, SenderType.SUPPORT_AGENT));
         }
     }
 
@@ -485,12 +486,14 @@ public class TicketService {
         return ticket;
     }
 
-    private long countUnread(String ticketId, boolean isHub) {
+    private long countUnread(String ticketId, boolean isHub, boolean isCreator) {
         if (isHub) {
-            return messageRepository.countByTicketIdAndReadByHandlerFalse(ticketId);
+            return messageRepository.countByTicketIdAndReadByHandlerFalseAndSenderTypeIn(
+                    ticketId, List.of(SenderType.ORG_ADMIN, SenderType.ORG_MEMBER));
         }
-        return messageRepository.countByTicketIdAndReadByCreatorFalseAndSenderTypeNot(
-                ticketId, SenderType.ORG_ADMIN);
+        if (!isCreator) return 0;
+        return messageRepository.countByTicketIdAndReadByCreatorFalseAndSenderTypeIn(
+                ticketId, List.of(SenderType.SUPER_ADMIN, SenderType.SUPPORT_AGENT));
     }
 
     private void validateStatusTransition(TicketStatus current, TicketStatus next) {
@@ -582,10 +585,11 @@ public class TicketService {
         return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
-    private PagedResponse<TicketResponse> toPagedResponse(Page<SupportTicket> page, String tenantId) {
+    private PagedResponse<TicketResponse> toPagedResponse(Page<SupportTicket> page, String requesterId) {
         return PagedResponse.<TicketResponse>builder()
                 .items(page.getContent().stream()
-                        .map(t -> toResponse(t, countUnread(t.getId(), false)))
+                        .map(t -> toResponse(t, countUnread(t.getId(), false,
+                                java.util.Objects.equals(t.getCreatedBy(), requesterId))))
                         .toList())
                 .page(page.getNumber())
                 .size(page.getSize())

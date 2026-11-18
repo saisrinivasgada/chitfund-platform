@@ -34,4 +34,8 @@ public class OrgRequestContext {
     public boolean isAdminOnly() {
         return "ADMIN".equals(role);
     }
+
+    public boolean canUseSupportTickets() {
+        return "ADMIN".equals(role) || "MEMBER".equals(role);
+    }
 }

@@ -604,7 +604,7 @@ export default function HubEmployeesPage() {
                       const isMe = emp.id === hubUser.id || emp.username === hubUser.username;
                       const isSuperAdminEmp = emp.role === 'SUPER_ADMIN';
                       return (
-                        <tr key={emp.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                        <tr key={emp.id} className="border-b border-gray-50 odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] transition-colors">
                           {/* Employee */}
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-3">

@@ -6,10 +6,11 @@ import { useOfflinePresentation } from '../offline/useOfflinePresentation';
 import { OfflineConnectionGate } from '../components/OfflineConnectionGate';
 import { ROLE_ROUTE_GROUP as ROLE_GROUP } from '../utils/roleRoutes';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Stack, useRouter, useSegments, useGlobalSearchParams } from 'expo-router';
+import { Stack, useRouter, useSegments, useGlobalSearchParams, usePathname } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { DeviceEventEmitter, Keyboard } from 'react-native';
 import { useAuthStore } from '../store/authStore';
 import { LoadingScreen } from '../components/ui';
 import { ToastRoot } from '../components/Toast';
@@ -18,6 +19,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import { TutorialProvider } from '../tutorials/TutorialProvider';
 import { getAccountScope } from '../offline/accountScope';
 import { createOfflineQueryClient, offlinePersistenceOptions } from '../offline/queryPersistence';
+import { shouldRetryRead } from '../../shared/offline/readSnapshots';
 import { SyncRuntime } from '../offline/SyncRuntime';
 import { BrandLaunch } from '../components/BrandLaunch';
 import { FloatingToolkit } from '../components/FloatingToolkit';
@@ -27,7 +29,7 @@ import { updateBackgroundSyncRegistration } from '../offline/backgroundSync';
 
 const hubQueryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 30_000, retry: 2 },
+    queries: { staleTime: 30_000, retry: (failureCount, error) => shouldRetryRead(failureCount, error) },
   },
 });
 const HUB_BUILD = process.env.EXPO_PUBLIC_APP_VARIANT === 'hub';
@@ -164,7 +166,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       // A staff member must never be able to view admin screens (and vice versa).
       const expectedGroup = ROLE_GROUP[user.role];
       const currentGroup  = seg[1]; // e.g. '(admin)', '(staff)', '(member)', '(manager)'
-      if (expectedGroup && currentGroup && currentGroup !== expectedGroup) {
+      if (expectedGroup && currentGroup && currentGroup !== expectedGroup && currentGroup !== 'delete-account') {
         redirectByRole(user.role, router);
       }
     }
@@ -185,6 +187,24 @@ function FloatingToolkitRoot() {
   return <FloatingToolkit />;
 }
 
+function DismissKeyboardOnNavigation() {
+  const pathname = usePathname();
+  useEffect(() => { Keyboard.dismiss(); }, [pathname]);
+  return null;
+}
+
+function LegalReviewRedirect() {
+  const router = useRouter();
+  const pathname = usePathname();
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener('chitwise:legal-review-required', () => {
+      if (pathname !== '/legal-review' && useAuthStore.getState().user) router.replace('/legal-review' as any);
+    });
+    return () => subscription.remove();
+  }, [pathname, router]);
+  return null;
+}
+
 export default function RootLayout() {
   const [showBrandLaunch, setShowBrandLaunch] = useState(true);
   const finishBrandLaunch = useCallback(() => setShowBrandLaunch(false), []);
@@ -199,6 +219,8 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <DismissKeyboardOnNavigation />
+      <LegalReviewRedirect />
       <NativeLinkDiagnostics />
       <DeviceUnlockGate>
       <ScopedQueryProvider>

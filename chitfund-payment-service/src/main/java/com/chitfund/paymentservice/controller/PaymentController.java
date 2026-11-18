@@ -12,6 +12,7 @@ import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
 import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.MemberBalanceResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
+import com.chitfund.paymentservice.dto.response.PaymentPreviewResponse;
 import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
 import com.chitfund.paymentservice.service.PaymentService;
 import com.chitfund.paymentservice.service.PayoutFinancialCommandService;
@@ -43,6 +44,14 @@ public class PaymentController {
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
+
+    /** Read-only server review for automatic allocation across a member's chits. */
+    @GetMapping("/preview")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_STAFF')")
+    public ResponseEntity<ApiResponse<PaymentPreviewResponse>> previewPayment(
+            @RequestParam UUID memberId, @RequestParam UUID chitId, @RequestParam BigDecimal amount) {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.previewPayment(memberId, chitId, amount)));
+    }
 
     /**
      * Staff/manager collects cash from a member during their rounds.

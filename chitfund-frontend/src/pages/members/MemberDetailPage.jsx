@@ -317,12 +317,15 @@ function MenuButton({ icon, children, onClick, disabled, danger }) {
 
 // ─── Edit member — centered modal ────────────────────────────────────────────
 function EditMemberPanel({ member, onClose }) {
+  const { user, addOns } = useAuth();
+  const complianceEnabled = user?.role === 'ADMIN' && addOns.includes('chitfund_compliance');
   const qc = useQueryClient();
   const toast = useToastContext();
   const originalPhone = member.phone ?? '';
   const originalCC = member.phoneCountryCode ?? '+91';
   const [form, setForm] = useState({
     fullName: member.fullName ?? '',
+    legalName: member.legalName ?? '',
     phone: originalPhone,
     phoneCountryCode: originalCC,
     email: member.email ?? '',
@@ -395,8 +398,9 @@ function EditMemberPanel({ member, onClose }) {
           onSubmit={(e) => {
             e.preventDefault();
             const payload = Object.fromEntries(
-              Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])
+              Object.entries(form).filter(([key]) => key !== 'legalName').map(([k, v]) => [k, v === '' ? null : v])
             );
+            if (complianceEnabled) payload.legalName = form.legalName.trim();
             mutation.mutate(payload);
           }}
           className="flex-1 overflow-y-auto"
@@ -406,6 +410,11 @@ function EditMemberPanel({ member, onClose }) {
               <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                 This member now controls personal, identity and bank details. You can maintain organization notes and referral information here; use an Account Access ticket for identity problems.
               </div>
+            )}
+            {complianceEnabled && (
+              <FormField label="Legal name">
+                <Input value={form.legalName} onChange={(e) => set('legalName', e.target.value)} maxLength={150} />
+              </FormField>
             )}
             {/* Section: Personal */}
             {!member.appAccessGranted && <div>
@@ -519,7 +528,7 @@ function CreateLoginModal({ member, onClose }) {
     const emailDelivered = result.setupEmailSent;
     const isNewAccount = result.requestKind === 'NEW_ACCOUNT';
     const actionUrl = !isNewAccount && result.actionToken
-      ? `${window.location.origin}/chitfund-request?token=${result.actionToken}`
+      ? `${window.location.origin}/chitfund-request#token=${encodeURIComponent(result.actionToken)}`
       : '';
     return (
       <Modal title="Chitfund Request Sent" onClose={onClose} size="sm">
@@ -643,7 +652,7 @@ function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
     const isNewAccount = data?.requestKind === 'NEW_ACCOUNT';
     const emailDelivered = data?.setupEmailSent;
     const actionUrl = !isNewAccount && data?.actionToken
-      ? `${window.location.origin}/chitfund-request?token=${data.actionToken}`
+      ? `${window.location.origin}/chitfund-request#token=${encodeURIComponent(data.actionToken)}`
       : '';
     setResentLink(emailDelivered ? '__email_sent__' : actionUrl);
     toast.success('Chitfund Request resent');
@@ -2389,7 +2398,8 @@ function AuditEvent({ icon, label, ts, empty }) {
 export default function MemberDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user: currentUser, settlementEnabled } = useAuth();
+  const { user: currentUser, settlementEnabled, addOns } = useAuth();
+  const complianceEnabled = addOns.includes('chitfund_compliance');
   const isAdmin = currentUser?.role === 'ADMIN';
   const isManager = currentUser?.role === 'MANAGER';
   const { hidden } = useHiddenAmounts();
@@ -2776,6 +2786,7 @@ export default function MemberDetailPage() {
               </div>
             </div>
             <InfoRow label="Full Name" value={member.fullName} />
+            {complianceEnabled && <InfoRow label="Legal name" value={member.legalName} />}
             <InfoRow label="Phone" value={member.phone ? phoneDisplay : null} />
             <InfoRow label="Email" value={member.email} />
             <InfoRow label="Address" value={member.address} />

@@ -3,7 +3,7 @@ import { View, Text, FlatList, RefreshControl, Alert, Modal, ScrollView, Touchab
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyRequests, getMyChits, createCashRequest, updateCashRequest, getCashRequestAuditLog, memberApproveCashRequest, getPaymentBatchById, getChit, getDraws, getMyMemberProfile, getMemberBalance } from '../../../services/api';
-import { C, T, Card, Badge, Button, Amount, Input, EmptyState, LoadingScreen, ListLoadingScreen, Divider, fmtDateTime, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Button, Amount, Input, EmptyState, LoadingScreen, ListLoadingScreen, Divider, fmtDateTime, fmtDate, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -196,6 +196,9 @@ export default function MemberRequestsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <FlatList
+        style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
         data={requests as any[]}
         keyExtractor={(r: any) => r.id}
         refreshControl={<RefreshControl refreshing={reqLoading} onRefresh={refetch} tintColor={C.navy} />}
@@ -215,14 +218,14 @@ export default function MemberRequestsScreen() {
         ListEmptyComponent={
           <EmptyState title="No requests yet" message="Request a cash pickup and a staff member will collect from you." />
         }
-        renderItem={({ item: r }) => {
+        renderItem={({ item: r, index }) => {
           const canEdit = r.status === 'PENDING' || r.status === 'ASSIGNED';
           const needsApproval = r.status === 'PARTIALLY_COLLECTED' || r.status === 'PICKED_UP';
           const breakdown: any[] = r.allocations ?? [];
           const hasBreakdown = breakdown.length > 1;
           const isExpanded = expandedRequestId === r.id;
           return (
-            <Card style={{ marginBottom: 14 }}>
+            <Card style={{ marginBottom: 14, backgroundColor: listRowColor(index) }}>
               <TouchableOpacity
                 activeOpacity={hasBreakdown ? 0.6 : 1}
                 disabled={!hasBreakdown}
@@ -354,7 +357,9 @@ export default function MemberRequestsScreen() {
       {/* Create Request Modal */}
       <Modal visible={showCreate} animationType="slide" transparent presentationStyle="overFullScreen">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}
+            contentContainerStyle={{ padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 20 }}>Request Cash Pickup</Text>
 
             <Text style={T.label}>Select Chit Fund</Text>
@@ -426,14 +431,16 @@ export default function MemberRequestsScreen() {
                 />
               </View>
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Request Modal */}
       <Modal visible={!!editTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}
+            contentContainerStyle={{ padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Edit Cash Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
               Editing is allowed before pickup. All changes are logged in audit.
@@ -470,7 +477,7 @@ export default function MemberRequestsScreen() {
                 />
               </View>
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
 

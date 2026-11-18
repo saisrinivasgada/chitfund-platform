@@ -54,7 +54,8 @@ public class WsAuthorizationService {
         // Super Admin may deliberately inspect them; support employees use the
         // separate hub.dm / hub.group topics.
         if (isHub) return "SUPER_ADMIN".equals(role);
-        if (tenantId == null) return false;
+        if (tenantId == null || !("ADMIN".equals(role) || "MANAGER".equals(role)
+                || "MEMBER".equals(role))) return false;
 
         return conversationRepo.findById(convId)
                 .map(conv -> {
@@ -78,11 +79,11 @@ public class WsAuthorizationService {
                             .contains(ticket.getType()))
                     .orElse(false);
         }
-        if (tenantId == null) return false;
+        if (tenantId == null || !("ADMIN".equals(role) || "MEMBER".equals(role))) return false;
 
         return ticketRepo.findById(ticketId)
                 .map(ticket -> ticket.getTenantId().equals(tenantId)
-                        && (!"MEMBER".equals(role)
+                        && ("ADMIN".equals(role)
                             || java.util.Objects.equals(ticket.getCreatedBy(), userId)))
                 .orElse(false);
     }

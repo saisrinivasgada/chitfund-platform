@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMyInvitations, respondToInvitation } from '../../../services/api';
-import { C, T, Badge, GlassCard, Card, LoadingScreen, SectionHeader, EmptyState } from '../../../components/ui';
+import { C, T, Badge, GlassCard, Card, LoadingScreen, SectionHeader, EmptyState, listRowColor } from '../../../components/ui';
 
 const fmtINR = (v: number | string) =>
   '₹' + Number(v).toLocaleString('en-IN');
@@ -70,7 +70,7 @@ function SlotTile({
 }
 
 // ─── Invitation Card ──────────────────────────────────────────────────────────
-function InvitationCard({ inv }: { inv: any }) {
+function InvitationCard({ inv, rowIndex }: { inv: any; rowIndex: number }) {
   const qc = useQueryClient();
   const myResponse: any = inv.myResponse ?? {};
   const chit: any = inv.chit ?? {};
@@ -133,7 +133,7 @@ function InvitationCard({ inv }: { inv: any }) {
 
   // ── render ────────────────────────────────────────────────────────────────
   return (
-    <Card style={{ marginBottom: 16 }}>
+    <Card style={{ marginBottom: 16, backgroundColor: listRowColor(rowIndex) }}>
       {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, flex: 1, marginRight: 8 }}>
@@ -389,8 +389,11 @@ export default function InvitationsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <ScrollView
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
@@ -410,7 +413,7 @@ export default function InvitationsScreen() {
         ) : invitations.length === 0 ? (
           <EmptyState title="No Invitations" message="Admin will send you a payout plan invitation when available." />
         ) : (
-          invitations.map((inv: any) => <InvitationCard key={inv.id} inv={inv} />)
+          invitations.map((inv: any, i: number) => <InvitationCard key={inv.id} inv={inv} rowIndex={i} />)
         )}
       </ScrollView>
     </SafeAreaView>

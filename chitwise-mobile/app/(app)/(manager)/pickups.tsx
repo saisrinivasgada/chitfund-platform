@@ -205,7 +205,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Card style={{ marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <>{requested == null ? <Text style={{ color: C.navy, fontSize: 18, fontWeight: '700' }}>Amount to verify</Text> : <Amount value={requested} size="lg" />}</>
@@ -428,6 +428,7 @@ export default function ManagerPickupsScreen() {
       </View>
 
       <FlatList
+        style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
         data={listData}
         keyExtractor={(t: any) => t.id}
         refreshControl={

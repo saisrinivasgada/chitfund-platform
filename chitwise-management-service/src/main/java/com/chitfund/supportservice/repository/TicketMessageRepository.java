@@ -8,7 +8,10 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import com.chitfund.supportservice.domain.enums.SenderType;
+import org.springframework.data.repository.query.Param;
 
 public interface TicketMessageRepository extends JpaRepository<TicketMessage, String> {
 
@@ -18,14 +21,14 @@ public interface TicketMessageRepository extends JpaRepository<TicketMessage, St
             String ticketId, Instant before, Pageable pageable);
 
     @Modifying
-    @Query("UPDATE TicketMessage m SET m.readByCreator = true WHERE m.ticketId = :ticketId AND m.senderType != 'ORG_ADMIN'")
-    int markReadByCreator(String ticketId);
+    @Query("UPDATE TicketMessage m SET m.readByCreator = true WHERE m.ticketId = :ticketId AND m.senderType IN :senderTypes")
+    int markReadByCreator(@Param("ticketId") String ticketId, @Param("senderTypes") Collection<SenderType> senderTypes);
 
     @Modifying
-    @Query("UPDATE TicketMessage m SET m.readByHandler = true WHERE m.ticketId = :ticketId AND m.senderType = 'ORG_ADMIN'")
-    int markReadByHandler(String ticketId);
+    @Query("UPDATE TicketMessage m SET m.readByHandler = true WHERE m.ticketId = :ticketId AND m.senderType IN :senderTypes")
+    int markReadByHandler(@Param("ticketId") String ticketId, @Param("senderTypes") Collection<SenderType> senderTypes);
 
-    long countByTicketIdAndReadByCreatorFalseAndSenderTypeNot(String ticketId, com.chitfund.supportservice.domain.enums.SenderType senderType);
+    long countByTicketIdAndReadByCreatorFalseAndSenderTypeIn(String ticketId, Collection<SenderType> senderTypes);
 
-    long countByTicketIdAndReadByHandlerFalse(String ticketId);
+    long countByTicketIdAndReadByHandlerFalseAndSenderTypeIn(String ticketId, Collection<SenderType> senderTypes);
 }

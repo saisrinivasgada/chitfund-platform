@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { superAdminListPlans, superAdminCreatePlan, superAdminUpdatePlan2, superAdminListAddOns, superAdminCreateAddOn, superAdminDeleteAddOn } from '../../../services/api';
-import { C } from '../../../components/ui';
+import { C, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import ReasonModal from '../../../components/superadmin/ReasonModal';
 
@@ -108,7 +108,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           {!isEdit && (
             <View>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Plan Code</Text>
@@ -348,7 +348,7 @@ export default function PlansScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         showsVerticalScrollIndicator={false}
       >
@@ -358,9 +358,9 @@ export default function PlansScreen() {
             <Text style={{ fontSize: 16, fontWeight: '700', color: C.gray700 }}>No Plans Defined</Text>
           </View>
         ) : (
-          (plans as any[]).map((p: any) => (
+          (plans as any[]).map((p: any, i: number) => (
             <View key={p.plan} style={{
-              backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 12,
+              backgroundColor: listRowColor(i), borderRadius: 16, padding: 16, marginBottom: 12,
               borderWidth: 1, borderColor: C.gray100,
               opacity: p.isActive === false ? 0.55 : 1,
             }}>

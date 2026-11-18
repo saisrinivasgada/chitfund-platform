@@ -2,6 +2,7 @@ package com.chitfund.chitservice.service;
 
 import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.client.NotificationClient;
+import com.chitfund.chitservice.client.PaymentServiceClient;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ChitType;
@@ -48,6 +49,7 @@ class ChitServiceLifecycleAuditTest {
     @Mock AuditClient auditClient;
     @Mock ChitLifecycleCommandStore lifecycleCommandStore;
     @Mock ChitLifecycleCommandRepository lifecycleCommandRepository;
+    @Mock PaymentServiceClient paymentServiceClient;
 
     ChitService service;
 
@@ -56,7 +58,7 @@ class ChitServiceLifecycleAuditTest {
         service = new ChitService(chitRepository, enrollmentRepository, winnerRepository,
                 reservationRepository, chitMapper, attributeService, notificationClient,
                 planLimitChecker, auditClient, lifecycleCommandStore,
-                lifecycleCommandRepository);
+                lifecycleCommandRepository, paymentServiceClient);
         TransactionSynchronizationManager.initSynchronization();
     }
 

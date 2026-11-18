@@ -68,14 +68,11 @@ class OfflinePaymentReconciliationTest {
         when(access.assertRecordedPaymentMaySync(actor, request.getOfflineAuthorization(), request.getRecordedAt()))
                 .thenReturn("grant-a");
         when(members.isMemberActive(request.getMemberId())).thenReturn(true);
-        when(records.findTotalOutstandingByTenantIdAndMemberId(anyString(), any(), any())).thenReturn(request.getAmount());
         when(credit.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
         var due = PaymentRecord.builder().id(UUID.randomUUID()).chitId(request.getChitId())
                 .memberId(request.getMemberId()).amountDue(request.getAmount()).amountPaid(BigDecimal.ZERO)
                 .monthNumber(1).status(PaymentRecordStatus.OUTSTANDING).build();
         when(records.findMemberOutstandingForUpdate(anyString(), any(), any())).thenReturn(java.util.List.of(due));
-        when(records.findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(anyString(), any(), any(), any()))
-                .thenReturn(java.util.List.of(due));
         when(batches.saveAndFlush(any())).thenAnswer(call -> {
             PaymentBatch batch = call.getArgument(0);
             batch.setId(UUID.randomUUID());
@@ -227,9 +224,6 @@ class OfflinePaymentReconciliationTest {
         var due = PaymentRecord.builder().id(UUID.randomUUID()).chitId(request.getChitId()).memberId(request.getMemberId())
                 .monthNumber(1).amountDue(request.getAmount()).amountPaid(BigDecimal.ZERO).status(PaymentRecordStatus.OUTSTANDING).build();
         when(records.findMemberOutstandingForUpdate(anyString(), any(), any())).thenReturn(java.util.List.of(due));
-        when(records.findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(anyString(), any(), any(), any()))
-                .thenReturn(java.util.List.of(due));
-        when(records.findTotalOutstandingByTenantIdAndMemberId(anyString(), any(), any())).thenReturn(request.getAmount());
         when(batches.saveAndFlush(any())).thenAnswer(call -> { PaymentBatch batch = call.getArgument(0); batch.setId(UUID.randomUUID()); return batch; });
         String version = service.offlineBalanceSnapshot(request, true).version();
         assertThat(service.recordReviewedLegacyPayment(request, actor, "legacy-operation", version).getRecordedAt()).isEqualTo(request.getRecordedAt());

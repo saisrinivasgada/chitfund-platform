@@ -16,6 +16,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/saisrinivasgada
@@ -153,6 +157,12 @@ jobs:
   # These ran `compile` until 2026-09-10, which never touched src/test. The only
   # settlement tests in the repo had been failing unnoticed for months as a
   # result. Running `test` here means a broken test now blocks the deploy.
+  #
+  # Fast / slow gate split:
+  #   staging (test branch, feat PRs)  → unit tests only; Testcontainers (*MySql*) excluded
+  #   prod    (main branch, PRs → main) → full suite including MySQL migration/integration tests
+  # Testcontainers tests take 5–30 min; excluding them halves staging CI time with no safety gap
+  # because the same full suite runs on every push to main before the deploy proceeds.
 
   build-user:
     name: "user-service"
@@ -168,7 +178,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-user-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-user-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-user-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-member:
     name: "member-service"
@@ -184,7 +199,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-member-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-member-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-member-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-chit:
     name: "chit-service"
@@ -200,7 +220,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-chit-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-chit-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-chit-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-payment:
     name: "payment-service"
@@ -216,7 +241,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-payment-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-payment-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-payment-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-payout:
     name: "payout-service"
@@ -232,7 +262,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-payout-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-payout-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-payout-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-notification:
     name: "notification-service"
@@ -248,7 +283,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-notification-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-notification-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-notification-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-gateway:
     name: "api-gateway"
@@ -264,7 +304,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-api-gateway -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-api-gateway -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-api-gateway -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-audit:
     name: "audit-service"
@@ -280,7 +325,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-audit-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-audit-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-audit-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-reporting:
     name: "reporting-service"
@@ -296,7 +346,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitfund-reporting-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitfund-reporting-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitfund-reporting-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
 
   build-management:
     name: "management-service"
@@ -312,8 +367,14 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitfund-common,chitwise-management-service -am test --no-transfer-progress
+        run: |
+          if [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_BASE_REF" == "main" ]]; then
+            mvn -pl chitfund-common,chitwise-management-service -am test --no-transfer-progress
+          else
+            mvn -pl chitfund-common,chitwise-management-service -am test --no-transfer-progress '-Dsurefire.excludes=**/*MySql*.java'
+          fi
       - name: Require the MySQL 8 employee migration test to run
+        if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
         run: |
           report="chitwise-management-service/target/surefire-reports/TEST-com.chitfund.supportservice.migration.EmployeePasswordMigrationMySqlTest.xml"
           test -f "$report"
@@ -349,7 +410,7 @@ jobs:
         working-directory: chitfund-frontend
         run: npx playwright install --with-deps chromium
       - name: Shared offline policy and snapshot checks
-        run: node --test shared/offline/*.test.mjs
+        run: node --test shared/offline/*.test.mjs shared/rateLimitMessage.test.mjs shared/legalDocumentUrl.test.mjs
       - name: Production offline shell and background delivery
         working-directory: chitfund-frontend
         run: npm run test:offline
@@ -649,6 +710,8 @@ jobs:
       - name: Build React frontend
         if: needs.changes.outputs.frontend == 'true'
         working-directory: chitfund-frontend
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
         run: npm ci && npm run build
 
       - name: Prepare encrypted deployment bundle

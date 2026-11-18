@@ -55,6 +55,17 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Subtle ChitWise striping for data rows; explicit status/selection colours win. */
+@media screen {
+  :where(table tbody > tr:nth-of-type(odd)) {
+    background-color: #FFFFFF;
+  }
+
+  :where(table tbody > tr:nth-of-type(even)) {
+    background-color: #F3F7FC;
+  }
+}
+
 /* Thin, tasteful scrollbars on Webkit */
 ::-webkit-scrollbar {
   width: 5px;

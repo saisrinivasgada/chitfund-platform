@@ -12,6 +12,15 @@ import {
 import { C, T, GlassCard, LoadingScreen, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
+const ADD_ON_LABELS: Record<string, string> = {
+  offline_support: 'Offline access & sync',
+  live_chat: 'Member Messaging & Group Chat',
+  settlement: 'Member Early-Exit Settlement',
+  full_analytics: 'Full Analytics & Reports',
+  priority_support: 'Priority Support',
+  chitfund_compliance: 'ChitFund Compliance',
+};
+
 function InfoRow({ label, value, valueStyle }: { label: string; value: string; valueStyle?: any }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -267,6 +276,8 @@ export default function BillingScreen() {
   const memberCount = (membersPage as any)?.totalElements ?? 0;
   const activeChitCount = (allChits as any[]).length;
   const staffCount = (staffList as any[]).filter((s: any) => s.role === 'MANAGER' || s.role === 'STAFF' || s.role === 'AGENT').length;
+  const enabledAddOns: string[] = Array.isArray((limits as any)?.enabledAddOns)
+    ? (limits as any).enabledAddOns : [];
 
   const qc = useQueryClient();
   const renewalMut = useMutation({
@@ -530,6 +541,21 @@ export default function BillingScreen() {
           </GlassCard>
         )}
 
+        {limits && (
+          <GlassCard style={{ marginBottom: 16 }}>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, marginBottom: 10 }}>Enabled Add-ons</Text>
+            {enabledAddOns.length === 0 ? (
+              <Text style={{ fontSize: 12, color: C.gray500 }}>No add-ons are enabled for this organisation.</Text>
+            ) : enabledAddOns.map((key) => (
+              <View key={key} style={{ paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '600' }}>
+                  {ADD_ON_LABELS[key] ?? key.replaceAll('_', ' ')}
+                </Text>
+              </View>
+            ))}
+          </GlassCard>
+        )}
+
         {/* Credits card */}
         <GlassCard style={{ marginBottom: 16 }}>
           <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, marginBottom: 16 }}>Credits</Text>
@@ -548,7 +574,7 @@ export default function BillingScreen() {
           {Number(billing?.creditBalanceInr) > 0 && (
             <View style={{ marginTop: 10, backgroundColor: '#EFF6FF', borderRadius: 8, padding: 10 }}>
               <Text style={{ fontSize: 12, color: '#1D4ED8' }}>
-                Your {fmtPaise(billing?.creditBalanceInr)} credit will be applied to your next invoice automatically.
+                Your {fmtPaise(billing?.creditBalanceInr)} credit is available for your next bill. Confirm the amount applied when renewing.
               </Text>
             </View>
           )}

@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
-import { getAuction, placeBid, closeAuction, extendAuction, voidAuction, getMembers, listStaff, getEnrollments } from '../../services/api';
+import { getAuction, placeBid, closeAuction, extendAuction, voidAuction, getMembers, listStaff, getEnrollments, getAuthToken } from '../../services/api';
+import { accessTokenForAccount, activeAccountScope } from '../../offline/accountClient';
 import { useAuth } from '../../context/AuthContext';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
@@ -11,8 +12,6 @@ import { PageSpinner } from '../../components/ui/Spinner';
 import FormField, { Input } from '../../components/ui/FormField';
 import Modal from '../../components/ui/Modal';
 import { Trophy, Gavel, TrendingDown, CheckCircle, Timer, Plus, RotateCcw, TrendingUp, AlertTriangle } from 'lucide-react';
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
 
 function fmt(n) {
   return Number(n ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -218,10 +217,16 @@ export default function AuctionRoomPage() {
   useEffect(() => {
     if (!auctionId || !isOnline) return;
 
-    const token = localStorage.getItem('token') ?? sessionStorage.getItem('token') ?? '';
     const client = new Client({
-      webSocketFactory: () => new SockJS(`${API_BASE}/ws/auction`),
-      connectHeaders: { Authorization: `Bearer ${token}` },
+      // Use the same origin as the API proxy. Production browsers cannot reach
+      // localhost, and normal access tokens are deliberately kept out of storage.
+      webSocketFactory: () => new SockJS('/ws/auction'),
+      beforeConnect: async () => {
+        const proxyToken = sessionStorage.getItem('token');
+        const scope = activeAccountScope();
+        const token = proxyToken ?? (scope ? await accessTokenForAccount(scope) : getAuthToken());
+        client.connectHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+      },
       onConnect: () => {
         client.subscribe(`/topic/auction/${auctionId}`, (msg) => {
           try {

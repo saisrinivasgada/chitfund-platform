@@ -1,8 +1,11 @@
 package com.chitfund.notificationservice.outbox;
 
+import com.chitfund.notificationservice.repository.UserPushTokenRepository;
 import com.chitfund.notificationservice.sender.EmailSender;
 import com.chitfund.notificationservice.sender.NotificationSender;
 import com.chitfund.notificationservice.service.ExpoPushService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
@@ -15,6 +18,8 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
@@ -26,10 +31,13 @@ public class NotificationDeliveryRelay {
             "(?i)(authorization|password|secret|token|api[-_]?key)\\s*[:=]\\s*[^,;\\s]+"
     );
 
+    private static final TypeReference<Map<String, String>> MAP_TYPE = new TypeReference<>() { };
+
     private final NotificationDeliveryOutbox outbox;
     private final ExpoPushService pushService;
     private final EmailSender emailSender;
     private final NotificationSender notificationSender;
+    private final UserPushTokenRepository pushTokenRepository;
     private final ObjectMapper objectMapper;
     private final Counter published;
     private final Counter retried;
@@ -52,12 +60,14 @@ public class NotificationDeliveryRelay {
                                      ExpoPushService pushService,
                                      EmailSender emailSender,
                                      NotificationSender notificationSender,
+                                     UserPushTokenRepository pushTokenRepository,
                                      ObjectMapper objectMapper,
                                      MeterRegistry meterRegistry) {
         this.outbox = outbox;
         this.pushService = pushService;
         this.emailSender = emailSender;
         this.notificationSender = notificationSender;
+        this.pushTokenRepository = pushTokenRepository;
         this.objectMapper = objectMapper;
         this.published = meterRegistry.counter("chitwise.notification.delivery.published");
         this.retried = meterRegistry.counter("chitwise.notification.delivery.retried");
@@ -111,9 +121,7 @@ public class NotificationDeliveryRelay {
     private String deliver(NotificationDelivery delivery) throws Exception {
         return switch (delivery.deliveryType()) {
             case NotificationDeliveryQueue.PUSH -> {
-                var payload = objectMapper.readValue(delivery.payload(),
-                        NotificationDeliveryQueue.PushPayload.class);
-                pushService.sendToToken(payload.token(), payload.title(), payload.body(), payload.data());
+                deliverPush(delivery);
                 yield null;
             }
             case NotificationDeliveryQueue.EMAIL -> {
@@ -137,6 +145,52 @@ public class NotificationDeliveryRelay {
             default -> throw new IllegalArgumentException(
                     "Unsupported notification delivery type: " + delivery.deliveryType());
         };
+    }
+
+    /**
+     * Resolves the device token by its row id at send time and only pushes when
+     * the row still belongs to the user it was enqueued for. A logout/account
+     * switch deletes or reassigns the row, so absent or reassigned tokens — and
+     * legacy payloads that froze a raw token — are skipped and marked complete,
+     * never sent. The raw token is never logged.
+     */
+    private void deliverPush(NotificationDelivery delivery) throws Exception {
+        JsonNode node = objectMapper.readTree(delivery.payload());
+        JsonNode tokenIdNode = node.get("tokenId");
+        JsonNode userIdNode = node.get("userId");
+        if (tokenIdNode == null || tokenIdNode.isNull()
+                || userIdNode == null || userIdNode.isNull()) {
+            // Legacy raw-token payload (or malformed): drop it, never send.
+            log.info("Skipping push delivery {} with no token reference (legacy payload)",
+                    delivery.deliveryId());
+            return;
+        }
+
+        UUID tokenId;
+        try {
+            tokenId = UUID.fromString(tokenIdNode.asText());
+        } catch (IllegalArgumentException malformed) {
+            log.info("Skipping push delivery {} with malformed token reference",
+                    delivery.deliveryId());
+            return;
+        }
+
+        var tokenRow = pushTokenRepository.findById(tokenId);
+        if (tokenRow.isEmpty()
+                || tokenRow.get().getUserId() == null
+                || !tokenRow.get().getUserId().toString().equals(userIdNode.asText())) {
+            // Token was unregistered (logout) or reassigned (account switch).
+            log.info("Skipping push delivery {}: token no longer owned by intended user",
+                    delivery.deliveryId());
+            return;
+        }
+
+        Map<String, String> navigation = objectMapper.convertValue(
+                node.get("data"), MAP_TYPE);
+        pushService.sendToToken(tokenRow.get().getToken(),
+                NotificationDeliveryQueue.GENERIC_PUSH_TITLE,
+                NotificationDeliveryQueue.GENERIC_PUSH_BODY,
+                NotificationDeliveryQueue.navigationMetadata(navigation));
     }
 
     private void refreshMetrics() {

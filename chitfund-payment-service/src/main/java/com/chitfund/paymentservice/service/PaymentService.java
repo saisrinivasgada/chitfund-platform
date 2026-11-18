@@ -21,6 +21,7 @@ import com.chitfund.paymentservice.dto.request.RequestedChitAllocation;
 import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.MemberBalanceResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
+import com.chitfund.paymentservice.dto.response.PaymentPreviewResponse;
 import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
 import com.chitfund.paymentservice.client.AuditClient;
 import com.chitfund.paymentservice.client.ChitServiceClient;
@@ -114,6 +115,7 @@ public class PaymentService {
         String requestHash = IdempotencyFingerprint.of(
                 request.getChitId(), request.getMemberId(), request.getAmount(),
                 request.getNotes(), effectiveCollector, callerIsAdmin);
+        if (idempotencyKey != null) commandLocks.lock(tenantId, idempotencyKey);
         if (idempotencyKey != null) {
             var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
                     tenantId, COLLECT_CASH_OPERATION, idempotencyKey);
@@ -140,6 +142,17 @@ public class PaymentService {
         }
 
         boolean adminSelfCollect = callerIsAdmin && request.getOverrideCollectedBy() == null;
+        if (adminSelfCollect && !skipMemberCheck) {
+            if (request.getBalanceVersion() == null || request.getBalanceVersion().isBlank()) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Review the current cash allocation before recording it", HttpStatus.CONFLICT);
+            }
+            String currentVersion = memberBalanceState(request.getMemberId(), true).version();
+            if (!request.getBalanceVersion().equals(currentVersion)) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Member balances changed during review. Refresh the figures and review again.", HttpStatus.CONFLICT);
+            }
+        }
 
         PaymentBatch batch = PaymentBatch.builder()
                 .tenantId(tenantId)
@@ -228,6 +241,19 @@ public class PaymentService {
 
     private PaymentBatchResponse recordPaymentInternal(RecordPaymentRequest request, UUID adminId,
             String idempotencyKey, String reviewedBalanceVersion, boolean legacyReviewed) {
+        // CREDIT is a no-cash instruction to consume existing member credit.
+        // A positive amount here would settle dues without any cash entering the
+        // treasury or leaving the credit balance for that extra amount.
+        if (request.getPaymentMode() == PaymentMode.CREDIT
+                && request.getAmount().compareTo(BigDecimal.ZERO) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Credit-only payments must have a zero cash amount", HttpStatus.BAD_REQUEST);
+        }
+        if (request.getPaymentMode() == PaymentMode.CREDIT
+                && request.getAllocations() != null && !request.getAllocations().isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Credit-only payments cannot request a separate cash allocation", HttpStatus.BAD_REQUEST);
+        }
         String offlineGrantId = null;
         Instant recordedAt;
         if (request.getOfflineAuthorization() != null || legacyReviewed) {
@@ -306,6 +332,26 @@ public class PaymentService {
         if (request.getAmount().compareTo(BigDecimal.ZERO) > 0 && reviewedBalanceVersion == null
                 && offlineGrantId == null && !request.isConfirmDuplicate()) {
             assertNoRecentDuplicate(tenantId, request.getMemberId(), request.getChitId(), request.getAmount());
+        }
+        // Online automatic allocation must be reviewed against a current server
+        // snapshot. The idempotent replay above intentionally wins over a stale
+        // review: a successful receipt remains replayable after balances move.
+        // Runs after all hard-stop guards (reference dupe, member-inactive, recent
+        // dupe) so those fire first with the correct rejection reason.
+        // Skipped for confirmDuplicate: the client already passed review in the
+        // first attempt before the duplicate-confirmation prompt was shown.
+        if (idempotencyKey != null && offlineGrantId == null && !legacyReviewed
+                && !request.isConfirmDuplicate()
+                && (request.getAllocations() == null || request.getAllocations().isEmpty())) {
+            if (request.getBalanceVersion() == null || request.getBalanceVersion().isBlank()) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Review the current payment allocation before recording it", HttpStatus.CONFLICT);
+            }
+            String currentVersion = offlineBalanceSnapshot(request, true).version();
+            if (!request.getBalanceVersion().equals(currentVersion)) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Member balances changed during review. Refresh the figures and review again.", HttpStatus.CONFLICT);
+            }
         }
         if (offlineGrantId != null || legacyReviewed) {
             var current = offlineBalanceSnapshot(request, true);
@@ -402,28 +448,86 @@ public class PaymentService {
     public record OfflineBalanceSnapshot(String version, BigDecimal selectedOutstanding,
             BigDecimal totalOutstanding, BigDecimal creditBalance, boolean exceedsSelectedDues) { }
 
-    public OfflineBalanceSnapshot offlineBalanceSnapshot(RecordPaymentRequest request, boolean lock) {
+    private record MemberBalanceState(String version, BigDecimal credit,
+            List<PaymentRecord> records, BigDecimal totalOutstanding) { }
+
+    private MemberBalanceState memberBalanceState(UUID memberId, boolean lock) {
         String tenant = tenantId();
-        // Match FIFO's lock order; validate and apply within the same transaction.
-        BigDecimal credit = lock ? memberCreditService.getBalanceForUpdate(request.getMemberId())
-                : memberCreditService.getBalance(request.getMemberId());
+        // Preserve the same lock order used when posting: credit, then payment
+        // records in record-id order. Preview only reads these tenant-scoped rows.
+        BigDecimal credit = lock ? memberCreditService.getBalanceForUpdate(memberId)
+                : memberCreditService.getBalance(memberId);
         var statuses = PaymentRecordStatus.outstandingStatuses();
-        var records = lock ? paymentRecordRepository.findMemberOutstandingForUpdate(tenant, request.getMemberId(), statuses)
-                : paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(tenant, request.getMemberId(), statuses);
-        Map<UUID, BigDecimal> dues = new HashMap<>();
-        for (var record : records) dues.merge(record.getChitId(), record.getAmountDue().subtract(record.getAmountPaid()), BigDecimal::add);
-        BigDecimal total = dues.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal selected = dues.getOrDefault(request.getChitId(), BigDecimal.ZERO);
-        boolean exceeds = request.getAmount().compareTo(selected.subtract(credit).max(BigDecimal.ZERO)) > 0;
-        if (request.getAllocations() != null && !request.getAllocations().isEmpty()) {
-            exceeds = request.getAllocations().stream().anyMatch(entry -> entry.getAmount().compareTo(
-                    dues.getOrDefault(entry.getChitId(), BigDecimal.ZERO)) > 0);
-        }
+        List<PaymentRecord> records = lock
+                ? paymentRecordRepository.findMemberOutstandingForUpdate(tenant, memberId, statuses)
+                : paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(tenant, memberId, statuses);
+        BigDecimal total = records.stream()
+                .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         String version = IdempotencyFingerprint.of(credit.stripTrailingZeros().toPlainString(), records.stream()
                 .map(r -> r.getId() + ":" + r.getChitId() + ":" + r.getAmountDue().stripTrailingZeros().toPlainString()
                         + ":" + r.getAmountPaid().stripTrailingZeros().toPlainString() + ":" + r.getStatus()
                         + ":" + r.getUpdatedAt()).sorted().toList());
-        return new OfflineBalanceSnapshot(version, selected, total, credit, exceeds);
+        return new MemberBalanceState(version, credit, records, total);
+    }
+
+    public OfflineBalanceSnapshot offlineBalanceSnapshot(RecordPaymentRequest request, boolean lock) {
+        MemberBalanceState state = memberBalanceState(request.getMemberId(), lock);
+        Map<UUID, BigDecimal> dues = new HashMap<>();
+        for (var record : state.records()) dues.merge(record.getChitId(), record.getAmountDue().subtract(record.getAmountPaid()), BigDecimal::add);
+        BigDecimal total = state.totalOutstanding();
+        BigDecimal selected = dues.getOrDefault(request.getChitId(), BigDecimal.ZERO);
+        boolean exceeds = request.getAmount().compareTo(selected.subtract(state.credit()).max(BigDecimal.ZERO)) > 0;
+        if (request.getAllocations() != null && !request.getAllocations().isEmpty()) {
+            exceeds = request.getAllocations().stream().anyMatch(entry -> entry.getAmount().compareTo(
+                    dues.getOrDefault(entry.getChitId(), BigDecimal.ZERO)) > 0);
+        }
+        return new OfflineBalanceSnapshot(state.version(), selected, total, state.credit(), exceeds);
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentPreviewResponse previewPayment(UUID memberId, UUID chitId, BigDecimal amount) {
+        if (memberId == null || chitId == null || amount == null
+                || amount.compareTo(BigDecimal.ZERO) < 0 || amount.stripTrailingZeros().scale() > 2
+                || amount.precision() > 15) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A member, chit and nonnegative rupee amount are required", HttpStatus.BAD_REQUEST);
+        }
+        MemberBalanceState state = memberBalanceState(memberId, false);
+        BigDecimal selected = state.records().stream()
+                .filter(r -> chitId.equals(r.getChitId()))
+                .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // Match posting's active-member/existing-selected-chit rule, including
+        // its tenant-scoped validation of a member with no current dues.
+        if (!memberServiceClient.isMemberActive(memberId)
+                && !paymentRecordRepository.existsByTenantIdAndMemberIdAndChitId(
+                        tenantId(), memberId, chitId)) {
+            throw new BusinessException(ErrorCode.MEMBER_INACTIVE, "Member is not active");
+        }
+        BigDecimal creditRemaining = state.credit().min(state.totalOutstanding());
+        BigDecimal creditConsumed = creditRemaining;
+        BigDecimal cashRemaining = amount;
+        List<PaymentRecord> ordered = new ArrayList<>(state.records());
+        ordered.sort(oldestFirstPaymentRecord());
+        List<PaymentPreviewResponse.AllocationLine> lines = new ArrayList<>();
+        for (PaymentRecord record : ordered) {
+            BigDecimal owed = record.getAmountDue().subtract(record.getAmountPaid());
+            if (owed.compareTo(BigDecimal.ZERO) <= 0) continue;
+            BigDecimal fromCredit = owed.min(creditRemaining);
+            creditRemaining = creditRemaining.subtract(fromCredit);
+            BigDecimal fromCash = owed.subtract(fromCredit).min(cashRemaining);
+            cashRemaining = cashRemaining.subtract(fromCash);
+            if (fromCredit.signum() > 0 || fromCash.signum() > 0) {
+                // Historical late-join rows have no provenance flag yet. Do not
+                // invent a catch-up label for an ordinary installment.
+                lines.add(new PaymentPreviewResponse.AllocationLine(record.getChitId(),
+                        record.getMonthNumber(), false, fromCredit, fromCash));
+            }
+        }
+        return new PaymentPreviewResponse(memberId, chitId, amount, state.version(),
+                state.credit(), creditConsumed, state.totalOutstanding(), selected,
+                cashRemaining, List.copyOf(lines));
     }
 
     // Catches the same real-world cash being recorded twice through two different
@@ -855,6 +959,7 @@ public class PaymentService {
                 .overdue((record.getStatus().hasOutstandingBalance())
                         && record.getDueDate().isBefore(today))
                 .promisedPaymentDate(record.getPromisedPaymentDate())
+                .catchUpSource(record.getCatchUpSource())
                 .createdAt(record.getCreatedAt())
                 .updatedAt(record.getUpdatedAt())
                 .build();
@@ -935,38 +1040,51 @@ public class PaymentService {
     }
 
     /**
-     * FIFO debt application with cross-chit spillover and global credit balance.
+     * FIFO debt application across ALL of the member's chits, plus the global credit balance.
      *
-     * Step 1 — Auto-consume member's global credit balance first (oldest credit applied first).
+     * The member's money — existing credit first, then the new cash — always lands on the
+     * genuinely oldest unpaid installment the member has ANYWHERE, regardless of which chit the
+     * payment request named. A debt in another chit that is due earlier is paid before a newer
+     * debt in the chit being paid. (Operator-selected explicit allocations are a separate path —
+     * see {@link #applyExplicitChitAllocations} — and are unaffected by this rule.)
+     *
+     * Step 1 — Lock the member's credit balance, then take ONE tenant/member-wide locked read of
+     *   every outstanding record. That single query (ordered by id) is the only place row locks
+     *   are acquired here, so two concurrent batches for the same member cannot deadlock by
+     *   grabbing overlapping rows in a different order. Total owed is summed from these same
+     *   locked rows — never a separate unlocked aggregate that could disagree with what we hold.
+     *
+     * Step 2 — Auto-consume credit, capped at total owed across all chits.
      *   Example: member has ₹500 credit → effective amount = ₹4,500 payment + ₹500 credit = ₹5,000.
      *
-     * Step 2 — FIFO within the current chit (oldest month first).
+     * Step 3 — Sort the locked rows in memory into business allocation order — oldest dueDate
+     *   first, ties broken deterministically by chitId, then monthNumber, then record id — and
+     *   apply credit + cash oldest-first. Each allocation records the actual chit the money
+     *   landed on, so a later void reverses it against the right chit.
      *
-     * Step 3 — If amount remains after current chit is clear → spill into OTHER chits.
-     *   Records across other chits are ordered by dueDate so the genuinely oldest debt
-     *   clears first, regardless of which chit it belongs to.
+     * Step 4 — Only if every chit is clear → any excess becomes credit balance.
      *   WHY: member credit should only exist when they owe NOTHING anywhere.
-     *   A member who overpaid Chit 1 but still owes Chit 2 has no real "credit" —
-     *   the excess belongs to Chit 2. The allocation tracks the actual chit so void
-     *   can reverse it correctly.
-     *
-     * Step 4 — Only if all chits are clear → excess goes to credit balance.
      */
     private List<PaymentAllocation> applyFifo(PaymentBatch batch, UUID actorId) {
         List<PaymentRecordStatus> pendingStatuses =
                 PaymentRecordStatus.outstandingStatuses();
 
-        // Step 1: Auto-consume credit up to what member owes across ALL chits.
-        // Locked read: two concurrent batches for the same member must not both
-        // decide to use the same credit before either actually consumes it — an
-        // unlocked read here let two concurrent payments both be granted the same
-        // credit, destroying a real balance or fabricating credit from a stale value.
+        // Step 1: Lock the credit balance before any record locks (consistent lock ordering with
+        // the rest of the service), then take the single member-wide locked read. The repository
+        // query locks rows in id order and is the only record-locking read in this method, so
+        // there is no cross-chit deadlock risk. A locked read also stops two concurrent batches
+        // for the same member from both being granted the same credit from a stale value.
         BigDecimal creditAvailable = memberCreditService.getBalanceForUpdate(batch.getMemberId());
-        BigDecimal totalOwedAllChits = paymentRecordRepository
-                .findTotalOutstandingByTenantIdAndMemberId(
-                        batch.getTenantId(), batch.getMemberId(), pendingStatuses);
-        BigDecimal creditToUse = creditAvailable.min(totalOwedAllChits);
+        List<PaymentRecord> outstanding = paymentRecordRepository
+                .findMemberOutstandingForUpdate(batch.getTenantId(), batch.getMemberId(), pendingStatuses);
 
+        // Total owed is derived from the same locked rows, not a separate unlocked aggregate.
+        BigDecimal totalOwedAllChits = outstanding.stream()
+                .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Step 2: consume credit up to what the member owes across ALL chits.
+        BigDecimal creditToUse = creditAvailable.min(totalOwedAllChits);
         if (creditToUse.compareTo(BigDecimal.ZERO) > 0) {
             memberCreditService.consumeCredit(
                     batch.getMemberId(), creditToUse, batch.getId(), batch.getChitId(), actorId,
@@ -976,24 +1094,14 @@ public class PaymentService {
         BigDecimal remaining = batch.getTotalAmount().add(creditToUse);
         List<PaymentAllocation> allocations = new ArrayList<>();
 
-        // Step 2: FIFO within the current chit — acquire row-level write locks to prevent concurrent double-allocation
-        List<PaymentRecord> sameChit = paymentRecordRepository
-                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                        batch.getTenantId(), batch.getMemberId(), batch.getChitId(), pendingStatuses);
+        // Step 3: order the locked rows for business allocation — oldest due date first, then a
+        // deterministic tie-break (chitId, monthNumber, record id) so equal-dated debts always
+        // clear in the same order. Sorting a copy keeps allocation order independent of the id
+        // lock order acquired above. Then apply credit + cash oldest-first across every chit.
+        List<PaymentRecord> ordered = new ArrayList<>(outstanding);
+        ordered.sort(oldestFirstPaymentRecord());
 
-        remaining = applyToRecords(sameChit, remaining, batch.getId(), allocations);
-
-        // Step 3: Spill into other chits (ordered by dueDate ascending — oldest debt first)
-        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-            List<PaymentRecord> otherChits = paymentRecordRepository
-                    .findOutstandingAcrossOtherChitsForUpdateByTenant(
-                            batch.getTenantId(), batch.getMemberId(), batch.getChitId(), pendingStatuses);
-            if (!otherChits.isEmpty()) {
-                log.info("Batch {} — ₹{} spills across {} other-chit record(s) for member {}",
-                        batch.getId(), remaining, otherChits.size(), batch.getMemberId());
-                remaining = applyToRecords(otherChits, remaining, batch.getId(), allocations);
-            }
-        }
+        remaining = applyToRecords(ordered, remaining, batch.getId(), allocations);
 
         // Step 4: All chits fully cleared → any remaining is true credit
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
@@ -1020,6 +1128,15 @@ public class PaymentService {
                 });
 
         return allocations;
+    }
+
+    private static java.util.Comparator<PaymentRecord> oldestFirstPaymentRecord() {
+        return java.util.Comparator
+                .comparing(PaymentRecord::getDueDate,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                .thenComparing(r -> r.getChitId().toString())
+                .thenComparingInt(PaymentRecord::getMonthNumber)
+                .thenComparing(r -> r.getId().toString());
     }
 
     /**
@@ -1171,6 +1288,7 @@ public class PaymentService {
                         .overdue((r.getStatus().hasOutstandingBalance())
                                 && r.getDueDate().isBefore(today))
                         .promisedPaymentDate(r.getPromisedPaymentDate())
+                        .catchUpSource(r.getCatchUpSource())
                         .createdAt(r.getCreatedAt())
                         .updatedAt(r.getUpdatedAt())
                         .build())

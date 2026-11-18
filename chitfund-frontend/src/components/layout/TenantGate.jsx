@@ -3,10 +3,9 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { requestRenewal, getMyBillingInfo } from '../../services/api';
-import { AlertTriangle, PhoneCall, Mail, Clock } from 'lucide-react';
+import { AlertTriangle, Mail, Clock } from 'lucide-react';
 
-const SUPPORT_EMAIL = 'saisrinivasgada@gmail.com';
-const SUPPORT_WHATSAPP = 'https://wa.me/919999999999'; // update with real number
+const SUPPORT_EMAIL = 'help@thechitwise.com';
 
 
 function PendingActivationScreen({ orgName }) {
@@ -27,21 +26,11 @@ function PendingActivationScreen({ orgName }) {
         </p>
         <div className="space-y-3">
           <a
-            href={`mailto:${SUPPORT_EMAIL}?subject=Activation Request - ${orgName}`}
+            href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Activation Request - ${orgName}`)}`}
             className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <Mail size={15} />
             Email Support
-          </a>
-          <a
-            href={SUPPORT_WHATSAPP}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-sm font-medium text-white transition-colors"
-            style={{ backgroundColor: '#25D366' }}
-          >
-            <PhoneCall size={15} />
-            WhatsApp Support
           </a>
           <button
             onClick={async () => { if (await requestLogout()) navigate('/login', { replace: true }); }}
@@ -197,7 +186,7 @@ export default function TenantGate() {
             <span className="flex-1 min-w-0">
               <span className="font-semibold">{tenantName}</span> has been <span className="font-semibold">suspended</span>. You can view data but creating or modifying records is blocked. Contact ChitWise support.
             </span>
-            <a href={`mailto:${SUPPORT_EMAIL}?subject=Account Suspended - ${tenantName}`}
+            <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Account Suspended - ${tenantName}`)}`}
               className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-xs font-semibold transition-colors whitespace-nowrap">
               Contact Support
             </a>

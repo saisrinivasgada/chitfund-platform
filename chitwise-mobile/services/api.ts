@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { rateLimitMessage } from '../../shared/rateLimitMessage';
+import { DeviceEventEmitter } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { accountStorageId, useAuthStore } from '../store/authStore';
@@ -76,7 +78,13 @@ async function refreshHubSession() {
 }
 
 hubApi.interceptors.response.use((response) => response, async (error) => {
+  const throttledMessage = rateLimitMessage(error);
+  if (throttledMessage) error.response.data = { ...(error.response.data ?? {}), message: throttledMessage };
   const original = error.config;
+  if (error.response?.status === 428 && error.response?.data?.errorCode === 'LEGAL_REVIEW_REQUIRED'
+      && !/^\/hub\/legal\/(?:status|accept)$/.test(String(original?.url ?? ''))) {
+    DeviceEventEmitter.emit('chitwise:legal-review-required');
+  }
   if (error.response?.status === 401 && !original?._hubRetry
       && !String(original?.url).includes('/hub/auth/')) {
     original._hubRetry = true;
@@ -102,7 +110,13 @@ api.interceptors.response.use(
     return res;
   },
   async (err) => {
+    const throttledMessage = rateLimitMessage(err);
+    if (throttledMessage) err.response.data = { ...(err.response.data ?? {}), message: throttledMessage };
     const original = err.config;
+    if (err.response?.status === 428 && err.response?.data?.errorCode === 'LEGAL_REVIEW_REQUIRED'
+        && !/^\/legal\/(?:status|accept)$/.test(String(original?.url ?? ''))) {
+      DeviceEventEmitter.emit('chitwise:legal-review-required');
+    }
     const scope = original?._accountScope as string | undefined;
     if (scope && !err.offlineMissing && !err.requiresLogin) useSyncStore.getState().setStateForScope(scope, {
       serverReachable: !!err.response && err.response.status < 500 && err.response.status !== 408,
@@ -148,6 +162,25 @@ function unwrapList(res: any): any[] {
 function unwrapObj(res: any): any {
   return res.data?.data ?? res.data ?? {};
 }
+
+export interface LegalReviewStatus {
+  required: boolean;
+  terms?: { version?: string; effectiveDate?: string; summary?: string; documentUrl?: string; requiresAcceptance?: boolean };
+  privacy?: { version?: string; effectiveDate?: string; summary?: string; documentUrl?: string; requiresAcknowledgment?: boolean };
+}
+
+export interface LegalReviewAcceptance {
+  termsVersion: string | null;
+  privacyVersion: string | null;
+  termsAccepted: boolean;
+  privacyAcknowledged: boolean;
+}
+
+export const getLegalReviewStatus = async (hub = false): Promise<LegalReviewStatus> =>
+  unwrapObj(await (hub ? hubApi : api).get(hub ? '/hub/legal/status' : '/legal/status'));
+
+export const acceptLegalUpdate = async (acceptance: LegalReviewAcceptance, hub = false): Promise<LegalReviewStatus> =>
+  unwrapObj(await (hub ? hubApi : api).post(hub ? '/hub/legal/accept' : '/legal/accept', acceptance));
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export interface TenantOption {
@@ -229,7 +262,8 @@ export const hubListTickets = async ({ page = 0, size = 20, status, type, priori
 };
 
 export const hubGetTicket = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}`));
-export const hubGetTicketMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}/messages`));
+export const hubGetTicketMessages = async (id: string, cursor?: string) =>
+  unwrapObj(await hubApi.get(`/hub/tickets/${id}/messages`, { params: { limit: 50, ...(cursor ? { cursor } : {}) } }));
 export const hubSendTicketMessage = async (id: string, content: string) => unwrapObj(await hubApi.post(`/hub/tickets/${id}/messages`, { content }));
 export const hubUpdateTicketStatus = async (id: string, status: string, note: string) => unwrapObj(await hubApi.put(`/hub/tickets/${id}/status`, { status, note }));
 export const hubMarkTicketRead = async (id: string) => hubApi.put(`/hub/tickets/${id}/read`);
@@ -258,7 +292,8 @@ export const hubListDms = async (): Promise<any[]> => {
   return response.data?.data ?? [];
 };
 export const hubStartDm = async (otherEmployeeId: string) => unwrapObj(await hubApi.post('/hub/chat/dms', { otherEmployeeId }));
-export const hubGetDmMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/chat/dms/${id}/messages`));
+export const hubGetDmMessages = async (id: string, cursor?: string) =>
+  unwrapObj(await hubApi.get(`/hub/chat/dms/${id}/messages`, { params: { limit: 50, ...(cursor ? { cursor } : {}) } }));
 const newClientMessageId = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
   const r = Math.floor(Math.random() * 16);
   return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
@@ -270,7 +305,8 @@ export const hubListGroups = async (): Promise<any[]> => {
   const response = await hubApi.get('/hub/chat/groups');
   return response.data?.data ?? [];
 };
-export const hubGetGroupMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/chat/groups/${id}/messages`));
+export const hubGetGroupMessages = async (id: string, cursor?: string) =>
+  unwrapObj(await hubApi.get(`/hub/chat/groups/${id}/messages`, { params: { limit: 50, ...(cursor ? { cursor } : {}) } }));
 export const hubSendGroupMessage = async (id: string, content: string, clientMessageId = newClientMessageId()) =>
   unwrapObj(await hubApi.post(`/hub/chat/groups/${id}/messages`, { content, clientMessageId }));
 export const hubCreateGroup = async (body: { name: string; description?: string; memberIds: string[] }) =>
@@ -387,6 +423,19 @@ export const logoutAllDevices = async () => {
 };
 
 export const getMe = async () => unwrapObj(await api.get('/users/me'));
+
+export type AccountDeletionRequest = {
+  requestId?: string;
+  status?: string;
+  requestedAt?: string;
+  nextStep?: string;
+};
+export const getMyDeletionRequest = async (): Promise<AccountDeletionRequest> =>
+  unwrapObj(await api.get('/users/me/deletion-request'));
+export const requestMyAccountDeletion = async (idempotencyKey: string): Promise<AccountDeletionRequest> =>
+  unwrapObj(await api.post('/users/me/deletion-request',
+    { confirmation: 'DELETE' },
+    { headers: { 'Idempotency-Key': idempotencyKey } }));
 export const changePassword = async (currentPassword: string, newPassword: string) =>
   unwrapObj(await api.post('/users/me/change-password', { currentPassword, newPassword }));
 export const updateMyProfile = async (body: any) =>
@@ -584,6 +633,8 @@ export const recordPayment = async (body: any) => {
     headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {},
   }));
 };
+export const getPaymentPreview = async (memberId: string, chitId: string, amount: number) =>
+  unwrapObj(await api.get('/payments/preview', { params: { memberId, chitId, amount } }));
 export const getPaymentHistory = async (memberId: string, chitId: string) =>
   unwrapList(await api.get('/payments/history', { params: { memberId, chitId } }));
 export const getPaymentBatches = async (memberId?: string, chitId?: string) =>
@@ -947,23 +998,19 @@ export const getPayoutsReport = async (chitId: string) =>
   unwrapList(await api.get(`/reports/chit/${chitId}/payouts`));
 
 // ── Notifications ─────────────────────────────────────────────────────────────
-export const getMyNotifications = async () => {
-  try { return unwrapList(await api.get('/notifications/mine')); } catch { return []; }
-};
-export const getNotifications = async () => {
-  try { return unwrapList(await api.get('/notifications')); } catch { return []; }
-};
+export const getMyNotifications = async () =>
+  unwrapList(await api.get('/notifications/mine'));
+export const getNotifications = async () =>
+  unwrapList(await api.get('/notifications/mine'));
 export const getUnreadCount = async () => {
-  try {
-    const res = await api.get('/notifications/unread-count');
-    const d = res.data?.data;
-    return typeof d === 'object' ? (d?.count ?? 0) : (d ?? 0);
-  } catch { return 0; }
+  const res = await api.get('/notifications/unread-count');
+  const d = res.data?.data;
+  return typeof d === 'object' ? (d?.count ?? 0) : (d ?? 0);
 };
 export const markNotificationRead = async (id: string) =>
   unwrapObj(await api.patch(`/notifications/${id}/read`));
 export const markAllNotificationsRead = async () =>
-  api.patch('/notifications/read-all').catch(() => {});
+  api.patch('/notifications/read-all');
 
 // ── Phone OTP (authenticated — for profile phone change) ─────────────────────
 export const sendPhoneChangeOtp = async ({ phone, countryCode }: { phone: string; countryCode: string }) => {
@@ -1007,12 +1054,7 @@ export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }: 
 
 // ── Push token registration ───────────────────────────────────────────────────
 export const registerPushToken = async (token: string, platform: string) => {
-  try {
-    await api.post('/notifications/push-token', { token, platform });
-  } catch (e) {
-    // non-fatal — push is best-effort
-    console.warn('Push token registration failed:', e);
-  }
+  await api.post('/notifications/push-token', { token, platform });
 };
 
 export const unregisterPushToken = async (token: string) => {
@@ -1051,7 +1093,7 @@ export const getTicketMessages = async (
   { cursor, limit = 50 }: { cursor?: string; limit?: number } = {}
 ): Promise<any> => {
   const params: any = { limit };
-  if (cursor) params.before = cursor;
+  if (cursor) params.cursor = cursor;
   const res = await api.get(`/tickets/${ticketId}/messages`, { params });
   return res.data.data;
 };

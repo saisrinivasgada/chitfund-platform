@@ -6,7 +6,7 @@ import {
   getMyMemberProfile, getChitsForMember, getMemberTotalBalance,
   getMemberBalance, getPaymentHistory, getPayoutsForMember, getPayoutById,
   getMe, createCashRequest, getMyCashRequests, memberApproveCashRequest,
-  getMyPaymentBatches, listAuctions,
+  getMyPaymentBatches, getMemberCredit, listAuctions,
   getMyInvitations, respondToInvitation,
   getAdminSupportContact,
   getMyIntimations, createPaymentIntimation, withdrawPaymentIntimation, getIntimationHistory,
@@ -254,6 +254,15 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
   const activeChits = chits.filter(c => c.status === 'ACTIVE');
   const auctionChits = activeChits.filter(c => c.chitType === 'AUCTION' || c.winnerSelectionMode === 'AUCTION');
 
+  const { data: memberCredit } = useQuery({
+    queryKey: ['memberCredit', memberId],
+    queryFn: () => getMemberCredit(memberId),
+    enabled: !!memberId,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
+  });
+  const availableCredit = Number(memberCredit?.balance ?? 0);
+
   const { data: requests = [] } = useQuery({
     queryKey: ['myCashRequests'],
     queryFn: getMyCashRequests,
@@ -335,6 +344,15 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
             <p className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>No outstanding dues — you're fully up to date!</p>
           </div>
         </div>
+      )}
+
+      {availableCredit > 0 && (
+        <button type="button" onClick={() => onSwitchTab('payments')}
+          className="w-full rounded-2xl border border-[#D7E0ED] bg-[#F5F8FC] px-5 py-4 text-left hover:bg-[#EEF2F8]">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#506786]">Available member credit</p>
+          <p className="mt-1 text-xl font-bold text-[#1E3A5F]">{hidden ? '••••••' : `₹${availableCredit.toLocaleString('en-IN')}`}</p>
+          <p className="mt-1 text-xs text-gray-600">Shown separately from outstanding dues. View credit activity in Payments.</p>
+        </button>
       )}
 
       {/* ── Live auction banners ──────────────────────────────────────── */}
@@ -1073,17 +1091,26 @@ const DATE_FILTERS = [
   { key: 'all',    label: 'All' },
 ];
 
-function PaymentsTab() {
+function PaymentsTab({ memberId }) {
   const navigate = useNavigate();
   const { hidden } = useHiddenAmounts();
-  const [dateFilter, setDateFilter] = useState('today');
+  const [dateFilter, setDateFilter] = useState('all');
   const [modeFilter, setModeFilter] = useState('ALL');
+  const [showCreditActivity, setShowCreditActivity] = useState(false);
 
   const { data: batches = [], isLoading } = useQuery({
     queryKey: ['myPaymentBatches'],
     refetchOnWindowFocus: true,
     queryFn: getMyPaymentBatches,
     refetchInterval: 30_000,
+  });
+
+  const { data: memberCredit, isLoading: creditLoading, isError: creditError } = useQuery({
+    queryKey: ['memberCredit', memberId],
+    queryFn: () => getMemberCredit(memberId),
+    enabled: !!memberId,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
   });
 
   const filtered = useMemo(() => {
@@ -1099,8 +1126,8 @@ function PaymentsTab() {
     });
   }, [batches, dateFilter, modeFilter]);
 
-  const totalFiltered = filtered
-    .filter((b) => b.status !== 'VOIDED')
+  const completedPayments = filtered.filter((b) => b.status === 'COMPLETED');
+  const totalFiltered = completedPayments
     .reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
 
   if (isLoading) return <div className="py-10 flex justify-center"><PageSpinner /></div>;
@@ -1121,11 +1148,46 @@ function PaymentsTab() {
             <p className="text-3xl font-extrabold text-white leading-none" style={{ letterSpacing: '-0.02em' }}>
               {hidden ? '••••••' : `₹${totalFiltered.toLocaleString('en-IN')}`}
             </p>
-            <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>{filtered.length} transaction{filtered.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>{completedPayments.length} confirmed payment{completedPayments.length !== 1 ? 's' : ''}</p>
           </div>
           <ArrowDownCircle size={32} style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }} />
         </div>
       </div>
+
+      {/* Credit is a separate balance. Batch allocations do not yet carry a
+          durable cash/credit split, so never infer one from payment totals. */}
+      <section className="rounded-2xl border border-[#D7E0ED] bg-[#F5F8FC] p-4 sm:p-5" aria-label="Member credit activity">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#506786]">Available member credit</p>
+            <p className="mt-1 text-2xl font-bold text-[#1E3A5F]">
+              {creditLoading ? 'Loading…' : creditError ? 'Unavailable' : hidden ? '••••••' : `₹${Number(memberCredit?.balance ?? 0).toLocaleString('en-IN')}`}
+            </p>
+            <p className="mt-1 text-xs text-gray-600">Credit is applied to eligible installments in your organization.</p>
+          </div>
+          {memberCredit?.recentTransactions?.length > 0 && (
+            <button type="button" onClick={() => setShowCreditActivity(v => !v)}
+              aria-expanded={showCreditActivity}
+              className="rounded-lg border border-[#C7D5E8] bg-white px-3 py-2 text-xs font-semibold text-[#1E3A5F] hover:bg-[#EEF2F8]">
+              {showCreditActivity ? 'Hide credit activity' : 'View credit activity'}
+            </button>
+          )}
+        </div>
+        {showCreditActivity && memberCredit?.recentTransactions?.length > 0 && (
+          <div className="mt-4 divide-y divide-[#D7E0ED] border-t border-[#D7E0ED]">
+            {memberCredit.recentTransactions.map(txn => (
+              <div key={txn.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div>
+                  <p className="font-medium text-gray-800">{txn.type === 'IN' ? 'Credit added' : 'Credit used'}</p>
+                  <p className="text-xs text-gray-500">{fmtDate(txn.createdAt)}</p>
+                </div>
+                <span className="font-semibold text-[#1E3A5F]">{hidden ? '••••••' : `${txn.type === 'IN' ? '+' : '−'}₹${Number(txn.amount ?? 0).toLocaleString('en-IN')}`}</span>
+              </div>
+            ))}
+            <p className="py-2 text-xs text-gray-500">Recent credit movements. Open a payment for its installment details.</p>
+          </div>
+        )}
+      </section>
 
       {/* ── Filters ───────────────────────────────────────────────────── */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ marginTop: 12, marginBottom: 12 }}>
@@ -2477,7 +2539,8 @@ export default function MemberPortalPage() {
       </div>
 
       {/* ── Tab navigation ─────────────────────────────────────────────────── */}
-      <div className="flex gap-1.5 bg-gray-100 p-1.5 rounded-2xl">
+      <div className="max-w-full overflow-x-auto rounded-2xl bg-gray-100">
+      <div className="flex min-w-full w-max gap-1.5 p-1.5">
         {TABS.map(n => {
           const isActive = tab === n.id;
           return (
@@ -2485,7 +2548,7 @@ export default function MemberPortalPage() {
               key={n.id}
               type="button"
               onClick={() => switchTab(n.id)}
-              className="flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl transition-all duration-200 cursor-pointer"
+              className="min-w-[56px] flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl transition-all duration-200 cursor-pointer"
               style={isActive
                 ? { backgroundColor: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.10)' }
                 : { backgroundColor: 'transparent' }
@@ -2513,6 +2576,7 @@ export default function MemberPortalPage() {
           );
         })}
       </div>
+      </div>
 
       {/* ── Tab content ────────────────────────────────────────────────────── */}
       {tab === 'overview' && (
@@ -2527,7 +2591,7 @@ export default function MemberPortalPage() {
       {tab === 'chits' && <ChitsTab memberId={member.id} chits={myChits} chitsLoading={chitsLoading} />}
       {tab === 'invitations' && <MemberInvitationsTab memberId={member.id} />}
       {tab === 'payouts' && <PayoutsTab memberId={member.id} chits={myChits} />}
-      {tab === 'payments'    && <PaymentsTab />}
+      {tab === 'payments'    && <PaymentsTab memberId={member.id} />}
       {tab === 'requests'    && <RequestsTab memberId={member.id} chits={myChits} onNewRequest={isPlanExpired ? null : () => setShowCashRequest(true)} />}
       {tab === 'intimations' && <IntimationMemberTab memberId={member.id} chits={myChits} />}
 

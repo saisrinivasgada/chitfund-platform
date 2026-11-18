@@ -1,10 +1,23 @@
 import axios from 'axios';
+import { rateLimitMessage } from '../../../shared/rateLimitMessage';
 import { accessTokenForAccount, activeAccountScope, refreshAccount } from '../offline/accountClient';
 import { cachedResponse, saveCachedResponse, forgetCachedResponse } from '../offline/cache';
 import { readRow } from '../offline/storage';
 import { queuePayment, canRecordOffline, syncSavedPayments } from '../offline/outbox';
+import { browserKeyForUsername, browserKeyForMobile, browserKeyForGoogle,
+  getStoredDeviceToken, getActiveDeviceToken } from '../utils/trustedBrowser';
+export { getStoredDeviceToken, saveDeviceToken, clearDeviceToken } from '../utils/trustedBrowser';
 
 const api = axios.create({ baseURL: '/api' });
+
+// Older builds persisted an access token here. Current sessions restore through
+// the refresh cookie or a scoped account, so discard that legacy copy on load.
+try { localStorage.removeItem('token'); } catch { /* Storage may be unavailable. */ }
+
+// Most /auth/ routes are public login steps. Browser management requires a
+// session, so it must use the same token and refresh handling as account APIs.
+const isPublicAuthEndpoint = (url) => url?.includes('/auth/')
+  && !/^\/auth\/(?:trusted-devices?(?:\/|$)|set-local-password$)/.test(url);
 
 // In-memory token store — JWT access token never touches localStorage
 let _authToken = null;
@@ -15,12 +28,11 @@ export const getAuthToken = () => _authToken;
 export const setHubSaasToken = (token) => { _hubSaasToken = token; };
 export const clearHubSaasToken = () => { _hubSaasToken = null; };
 
-// Attach auth token on every request except auth endpoints (login, etc.)
+// Attach auth token on every request except public auth steps (login, etc.)
 // Proxy sessions (super-admin impersonating) use sessionStorage; real sessions use memory.
 api.interceptors.request.use(async (config) => {
   config.headers['X-Client-Source'] = 'WEB';
-  const isAuthEndpoint = config.url?.includes('/auth/');
-  if (isAuthEndpoint) return config;
+  if (isPublicAuthEndpoint(config.url)) return config;
   const proxyToken = config._proxyToken ?? sessionStorage.getItem('token');
   const scope = config._accountScope ?? (!proxyToken && !_hubSaasToken ? activeAccountScope() : null);
   if (scope) {
@@ -58,6 +70,12 @@ api.interceptors.response.use(async (response) => {
   }
   return response;
 }, async (error) => {
+  const throttledMessage = rateLimitMessage(error);
+  if (throttledMessage) error.response.data = { ...(error.response.data ?? {}), message: throttledMessage };
+  if (error.response?.status === 428 && error.response?.data?.errorCode === 'LEGAL_REVIEW_REQUIRED'
+      && !/^\/legal\/(?:status|accept)$/.test(error.config?.url ?? '')) {
+    window.dispatchEvent(new Event('legal-review-required'));
+  }
   if ([403, 404, 410].includes(error.response?.status)) {
     try { await forgetCachedResponse(error.config?._accountScope, error.config ?? {}); }
     catch { /* Access denial still reaches the caller when storage is unavailable. */ }
@@ -87,6 +105,7 @@ function _evictSession() {
   ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','settlementEnabled','adminPhone','adminEmail']
     .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
   sessionStorage.removeItem('token');
+  sessionStorage.removeItem('legal_return_path');
   window.location.href = '/session-expired';
 }
 
@@ -94,7 +113,7 @@ api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const originalRequest = err.config;
-    const isAuthEndpoint  = originalRequest?.url?.includes('/auth/');
+    const isAuthEndpoint = isPublicAuthEndpoint(originalRequest?.url);
 
     if (err.response?.data?.errorCode === 'PLAN_002'
         && (!originalRequest?._accountScope || originalRequest._accountScope === activeAccountScope())) {
@@ -146,7 +165,9 @@ api.interceptors.response.use(
       _isRefreshing = true;
 
       try {
-        const res  = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+        const res  = await fetch('/api/auth/refresh', {
+          method: 'POST', credentials: 'include', headers: { 'X-Client-Type': 'web' },
+        });
         const json = await res.json();
         if (!res.ok || !json.data?.accessToken) throw new Error('refresh_failed');
 
@@ -183,8 +204,22 @@ export const refreshSession = async () => {
     const account = await readRow('accounts', scope);
     if (account?.sessionValid) return refreshAccount(scope);
   }
-  const res = await api.post('/auth/refresh', {});
-  return res.data.data; // AuthResponse { accessToken, refreshToken, user }
+  const res = await api.post('/auth/refresh', {}, { headers: { 'X-Client-Type': 'web' } });
+  return res.data.data; // AccessTokenResponse { accessToken, user, tenant }
+};
+
+// The server decides whether a signed-in user must review revised legal documents.
+// Never infer acceptance from a local flag or from opening a document.
+export const getLegalReviewStatus = async () => {
+  const res = await api.get('/legal/status', { headers: { 'Cache-Control': 'no-store' } });
+  return res.data.data;
+};
+
+export const acceptLegalUpdate = async ({ termsVersion, privacyVersion, termsAccepted, privacyAcknowledged }) => {
+  const res = await api.post('/legal/accept', {
+    termsVersion, privacyVersion, termsAccepted, privacyAcknowledged,
+  });
+  return res.data.data;
 };
 
 // Verifies the login OTP for ADMIN/MANAGER/SUPER_ADMIN after password step
@@ -206,24 +241,39 @@ export const resendLoginEmailOtp = async ({ emailVerificationToken }) => {
   await api.post('/auth/resend-login-email-otp', { emailVerificationToken });
 };
 
-const DEVICE_TOKEN_KEY = 'chitwise_device_token';
+export const getTrustedDevices = async (userId) => {
+  const deviceToken = getActiveDeviceToken(userId);
+  const headers = deviceToken ? { 'X-Device-Token': deviceToken } : {};
+  const res = await api.get('/auth/trusted-devices', { headers });
+  return res.data.data ?? [];
+};
 
-export const getStoredDeviceToken = () => { try { return localStorage.getItem(DEVICE_TOKEN_KEY); } catch { return null; } };
-export const saveDeviceToken = (token) => { try { localStorage.setItem(DEVICE_TOKEN_KEY, token); } catch { /* storage unavailable */ } };
-export const clearDeviceToken = () => { try { localStorage.removeItem(DEVICE_TOKEN_KEY); } catch { /* storage unavailable */ } };
+export const forgetTrustedDevice = async (deviceId) => {
+  await api.delete(`/auth/trusted-device/${encodeURIComponent(deviceId)}`);
+};
+
+export const forgetCurrentBrowser = async (deviceToken) => {
+  await api.delete('/auth/trusted-device', { data: { deviceToken } });
+};
 
 // Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse?, requiresOtp?, otpToken?, maskedPhone? }
 export const login = async ({ username, password }) => {
-  const deviceToken = getStoredDeviceToken();
+  const deviceToken = getStoredDeviceToken(browserKeyForUsername(username));
   const headers = deviceToken ? { 'X-Device-Token': deviceToken } : {};
   const res = await api.post('/auth/login', { username, password }, { headers });
   return res.data.data;
 };
 
-// Step 2: exchange pre-scope loginToken + tenantId → full scoped AuthResponse
-export const selectTenant = async ({ loginToken, tenantId }) => {
-  const res = await api.post('/auth/select-tenant', { loginToken, tenantId });
-  return res.data.data; // AuthResponse { accessToken, refreshToken, user }
+// Web handoff receives only an opaque code; local/mobile-compatible paths receive scoped auth.
+export const selectTenant = async ({ loginToken, tenantId, rememberDevice = false, webHandoff = false }) => {
+  const headers = webHandoff ? { 'X-Client-Type': 'web' } : {};
+  const res = await api.post('/auth/select-tenant', { loginToken, tenantId, rememberDevice }, { headers });
+  return res.data.data;
+};
+
+export const exchangeTenantHandoff = async ({ code, tenantSlug }) => {
+  const res = await api.post('/auth/handoff-exchange', { code, tenantSlug });
+  return res.data.data;
 };
 
 // Public: org self-registration (status = PENDING until super-admin activates)
@@ -240,6 +290,23 @@ export const checkUsernameAvailability = async (username, signal) => {
 export const registerOrg = async (body) => {
   const res = await api.post('/auth/register-org', body);
   return res.data.data; // TenantResponse
+};
+
+export const signInWithGoogle = async (idToken) => {
+  const deviceToken = getStoredDeviceToken(browserKeyForGoogle(idToken));
+  const headers = deviceToken ? { 'X-Device-Token': deviceToken } : {};
+  const res = await api.post('/auth/google/exchange', { idToken }, { headers });
+  return res.data.data; // LoginResponse: email OTP, phone OTP, or tenant selection
+};
+
+export const setLocalPassword = async ({ googleIdToken, newPassword }) => {
+  await api.post('/auth/set-local-password', { googleIdToken, newPassword });
+};
+
+// Approved organization admin redeems a single-use email link, then selects a tenant.
+export const setupAdminAccount = async (body) => {
+  const res = await api.post('/auth/admin-setup', body);
+  return res.data.data; // LoginResponse with pre-scope loginToken and tenants
 };
 
 // Member sets up their account via SMS link token
@@ -265,7 +332,7 @@ export const verifyChitfundRequestRecoveryEmailOtp = async ({ token, code }) =>
 // Generate a short-lived pre-scope token for cross-subdomain org switching.
 // Needs explicit Authorization header because the interceptor skips /auth/ endpoints.
 export const generateTransferToken = async () => {
-  const token = sessionStorage.getItem('token') ?? localStorage.getItem('token') ?? _authToken;
+  const token = sessionStorage.getItem('token') ?? _authToken;
   const res = await api.post('/auth/transfer-token', null, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -532,6 +599,18 @@ export const getMe = async () => {
   return res.data.data;
 };
 
+export const getMyDeletionRequest = async () => {
+  const res = await api.get('/users/me/deletion-request');
+  return res.data.data;
+};
+
+export const requestMyAccountDeletion = async (idempotencyKey) => {
+  const res = await api.post('/users/me/deletion-request',
+    { confirmation: 'DELETE' },
+    { headers: { 'Idempotency-Key': idempotencyKey } });
+  return res.data.data;
+};
+
 export const mobileLookup = async (phone, phoneCountryCode) => {
   const params = { phone };
   if (phoneCountryCode) params.phoneCountryCode = phoneCountryCode;
@@ -541,12 +620,14 @@ export const mobileLookup = async (phone, phoneCountryCode) => {
 
 // Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse? }
 export const loginByMobile = async ({ phone, phoneCountryCode, password, role }) => {
+  const deviceToken = getStoredDeviceToken(browserKeyForMobile(phoneCountryCode, phone, role));
+  const headers = deviceToken ? { 'X-Device-Token': deviceToken } : {};
   const res = await api.post('/auth/login-mobile', {
     phone,
     phoneCountryCode: phoneCountryCode || undefined,
     password,
     role: role || undefined,
-  });
+  }, { headers });
   return res.data.data;
 };
 
@@ -662,9 +743,9 @@ export const completeOrgUserSetup = async ({ token, emailOtp, newPassword, terms
   return res.data.data;
 };
 
-export const updateMyMemberProfile = async ({ fullName, phone, phoneCountryCode, email, address, city, aadhaarLast4, panNumber, bankName, bankAccountNumber, bankIfsc }) => {
+export const updateMyMemberProfile = async ({ fullName, displayName, phone, phoneCountryCode, email, address, city, aadhaarLast4, panNumber, bankName, bankAccountNumber, bankIfsc }) => {
   const res = await api.patch('/members/me/profile', {
-    fullName, phone, phoneCountryCode, email, address, city,
+    fullName, displayName, phone, phoneCountryCode, email, address, city,
     aadhaarLast4, panNumber, bankName, bankAccountNumber, bankIfsc,
   });
   return res.data.data; // updated MemberResponse
@@ -689,7 +770,9 @@ export const getMembers = async ({ page, size = 200, search, status, sort } = {}
 };
 
 export const getMembersPage = async ({ search = '', page = 0, size = 20, status } = {}) => {
-  const params = { page, size };
+  // A null page uses the server's first-page default. It also preserves the
+  // existing offline request identity used by the dashboard's saved read.
+  const params = page === null ? { size } : { page, size };
   if (search) params.search = search;
   if (status) params.status = status;
   const res = await api.get('/members', { params });
@@ -937,6 +1020,11 @@ export const collectPayment = async (body, idempotencyKey) => {
   return res.data.data;
 };
 
+export const getPaymentPreview = async ({ memberId, chitId, amount }) => {
+  const res = await api.get('/payments/preview', { params: { memberId, chitId, amount } });
+  return res.data.data;
+};
+
 export const openDraw = async (body) => {
   const res = await api.post('/admin/draws/open', body);
   return res.data.data;
@@ -960,9 +1048,9 @@ export const updatePromisedDate = async ({ recordId, promisedPaymentDate }) => {
 };
 
 export const recordPayment = async (input) => {
-  const { idempotencyKey, ...payload } = input;
+  const { idempotencyKey, requireOnline = false, ...payload } = input;
   const scope = !sessionStorage.getItem('token') ? activeAccountScope() : null;
-  if (scope && payload.paymentMode !== 'CREDIT') {
+  if (scope && !requireOnline && payload.paymentMode !== 'CREDIT') {
     const account = await readRow('accounts', scope);
     const existing = idempotencyKey ? await readRow('outbox', `${scope}:${idempotencyKey}`) : null;
     if (account?.user.role === 'ADMIN' && (existing || canRecordOffline(account.offlineAccess, 'RECORD_PAYMENT') || !navigator.onLine)) {
@@ -1994,11 +2082,18 @@ hubApi.interceptors.request.use((config) => {
 hubApi.interceptors.response.use(
   (res) => res,
   (err) => {
+    const throttledMessage = rateLimitMessage(err);
+    if (throttledMessage) err.response.data = { ...(err.response.data ?? {}), message: throttledMessage };
+    if (err.response?.status === 428 && err.response?.data?.errorCode === 'LEGAL_REVIEW_REQUIRED'
+        && !/^\/hub\/legal\/(?:status|accept)$/.test(err.config?.url ?? '')) {
+      window.dispatchEvent(new CustomEvent('legal-review-required', { detail: { hub: true } }));
+    }
     if (err.response?.status === 401) {
       clearHubToken();
       clearHubSaasToken();
       sessionStorage.removeItem('hub_saas_token');
       sessionStorage.removeItem('hub_token');
+      sessionStorage.removeItem('hub_legal_return_path');
       localStorage.removeItem('hub_user');
       window.location.href = '/hub-login';
     }
@@ -2016,8 +2111,22 @@ export const hubChangePassword = async ({ currentPassword, newPassword }) => {
   return res.data.data;
 };
 
-export const hubAcceptInvite = async ({ token, username, password }) => {
-  const res = await hubApi.post('/hub/auth/accept-invite', { token, username, password });
+export const hubAcceptInvite = async ({ token, username, password, termsAccepted }) => {
+  const res = await hubApi.post('/hub/auth/accept-invite', { token, username, password, termsAccepted });
+  return res.data.data;
+};
+
+export const getHubLegalReviewStatus = async () => {
+  setHubToken(sessionStorage.getItem('hub_token'));
+  const res = await hubApi.get('/hub/legal/status', { headers: { 'Cache-Control': 'no-store' } });
+  return res.data.data;
+};
+
+export const acceptHubLegalUpdate = async ({ termsVersion, privacyVersion, termsAccepted, privacyAcknowledged }) => {
+  setHubToken(sessionStorage.getItem('hub_token'));
+  const res = await hubApi.post('/hub/legal/accept', {
+    termsVersion, privacyVersion, termsAccepted, privacyAcknowledged,
+  });
   return res.data.data;
 };
 

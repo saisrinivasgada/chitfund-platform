@@ -178,6 +178,26 @@ def api():
             headers = kw.pop("headers", {})
             headers.setdefault("Authorization", f"Bearer {jwt}")
             headers.setdefault("Content-Type", "application/json")
+            # Online payments with an idempotency key require a balanceVersion
+            # snapshot so the server can detect concurrent modifications.
+            if (method == "POST" and url.endswith("/payments")
+                    and "X-Idempotency-Key" in headers):
+                body = kw.get("json") or {}
+                if ("balanceVersion" not in body
+                        and not body.get("confirmDuplicate")
+                        and not body.get("offlineGrantId")):
+                    preview = requests.get(
+                        f"{self.payment}/payments/preview",
+                        headers={"Authorization": f"Bearer {jwt}"},
+                        params={"memberId": str(body.get("memberId", "")),
+                                "chitId": str(body.get("chitId", "")),
+                                "amount": str(body.get("amount", ""))},
+                        timeout=20)
+                    if preview.status_code == 200:
+                        kw["json"] = {
+                            **body,
+                            "balanceVersion": preview.json()["data"]["balanceVersion"],
+                        }
             return requests.request(method, url, headers=headers, timeout=20, **kw)
 
     return Api()

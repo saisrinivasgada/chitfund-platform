@@ -31,6 +31,7 @@ export default function StaffLayout() {
       <Tabs.Screen name="index"   options={{ title: 'My Tasks' }} />
       <Tabs.Screen name="history" options={{ title: 'History' }} />
       <Tabs.Screen name="more"    options={{ title: 'More' }} />
+      <Tabs.Screen name="messages" options={{ href: null, title: 'Group Chats' }} />
     </Tabs>
   );
 }

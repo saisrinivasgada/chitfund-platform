@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, TouchableOpacity,
-  Modal, TextInput, ActivityIndicator, Alert,
+  Modal, TextInput, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -39,7 +39,7 @@ import {
   superAdminAddTenantCredit,
   superAdminDeductTenantCredit,
 } from '../../../services/api';
-import { C, T, Badge, fmtDate, Input, Button } from '../../../components/ui';
+import { C, T, Badge, fmtDate, Input, Button, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import ReasonModal from '../../../components/superadmin/ReasonModal';
 
@@ -305,7 +305,7 @@ export default function OrgDetailPage() {
       <ScrollView
         style={{ flex: 1 }}
         refreshControl={<RefreshControl refreshing={orgLoading || usersLoading || chitsLoading} onRefresh={onRefresh} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero card */}
@@ -677,9 +677,9 @@ export default function OrgDetailPage() {
               <Text style={{ color: C.gray400 }}>No users yet</Text>
             </View>
           ) : (
-            userList.map((u: any) => (
+            userList.map((u: any, i: number) => (
               <View key={u.userId ?? u.id} style={{
-                backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8,
+                backgroundColor: listRowColor(i), borderRadius: 14, padding: 14, marginBottom: 8,
                 borderWidth: 1, borderColor: C.gray200,
               }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -783,11 +783,11 @@ export default function OrgDetailPage() {
               <Text style={{ color: C.gray400 }}>No chits yet</Text>
             </View>
           ) : (
-            chitList.map((c: any) => {
+            chitList.map((c: any, i: number) => {
               const sc = CHIT_STATUS_COLORS[c.status] ?? { bg: C.gray100, text: C.gray500 };
               return (
                 <View key={c.id} style={{
-                  backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8,
+                  backgroundColor: listRowColor(i), borderRadius: 14, padding: 14, marginBottom: 8,
                   borderWidth: 1, borderColor: C.gray200,
                 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -1066,7 +1066,8 @@ function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
           <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Set Plan Expiry</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <View style={{ padding: 20, gap: 16 }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }}>
           <View>
             <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Expiry date (YYYY-MM-DD)</Text>
             <TextInput
@@ -1112,7 +1113,8 @@ function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
           >
             <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{saving ? 'Saving…' : 'Save Expiry'}</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
@@ -1156,7 +1158,8 @@ function TenantCreditModal({ orgName, saving, onClose, onSubmit }: {
           <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Account Credit</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <View style={{ padding: 20, gap: 16 }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {(['ADD', 'DEDUCT'] as const).map((m) => {
               const active = mode === m;
@@ -1216,7 +1219,8 @@ function TenantCreditModal({ orgName, saving, onClose, onSubmit }: {
               {saving ? 'Saving…' : mode === 'ADD' ? 'Add Credit' : 'Deduct Credit'}
             </Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
@@ -1257,7 +1261,7 @@ function SetDiscountModal({ existing, saving, onClose, onSave }: {
           <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>{existing ? 'Edit' : 'Set'} Discount</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           <View>
             <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Discount type</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1348,7 +1352,7 @@ function RecordPaymentModal({ visible, orgName, orgPlan, onClose, onRecord, load
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Record Payment</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           <View style={{ backgroundColor: C.navy50, borderRadius: 12, padding: 14 }}>
             <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{orgName}</Text>
             <Text style={{ fontSize: 12, color: C.gray500 }}>Plan: {orgPlan}</Text>
@@ -1493,7 +1497,7 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
           <Text style={T.h2}>Add User to Org</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           <Input label="Full Name *" value={fullName} onChangeText={setFullName} placeholder="e.g. Rahul Kumar" />
           <Input label="Phone *" value={phone} onChangeText={setPhone} placeholder="9876543210" keyboardType="phone-pad" />
           <Input
@@ -1593,7 +1597,7 @@ function SetCustomLimitsModal({ tenantId, existing, plans, addOnDefs, onClose, o
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Set Custom Limits</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           {/* Numeric limits */}
           <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8 }}>LIMITS (−1 = unlimited)</Text>
           {[
@@ -1697,7 +1701,7 @@ function RenameModal({ tenantId, currentName, currentSlug, onClose, onRenamed }:
           <Text style={T.h2}>Rename Organization</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           <Input label="Organization Name *" value={name} onChangeText={setName} placeholder="e.g. Kethaki Chitfunds" />
           <View>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>URL Slug</Text>

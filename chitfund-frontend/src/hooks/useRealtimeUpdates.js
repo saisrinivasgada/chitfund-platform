@@ -36,13 +36,14 @@ const INVALIDATIONS = {
     ['today-draws'],
     ['drawPayments'],
     ['chits'],               // chit status updates when draw months open/skip
+    ['today-chit-activity'],
   ],
   TREASURY_UPDATED: [
     ['wallet-balance'],
     ['wallet-transactions'],
   ],
   IN_APP_UPDATED: [
-    ['notifications-unread'],
+    ['notif-unread'],
     ['notifications'],
   ],
 };
@@ -59,9 +60,26 @@ export function useRealtimeUpdates(enabled = true) {
   useEffect(() => {
     if (!enabled || !token || !tenantId) return undefined;
 
+    // A single payment can publish several related events. Coalesce their query
+    // refreshes so a busy office does not create a request burst on slow networks.
+    const pendingKeys = new Map();
+    let refreshTimer = null;
+    const queueRefresh = (keys) => {
+      keys.forEach((key) => pendingKeys.set(JSON.stringify(key), key));
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        const keysToRefresh = [...pendingKeys.values()];
+        pendingKeys.clear();
+        keysToRefresh.forEach((key) => qc.invalidateQueries({ queryKey: key }));
+      }, 750);
+    };
+
     const client = new Client({
       brokerURL: WS_URL,
-      connectHeaders: { Authorization: `Bearer ${token}` },
+      beforeConnect: async () => {
+        client.connectHeaders = { Authorization: `Bearer ${token}` };
+      },
       reconnectDelay: 5000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
@@ -70,7 +88,10 @@ export function useRealtimeUpdates(enabled = true) {
           try {
             const { type } = JSON.parse(frame.body);
             const keys = INVALIDATIONS[type] ?? [];
-            keys.forEach((key) => qc.invalidateQueries({ queryKey: key }));
+            queueRefresh(keys);
+            if (type && type !== 'IN_APP_UPDATED') {
+              queueRefresh([['dashboard-audit']]);
+            }
           } catch {
             // ignore malformed frames
           }
@@ -85,6 +106,8 @@ export function useRealtimeUpdates(enabled = true) {
     clientRef.current = client;
 
     return () => {
+      clearTimeout(refreshTimer);
+      pendingKeys.clear();
       client.deactivate();
       clientRef.current = null;
     };

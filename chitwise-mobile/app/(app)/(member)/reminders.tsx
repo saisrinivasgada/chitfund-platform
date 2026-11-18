@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, FlatList, ActivityIndicator,
+  View, Text, TouchableOpacity, FlatList, ScrollView, ActivityIndicator,
   Animated, Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { C } from '../../../components/ui';
+import { C, listRowColor } from '../../../components/ui';
 import { getMyReminders, getMyReminder, setReminderPromisedDate, removeReminder } from '../../../services/api';
 import { cancelReminderRepeat } from '../../../hooks/usePushNotifications';
 
@@ -77,7 +77,9 @@ function ReminderDetailModal({ reminderId, onClose }: { reminderId: string; onCl
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-      <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40 }}>
+      <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+        style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}
+        contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Handle */}
         <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 4 }}>
           <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />
@@ -115,7 +117,7 @@ function ReminderDetailModal({ reminderId, onClose }: { reminderId: string; onCl
                     }
                   }}
                   disabled={!c.chitId}
-                  style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderColor: C.gray100 }}
+                  style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderBottomWidth: 1, borderColor: C.gray100, backgroundColor: listRowColor(i) }}
                   activeOpacity={c.chitId ? 0.7 : 1}
                 >
                   <View style={{ flex: 1 }}>
@@ -213,7 +215,7 @@ function ReminderDetailModal({ reminderId, onClose }: { reminderId: string; onCl
           </View>
         </View>
 
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -373,13 +375,13 @@ export default function RemindersScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }} edges={['top']}>
       {/* Header */}
-      <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 }}>
+      <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         <Text style={{ fontSize: 24, fontWeight: '800', color: C.gray900 }}>Reminders</Text>
         <Text style={{ fontSize: 13, color: C.gray400, marginTop: 2 }}>Payment reminders from your admin</Text>
       </View>
 
       {/* Filter capsules */}
-      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+      <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, gap: 8, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         {FILTERS.map(({ key, label }) => {
           const active = filter === key;
           return (
@@ -415,6 +417,7 @@ export default function RemindersScreen() {
         </View>
       ) : (
         <FlatList
+          style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
           data={reminders}
           keyExtractor={(item) => item.id}
           onRefresh={() => { refetch(); }}

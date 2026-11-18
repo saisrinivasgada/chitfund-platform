@@ -2,7 +2,7 @@ import ReadDataBoundary from '../../offline/ReadDataBoundary';
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff, getChitOutstandingSummary, getMyTenantLimits, listAuctions } from '../../services/api';
+import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, getChitOutstandingSummary, getMyTenantLimits, listAuctions } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -14,6 +14,7 @@ import { Td } from '../../components/ui/Table';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check, Radio, CheckCircle } from 'lucide-react';
 import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
+import { createChitPreview } from '../../utils/chitCreationPreview';
 
 const MODE_LABELS = {
   AUCTION: 'Auction',
@@ -54,7 +55,7 @@ const CHIT_TYPES = [
 // Without a startDate: generates placeholder "Slot N" rows with no date assigned yet.
 function buildMonthRows(startDateStr, count, defaultPayoutAmount = '', existingRows = []) {
   if (!count || Number(count) < 1) return [];
-  const n = Number(count);
+  const n = Math.min(Number(count), 100);
 
   if (!startDateStr) {
     return Array.from({ length: n }, (_, i) => ({
@@ -81,14 +82,14 @@ function buildMonthRows(startDateStr, count, defaultPayoutAmount = '', existingR
   });
 }
 
-// ─── Create Modal (4 steps) ───────────────────────────────────────────────────
+// ─── Create Modal (5 steps) ───────────────────────────────────────────────────
 function CreateChitModal({ onClose }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToastContext();
   const { tenantPlan } = useAuth();
   const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
-  const [step, setStep] = useState(1);          // 1=type 2=basic 3=contribution 4=schedule
+  const [step, setStep] = useState(1);          // 1=type 2=basic 3=contribution 4=schedule 5=review
   const [chitType, setChitType] = useState('');
   const [auctionMode, setAuctionMode] = useState('ONLINE'); // ONLINE or OFFLINE; only used when chitType=AUCTION
 
@@ -98,7 +99,7 @@ function CreateChitModal({ onClose }) {
     ? tenantLimits.allowedChitTypes.split(',').map((t) => t.trim())
     : ['RESERVATION', 'LOTTERY', 'AUCTION']; // fail open if limits unavailable
 
-  // numberOfMonths is always equal to numberOfMembers for reservation chits
+  // Paying members plus organization positions determine the draw count.
   const [basic, setBasic] = useState({
     name: '', description: '', chitValue: '', numberOfMembers: '',
     installmentAmount: '',
@@ -113,12 +114,6 @@ function CreateChitModal({ onClose }) {
 
   // Pre-fetch members for the member dropdown in schedule step
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  // Load all staff so any admin can be selected as a slot owner (admin-held spots)
-  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
-  const adminOptions = staffList.map((s) => ({
-    id: s.id,
-    fullName: `${s.fullName ?? s.username} (Admin)`,
-  }));
 
   function setBasicField(key, val) {
     setBasic((b) => {
@@ -126,10 +121,10 @@ function CreateChitModal({ onClose }) {
       // Regenerate schedule rows whenever startDate or member count changes.
       // Pass chitValue so payout amounts are pre-filled with the chit value —
       // prevents rows being silently dropped on submit due to empty payoutAmount.
-      if (key === 'startDate' || key === 'numberOfMembers') {
+      if (key === 'startDate' || key === 'numberOfMembers' || key === 'orgHeldSpotsCount') {
         setSchedule((prev) => buildMonthRows(
           key === 'startDate' ? val : next.startDate,
-          key === 'numberOfMembers' ? val : next.numberOfMembers,
+          (Number(next.numberOfMembers) || 0) + (Number(next.orgHeldSpotsCount) || 0),
           next.chitValue,
           prev,
         ));
@@ -179,6 +174,12 @@ function CreateChitModal({ onClose }) {
   });
 
   function submit(includeSchedule) {
+    const configuredOrgSlots = Number(basic.orgHeldSpotsCount) || 0;
+    const assignedOrgSlots = schedule.filter((r) => r.memberId === 'ORG').length;
+    if (includeSchedule && assignedOrgSlots > configuredOrgSlots) {
+      toast.error(`Only ${configuredOrgSlots} organization payout slot${configuredOrgSlots === 1 ? '' : 's'} configured. Update the count or schedule.`);
+      return;
+    }
     // Send ALL rows regardless of whether payout is filled — the backend accepts
     // null payoutAmount and marks those slots UNALLOCATED. Rows the admin didn't
     // touch will still appear in the Schedule tab so they can be filled in later.
@@ -186,7 +187,8 @@ function CreateChitModal({ onClose }) {
     const reservationSchedule = includeSchedule && datedRows.length > 0
       ? datedRows.map((r) => ({
           reservationMonth: r.reservationMonth,
-          memberId: r.memberId || null,
+          memberId: r.memberId && r.memberId !== 'ORG' ? r.memberId : null,
+          orgHeld: r.memberId === 'ORG',
           payoutAmount: r.payoutAmount ? Number(r.payoutAmount) : null,
           postPayoutContribution: r.postPayoutContribution ? Number(r.postPayoutContribution) : null,
         }))
@@ -199,8 +201,10 @@ function CreateChitModal({ onClose }) {
       name: basic.name,
       description: basic.description || null,
       chitValue: Number(basic.chitValue),
-      numberOfMonths: Number(basic.numberOfMembers),
-      numberOfMembers: Number(basic.numberOfMembers),
+      numberOfMonths: Number(basic.numberOfMembers) + configuredOrgSlots,
+      numberOfMembers: Number(basic.numberOfMembers) + configuredOrgSlots,
+      payingMemberSlots: Number(basic.numberOfMembers),
+      organizationPayoutSlots: configuredOrgSlots,
       installmentAmount: Number(basic.installmentAmount),
       startDate: basic.startDate || null,
       monthlyDueDate: basic.monthlyDueDate ? Number(basic.monthlyDueDate) : null,
@@ -213,12 +217,22 @@ function CreateChitModal({ onClose }) {
     });
   }
 
-  const STEP_LABELS = ['Type', 'Details', 'Contribution', 'Payout Plan'];
+  const STEP_LABELS = ['Type', 'Details', 'Contribution', 'Payout Plan', 'Review'];
   const fmtINR = (n) => n ? Number(n).toLocaleString('en-IN') : null;
+  const payingCount = Number(basic.numberOfMembers) || 0;
+  const orgCount = Number(basic.orgHeldSpotsCount) || 0;
+  const preview = createChitPreview({
+    payingCount, orgCount, installment: Number(basic.installmentAmount) || 0,
+    postPayoutEnabled: contrib.enabled, postPayoutAmount: Number(contrib.amount) || 0, schedule,
+  });
+  const money = (amount) => `${Number(amount) < 0 ? '-' : ''}₹${Math.abs(Number(amount)).toLocaleString('en-IN')}`;
+  const validDetails = Number(basic.chitValue) >= 1000 && Number(basic.installmentAmount) >= 1
+    && Number.isInteger(payingCount) && payingCount >= 2
+    && Number.isInteger(orgCount) && orgCount >= 0 && preview.positions <= 100;
 
   return (
     <>
-    <Modal title="Create New Chit Fund" onClose={onClose} size="xl">
+    <Modal title="Create New Chit Fund" onClose={onClose} size="3xl">
 
       {/* ── Step indicator ─────────────────────────────────────────────────── */}
       <div className="flex items-start mb-7">
@@ -230,18 +244,17 @@ function CreateChitModal({ onClose }) {
             <div key={label} className="flex items-start flex-1 last:flex-none">
               <div className="flex flex-col items-center flex-shrink-0">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                  done   ? 'bg-green-500 text-white' :
-                  active ? 'bg-[#1E3A5F] text-white' :
-                           'bg-white border-2 border-gray-200 text-gray-400'
-                }`}>
+                  !done && !active ? 'border-2 border-gray-200' : ''
+                }`} style={{ backgroundColor: done ? '#D4A017' : active ? '#1E3A5F' : '#fff',
+                  color: done || active ? '#fff' : '#9CA3AF' }}>
                   {done ? <Check size={13} /> : n}
                 </div>
-                <span className={`text-xs mt-1.5 font-medium hidden sm:block ${
-                  active ? 'text-[#1E3A5F]' : done ? 'text-green-600' : 'text-gray-400'
-                }`}>{label}</span>
+                <span className="text-xs mt-1.5 font-medium hidden sm:block"
+                  style={{ color: active ? '#1E3A5F' : done ? '#A87911' : '#9CA3AF' }}>{label}</span>
               </div>
               {i < STEP_LABELS.length - 1 && (
-                <div className={`flex-1 mt-4 h-px transition-colors ${done ? 'bg-green-400' : 'bg-gray-200'}`} />
+                <div className="flex-1 mt-4 h-px transition-colors"
+                  style={{ backgroundColor: done ? '#D4A017' : '#E5E7EB' }} />
               )}
             </div>
           );
@@ -358,12 +371,12 @@ function CreateChitModal({ onClose }) {
 
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Fund Structure</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField label="Chit Value (₹)" required>
                 <Input type="number" min="1000" placeholder="200000" value={basic.chitValue}
                   onChange={(e) => setBasicField('chitValue', e.target.value)} required />
               </FormField>
-              <FormField label="Number of Members" required>
+              <FormField label="Paying member slots" required>
                 <Input type="number" min="2" max="100" placeholder="20" value={basic.numberOfMembers}
                   onChange={(e) => setBasicField('numberOfMembers', e.target.value)} required />
               </FormField>
@@ -371,18 +384,19 @@ function CreateChitModal({ onClose }) {
                 <Input type="number" min="1" placeholder="10000" value={basic.installmentAmount}
                   onChange={(e) => setBasicField('installmentAmount', e.target.value)} required />
               </FormField>
-              <FormField label="Org Held Slots">
+              <FormField label="Organization payout slots">
                 <Input type="number" min="0" placeholder="0" value={basic.orgHeldSpotsCount}
                   onChange={(e) => setBasicField('orgHeldSpotsCount', e.target.value)} />
               </FormField>
             </div>
+            <p className="text-xs text-gray-500 mt-2">{payingCount} paying slots + {orgCount} organization slot{orgCount === 1 ? '' : 's'} = {preview.positions} draw positions and months. Organization slots do not pay installments.</p>
           </div>
 
           <div className="h-px bg-gray-100" />
 
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Schedule</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <FormField label="Monthly Due Date (day)">
                 <Input type="number" min="1" max="28" placeholder="5" value={basic.monthlyDueDate}
                   onChange={(e) => setBasicField('monthlyDueDate', e.target.value)} />
@@ -405,12 +419,12 @@ function CreateChitModal({ onClose }) {
                 )}
                 {basic.numberOfMembers && <span className="text-gray-300">|</span>}
                 {basic.numberOfMembers && (
-                  <span className="text-gray-500">Duration: <strong className="text-gray-800 font-semibold">{basic.numberOfMembers} months</strong></span>
+                  <span className="text-gray-500">Duration: <strong className="text-gray-800 font-semibold">{preview.positions} months</strong></span>
                 )}
                 {basic.installmentAmount && basic.numberOfMembers && (
                   <>
                     <span className="text-gray-300">|</span>
-                    <span className="text-gray-500">Monthly collection: <strong className="text-gray-800 font-semibold">₹{(Number(basic.installmentAmount) * Number(basic.numberOfMembers)).toLocaleString('en-IN')}</strong></span>
+                    <span className="text-gray-500">First month collection if all pay: <strong className="text-gray-800 font-semibold">{money(preview.monthlyBase)}</strong></span>
                   </>
                 )}
               </div>
@@ -422,7 +436,7 @@ function CreateChitModal({ onClose }) {
               <ChevronLeft size={15} /> Back
             </Button>
             <Button onClick={() => setStep(3)}
-              disabled={!basic.name || !basic.chitValue || !basic.numberOfMembers || !basic.installmentAmount}
+              disabled={!basic.name.trim() || !validDetails}
               className="flex-1">
               Continue <ChevronRight size={15} />
             </Button>
@@ -522,7 +536,7 @@ function CreateChitModal({ onClose }) {
             <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-200 space-y-3">
               <Calendar size={28} className="mx-auto text-gray-300" />
               <p className="text-sm text-gray-400">
-                Set Number of Members in Step 2 to auto-generate slots.
+                Set paying member and organization slots in Step 2 to generate the draw plan.
               </p>
               <button type="button" onClick={addSlotAtEnd}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#1E3A5F] border border-[#1E3A5F]/40 rounded-lg hover:bg-[#1E3A5F]/5 transition-colors cursor-pointer">
@@ -538,6 +552,7 @@ function CreateChitModal({ onClose }) {
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-10">#</th>
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Draw</th>
                       {chitType === 'RESERVATION' && <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>}
+                      {chitType !== 'RESERVATION' && orgCount > 0 && <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Position</th>}
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout (₹)</th>
                       <th className="w-8 px-2 py-2.5" />
                     </tr>
@@ -547,7 +562,7 @@ function CreateChitModal({ onClose }) {
                       const prevMonth = i > 0 ? schedule[i - 1].reservationMonth : null;
                       const isExtra = row.reservationMonth === prevMonth;
                       return (
-                        <tr key={i} className={`${isExtra ? 'bg-amber-50/40' : 'bg-white'} hover:bg-gray-50 transition-colors`}>
+                        <tr key={i} className={`${isExtra ? 'bg-amber-50/40' : 'odd:bg-white even:bg-[#F3F7FC]'} hover:bg-[#EAF1FA] transition-colors`}>
                           <td className="px-3 py-2">
                             {isExtra
                               ? <span className="text-amber-500 text-xs pl-1">&#8627;</span>
@@ -563,20 +578,14 @@ function CreateChitModal({ onClose }) {
                           <td className="px-3 py-2">
                             {(() => {
                               const orgHeld = Number(basic.orgHeldSpotsCount) || 0;
-                              const memberIdSet = new Set(members.map((m) => String(m.id)));
-                              const allocatedAdminSlots = schedule.filter(
-                                (s, si) => si !== i && s.memberId && !memberIdSet.has(s.memberId)
-                              ).length;
-                              const currentIsAdmin = row.memberId && !memberIdSet.has(row.memberId);
-                              const canShowAdmins = orgHeld > 0 && (currentIsAdmin || allocatedAdminSlots < orgHeld);
+                              const allocatedOrgSlots = schedule.filter((s, si) => si !== i && s.memberId === 'ORG').length;
+                              const canShowOrganization = orgHeld > 0 && (row.memberId === 'ORG' || allocatedOrgSlots < orgHeld);
                               return (
                                 <Select value={row.memberId}
                                   onChange={(e) => setScheduleRow(i, 'memberId', e.target.value)}
                                   className="min-w-36">
                                   <option value="">Unallocated</option>
-                                  {canShowAdmins && adminOptions.map((ao) => (
-                                    <option key={ao.id} value={ao.id}>{ao.fullName}</option>
-                                  ))}
+                                  {canShowOrganization && <option value="ORG">Organization payout slot</option>}
                                   {members.map((m) => (
                                     <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
                                   ))}
@@ -584,6 +593,16 @@ function CreateChitModal({ onClose }) {
                               );
                             })()}
                           </td>
+                          )}
+                          {chitType !== 'RESERVATION' && orgCount > 0 && (
+                            <td className="px-3 py-2">
+                              <label className="flex items-center gap-2 text-xs text-gray-600 whitespace-nowrap">
+                                <input type="checkbox" checked={row.memberId === 'ORG'}
+                                  disabled={row.memberId !== 'ORG' && schedule.filter((s) => s.memberId === 'ORG').length >= orgCount}
+                                  onChange={(e) => setScheduleRow(i, 'memberId', e.target.checked ? 'ORG' : '')} />
+                                Organization payout
+                              </label>
+                            </td>
                           )}
                           <td className="px-3 py-2">
                             <Input type="number" min="0" placeholder="e.g. 45000"
@@ -608,7 +627,7 @@ function CreateChitModal({ onClose }) {
             </div>
           )}
 
-          {schedule.length > 0 && (!basic.numberOfMembers || schedule.length < Number(basic.numberOfMembers)) && (
+          {schedule.length > 0 && schedule.length < preview.positions && (
             <button type="button" onClick={addSlotAtEnd}
               className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium text-[#1E3A5F] border border-dashed border-[#1E3A5F]/30 rounded-lg hover:bg-[#1E3A5F]/5 transition-colors cursor-pointer">
               <Plus size={14} /> Add Slot
@@ -622,12 +641,73 @@ function CreateChitModal({ onClose }) {
                 <ChevronLeft size={15} /> Back
               </Button>
               <Button
-                onClick={() => submit(true)}
-                loading={mutation.isPending}
+                onClick={() => setStep(5)}
+                disabled={schedule.length !== preview.positions || preview.selectedOrg !== orgCount || schedule.some((r) => !r.reservationMonth || !(Number(r.payoutAmount) > 0))}
                 className="flex-1">
-                Create Chit Fund
+                Review <ChevronRight size={15} />
               </Button>
             </div>
+            {(schedule.length !== preview.positions || preview.selectedOrg !== orgCount || schedule.some((r) => !r.reservationMonth || !(Number(r.payoutAmount) > 0))) && (
+              <p className="text-xs text-amber-700 mt-2">Before review, keep {preview.positions} dated draws, select exactly {orgCount} organization payout slot{orgCount === 1 ? '' : 's'}, and enter a positive payout for every draw.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {step === 5 && (
+        <div className="space-y-5">
+          <div className="rounded-2xl bg-[#1E3A5F] text-white p-5 sm:p-6">
+            <p className="text-xs uppercase tracking-widest text-blue-200">Review before creating</p>
+            <div className="sm:flex sm:items-end sm:justify-between sm:gap-6">
+              <div>
+                <h4 className="text-xl font-semibold mt-1">{basic.name}</h4>
+                <p className="text-sm text-blue-100 mt-1">{MODE_LABELS[chitType]} · {payingCount} paying slots + {orgCount} organization slot{orgCount === 1 ? '' : 's'} · {preview.positions} months</p>
+              </div>
+              <div className="mt-5 sm:mt-0 sm:text-right">
+                <p className="text-xs text-blue-200">Estimated surplus before costs</p>
+                <p className={`text-2xl font-bold mt-0.5 ${preview.complete && preview.estimatedMargin < 0 ? 'text-rose-200' : ''}`}>
+                  {preview.complete ? money(preview.estimatedMargin) : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+            <div>
+              <h5 className="text-sm font-semibold text-[#1E3A5F] mb-2">Chit terms</h5>
+              {[
+                ['Chit value', money(basic.chitValue)],
+                ['Monthly installment', `${money(basic.installmentAmount)} per paying slot`],
+                ['After payout', contrib.enabled ? `${money(contrib.amount)} / month by default` : 'Same installment'],
+                ['First month collection', money(preview.monthlyBase)],
+              ].map(([label, value]) => <div key={label} className="flex justify-between gap-3 border-b border-gray-100 py-2 text-sm"><span className="text-gray-500">{label}</span><strong className="text-right text-gray-800">{value}</strong></div>)}
+            </div>
+            <div>
+              <h5 className="text-sm font-semibold text-[#1E3A5F] mb-2">Money plan</h5>
+              {[
+                ['Member obligations (if all pay)', preview.complete ? money(preview.collections) : '—'],
+                ['Member payouts', preview.complete ? money(preview.memberPayouts) : '—'],
+                ['Organization allocation', preview.complete ? money(preview.orgPayouts) : '—'],
+                ['Estimated admin funding need', preview.complete ? money(preview.fundingNeed) : '—'],
+              ].map(([label, value]) => <div key={label} className="flex justify-between gap-3 border-b border-gray-100 py-2 text-sm"><span className="text-gray-500">{label}</span><strong className="text-right text-gray-800">{value}</strong></div>)}
+            </div>
+          </div>
+          <p className="text-xs text-gray-600 rounded-lg bg-amber-50 border border-amber-200 p-3">
+            Planning estimate: surplus = expected new cash from member installments minus planned member cash payouts; organization allocation is shown separately. Assumes every paying slot pays cash on time for all {preview.positions} months, no existing member credit is used, each listed payout occurs once, and organization payouts stay with the organization. Funding need assumes no opening cash. Auction bids, defaults, fees, tax, expenses and extra early payouts can change the actual result. This is not guaranteed profit.
+          </p>
+          <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 text-sm font-semibold text-[#1E3A5F]">Payout plan by draw</div>
+            <div className="max-h-48 overflow-y-auto divide-y divide-gray-100">
+              {schedule.map((row, index) => (
+                <div key={index} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+                  <span>Draw {index + 1} · {row.label} {row.memberId === 'ORG' ? '· Organization' : '· Member'}</span>
+                  <strong>{money(row.payoutAmount)}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setStep(4)} className="flex-1"><ChevronLeft size={15} /> Back</Button>
+            <Button onClick={() => submit(true)} loading={mutation.isPending} className="flex-1">Create Chit Fund</Button>
           </div>
         </div>
       )}
@@ -638,7 +718,14 @@ function CreateChitModal({ onClose }) {
 }
 
 // ─── Chit Card (board view) ───────────────────────────────────────────────────
-function ChitCard({ chit, onClick, isBehind }) {
+function payingSlotCount(chit, isAdmin) {
+  if (chit.payingMemberSlots != null) return chit.payingMemberSlots;
+  return isAdmin && chit.capacity != null
+    ? Math.max(0, chit.capacity - (chit.orgHeldSpotsCount ?? 0))
+    : '—';
+}
+
+function ChitCard({ chit, onClick, isBehind, isAdmin }) {
   const totalAmount = chit.chitValue ?? chit.totalAmount ?? (chit.installmentAmount ?? 0) * (chit.capacity ?? 0);
   const isCompleted = chit.status === 'COMPLETED';
   const isAuction = chit.chitType === 'AUCTION' || chit.winnerSelectionMode === 'AUCTION';
@@ -654,7 +741,7 @@ function ChitCard({ chit, onClick, isBehind }) {
     queryKey: ['auctions', chit.id],
     queryFn: () => listAuctions(chit.id),
     enabled: isAuction && chit.status === 'ACTIVE',
-    refetchInterval: 20_000,
+    refetchInterval: 60_000,
     staleTime: 10_000,
   });
   const liveAuction = auctionSessions.find((a) => a.status === 'OPEN');
@@ -709,7 +796,7 @@ function ChitCard({ chit, onClick, isBehind }) {
           </div>
           <div className="flex items-center gap-1 text-gray-500">
             <Users size={11} />
-            <span className="font-medium text-gray-700">{chit.capacity}</span>
+            <span className="font-medium text-gray-700" title="Paying member slots">{payingSlotCount(chit, isAdmin)}</span>
           </div>
           {(chit.chitType ?? chit.winnerSelectionMode) && (() => {
             const type = chit.chitType ?? chit.winnerSelectionMode;
@@ -756,7 +843,7 @@ function ChitCard({ chit, onClick, isBehind }) {
 const COL_INITIAL = 8;
 
 // ─── Board View ───────────────────────────────────────────────────────────────
-function BoardView({ chits, onChitClick, behindChitIds }) {
+function BoardView({ chits, onChitClick, behindChitIds, isAdmin }) {
   const [colExpanded, setColExpanded] = useState({});
   const hasPaused = chits.some((c) => c.status === 'PAUSED');
   const visibleColumns = BOARD_COLUMNS.filter((col) => col.status !== 'PAUSED' || hasPaused);
@@ -786,7 +873,7 @@ function BoardView({ chits, onChitClick, behindChitIds }) {
                 <p className="text-xs text-gray-400 text-center py-8">No {col.label.toLowerCase()} chits</p>
               ) : (
                 visible.map((c) => (
-                  <ChitCard key={c.id} chit={c} onClick={() => onChitClick(c.id)}
+                  <ChitCard key={c.id} chit={c} isAdmin={isAdmin} onClick={() => onChitClick(c.id)}
                     isBehind={behindChitIds.has(c.id)} />
                 ))
               )}
@@ -827,7 +914,7 @@ function SortIcon({ field, sortField, sortDir }) {
 const LIST_PAGE_SIZE = 20;
 
 // ─── List View ────────────────────────────────────────────────────────────────
-function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
+function ListView({ chits, onChitClick, behindChitIds, page, setPage, isAdmin }) {
   const [sortField, setSortField] = useState('createdAt');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -879,7 +966,7 @@ function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
             <tr className="border-b border-gray-100">
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Mode</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Members</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Paying slots</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Installment</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Start Date</th>
               <SortTh field="status">Status</SortTh>
@@ -891,7 +978,7 @@ function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
               <tr
                 key={c.id}
                 onClick={() => onChitClick(c.id)}
-                className="hover:bg-gray-50 transition-colors cursor-pointer"
+                className="odd:bg-white even:bg-[#F3F7FC] hover:bg-[#EAF1FA] transition-colors cursor-pointer"
               >
                 <Td className="font-medium text-gray-900">
                   <div>
@@ -917,7 +1004,7 @@ function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
                     : 'text-gray-500 bg-gray-100';
                   return <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${typeStyle}`}>{MODE_LABELS[type] ?? type}</span>;
                 })()}</Td>
-                <Td>{c.capacity}</Td>
+                <Td>{payingSlotCount(c, isAdmin)}</Td>
                 <Td className="font-semibold">₹{c.installmentAmount?.toLocaleString()}</Td>
                 <Td>{c.startDate ?? '—'}</Td>
                 <Td>
@@ -960,7 +1047,7 @@ function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
 }
 
 // ─── More view list row ───────────────────────────────────────────────────────
-function MoreListItem({ chit, onClick }) {
+function MoreListItem({ chit, onClick, isAdmin }) {
   const isCompleted = chit.status === 'COMPLETED';
   const isDeleted   = chit.status === 'DELETED';
 
@@ -988,7 +1075,7 @@ function MoreListItem({ chit, onClick }) {
         </div>
         {chit.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{chit.description}</p>}
         <p className="text-xs text-gray-400 mt-0.5">
-          ₹{chit.chitValue?.toLocaleString()} &middot; {chit.capacity} members
+          ₹{chit.chitValue?.toLocaleString()} &middot; {payingSlotCount(chit, isAdmin)} paying member slots
           {chit.startDate ? ` · ${chit.startDate}` : ''}
         </p>
       </div>
@@ -1249,7 +1336,7 @@ export default function ChitsPage() {
             <>
               <div className="divide-y divide-gray-50">
                 {morePageItems.map((c) => (
-                  <MoreListItem key={c.id} chit={c} onClick={() => navigate(`/chits/${c.id}`)} />
+                  <MoreListItem key={c.id} chit={c} isAdmin={isAdmin} onClick={() => navigate(`/chits/${c.id}`)} />
                 ))}
               </div>
               {moreTotalPages > 1 && (
@@ -1291,9 +1378,9 @@ export default function ChitsPage() {
           />
         </div>
       ) : viewMode === 'board' ? (
-        <BoardView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} />
+        <BoardView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} isAdmin={isAdmin} />
       ) : (
-        <ListView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} page={listPage} setPage={setListPage} />
+        <ListView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} page={listPage} setPage={setListPage} isAdmin={isAdmin} />
       )}
 
       {/* Completed chits quick-access strip — visible when not already in More view */}

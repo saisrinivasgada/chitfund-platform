@@ -499,7 +499,7 @@ function OrgHoldingsSection() {
 function OrgDetailsSection({ isAdmin }) {
   const qc = useQueryClient();
   const toast = useToastContext();
-  const { tenantId } = useAuth();
+  const { tenantId, tenantSlug } = useAuth();
 
   const { data: orgSettings } = useQuery({
     queryKey: ['org-settings'],
@@ -552,7 +552,7 @@ function OrgDetailsSection({ isAdmin }) {
       setSupportPhone(''); setSupportOtp(''); setSupportOtpSent(false); setChangingPhone(false);
       qc.invalidateQueries({ queryKey: ['org-settings'] });
     } catch (e) {
-      toast.error(e.response?.data?.message ?? 'Invalid OTP');
+      toast.error(e.response?.data?.message ?? 'Could not verify right now. Please try again.');
     } finally {
       setOtpLoading(false);
     }
@@ -569,6 +569,20 @@ function OrgDetailsSection({ isAdmin }) {
         {/* Admin-only: Org ID */}
         {isAdmin && tenantId && (
           <CopyableField label="Organization ID" value={tenantId} />
+        )}
+
+        {/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/.test(tenantSlug ?? '') && (
+          <div>
+            <p className="text-xs text-gray-400 mb-1">Your portal address</p>
+            <a
+              href={`https://${tenantSlug}.thechitwise.com/login`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-semibold text-[#1E3A5F] underline break-all"
+            >
+              {tenantSlug}.thechitwise.com
+            </a>
+          </div>
         )}
 
         {/* Admin-only: Org Name */}

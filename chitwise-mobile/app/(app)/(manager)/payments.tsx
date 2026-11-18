@@ -7,7 +7,7 @@ import {
   getAllCashRequests, assignStaffToRequest, collectForRequest, voidCashPickup, cancelCashRequest, listStaff,
   getWalletBalance, getWalletTransactions,
 } from '../../../services/api';
-import { C, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate } from '../../../components/ui';
+import { C, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
 const TABS = ['Cash Requests', 'Payouts', 'All Payments', 'Treasury'] as const;
@@ -42,7 +42,7 @@ function TreasuryTab() {
 
   return (
     <ScrollView
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}
       refreshControl={<RefreshControl refreshing={false} onRefresh={refetch} tintColor={C.navy} />}
     >
       <View style={{ backgroundColor: C.navy, borderRadius: 18, padding: 20, marginBottom: 16 }}>
@@ -58,7 +58,7 @@ function TreasuryTab() {
         <EmptyState title="No transactions" message="Treasury transactions will appear here." />
       ) : (
         (txns as any[]).map((t: any, i: number) => (
-          <Card key={t.id ?? i} style={{ marginBottom: 8 }}>
+          <Card key={t.id ?? i} style={{ marginBottom: 8, backgroundColor: listRowColor(i) }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={2}>
@@ -159,7 +159,7 @@ export default function ManagerPaymentsScreen() {
         isLoading ? <LoadingScreen /> : (
           <ScrollView
             refreshControl={<RefreshControl refreshing={l0} onRefresh={r0} tintColor={C.navy} />}
-            contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 32, width: '100%', maxWidth: 960, alignSelf: 'center' }}
           >
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
               {(cashRequests as any[]).length} active requests
@@ -167,10 +167,10 @@ export default function ManagerPaymentsScreen() {
             {(cashRequests as any[]).length === 0 ? (
               <EmptyState title="No active requests" message="Cash pickup requests from members appear here." />
             ) : (
-              (cashRequests as any[]).map((r: any) => {
+              (cashRequests as any[]).map((r: any, i: number) => {
                 const col = REQ_STATUS_COLOR[r.status] ?? C.gray400;
                 return (
-                  <Card key={r.id} style={{ marginBottom: 12, borderLeftWidth: 3, borderLeftColor: col }}>
+                  <Card key={r.id} style={{ marginBottom: 12, borderLeftWidth: 3, borderLeftColor: col, backgroundColor: listRowColor(i) }}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
@@ -270,7 +270,7 @@ export default function ManagerPaymentsScreen() {
         isLoading ? <LoadingScreen /> : (
           <ScrollView
             refreshControl={<RefreshControl refreshing={l1} onRefresh={r1} tintColor={C.navy} />}
-            contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 32, width: '100%', maxWidth: 960, alignSelf: 'center' }}
           >
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
               {(pendingPayouts as any[]).length} payouts pending disbursement
@@ -278,8 +278,8 @@ export default function ManagerPaymentsScreen() {
             {(pendingPayouts as any[]).length === 0 ? (
               <EmptyState title="All clear" message="No payouts pending." />
             ) : (
-              (pendingPayouts as any[]).map((p: any) => (
-                <Card key={p.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.gold }}>
+              (pendingPayouts as any[]).map((p: any, i: number) => (
+                <Card key={p.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.gold, backgroundColor: listRowColor(i) }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                     <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
                       {memberMap[p.memberId ?? p.winnerId] ?? '—'}
@@ -302,7 +302,7 @@ export default function ManagerPaymentsScreen() {
         isLoading ? <LoadingScreen /> : (
           <ScrollView
             refreshControl={<RefreshControl refreshing={l2} onRefresh={r2} tintColor={C.navy} />}
-            contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 32, width: '100%', maxWidth: 960, alignSelf: 'center' }}
           >
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
               {(allBatches as any[]).length} payments in the last 7 days
@@ -310,8 +310,8 @@ export default function ManagerPaymentsScreen() {
             {(allBatches as any[]).length === 0 ? (
               <EmptyState title="No payments" message="No payments in the last 7 days." />
             ) : (
-              (allBatches as any[]).map((b: any) => (
-                <Card key={b.id} style={{ marginBottom: 8 }}>
+              (allBatches as any[]).map((b: any, i: number) => (
+                <Card key={b.id} style={{ marginBottom: 8, backgroundColor: listRowColor(i) }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                     <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
                       {memberMap[b.memberId] ?? '—'}

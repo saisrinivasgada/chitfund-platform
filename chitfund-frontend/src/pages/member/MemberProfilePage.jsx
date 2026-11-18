@@ -3,14 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMyMemberProfile, getMe } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { ArrowLeft, Phone, Mail, MapPin, User, Clock, Pencil, FileText } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MapPin, User, Clock, Pencil, FileText, Trash2 } from 'lucide-react';
 import EditProfileModal from '../../components/profile/EditProfileModal';
 import ProfileChangeHistory from '../../components/profile/ProfileChangeHistory';
 import Modal from '../../components/ui/Modal';
 
 export default function MemberProfilePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, addOns } = useAuth();
+  const complianceEnabled = addOns.includes('chitfund_compliance');
   const [showEdit, setShowEdit] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -25,7 +26,7 @@ export default function MemberProfilePage() {
     queryFn: getMe,
   });
 
-  const initials = (member?.fullName ?? user?.name ?? 'M').slice(0, 2).toUpperCase();
+  const initials = (member?.displayName || member?.fullName || user?.name || 'M').slice(0, 2).toUpperCase();
 
   return (
     <div className="max-w-lg mx-auto pb-10">
@@ -57,7 +58,7 @@ export default function MemberProfilePage() {
                 {initials}
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900">{member?.fullName ?? '—'}</h2>
+                <h2 className="text-lg font-bold text-gray-900">{member?.displayName || member?.fullName || '—'}</h2>
                 {userAccount?.username && (
                   <p className="text-sm text-gray-400 mt-0.5">@{userAccount.username}</p>
                 )}
@@ -76,6 +77,16 @@ export default function MemberProfilePage() {
             {/* Details */}
             <div className="space-y-3 border-t border-gray-100 pt-4">
               {[
+                {
+                  icon: <User size={14} className="text-gray-400 flex-shrink-0" />,
+                  label: 'Display name',
+                  value: member?.displayName ?? null,
+                },
+                ...(complianceEnabled ? [{
+                  icon: <FileText size={14} className="text-gray-400 flex-shrink-0" />,
+                  label: 'Legal name',
+                  value: member?.legalName ?? null,
+                }] : []),
                 {
                   icon: <Phone size={14} className="text-gray-400 flex-shrink-0" />,
                   label: 'Phone',
@@ -137,6 +148,10 @@ export default function MemberProfilePage() {
               <Clock size={14} /> Change History
             </button>
           </div>
+          <button type="button" onClick={() => navigate('/delete-account')}
+            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 hover:underline">
+            <Trash2 size={15} /> Delete my account
+          </button>
         </div>
       )}
 
@@ -145,7 +160,7 @@ export default function MemberProfilePage() {
           onClose={() => { setShowEdit(false); setHistoryVersion(v => v + 1); }}
           role="MEMBER"
           currentUser={{ username: userAccount?.username, email: userAccount?.email }}
-          currentMember={{ fullName: member?.fullName, phone: member?.phone, email: member?.email, address: member?.address, city: member?.city }}
+          currentMember={{ fullName: member?.fullName, displayName: member?.displayName, phone: member?.phone, email: member?.email, address: member?.address, city: member?.city }}
           userId={userAccount?.id}
         />
       )}

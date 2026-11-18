@@ -1,5 +1,5 @@
 import { requestSignOut } from '../../../offline/signOut';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Linking, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
@@ -7,10 +7,12 @@ import { C } from '../../../components/ui';
 import RoleLogo from '../../../components/RoleLogo';
 
 export default function HubHome() {
+  const { width: viewportWidth } = useWindowDimensions();
+  const tablet = viewportWidth >= 700;
   const router = useRouter();
   const { user, logout } = useAuthStore();
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-    <View style={{ padding: 20 }}>
+    <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <RoleLogo role="HUB" size={62} />
         <View style={{ flex: 1 }}>
@@ -24,11 +26,14 @@ export default function HubHome() {
         </Text>
         <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Choose where you want to work.</Text>
       </View>
-      <View style={{ gap: 12 }}>
-        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/tickets' as any)} style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>🎫 Tickets</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Handle organization requests and public inquiries</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/chat' as any)} style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>💬 Team Chat</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Coordinate with ChitWise employees</Text></TouchableOpacity>
+      <View style={{ gap: 12, flexDirection: tablet ? 'row' : 'column' }}>
+        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/tickets' as any)} style={{ flex: tablet ? 1 : undefined, minWidth: 0, backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>🎫 Tickets</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Handle organization requests and public inquiries</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/chat' as any)} style={{ flex: tablet ? 1 : undefined, minWidth: 0, backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>💬 Team Chat</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Coordinate with ChitWise employees</Text></TouchableOpacity>
       </View>
       <TouchableOpacity onPress={() => requestSignOut()} style={{ alignSelf: 'center', padding: 14, marginTop: 20 }}><Text style={{ color: C.red, fontWeight: '600' }}>Sign out</Text></TouchableOpacity>
-    </View>
+      <TouchableOpacity onPress={() => Linking.openURL('https://thechitwise.com/delete-account')} style={{ alignSelf: 'center', padding: 10 }}>
+        <Text style={{ color: C.navy, fontSize: 12, textDecorationLine: 'underline' }}>Privacy and account deletion</Text>
+      </TouchableOpacity>
+    </ScrollView>
   </SafeAreaView>;
 }

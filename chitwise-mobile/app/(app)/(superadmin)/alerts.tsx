@@ -9,7 +9,7 @@ import {
   superAdminGetAllLimitsBulk, superAdminChitUsageSummary, superAdminMemberUsageSummary,
   superAdminResumeTenant, billingRecordPayment,
 } from '../../../services/api';
-import { C, fmtDate } from '../../../components/ui';
+import { C, fmtDate, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
 type AlertType = 'OVER_LIMIT' | 'EXPIRED' | 'PENDING' | 'CANCELLATION' | 'RENEWAL' | 'UPGRADE' | 'EXPIRING';
@@ -68,7 +68,7 @@ function RecordPaymentModal({ visible, tenant, onClose, onDone }: {
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Record Payment</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           {tenant && (
             <View style={{ backgroundColor: C.navy50, borderRadius: 12, padding: 14 }}>
               <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{tenant.name}</Text>
@@ -279,7 +279,7 @@ export default function AlertsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         showsVerticalScrollIndicator={false}
       >
@@ -327,7 +327,7 @@ export default function AlertsScreen() {
               const tenant = (tenants as any[]).find((t: any) => t.id === alert.tenantId);
               return (
                 <View key={`${alert.type}-${alert.tenantId}-${i}`} style={{
-                  backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 10,
+                  backgroundColor: listRowColor(i), borderRadius: 16, padding: 16, marginBottom: 10,
                   borderLeftWidth: 4, borderLeftColor: meta.dot,
                   shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
                 }}>

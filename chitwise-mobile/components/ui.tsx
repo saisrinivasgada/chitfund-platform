@@ -31,6 +31,8 @@ export const C = {
   white:      '#FFFFFF',
 };
 
+export const listRowColor = (index: number) => index % 2 === 0 ? C.white : '#F3F7FC';
+
 export const NEO = {
   background: '#E8EDF3',
   surface: '#E8EDF3',

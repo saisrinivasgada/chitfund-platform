@@ -8,6 +8,7 @@ import com.chitfund.chitservice.dto.request.ReservationSlotRequest;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
+import com.chitfund.chitservice.service.DrawSkipCoordinator;
 import com.chitfund.chitservice.service.PlanLimitChecker;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ResourceNotFoundException;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.*;
 class ReservationTenantIsolationTest {
 
     @Mock ChitService chitService;
+    @Mock DrawSkipCoordinator drawSkipCoordinator;
     @Mock MonthReservationRepository reservationRepository;
     @Mock ChitMapper chitMapper;
     @Mock AuditClient auditClient;
@@ -42,7 +44,7 @@ class ReservationTenantIsolationTest {
         when(chitService.findByIdScoped(chitId))
                 .thenThrow(new ResourceNotFoundException("Chit", chitId));
 
-        assertThrows(ResourceNotFoundException.class, () -> controller.list(chitId));
+        assertThrows(ResourceNotFoundException.class, () -> controller.list(chitId, authentication));
 
         verifyNoInteractions(reservationRepository);
     }

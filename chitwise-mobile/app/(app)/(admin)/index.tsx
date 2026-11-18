@@ -1,10 +1,11 @@
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet, useWindowDimensions } from 'react-native';
 import { NotificationsModal } from '../../../components/NotificationsModal';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../store/authStore';
 import { useSyncStore } from '../../../store/syncStore';
@@ -26,6 +27,7 @@ import { OfflineSnapshotLabel } from '../../../components/OfflineSnapshotLabel';
 import RoleLogo from '../../../components/RoleLogo';
 import { SortableDashboardGrid, type DashboardGridItem } from '../../../components/SortableDashboardGrid';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
+import { startOfIndiaBusinessDay } from '../../../utils/indiaBusinessDay';
 
 const NEO = {
   background: '#E8EDF3',
@@ -33,6 +35,27 @@ const NEO = {
   highlight: '#FFFFFF',
   shadow: '#AEB9C7',
 };
+
+function chitPositionSummary(chit: any): string {
+  const orgValue = chit.orgHeldSpotsCount ?? chit.organizationPayoutSlots;
+  const orgSlots = orgValue == null ? NaN : Number(orgValue);
+  const totalPositions = chit.capacity == null ? NaN : Number(chit.capacity);
+  const validTotal = Number.isSafeInteger(totalPositions) && totalPositions >= 0;
+  const validOrg = Number.isSafeInteger(orgSlots) && orgSlots >= 0;
+  const payingSlots = chit.payingMemberSlots != null
+    ? Number(chit.payingMemberSlots)
+    : validTotal && validOrg && orgSlots <= totalPositions
+      ? totalPositions - orgSlots : NaN;
+  if (!Number.isSafeInteger(payingSlots) || payingSlots < 0 ||
+      (validTotal && payingSlots > totalPositions) ||
+      (validTotal && validOrg && payingSlots + orgSlots !== totalPositions)) {
+    return validTotal ? `${totalPositions} payout positions` : 'Positions unavailable';
+  }
+  const payingLabel = `${payingSlots} paying member slot${payingSlots === 1 ? '' : 's'}`;
+  return validOrg && orgSlots > 0
+    ? `${payingLabel} + ${orgSlots} organization payout slot${orgSlots === 1 ? '' : 's'}`
+    : payingLabel;
+}
 
 function NeoSurface({ children, style }: { children: React.ReactNode; style?: any }) {
   return <View style={[dashboardStyles.neoSurface, style]}>{children}</View>;
@@ -76,8 +99,10 @@ function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing 
 }
 
 export default function AdminDashboard() {
+  const { width: screenWidth } = useWindowDimensions();
   const { user, logout } = useAuthStore();
   const online = useSyncStore((state) => state.isOnline);
+  const isFocused = useIsFocused();
   const router = useRouter();
   const qc = useQueryClient();
   const [showNewRequest, setShowNewRequest] = useState(false);
@@ -94,21 +119,34 @@ export default function AdminDashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-  const { data: cashRequests = [], isLoading: crLoading, refetch: refetchCR } = useQuery({ queryKey: ['m-cash-requests'], queryFn: getActiveCashRequests });
-  const { data: chits = [], isLoading: chitsLoading, refetch: refetchChits } = useQuery({ queryKey: ['m-chits'], queryFn: getChits });
-  const { data: members = [], isLoading: membersLoading, refetch: refetchMembers } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const { data: cashRequestsData, isLoading: crLoading, refetch: refetchCR } = useQuery({ queryKey: ['m-cash-requests'], queryFn: getActiveCashRequests, retry: false });
+  const { data: chitsData, isLoading: chitsLoading, refetch: refetchChits } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, retry: false });
+  const { data: membersData, isLoading: membersLoading, refetch: refetchMembers } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, retry: false });
+  const detailsReady = !chitsLoading && !membersLoading;
+  const cashRequests = cashRequestsData ?? [];
+  const chits = chitsData ?? [];
+  const members = membersData ?? [];
+  // List helpers return at most 200 rows; a full page is only a lower bound.
+  const chitsMayBePartial = (chits as any[]).length >= 200;
+  const membersMayBePartial = (members as any[]).length >= 200;
   const { data: wallet, refetch: refetchWallet, isError: walletError } = useQuery({ queryKey: ['m-wallet'], queryFn: getWalletBalance });
-  const { data: unread = 0 } = useQuery({ queryKey: ['m-unread'], queryFn: getUnreadCount, refetchInterval: 30_000 });
-  const todayIso = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.toISOString(); })();
-  const { data: recentActivity = [], refetch: refetchActivity,
+  const { data: unread = 0, isError: unreadError } = useQuery({ queryKey: ['m-unread'], queryFn: getUnreadCount, refetchInterval: 60_000 });
+  const todayStart = startOfIndiaBusinessDay();
+  const todayIso = todayStart.toISOString();
+  const { data: recentActivityData, refetch: refetchActivity,
     isError: recentActivityError } = useQuery({
     queryKey: ['m-recent-activity'],
     queryFn: () => getAuditLogs({ size: 50, sort: 'occurredAt,desc', from: todayIso }),
     staleTime: 30_000,
   });
-  const { data: todayBatchesRaw = [], refetch: refetchBatches  } = useQuery({ queryKey: ['m-today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 60_000 });
-  const { data: todayDrawsRaw   = [], refetch: refetchDraws    } = useQuery({ queryKey: ['m-today-draws'],   queryFn: getTodaysDraws,          staleTime: 60_000 });
-  const { data: todayPayoutsRaw = [], refetch: refetchPayouts  } = useQuery({ queryKey: ['m-today-payouts'], queryFn: getTodaysPayouts,        staleTime: 60_000 });
+  const recentActivity = recentActivityData ?? [];
+  const needsOperationalFallback = recentActivityError || (recentActivityData !== undefined && !recentActivity.some((entry: any) =>
+    new Date(entry.occurredAt ?? entry.createdAt).getTime() >= todayStart.getTime()
+  ));
+  const { data: todayBatchesData, refetch: refetchBatches  } = useQuery({ queryKey: ['m-today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 60_000 });
+  const todayBatchesRaw = todayBatchesData ?? [];
+  const { data: todayDrawsRaw   = [], refetch: refetchDraws    } = useQuery({ queryKey: ['m-today-draws'],   queryFn: getTodaysDraws,          enabled: online && needsOperationalFallback, staleTime: 60_000 });
+  const { data: todayPayoutsRaw = [], refetch: refetchPayouts  } = useQuery({ queryKey: ['m-today-payouts'], queryFn: getTodaysPayouts,        enabled: online && needsOperationalFallback, staleTime: 60_000 });
   const { data: cashSummary,          refetch: refetchSummary  } = useQuery({ queryKey: ['m-cash-summary'],  queryFn: getCashRequestSummary,   staleTime: 60_000 });
   const { data: pendingSettlementsPage, refetch: refetchSettlements } = useQuery({
     queryKey: ['m-dash-pending-settlements'],
@@ -128,12 +166,18 @@ export default function AdminDashboard() {
 
   // Payouts — "pending payout" (winner picked, nothing created) vs
   // "pending disbursement" (payout row exists but money not sent yet)
-  const { data: pendingPayouts = [], refetch: refetchPendingPayouts } = useQuery({
-    queryKey: ['m-dash-pending-payouts'], queryFn: getPendingPayouts, staleTime: 30_000,
+  const { data: pendingPayoutsData, refetch: refetchPendingPayouts } = useQuery({
+    queryKey: ['m-dash-pending-payouts'], queryFn: getPendingPayouts, staleTime: 30_000, retry: false,
   });
-  const { data: allPayouts = [] } = useQuery({
-    queryKey: ['m-dash-all-payouts'], queryFn: () => getAllPayouts({}), staleTime: 300_000,
+  const pendingPayouts = pendingPayoutsData ?? [];
+  const pendingPayoutsReady = pendingPayoutsData !== undefined;
+  const { data: allPayoutsData } = useQuery({
+    queryKey: ['m-dash-all-payouts'], queryFn: () => getAllPayouts({}),
+    enabled: detailsReady && !chitsMayBePartial && (chits as any[]).some((c: any) => c.status !== 'DRAFT'),
+    staleTime: 300_000, retry: false,
   });
+  const allPayouts = allPayoutsData ?? [];
+  const allPayoutsReady = allPayoutsData !== undefined;
   const { data: remittanceBatches = [], refetch: refetchRemittance } = useQuery({
     queryKey: ['m-dash-remittance'], queryFn: getPendingRemittance, staleTime: 30_000,
   });
@@ -142,19 +186,24 @@ export default function AdminDashboard() {
   });
 
   const eligibleChits = (chits as any[]).filter((c: any) => c.status !== 'DRAFT');
-  const { data: chitWinnersMap = {} } = useQuery({
+  const { data: chitWinnersData } = useQuery({
     queryKey: ['m-dash-winners', eligibleChits.map((c: any) => c.id).join(',')],
     queryFn: async () => {
-      const entries = await Promise.all(
-        eligibleChits.map((c: any) =>
-          getWinners(c.id).then((ws: any) => [c.id, ws]).catch(() => [c.id, []])
-        )
-      );
+      const entries: [string, any][] = [];
+      for (let i = 0; i < eligibleChits.length; i += 3) {
+        const batch = eligibleChits.slice(i, i + 3);
+        entries.push(...await Promise.all(batch.map((c: any) => getWinners(c.id).then((ws: any) => [c.id, ws] as [string, any]))));
+      }
       return Object.fromEntries(entries);
     },
-    enabled: eligibleChits.length > 0,
+    // A full first page is a lower bound, so per-chit requests cannot produce
+    // a tenant-wide count. Wait for the aggregate endpoint in that case.
+    enabled: detailsReady && !chitsMayBePartial && eligibleChits.length > 0,
     staleTime: 300_000,
+    retry: false,
   });
+  const chitWinnersMap = chitWinnersData ?? {};
+  const winnersReady = chitWinnersData !== undefined;
 
   // Auction sessions across active auction chits — surfaces live/pending rooms
   const activeAuctionChits = (chits as any[]).filter(
@@ -164,7 +213,8 @@ export default function AdminDashboard() {
     queries: activeAuctionChits.map((c: any) => ({
       queryKey: ['m-dash-auctions', c.id],
       queryFn: () => listAuctions(c.id),
-      refetchInterval: 30_000,
+      enabled: detailsReady && online && isFocused,
+      refetchInterval: online && isFocused ? 60_000 : false,
       staleTime: 15_000,
     })),
   });
@@ -205,7 +255,7 @@ export default function AdminDashboard() {
   }
 
   const activeChits     = (chits as any[]).filter((c) => c.status === 'ACTIVE');
-  const activeMembers   = (members as any[]).filter((m) => m.status !== 'INACTIVE' && m.status !== 'DELETED');
+  const activeMembers   = (members as any[]).filter((m) => m.status === 'ACTIVE');
   const pendingPickups  = (cashRequests as any[]).filter((r) => r.status === 'ASSIGNED');
   const pendingRequests = (cashRequests as any[]).filter((r) => r.status === 'PENDING');
   const memberMap = Object.fromEntries(
@@ -218,11 +268,15 @@ export default function AdminDashboard() {
       .filter((p: any) => p.status !== 'CANCELLED')
       .map((p: any) => `${p.chitId}:${p.monthNumber}:${String(p.memberId)}`)
   );
-  let pendingPayoutCount = 0;
-  for (const [chitId, winners] of Object.entries(chitWinnersMap as Record<string, any[]>)) {
-    for (const w of winners ?? []) {
-      const mid = w.memberId ?? w.winnerId;
-      if (!paidKeys.has(`${chitId}:${w.monthNumber}:${String(mid)}`)) pendingPayoutCount++;
+  // A failed feed means the count is unknown; zero would mislead the admin.
+  let pendingPayoutCount: number | null = !chitsMayBePartial && eligibleChits.length === 0 ? 0 : null;
+  if (!chitsMayBePartial && eligibleChits.length > 0 && winnersReady && allPayoutsReady) {
+    pendingPayoutCount = 0;
+    for (const [chitId, winners] of Object.entries(chitWinnersMap as Record<string, any[]>)) {
+      for (const w of winners ?? []) {
+        const mid = w.memberId ?? w.winnerId;
+        if (!paidKeys.has(`${chitId}:${w.monthNumber}:${String(mid)}`)) pendingPayoutCount++;
+      }
     }
   }
 
@@ -233,51 +287,50 @@ export default function AdminDashboard() {
     const maxMembers = Number((tenantLimits as any).maxMembers ?? 0);
     if (maxChits > 0 && activeChits.length > maxChits)
       limitViolations.push({ label: 'Active Chit Groups', current: activeChits.length, limit: maxChits });
-    if (maxMembers > 0 && activeMembers.length > maxMembers)
-      limitViolations.push({ label: 'Members', current: activeMembers.length, limit: maxMembers });
+    if (maxMembers > 0 && (members as any[]).length > maxMembers)
+      limitViolations.push({ label: 'Members', current: (members as any[]).length, limit: maxMembers });
   }
 
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayBatches    = todayBatchesRaw as any[];
   const todayRemitted   = todayBatches.filter((b) => b.status === 'REMITTED');
   const todayRemittedAmt = todayRemitted.reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
   const todayBank       = todayBatches.filter((b) => ['BANK_TRANSFER', 'UPI', 'CHEQUE', 'ONLINE'].includes(b.paymentMode));
   const todayBankAmt    = todayBank.reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading && chitsData === undefined && membersData === undefined && cashRequestsData === undefined) return <LoadingScreen />;
 
   const dashboardGridItems: DashboardGridItem[] = [
     {
       id: 'active-chits',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Active Chits" value={String(activeChits.length)} accent={C.navy} onPress={() => router.push('/(app)/(admin)/chits')} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Active Chits" value={chitsData === undefined ? '—' : `${activeChits.length}${chitsMayBePartial ? '+' : ''}`} accent={C.navy} onPress={() => router.push('/(app)/(admin)/chits')} />,
     },
     {
       id: 'active-members',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Active Members" value={String(activeMembers.length)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/members', params: { filter: 'Active' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Active Members" value={membersData === undefined ? '—' : `${activeMembers.length}${membersMayBePartial ? '+' : ''}`} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/members', params: { filter: 'Active' } })} />,
     },
     {
       id: 'pending-pickups',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-requests']} label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-requests']} label="Pending Pickups" value={cashRequestsData === undefined ? '—' : String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />,
     },
     {
       id: 'new-requests',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-requests']} label="New Requests" value={String(pendingRequests.length)} accent={pendingRequests.length > 0 ? C.red : C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-requests']} label="New Requests" value={cashRequestsData === undefined ? '—' : String(pendingRequests.length)} accent={pendingRequests.length > 0 ? C.red : C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />,
     },
     {
       id: 'pending-payout',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Payout" value={String(pendingPayoutCount)} sub="winner picked, no payout" accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Payout" value={pendingPayoutCount === null ? '—' : String(pendingPayoutCount)} sub="winner picked, no payout" accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })} />,
     },
     {
       id: 'pending-disbursement',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Disbursement" value={String((pendingPayouts as any[]).length)} sub="created, not disbursed" accent={C.red} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Disbursement" value={pendingPayoutsReady ? String((pendingPayouts as any[]).length) : '—'} sub="created, not disbursed" accent={C.red} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })} />,
     },
     {
       id: 'picked-up',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Picked Up" value={String((cashSummary as any)?.pickedUp ?? 0)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Picked Up" value={cashSummary === undefined ? '—' : String((cashSummary as any)?.pickedUp ?? 0)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })} />,
     },
     {
       id: 'partial-collections',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Partial Collections" value={String((cashSummary as any)?.partiallyCollected ?? 0)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PARTIALLY_COLLECTED' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-cash-summary']} label="Partial Collections" value={cashSummary === undefined ? '—' : String((cashSummary as any)?.partiallyCollected ?? 0)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PARTIALLY_COLLECTED' } })} />,
     },
     ...((cashSummary as any)?.todayCancelled > 0 ? [
       {
@@ -291,22 +344,22 @@ export default function AdminDashboard() {
     ] : []),
     {
       id: 'today-remitted',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-today-batches']} label="Today's Remitted" value={String(todayRemitted.length)} sub={todayRemittedAmt > 0 ? `₹${todayRemittedAmt.toLocaleString('en-IN')}` : undefined} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } })} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} snapshotKey={['m-today-batches']} label="Today's Remitted" value={todayBatchesData === undefined ? '—' : String(todayRemitted.length)} sub={todayRemittedAmt > 0 ? `₹${todayRemittedAmt.toLocaleString('en-IN')}` : undefined} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } })} />,
     },
     {
       id: 'today-bank-payments',
-      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Today's Bank Pays" value={String(todayBank.length)} sub={todayBankAmt > 0 ? `₹${todayBankAmt.toLocaleString('en-IN')}` : undefined} accent={C.navy} onPress={() => router.push('/(app)/(admin)/activity')} />,
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Today's Bank Pays" value={todayBatchesData === undefined ? '—' : String(todayBank.length)} sub={todayBankAmt > 0 ? `₹${todayBankAmt.toLocaleString('en-IN')}` : undefined} accent={C.navy} onPress={() => router.push('/(app)/(admin)/activity')} />,
     },
   ];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: NEO.background }}>
-      <ReadDataBoundary label="Dashboard" queryKeys={[['m-chits'], ['m-members']]}>
+      <ReadDataBoundary label="Dashboard" queryKeys={[['m-chits'], ['m-members'], ['m-cash-requests']]}>
 
       <ScrollView
         scrollEnabled={!isCustomizingDashboard}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 36 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 36, width: '100%', maxWidth: 1100, alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
@@ -325,12 +378,12 @@ export default function AdminDashboard() {
             <EyeToggle />
             <TouchableOpacity onPress={() => setShowNotifs(true)}
               accessibilityRole="button"
-              accessibilityLabel="Open notifications"
+              accessibilityLabel={unreadError ? 'Notifications unavailable; tap to retry' : `Open notifications, ${unread} unread`}
               style={[dashboardStyles.neoIconButton, { position: 'relative' }]}>
               <Text style={{ fontSize: 18 }}>🔔</Text>
-              {(unread as number) > 0 && (
-                <View style={{ position: 'absolute', top: 4, right: 4, width: 16, height: 16, borderRadius: 8, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 9, color: C.white, fontWeight: '700' }}>{unread as number}</Text>
+              {((unread as number) > 0 || unreadError) && (
+                <View style={{ position: 'absolute', top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: unreadError ? C.amber : C.red, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 9, color: C.white, fontWeight: '700' }}>{unreadError ? '!' : unread > 99 ? '99+' : unread}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -429,17 +482,19 @@ export default function AdminDashboard() {
           <NeoSurface style={{ padding: 20, marginBottom: 18 }}>
             <View style={dashboardStyles.treasuryGlow} />
             <Text style={{ fontSize: 11, color: C.gray500, fontWeight: '700', letterSpacing: 1.2, marginBottom: 6 }}>TREASURY BALANCE</Text>
-            {walletError ? (
+            {wallet === undefined && walletError ? (
               <TouchableOpacity onPress={() => refetchWallet()}>
                 <Text style={{ color: C.red, fontSize: 14, fontWeight: '600' }}>Could not load — tap to retry</Text>
               </TouchableOpacity>
+            ) : wallet === undefined ? (
+              <Text style={{ color: C.gray500, fontSize: 18, fontWeight: '700' }}>Loading balance…</Text>
             ) : (
               <Amount value={(wallet as any)?.totalBalance ?? (wallet as any)?.balance ?? 0} size="xl" color={C.navy} />
             )}
             <Text style={{ fontSize: 12, color: C.gray500, marginTop: 6 }}>Tap to open Finance →</Text>
 
             {/* Cash vs bank split */}
-            {!walletError && wallet && (
+            {wallet && (
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#D4DCE6' }}>
                 {[
                   { label: 'Cash on Hand', value: (wallet as any)?.cashBalance },
@@ -464,7 +519,8 @@ export default function AdminDashboard() {
         <SortableDashboardGrid
           items={dashboardGridItems}
           storageKey={`chitwise.dashboard.admin.v1:${user?.id ?? 'unknown'}:${user?.tenantId ?? 'tenant'}:${user?.role ?? 'ADMIN'}`}
-          collapsedCount={4}
+          columns={screenWidth >= 700 ? 3 : 2}
+          collapsedCount={screenWidth >= 700 ? 6 : 4}
           onEditingChange={setIsCustomizingDashboard}
         />
         {(() => {
@@ -553,7 +609,7 @@ export default function AdminDashboard() {
               accessibilityRole="button"
               style={{
                 backgroundColor: NEO.surface, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16,
-                minWidth: '45%', flex: 1, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)',
+                minWidth: screenWidth >= 700 ? '30%' : '45%', flex: 1, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)',
                 shadowColor: NEO.shadow, shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.45, shadowRadius: 8, elevation: 4,
               }}>
               <Text style={{ color: a.accent, fontWeight: '800', fontSize: 13 }}>{a.label}</Text>
@@ -738,10 +794,10 @@ export default function AdminDashboard() {
             >
               <Card style={{ marginBottom: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flex: 1, marginRight: 8 }}>
+                  <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
                     <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{c.name}</Text>
                     <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                      ₹{Number(c.installmentAmount ?? 0).toLocaleString('en-IN')} / month · {c.capacity} members
+                      ₹{Number(c.installmentAmount ?? 0).toLocaleString('en-IN')} / month · {chitPositionSummary(c)}
                     </Text>
                   </View>
                   <Badge status={c.status} />
@@ -798,7 +854,7 @@ export default function AdminDashboard() {
               <Text style={{ fontSize: 28, color: C.gray400, lineHeight: 28 }}>×</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
             <View>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Member</Text>
               <TextInput
@@ -1042,11 +1098,12 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
+  const [messageLoadError, setMessageLoadError] = useState(false);
   const [input, setInput] = useState('');
   const [now, setNow] = useState(Date.now());
   const qc = useQueryClient();
 
-  const { data: ticketsData, isLoading: loadingTickets } = useQuery({
+  const { data: ticketsData, isLoading: loadingTickets, isError: ticketsError, refetch: refetchTickets } = useQuery({
     queryKey: ['my-tickets-mobile'],
     queryFn: () => listMyTickets({ page: 0, size: 20 }),
     enabled: open && view === 'list',
@@ -1066,18 +1123,22 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
 
   const sendMut = useMutation({
     mutationFn: (content: string) => sendTicketMessage(openTicket?.id, content),
-    onSuccess: (msg) => { setMessages(prev => [...prev, msg]); setInput(''); },
+    onSuccess: (msg, content) => {
+      setMessages(prev => [...prev, msg]);
+      setInput(current => current.trim() === content ? '' : current);
+    },
     onError: () => Alert.alert('Error', 'Could not send message.'),
   });
 
   async function openChat(ticket: any) {
     setOpenTicket(ticket);
     setView('chat');
+    setMessageLoadError(false);
     try {
       const data = await getTicketMessages(ticket.id, { limit: 50 });
       setMessages([...(data.items ?? [])].reverse());
       await markTicketRead(ticket.id);
-    } catch {}
+    } catch { setMessageLoadError(true); }
   }
 
   async function handleDeleteMsg(msg: any) {
@@ -1090,7 +1151,7 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
 
   function resetAndClose() {
     setOpen(false); setView('list'); setOpenTicket(null);
-    setMessages([]); setInput(''); setSubject(''); setDescription('');
+    setMessages([]); setInput(''); setSubject(''); setDescription(''); setMessageLoadError(false);
   }
 
   const tickets = ticketsData?.items ?? [];
@@ -1141,6 +1202,8 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
             <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
               {loadingTickets ? (
                 <ActivityIndicator style={{ marginTop: 40 }} color={C.navy} />
+              ) : ticketsError ? (
+                <TouchableOpacity onPress={() => refetchTickets()}><Text style={{ textAlign: 'center', marginTop: 40, color: C.red }}>Could not load tickets. Tap to retry.</Text></TouchableOpacity>
               ) : tickets.length === 0 ? (
                 <Text style={{ textAlign: 'center', marginTop: 40, color: C.gray400, fontSize: 14 }}>No tickets yet</Text>
               ) : (
@@ -1168,8 +1231,8 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
           )}
 
           {view === 'new' && (
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-              <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+              <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 6 }}>Issue type</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1197,7 +1260,8 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
           )}
 
           {view === 'chat' && (
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+              {messageLoadError && <TouchableOpacity onPress={() => openTicket && openChat(openTicket)}><Text style={{ color: C.red, textAlign: 'center', padding: 12 }}>Could not load messages. Tap to retry.</Text></TouchableOpacity>}
               <FlatList
                 data={messages}
                 keyExtractor={(m) => m.id}
@@ -1231,7 +1295,9 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
                 }}
               />
               {openTicket?.status !== 'CLOSED' && openTicket?.status !== 'RESOLVED' ? (
-                <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  {sendMut.isError && <Text style={{ color: C.red, marginBottom: 8 }}>Message was not sent. Your draft is saved; try again.</Text>}
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
                   <TextInput
                     value={input} onChangeText={setInput} placeholder="Type a message…"
                     placeholderTextColor={C.gray400}
@@ -1242,6 +1308,7 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
                     style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: !input.trim() ? C.gray200 : C.navy, alignItems: 'center', justifyContent: 'center' }}>
                     {sendMut.isPending ? <ActivityIndicator color={C.white} size="small" /> : <Text style={{ color: C.white, fontSize: 18 }}>↑</Text>}
                   </TouchableOpacity>
+                  </View>
                 </View>
               ) : (
                 <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 13, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>

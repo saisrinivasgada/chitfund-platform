@@ -55,11 +55,17 @@ public class ReservationController {
      */
     @GetMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
-    public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> list(@PathVariable UUID chitId) {
+    public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> list(
+            @PathVariable UUID chitId, Authentication auth) {
         chitService.findByIdScoped(chitId); // validates tenant ownership
+        boolean isAdmin = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("SUPER_ADMIN"));
         List<MonthReservationResponse> list = reservationRepository
                 .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
-                .stream().map(chitMapper::toReservationResponse).collect(Collectors.toList());
+                .stream()
+                .filter(r -> isAdmin || !r.isOrgHeld())
+                .map(chitMapper::toReservationResponse)
+                .collect(Collectors.toList());
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 
@@ -207,6 +213,13 @@ public class ReservationController {
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
                     "The schedule may have changed. Refresh it and review this slot before saving.");
         }
+        boolean callerIsAdmin = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("SUPER_ADMIN"));
+        boolean targetingOrgSlot = r.isOrgHeld() || Boolean.TRUE.equals(request.getOrgHeld());
+        if (!callerIsAdmin && targetingOrgSlot) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organisation-held slots can only be modified by an admin");
+        }
 
         Map<String, Object> beforeSnap = slotSnapshot(r);
         UUID oldMemberId = r.getMemberId();
@@ -260,6 +273,12 @@ public class ReservationController {
         if (r.getStatus() != ReservationStatus.RESERVED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Only RESERVED slots can be marked as processed");
+        }
+        boolean callerIsAdmin = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("SUPER_ADMIN"));
+        if (!callerIsAdmin && r.isOrgHeld()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organisation-held slots can only be processed by an admin");
         }
         Map<String, Object> before = slotSnapshot(r);
         r.setStatus(ReservationStatus.PROCESSED);
@@ -316,7 +335,7 @@ public class ReservationController {
      * Member C (was at slot 4) shifts to slot 5, etc. PROCESSED and VOIDED slots are unchanged.
      */
     @PostMapping("/shift")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> shiftReservations(
             @PathVariable UUID chitId, @RequestParam int fromMonth,

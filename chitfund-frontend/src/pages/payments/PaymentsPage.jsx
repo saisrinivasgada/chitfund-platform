@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { activeAccountScope } from '../../offline/accountClient';
 import { savedPaymentActivity } from '../../offline/outbox';
 import { useNavigate, NavLink, Outlet, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery, useQueries, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { shouldRetryRead } from '../../../../shared/offline/readSnapshots';
 import {
   getChits, getMembers, getMembersPage, getChitsForMember, getMemberBalance, getMemberCredit, getMemberTotalBalance,
-  collectPayment, recordPayment, getAllPaymentBatches,
+  collectPayment, recordPayment, getPaymentPreview, getAllPaymentBatches,
   getActiveCashRequests, assignStaffToRequest, cancelCashRequest, listStaff,
   getPendingRemittance, remitPayment, voidPaymentBatch,
   adminCreateCashRequest, collectForRequest, voidCashPickup, getCashRequestAuditLog,
@@ -25,6 +26,7 @@ import { ListSkeleton } from '../../components/ui/Spinner';
 import RoleBadge from '../../components/ui/RoleBadge';
 import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, XCircle, RotateCcw, AlertTriangle, Pencil, AlertCircle, HandCoins, CalendarClock, FileCheck } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
+import { checkedPaymentPreview, isStalePaymentConflict } from '../../utils/paymentPreview';
 
 const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Intimations', 'Remittance', 'History'];
 const MANAGER_TABS = ['Cash Requests', 'Intimations', 'History']; // Managers record cash via My Pickups; no direct payment entry
@@ -1092,6 +1094,7 @@ export function RecordPaymentTab() {
   useEffect(() => { const timer = setTimeout(() => setMemberSearchTerm(memberSearch.trim()), 250); return () => clearTimeout(timer); }, [memberSearch]);
   const [chitId, setChitId]         = useState('');
   const [selectedAllocations, setSelectedAllocations] = useState({});
+  const [autoAllocate, setAutoAllocate] = useState(false);
   const [amount, setAmount]         = useState('');
   const [notes, setNotes]           = useState('');
   const [paymentReference, setPaymentReference] = useState('');
@@ -1099,7 +1102,13 @@ export function RecordPaymentTab() {
   const [collectedBy, setCollectedBy] = useState('SELF'); // only relevant for CASH
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [pendingWarning, setPendingWarning] = useState(0);
+  const [overpayConfirm, setOverpayConfirm] = useState(false);
   const [checkingSaved, setCheckingSaved] = useState(false);
+  const [checkingPreview, setCheckingPreview] = useState(false);
+  const [paymentPreview, setPaymentPreview] = useState(null);
+  const [previewError, setPreviewError] = useState('');
+  const [staleReview, setStaleReview] = useState(false);
+  const previewKeyRef = useRef('');
 
   const memberPages = useInfiniteQuery({
     queryKey: ['record-payment-members', memberSearchTerm],
@@ -1133,7 +1142,7 @@ export function RecordPaymentTab() {
   const isCredit = paymentMode === 'CREDIT';
   const isWorkerCollect = paymentMode === 'CASH' && collectedBy !== 'SELF';
 
-  const { data: memberTotalBalance = 0 } = useQuery({
+  const { data: memberTotalBalance = 0, isSuccess: totalBalanceLoaded } = useQuery({
     queryKey: ['memberTotalBalance', memberId],
     queryFn: () => getMemberTotalBalance(memberId),
     enabled: !!memberId,
@@ -1142,7 +1151,7 @@ export function RecordPaymentTab() {
 
   const mutation = useMutation({
     networkMode: 'always',
-    mutationFn: () => {
+    mutationFn: ({ balanceVersion } = {}) => {
       const allocationEntries = Object.entries(selectedAllocations)
         .map(([selectedChitId, selectedAmount]) => ({
           chitId: selectedChitId,
@@ -1150,7 +1159,8 @@ export function RecordPaymentTab() {
         }))
         .filter((entry) => entry.amount > 0);
       if (isCredit) {
-        return recordPayment({ chitId, memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || null, idempotencyKey });
+        if (!balanceVersion) throw new Error('Review the current credit allocation before applying it.');
+        return recordPayment({ chitId, memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || null, balanceVersion, requireOnline: true, idempotencyKey });
       }
       if (paymentMode === 'CASH' && collectedBy !== 'SELF') {
         // Worker/Manager collected → AWAITING_REMITTANCE
@@ -1164,14 +1174,16 @@ export function RecordPaymentTab() {
           paymentMode,
           paymentReference: paymentReference || undefined,
           notes: notes || null,
-          allocations: allocationEntries.length > 0 ? allocationEntries : undefined,
+          allocations: isExplicitMode && allocationEntries.length > 0 ? allocationEntries : undefined,
+          balanceVersion: !isExplicitMode && balanceVersion ? balanceVersion : undefined,
+          requireOnline: !isExplicitMode && !!balanceVersion,
           idempotencyKey,
         });
       }
     },
     onSuccess: (data) => {
       const msg = isCredit
-        ? 'Credits applied — outstanding settled'
+        ? 'Available credit applied to the reviewed installments'
         : paymentMode === 'CASH' && collectedBy !== 'SELF'
         ? 'Cash collection recorded — pending remittance from staff'
         : data?.offlineQueued ? 'Payment saved on this browser — waiting to sync' : 'Payment recorded successfully';
@@ -1193,10 +1205,23 @@ export function RecordPaymentTab() {
       }
       setMemberId(''); setChitId(''); setAmount(''); setNotes(''); setPaymentReference('');
       setSelectedAllocations({});
+      setAutoAllocate(false);
       setMode('CASH'); setCollectedBy('SELF');
       setIdempotencyKey(crypto.randomUUID());
+      setPaymentPreview(null); setPreviewError(''); setStaleReview(false);
     },
-    onError: (err) => toast.error(err.response?.data?.message ?? err.message ?? 'Failed to record payment'),
+    onError: (err) => {
+      if (needsServerPreview && isStalePaymentConflict(err)) {
+        qc.invalidateQueries({ queryKey: ['memberBalance', memberId] });
+        qc.invalidateQueries({ queryKey: ['memberCredit', memberId] });
+        qc.invalidateQueries({ queryKey: ['memberTotalBalance', memberId] });
+        setPaymentPreview(null);
+        setStaleReview(true);
+        setPreviewError('The member balance changed. Review the refreshed amounts before recording.');
+        return;
+      }
+      toast.error(err.response?.data?.message ?? err.message ?? 'Failed to record payment');
+    },
   });
 
   // Fetch balances for ALL of this member's chits in parallel once the list loads
@@ -1215,7 +1240,7 @@ export function RecordPaymentTab() {
     ])
   );
 
-  const { data: memberCredit } = useQuery({
+  const { data: memberCredit, isSuccess: creditLoaded } = useQuery({
     queryKey: ['memberCredit', memberId],
     queryFn: () => getMemberCredit(memberId),
     enabled: !!memberId,
@@ -1224,11 +1249,13 @@ export function RecordPaymentTab() {
 
   const selectedChit = collectableChits.find((c) => c.id === chitId);
   const isCash = paymentMode === 'CASH';
-  const isExplicitMode = !isCredit && !isWorkerCollect;
+  const isExplicitMode = !isCredit && !isWorkerCollect && !autoAllocate;
   const allocationEntries = Object.entries(selectedAllocations)
     .map(([selectedChitId, selectedAmount]) => ({ chitId: selectedChitId, amount: Number(selectedAmount || 0) }))
     .filter((entry) => entry.amount > 0);
   const allocationTotal = allocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const explicitOverflow = isExplicitMode && allocationEntries.some((entry) =>
+    typeof balanceMap[entry.chitId] === 'number' && entry.amount > balanceMap[entry.chitId]);
 
   useEffect(() => {
     if (isExplicitMode && Object.keys(selectedAllocations).length > 0) {
@@ -1271,14 +1298,68 @@ export function RecordPaymentTab() {
   const amtNum = Number(amount || 0);
   const creditCoversAll = chitId && outstanding !== null && outstanding > 0 && creditBalance >= outstanding;
   // Effective amount after credit auto-applies
-  const effectiveAmount = amtNum + creditBalance;
-  const isOverpay = !isExplicitMode && !isCredit && outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
+  const totalDue = Math.max(0, Number(memberTotalBalance) || 0);
+  const creditAppliedEstimate = Math.min(creditBalance, totalDue);
+  const effectiveAmount = amtNum + creditAppliedEstimate;
+  const isOverpay = !isCredit && !isExplicitMode && outstanding !== null && effectiveAmount > outstanding;
   // Cross-chit overpayment: amount exceeds member's total outstanding across ALL chits
-  const totalOverpayAmt = !isExplicitMode && !isCredit && !isWorkerCollect && amtNum > 0 && memberTotalBalance > 0
-    ? Math.max(0, amtNum - memberTotalBalance)
+  const totalOverpayAmt = autoAllocate && !isCredit && !isWorkerCollect && totalBalanceLoaded && amtNum > 0
+    ? Math.max(0, effectiveAmount - totalDue)
     : 0;
+  const needsOverpayReview = !isCredit && amtNum > 0 &&
+    ((isWorkerCollect && isOverpay) || (autoAllocate && (isOverpay || totalOverpayAmt > 0)));
 
-  async function submitPayment() {
+  // The server's preview mirrors FIFO only. Exact chit allocations and worker
+  // remittance have different posting paths, so they must not use this token.
+  const needsServerPreview = isCredit || (autoAllocate && !isWorkerCollect);
+  const previewKey = `${memberId}|${chitId}|${amount}|${paymentMode}|${collectedBy}|${autoAllocate}`;
+  previewKeyRef.current = previewKey;
+  const currentPreview = paymentPreview?.key === previewKey ? paymentPreview.data : null;
+  const previewAllocations = currentPreview?.allocations ?? [];
+  const previewCashApplied = paymentPreview?.key === previewKey ? paymentPreview.cashApplied : 0;
+
+  async function loadPaymentPreview() {
+    const requestKey = previewKey;
+    setCheckingPreview(true);
+    setPreviewError('');
+    try {
+      const data = await getPaymentPreview({ memberId, chitId, amount: amtNum });
+      if (previewKeyRef.current !== requestKey) return;
+      const checked = checkedPaymentPreview(data, { memberId, chitId, amount: amtNum });
+      setPaymentPreview({ key: requestKey, ...checked });
+      setOverpayConfirm(true);
+    } catch (err) {
+      if (previewKeyRef.current !== requestKey) return;
+      setPaymentPreview(null);
+      setOverpayConfirm(false);
+      setPreviewError(err.response?.data?.message ?? err.message ?? 'Could not load current payment amounts. Please try again.');
+    } finally {
+      setCheckingPreview(false);
+    }
+  }
+
+  function submitPayment() {
+    if (needsServerPreview) {
+      if (!navigator.onLine) {
+        setPreviewError('Connect to review Auto-apply amounts. To save a collection offline, choose exact dues.');
+        return;
+      }
+      setStaleReview(false);
+      loadPaymentPreview();
+      return;
+    }
+    if (needsOverpayReview) {
+      setOverpayConfirm(true);
+      return;
+    }
+    submitAfterReview();
+  }
+
+  async function submitAfterReview(balanceVersion) {
+    if (needsServerPreview && (!currentPreview || balanceVersion !== currentPreview.balanceVersion)) {
+      setPreviewError('Payment amounts changed. Review the current amounts again.');
+      return;
+    }
     const scope = activeAccountScope();
     setCheckingSaved(true);
     try {
@@ -1288,19 +1369,63 @@ export function RecordPaymentTab() {
         if (activeAccountScope() !== scope) return;
         if (pending.length) { setPendingWarning(pending.length); return; }
       }
-      mutation.mutate();
+      mutation.mutate({ balanceVersion });
     } catch {
       // Online-only accounts remain usable if optional local storage is unavailable.
-      if (activeAccountScope() === scope) mutation.mutate();
+      if (activeAccountScope() === scope) mutation.mutate({ balanceVersion });
     } finally { setCheckingSaved(false); }
   }
 
   return (
     <div className="max-w-lg">
+      {overpayConfirm && (currentPreview || !needsServerPreview) && <ConfirmDialog
+        title={isCredit ? 'Review credit allocation' : currentPreview ? 'Review payment allocation' : isWorkerCollect ? 'Review extra cash collection' : 'Review payment above dues'}
+        description={currentPreview
+          ? staleReview
+            ? 'The member balance changed. Review these refreshed amounts before proceeding again.'
+            : isCredit
+              ? 'Existing member credit applies to the oldest unpaid installments across this member’s chits. Applying it will stop if the balance changes.'
+              : 'These amounts are from the current member balance. The payment will stop if the balance changes before posting.'
+          : isWorkerCollect
+          ? 'This cash was collected by staff and is awaiting remittance. Any excess is allocated when the admin confirms receipt; it is not credit yet.'
+          : 'The extra may clear another unpaid installment before any remainder becomes member credit. Review the amounts before recording this payment.'}
+        actionLabel={isCredit ? 'Apply reviewed credit' : isWorkerCollect ? 'Proceed with collection' : 'Proceed with payment'}
+        loading={mutation.isPending || checkingSaved || checkingPreview}
+        onClose={() => setOverpayConfirm(false)}
+        onConfirm={() => { const version = currentPreview?.balanceVersion; setOverpayConfirm(false); submitAfterReview(version); }}
+      >
+        <dl className="space-y-2 text-sm">
+          <div className="flex justify-between gap-3"><dt>Selected chit due</dt><dd>₹{Number(currentPreview?.selectedChitOutstanding ?? outstanding ?? 0).toLocaleString('en-IN')}</dd></div>
+          {(currentPreview || totalBalanceLoaded) && <div className="flex justify-between gap-3"><dt>All chit dues</dt><dd>₹{Number(currentPreview?.totalOutstanding ?? totalDue).toLocaleString('en-IN')}</dd></div>}
+          <div className="flex justify-between gap-3"><dt>Existing member credit</dt><dd>₹{Number(currentPreview?.creditAvailable ?? creditBalance).toLocaleString('en-IN')}</dd></div>
+          {currentPreview && <div className="flex justify-between gap-3"><dt>Existing credit applied</dt><dd>₹{Number(currentPreview.creditConsumed ?? 0).toLocaleString('en-IN')}</dd></div>}
+          {!isCredit && <div className="flex justify-between gap-3 font-semibold"><dt>Amount received</dt><dd>₹{amtNum.toLocaleString('en-IN')}</dd></div>}
+          {!isCredit && currentPreview && <div className="flex justify-between gap-3"><dt>Cash applied to dues</dt><dd>₹{previewCashApplied.toLocaleString('en-IN')}</dd></div>}
+          {!isCredit && !isWorkerCollect && <div className="flex justify-between gap-3 text-[#1E3A5F]"><dt>{currentPreview ? 'New member credit' : 'Estimated new credit'}</dt><dd>₹{Number(currentPreview?.projectedNewCredit ?? totalOverpayAmt).toLocaleString('en-IN')}</dd></div>}
+        </dl>
+        {currentPreview && previewAllocations.length > 0 && <div className="mt-3 border-t border-gray-200 pt-2 text-xs">
+          <p className="font-semibold text-gray-700 mb-1">Dues covered, oldest first for credit</p>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {previewAllocations.map((row, index) => <div key={`${row.chitId}-${row.monthNumber}-${row.catchUpLine}-${index}`} className="flex justify-between gap-2 text-gray-600">
+              <span>{collectableChits.find((c) => c.id === row.chitId)?.name ?? 'Chit'} · {row.catchUpLine ? 'Catch-up' : 'Draw'} {row.monthNumber}</span>
+              <span className="whitespace-nowrap">₹{Number(row.creditApplied ?? 0).toLocaleString('en-IN')} credit{!isCredit && ` + ₹${Number(row.newPaymentApplied ?? 0).toLocaleString('en-IN')} cash`}</span>
+            </div>)}
+          </div>
+        </div>}
+        {!currentPreview && <p className="mt-3 text-xs text-gray-500">Final allocation is calculated when the payment is recorded.</p>}
+      </ConfirmDialog>}
       {pendingWarning > 0 && <ConfirmDialog title="Payment already saved for this member"
         description={`${pendingWarning} collection${pendingWarning > 1 ? 's are' : ' is'} still waiting for sync or review on this browser. Continue only if you received separate money.`}
         actionLabel="Record separate collection" onClose={() => setPendingWarning(0)}
-        onConfirm={() => { setPendingWarning(0); mutation.mutate(); }} /> }
+        onConfirm={() => {
+          setPendingWarning(0);
+          if (needsServerPreview && !currentPreview) { setPreviewError('Review the current payment amounts again.'); return; }
+          mutation.mutate({ balanceVersion: currentPreview?.balanceVersion });
+        }} /> }
+      {previewError && <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 mb-3 text-sm text-amber-900">
+        {previewError}
+        {staleReview && needsServerPreview && navigator.onLine && <button type="button" className="ml-2 font-semibold underline" onClick={loadPaymentPreview}>Refresh review</button>}
+      </div>}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
         <h3 className="font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
           Record Payment
@@ -1361,12 +1486,12 @@ export function RecordPaymentTab() {
                   </button>
                 )}
                 {!creditCoversAll && (
-                  <span className="text-xs text-emerald-600 ml-auto">Auto-applied to outstanding</span>
+                  <span className="text-xs text-emerald-600 ml-auto">Applies to oldest dues when paid</span>
                 )}
               </div>
               {isCredit && (
                 <p className="text-xs text-emerald-600 mt-1">
-                  ₹{creditBalance.toLocaleString('en-IN')} credit covers ₹{(outstanding ?? 0).toLocaleString('en-IN')} outstanding — no cash needed.
+                  No cash is needed. Review which unpaid installments this credit will clear across the member’s chits.
                 </p>
               )}
             </div>
@@ -1375,6 +1500,17 @@ export function RecordPaymentTab() {
             <p className="text-xs text-gray-400 mt-1">No credit balance</p>
           )}
         </FormField>
+
+        {!isCredit && !isWorkerCollect && <div className="rounded-lg border border-gray-200 p-1 flex gap-1" role="group" aria-label="Payment allocation method">
+          <button type="button" aria-pressed={!autoAllocate} onClick={() => { setAutoAllocate(false); setAmount(''); setChitId(''); }}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${!autoAllocate ? 'bg-[#1E3A5F] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+            Choose exact dues
+          </button>
+          <button type="button" aria-pressed={autoAllocate} onClick={() => { setAutoAllocate(true); setAmount(''); setChitId(''); }}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium ${autoAllocate ? 'bg-[#1E3A5F] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+            Auto-apply extra
+          </button>
+        </div>}
 
         {/* Chit */}
         <FormField label={isExplicitMode ? 'Chits to allocate payment' : 'Chit'} required>
@@ -1425,6 +1561,18 @@ export function RecordPaymentTab() {
                 <span>Total payment</span>
                 <span>₹{allocationTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+              {explicitOverflow && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900" role="alert">
+                  Exact allocations cannot exceed a selected chit's due. To collect the extra and review how it will be applied, use Auto-apply extra.
+                  <button type="button" className="ml-1 font-semibold underline" onClick={() => {
+                    const firstChitId = allocationEntries[0]?.chitId ?? '';
+                    setAutoAllocate(true);
+                    setChitId(firstChitId);
+                    setAmount(allocationTotal.toFixed(2));
+                    setSelectedAllocations({});
+                  }}>Review as Auto-apply extra</button>
+                </div>
+              )}
             </div>
           ) : (
             <Select value={chitId} onChange={(e) => setChitId(e.target.value)} required>
@@ -1461,7 +1609,8 @@ export function RecordPaymentTab() {
           <FormField label="Amount (₹)" required>
             <Input
               type="number"
-              min="1"
+              min="0.01"
+              step="0.01"
               placeholder={selectedChit?.installmentAmount ? String(selectedChit.installmentAmount) : 'Enter amount'}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -1477,7 +1626,7 @@ export function RecordPaymentTab() {
             {isExplicitMode && allocationEntries.length > 0 && (
               <p className="mt-1.5 text-xs text-gray-500">Payment total is calculated from the selected chit allocations above.</p>
             )}
-            {isOverpay && (
+            {isOverpay && !needsServerPreview && (
               <div className="mt-1.5 flex items-start gap-1.5 text-xs rounded-lg px-3 py-2" style={{ color: '#1E3A5F', background: '#EEF2F8', border: '1px solid #C7D5E8' }}>
                 <span className="flex-shrink-0">ℹ</span>
                 <span>
@@ -1486,14 +1635,14 @@ export function RecordPaymentTab() {
                 </span>
               </div>
             )}
-            {totalOverpayAmt > 0 && (
+            {totalOverpayAmt > 0 && !needsServerPreview && (
               <div className="mt-1.5 flex items-start gap-1.5 text-xs rounded-lg px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800">
                 <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
                 <span>
                   This member's total outstanding across all chits is{' '}
                   <strong>₹{memberTotalBalance.toLocaleString('en-IN')}</strong>.
                   You're recording <strong>₹{amtNum.toLocaleString('en-IN')}</strong> —
-                  the extra <strong>₹{totalOverpayAmt.toLocaleString('en-IN')}</strong> will be added to their credit balance.
+                  approximately <strong>₹{totalOverpayAmt.toLocaleString('en-IN')}</strong> will become new credit after existing credit is applied.
                 </span>
               </div>
             )}
@@ -1541,16 +1690,16 @@ export function RecordPaymentTab() {
         )}
         <Button
           onClick={submitPayment}
-          loading={mutation.isPending || checkingSaved}
-          disabled={isExpired || !memberId || (!isExplicitMode && !chitId) || (isExplicitMode
-            ? allocationTotal <= 0
+          loading={mutation.isPending || checkingSaved || checkingPreview}
+          disabled={isExpired || !memberId || (autoAllocate && (!totalBalanceLoaded || !creditLoaded || outstanding === null)) || (isWorkerCollect && outstanding === null) || (!isExplicitMode && !chitId) || (isExplicitMode
+            ? allocationTotal <= 0 || explicitOverflow
             : (isCredit ? !creditCoversAll : (!amount || Number(amount) <= 0)))}
           className="w-full"
           title={isExpired ? 'Plan expired — renew to record payments' : undefined}
         >
           <CreditCard size={15} />
           {isCredit
-            ? `Apply ₹${(outstanding ?? 0).toLocaleString('en-IN')} Credits`
+            ? 'Review credit allocation'
             : isCash && collectedBy !== 'SELF'
             ? 'Record Collection (Remittance)'
             : `Record ${PAYMENT_MODES.find((m) => m.value === paymentMode)?.label} Payment`}
@@ -1949,7 +2098,7 @@ export function HistoryTab() {
       setPage(0);
       return result;
     },
-    retry: 2,
+    retry: (failureCount, error) => shouldRetryRead(failureCount, error, 2),
   });
 
   async function loadMore() {
@@ -1978,8 +2127,9 @@ export function HistoryTab() {
   function drawLabel(allocations) {
     if (!allocations?.length) return '—';
     const nums = allocations.map((a) => a.monthNumber).sort((a, b) => a - b);
-    if (nums.length === 1) return `Draw ${nums[0]}`;
-    return `Draws ${nums.join(', ')}`;
+    const chitCount = new Set(allocations.map((a) => a.chitId).filter(Boolean)).size;
+    const label = nums.length === 1 ? `Draw ${nums[0]}` : `Draws ${nums.join(', ')}`;
+    return chitCount > 1 ? `${label} · ${chitCount} chits` : label;
   }
 
   const BATCH_STATUS_STYLE = {

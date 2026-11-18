@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   getChits, getDraws, closeDraw, skipDraw, deleteDraw,
-  getWinners, getPayoutsByChit, listStaff, getMembers,
+  getWinners, getPayoutsByChit, getAllPayouts, listStaff, getMembers,
   getEnrollments,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -114,7 +114,7 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
   const qc      = useQueryClient();
   const toast   = useToastContext();
   const navigate = useNavigate();
-  const { planExpiresAt } = useAuth();
+  const { planExpiresAt, user } = useAuth();
   const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
 
   const [showOpenModal,   setShowOpenModal]  = useState(false);
@@ -133,7 +133,7 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
     enabled: isAuctionChit,
   });
   const auctionByMonth = Object.fromEntries(auctions.map((a) => [a.monthNumber, a]));
-  const { data: chitPayouts = [] }           = useQuery({ queryKey: ['chit-payouts', chitId], queryFn: () => getPayoutsByChit(chitId) });
+  const { data: chitPayouts = [] }           = useQuery({ queryKey: ['chit-payouts', chitId], queryFn: () => user?.role === 'MANAGER' ? getAllPayouts({ chitId }) : getPayoutsByChit(chitId) });
   const { data: staffList = [] }             = useQuery({ queryKey: ['staff'],               queryFn: listStaff });
   const { data: allMembers = [] }            = useQuery({ queryKey: ['members'],              queryFn: getMembers });
 
@@ -520,7 +520,7 @@ export default function DrawsPage() {
                     {isSelected && <ChevronRight size={14} className="text-[#1E3A5F] flex-shrink-0" />}
                   </div>
                   <p className="text-xs text-gray-400 ml-10">
-                    ₹{(c.installmentAmount ?? 0).toLocaleString('en-IN')} · {c.capacity} members
+                    ₹{(c.installmentAmount ?? 0).toLocaleString('en-IN')} · {c.payingMemberSlots ?? c.memberCount ?? '—'} paying member slots
                   </p>
                 </button>
               );

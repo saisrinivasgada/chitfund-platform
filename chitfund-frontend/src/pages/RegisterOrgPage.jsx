@@ -1,11 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { registerOrg, getPublicPlans, sendRegistrationOtp, verifyRegistrationOtp, validatePromoCode, checkSlugAvailability } from '../services/api';
+import useUsernameAvailability, { isValidUsername, normalizeUsernameInput } from '../hooks/useUsernameAvailability';
 import {
   BookOpen, Building2, CheckCircle, ChevronRight, ChevronLeft,
   Zap, Shield, Users, BarChart2, Check, HelpCircle,
 } from 'lucide-react';
 import OtpInput from '../components/ui/OtpInput';
+import LegalAcceptanceCheckbox from '../components/legal/LegalAcceptanceCheckbox';
+import GoogleSignInButton from '../components/auth/GoogleSignInButton';
+import { googleProfileHint } from '../utils/googleCredential';
+import { RESERVED_TENANT_SLUGS, centralGoogleLoginUrl } from '../utils/tenantHandoff';
 
 
 const FEATURES = [
@@ -15,21 +20,8 @@ const FEATURES = [
   { icon: BarChart2, title: 'Chit group reports',   desc: 'Draw-wise collection, dividend calculation, and treasury summary — auto-generated' },
 ];
 
-const COUNTRY_CODES = [
-  { code: '+91', label: '🇮🇳 +91' },
-  { code: '+1',  label: '🇺🇸 +1' },
-  { code: '+44', label: '🇬🇧 +44' },
-  { code: '+971',label: '🇦🇪 +971' },
-];
-
-const RESERVED_SLUGS = new Set([
-  'hub', 'www', 'api', 'app', 'mail', 'admin', 'support', 'help',
-  'status', 'cdn', 'static', 'assets', 'login', 'signup', 'register',
-  'dashboard', 'billing', 'dev', 'staging', 'test', 'demo',
-]);
-
 function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-');
+  return str.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function SlugTooltip() {
@@ -115,29 +107,39 @@ function fmtPrice(effectivePaise, originalPaise, discountPct) {
 export default function RegisterOrgPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  useEffect(() => {
+    if (centralGoogleLoginUrl()) {
+      window.location.replace(`https://thechitwise.com/register${window.location.search}`);
+    }
+  }, []);
   const [form, setForm] = useState({
     orgName: '', slug: '', adminFullName: '', adminUsername: '', adminEmail: '',
     adminPhone: '', adminPhoneCountryCode: '+91', plan: 'BASIC',
     promoCode: '',
   });
+  const usernameStatus = useUsernameAvailability(form.adminUsername);
   const [plans, setPlans]             = useState([]);
   const planScrollRef = useRef(null);
   const [planCanLeft, setPlanCanLeft] = useState(false);
   const [planCanRight, setPlanCanRight] = useState(true);
   const [slugEdited, setSlugEdited]   = useState(false);
-  const [slugStatus, setSlugStatus]   = useState(null); // null | 'checking' | 'available' | 'taken'
-  const slugDebounceRef = useRef(null);
-  const slugAbortRef    = useRef(null);
+  const [slugCheck, setSlugCheck]     = useState({ slug: '', status: null });
+  const slugStatus = RESERVED_TENANT_SLUGS.has(form.slug) ? 'taken'
+    : /^[a-z0-9]{3,50}$/.test(form.slug)
+      ? (slugCheck.slug === form.slug ? slugCheck.status : 'checking')
+      : null;
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [fe, setFe]                   = useState({});
   const [done, setDone]               = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [googleIdToken, setGoogleIdToken] = useState(null);
   // Promo code state
   const [promoValidating, setPromoValidating] = useState(false);
   const [promoResult, setPromoResult]         = useState(null); // null | { valid, discountPct, label, referralOrgName, errorMessage }
   // Phone OTP state
-  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [phoneVerificationId, setPhoneVerificationId] = useState(null);
+  const phoneVerified = Boolean(phoneVerificationId);
   const [showOtp, setShowOtp]             = useState(false);
   const [otpSending, setOtpSending]       = useState(false);
 
@@ -168,39 +170,39 @@ export default function RegisterOrgPage() {
     return () => { el.removeEventListener('scroll', check); ro.disconnect(); };
   }, [plans]);
 
-  // Debounced real-time slug availability check
+  // A server result belongs only to the exact slug that was checked.
   useEffect(() => {
-    const slug = form.slug.trim();
-    setSlugStatus(null);
-    if (slugDebounceRef.current) clearTimeout(slugDebounceRef.current);
-    if (slugAbortRef.current) slugAbortRef.current.abort();
-    if (!slug || slug.length < 3) return;
+    const slug = form.slug;
+    if (!/^[a-z0-9]{3,50}$/.test(slug)) return;
 
-    if (RESERVED_SLUGS.has(slug)) {
-      setSlugStatus('taken');
+    if (RESERVED_TENANT_SLUGS.has(slug)) {
+      setSlugCheck({ slug, status: 'taken' });
       setFe((f) => ({ ...f, slug: `"${slug}" is a reserved name and cannot be used.` }));
       return;
     }
 
-    setSlugStatus('checking');
-    slugDebounceRef.current = setTimeout(async () => {
-      const controller = new AbortController();
-      slugAbortRef.current = controller;
+    let active = true;
+    const controller = new AbortController();
+    setSlugCheck({ slug, status: 'checking' });
+    const timer = setTimeout(async () => {
       try {
         const result = await checkSlugAvailability(slug, controller.signal);
-        setSlugStatus(result.available ? 'available' : 'taken');
+        if (!active) return;
+        setSlugCheck({ slug, status: result.available ? 'available' : 'taken' });
         if (!result.available) {
           setFe((f) => ({ ...f, slug: `"${slug}" is already taken — try a different subdomain.` }));
         } else {
           setFe((f) => ({ ...f, slug: undefined }));
         }
-      } catch (err) {
-        if (err.name !== 'CanceledError' && err.name !== 'AbortError') setSlugStatus(null);
+      } catch {
+        if (active) setSlugCheck({ slug, status: null });
       }
-    }, 400);
+    }, 650);
 
     return () => {
-      if (slugDebounceRef.current) clearTimeout(slugDebounceRef.current);
+      active = false;
+      clearTimeout(timer);
+      controller.abort();
     };
   }, [form.slug]);
 
@@ -215,13 +217,31 @@ export default function RegisterOrgPage() {
     if (!slugEdited) set('slug', slugify(val));
   }
 
+  function handleGoogleCredential(idToken) {
+    try {
+      const profile = googleProfileHint(idToken);
+      setForm((current) => ({
+        ...current,
+        adminEmail: profile.email,
+        adminFullName: current.adminFullName || profile.name,
+      }));
+      setGoogleIdToken(idToken);
+      setFe((current) => ({ ...current, adminEmail: undefined }));
+      setError('');
+    } catch (credentialError) {
+      setGoogleIdToken(null);
+      setError(credentialError.message);
+    }
+  }
+
   async function handleSendOtp() {
-    if (!/^[0-9]{10,15}$/.test(form.adminPhone)) {
-      setError('Enter a valid phone number (10–15 digits) before verifying.');
+    if (!/^[6-9][0-9]{9}$/.test(form.adminPhone)) {
+      setError('Enter a valid 10-digit Indian mobile number before verifying.');
       return;
     }
     setOtpSending(true);
     setError('');
+    setPhoneVerificationId(null);
     try {
       await sendRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode });
       setShowOtp(true);
@@ -233,12 +253,14 @@ export default function RegisterOrgPage() {
   }
 
   async function handleOtpVerify(code) {
-    await verifyRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode, code });
-    setPhoneVerified(true);
+    const result = await verifyRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode, code });
+    if (!result?.verificationToken) throw new Error('Phone verification did not complete. Please try again.');
+    setPhoneVerificationId(result.verificationToken);
     setShowOtp(false);
   }
 
   async function handleOtpResend() {
+    setPhoneVerificationId(null);
     await sendRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode });
   }
 
@@ -260,11 +282,11 @@ export default function RegisterOrgPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-    if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(form.slug)) {
-      setError('Slug must be lowercase letters, numbers, and hyphens (2–64 chars).');
+    if (!/^[a-z0-9]{3,50}$/.test(form.slug)) {
+      setError('Subdomain must be 3–50 lowercase English letters and numbers.');
       return;
     }
-    if (RESERVED_SLUGS.has(form.slug)) {
+    if (RESERVED_TENANT_SLUGS.has(form.slug)) {
       setFe((f) => ({ ...f, slug: `"${form.slug}" is a reserved name and cannot be used.` }));
       return;
     }
@@ -276,8 +298,16 @@ export default function RegisterOrgPage() {
       setError('Please wait — checking subdomain availability.');
       return;
     }
-    if (!/^[a-z0-9][a-z0-9._-]{1,28}$/.test(form.adminUsername)) {
-      setError('Username must be 3–30 chars: lowercase letters, digits, dots, underscores, hyphens.');
+    if (!isValidUsername(form.adminUsername)) {
+      setFe((f) => ({ ...f, adminUsername: 'Use 3–30 characters: lowercase English letters, numbers, periods, or underscores. Start with a letter or number.' }));
+      return;
+    }
+    if (usernameStatus === 'taken') {
+      setFe((f) => ({ ...f, adminUsername: 'This username is already taken.' }));
+      return;
+    }
+    if (form.adminEmail.length > 100) {
+      setFe((f) => ({ ...f, adminEmail: 'Use an email address with at most 100 characters.' }));
       return;
     }
     if (!phoneVerified) {
@@ -291,7 +321,8 @@ export default function RegisterOrgPage() {
     setLoading(true);
     setFe({});
     try {
-      await registerOrg({ ...form, termsAccepted });
+      await registerOrg({ ...form, phoneVerificationId, termsAccepted,
+        ...(googleIdToken ? { googleIdToken } : {}) });
       setDone(true);
     } catch (err) {
       const fieldErrors = err.response?.data?.fieldErrors;
@@ -304,7 +335,9 @@ export default function RegisterOrgPage() {
       }
       const code = err.response?.data?.errorCode;
       const msg  = err.response?.data?.message ?? '';
-      if (code === 'USER_002' || msg.toLowerCase().includes('username')) {
+      if (googleIdToken && (err.response?.status === 401 || /google token/i.test(msg))) {
+        setError('Your Google sign-in has expired. Choose your Google account again, then submit.');
+      } else if (code === 'USER_002' || msg.toLowerCase().includes('username')) {
         setFe({ adminUsername: 'This username is already taken.' });
       } else if (code === 'USER_003' || msg.toLowerCase().includes('email')) {
         setFe({ adminEmail: 'This email is already registered.' });
@@ -322,9 +355,9 @@ export default function RegisterOrgPage() {
   if (done) {
     const steps = [
       { label: 'Application received',        desc: 'Your request is in our system.',                        done: true  },
-      { label: 'Under review',                desc: 'Our team will review within 24 hours.',                 done: false },
-      { label: 'Activation email sent',       desc: `We'll email ${form.adminEmail} with next steps.`,       done: false },
-      { label: 'Your org goes live',          desc: 'Log in and start managing your chit fund.',             done: false },
+      { label: 'Under review',                desc: "We'll review your application and email you when there is an update.", done: false },
+      { label: 'Approval update',             desc: `We'll email ${form.adminEmail} with next steps.`,       done: false },
+      { label: 'Your org goes live',          desc: googleIdToken ? 'Continue with Google after approval.' : 'Set your password, then sign in.', done: false },
     ];
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#f8fafd] to-[#eef2f7] px-4 py-10">
@@ -341,7 +374,10 @@ export default function RegisterOrgPage() {
               <strong className="text-white">{form.orgName}</strong> has been submitted for review.
             </p>
             <p className="text-white/60 text-xs mt-2">
-              A confirmation email has been sent to <strong className="text-white/80">{form.adminEmail}</strong>
+              Check <strong className="text-white/80">{form.adminEmail}</strong> for updates about your application.
+            </p>
+            <p className="text-white/80 text-xs mt-2">
+              Your portal address after approval: <strong>{form.slug}.thechitwise.com</strong>
             </p>
           </div>
 
@@ -365,7 +401,9 @@ export default function RegisterOrgPage() {
             </div>
 
             <div className="mt-2 p-4 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700 leading-relaxed">
-              <strong>What happens next?</strong> Keep an eye on <strong>{form.adminEmail}</strong>. Once approved, you'll receive an activation link to set up your password and start using ChitWise.
+              <strong>What happens next?</strong> Keep an eye on <strong>{form.adminEmail}</strong>. {googleIdToken
+                ? 'Once approved, sign in with this same Google account and verify your mobile number.'
+                : "Once approved, you'll receive a link to set your password. We won't email you a password."}
             </div>
           </div>
 
@@ -517,16 +555,18 @@ export default function RegisterOrgPage() {
                       ? 'border-emerald-400 focus-within:border-emerald-400 focus-within:ring-emerald-400/10'
                       : 'border-gray-200 focus-within:border-[#1E3A5F] focus-within:ring-[#1E3A5F]/10'
                   }`}>
-                    <span className="flex items-center px-4 py-3 bg-gray-50 text-gray-400 text-sm border-r border-gray-200 whitespace-nowrap select-none">
-                      chitwise.com/
-                    </span>
                     <input
                       className="flex-1 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none bg-white"
                       value={form.slug}
                       onChange={(e) => { setSlugEdited(true); set('slug', slugify(e.target.value)); }}
                       placeholder="kethaki"
                       required
+                      minLength={3}
+                      maxLength={50}
                     />
+                    <span className="flex items-center px-3 py-3 bg-gray-50 text-gray-400 text-xs sm:text-sm border-l border-gray-200 whitespace-nowrap select-none">
+                      .thechitwise.com
+                    </span>
                     <span className="flex items-center pr-3 pl-1 bg-white">
                       {slugStatus === 'checking' && (
                         <span className="w-4 h-4 border-2 border-gray-300 border-t-[#1E3A5F] rounded-full animate-spin block" />
@@ -543,7 +583,7 @@ export default function RegisterOrgPage() {
                     ? <FieldError msg={fe.slug} />
                     : slugStatus === 'available'
                     ? <p className="text-xs text-emerald-600 mt-2 font-medium">✓ Available</p>
-                    : <p className="text-xs text-gray-400 mt-2">Lowercase letters, numbers and hyphens only</p>
+                    : <p className="text-xs text-gray-400 mt-2">Lowercase English letters and numbers only. Spaces are joined automatically.</p>
                   }
                 </div>
               </div>
@@ -553,6 +593,18 @@ export default function RegisterOrgPage() {
             <div className="mb-8 sm:mb-12">
               <SectionHeading>Administrator account</SectionHeading>
               <div className="space-y-7">
+                {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-sm font-semibold text-gray-800 mb-2">How would you like to sign in?</p>
+                    <GoogleSignInButton onCredential={handleGoogleCredential} text="continue_with" />
+                    {googleIdToken ? (
+                      <div className="text-center mt-3">
+                        <p className="text-xs text-emerald-700">Google account selected: {form.adminEmail}</p>
+                        <button type="button" onClick={() => setGoogleIdToken(null)} className="text-xs text-[#1E3A5F] underline mt-2">Use email instead</button>
+                      </div>
+                    ) : <p className="text-xs text-gray-500 text-center mt-3">Or continue below with email and set your password after approval.</p>}
+                  </div>
+                )}
                 <div data-field="adminFullName">
                   <FieldLabel required>Full name</FieldLabel>
                   <TextInput
@@ -567,22 +619,31 @@ export default function RegisterOrgPage() {
                 <div data-field="adminUsername">
                   <FieldLabel required>
                     Username
-                    <span className="text-gray-400 font-normal ml-1 text-xs">— for logging in</span>
+                    <span className="text-gray-400 font-normal ml-1 text-xs">
+                      {googleIdToken ? '— your account name' : '— for logging in'}
+                    </span>
                   </FieldLabel>
                   <TextInput
                     value={form.adminUsername}
-                    onChange={(e) => set('adminUsername', e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ''))}
+                    onChange={(e) => set('adminUsername', normalizeUsernameInput(e.target.value))}
                     placeholder="sai.srinivas"
                     required
                     minLength={3}
                     maxLength={30}
                     error={fe.adminUsername}
                   />
-                  {fe.adminUsername
-                    ? <FieldError msg={fe.adminUsername} />
-                    : <p className="text-xs text-gray-400 mt-2">Lowercase letters, digits, dots, underscores, hyphens</p>
-                  }
-                  <p className="text-xs text-gray-400 mt-1.5">A temporary password will be sent to you after your application is approved.</p>
+                  {fe.adminUsername ? <FieldError msg={fe.adminUsername} /> : (
+                    <p className={`text-xs mt-2 ${usernameStatus === 'taken' ? 'text-red-500' : usernameStatus === 'available' ? 'text-emerald-600' : 'text-gray-400'}`} aria-live="polite">
+                      {usernameStatus === 'checking' ? 'Checking username…'
+                        : usernameStatus === 'available' ? '✓ Username available'
+                        : usernameStatus === 'taken' ? 'This username is already taken.'
+                        : usernameStatus === 'unknown' ? 'Could not check now. We will check when you submit.'
+                        : 'Use 3–30 lowercase English letters, numbers, periods, or underscores. Starts with a letter or number.'}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1.5">{googleIdToken
+                    ? 'You will use the same Google account to sign in after approval.'
+                    : "If approved, we'll email you a link to set your password. We won't send a password by email."}</p>
                 </div>
                 <div data-field="adminEmail">
                   <FieldLabel required>Email</FieldLabel>
@@ -590,6 +651,8 @@ export default function RegisterOrgPage() {
                     type="email"
                     value={form.adminEmail}
                     onChange={(e) => set('adminEmail', e.target.value)}
+                    maxLength={100}
+                    readOnly={Boolean(googleIdToken)}
                     placeholder="admin@example.com"
                     required
                     error={fe.adminEmail}
@@ -611,6 +674,7 @@ export default function RegisterOrgPage() {
                       <OtpInput
                         phone={form.adminPhone}
                         countryCode={form.adminPhoneCountryCode}
+                        channel="whatsapp"
                         onVerify={handleOtpVerify}
                         onResend={handleOtpResend}
                         onCancel={() => setShowOtp(false)}
@@ -618,19 +682,13 @@ export default function RegisterOrgPage() {
                     </div>
                   ) : (
                     <div className="flex gap-3">
-                      <select
-                        value={form.adminPhoneCountryCode}
-                        onChange={(e) => { set('adminPhoneCountryCode', e.target.value); setPhoneVerified(false); }}
-                        className="w-32 flex-shrink-0 px-3 py-3 rounded-xl border border-gray-200 text-sm text-gray-700 bg-white outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/10 cursor-pointer"
-                      >
-                        {COUNTRY_CODES.map(({ code, label }) => (
-                          <option key={code} value={code}>{label}</option>
-                        ))}
-                      </select>
+                      <span className="flex w-24 flex-shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700" aria-label="India country code plus 91">
+                        🇮🇳 +91
+                      </span>
                       <TextInput
                         type="tel"
                         value={form.adminPhone}
-                        onChange={(e) => { set('adminPhone', e.target.value.replace(/\D/g, '')); setPhoneVerified(false); }}
+                        onChange={(e) => { set('adminPhone', e.target.value.replace(/\D/g, '')); setPhoneVerificationId(null); }}
                         placeholder="9876543210"
                         required
                         className="flex-1"
@@ -765,7 +823,7 @@ export default function RegisterOrgPage() {
                   value={form.promoCode}
                   onChange={e => { set('promoCode', e.target.value.toUpperCase()); setPromoResult(null); }}
                   placeholder="e.g. SUMMER25 or REF-KETHAKI"
-                  className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20"
+                  className="flex-1 min-w-0 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20"
                 />
                 <button
                   type="button"
@@ -812,26 +870,12 @@ export default function RegisterOrgPage() {
               </div>
             )}
 
-            {/* Terms checkbox */}
-            <label className="flex items-start gap-3 cursor-pointer mb-5 select-none">
-              <input
-                type="checkbox"
-                checked={termsAccepted}
-                onChange={e => setTermsAccepted(e.target.checked)}
-                className="mt-0.5 w-4 h-4 flex-shrink-0 cursor-pointer accent-[#1E3A5F]"
-              />
-              <span className="text-sm text-gray-600 leading-relaxed">
-                I agree to the ChitWise{' '}
-                <button type="button" onClick={() => window.open('/terms', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
-                  Terms of Service
-                </button>
-                {' '}and acknowledge the{' '}
-                <button type="button" onClick={() => window.open('/privacy', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
-                  Privacy Policy
-                </button>
-                .
-              </span>
-            </label>
+            <LegalAcceptanceCheckbox
+              id="register-legal-acceptance"
+              checked={termsAccepted}
+              onChange={setTermsAccepted}
+              className="mb-5"
+            />
 
             <button
               type="submit"

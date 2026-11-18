@@ -1,5 +1,5 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, lazy, Suspense } from 'react';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -9,73 +9,91 @@ function ScrollToTop() {
 import { useAuth } from './context/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import MemberPortalLayout from './components/layout/MemberPortalLayout';
-import LoginPage from './pages/LoginPage';
-import LandingPage from './pages/LandingPage';
-import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
-import TermsPage from './pages/TermsPage';
-import AboutPage from './pages/AboutPage';
-import ChangePasswordPage from './pages/ChangePasswordPage';
-import SelectCompanyPage from './pages/SelectCompanyPage';
-import SetupAccountPage from './pages/SetupAccountPage';
-import OrgUserSetupPage from './pages/OrgUserSetupPage';
-import ChitfundRequestLandingPage from './pages/ChitfundRequestLandingPage';
-import TransferPage from './pages/TransferPage';
-import RegisterOrgPage from './pages/RegisterOrgPage';
-import ProxyPage from './pages/ProxyPage';
 import SuperAdminLayout from './components/superadmin/SuperAdminLayout';
-import SuperAdminHomePage from './pages/superadmin/SuperAdminHomePage';
-import SuperAdminTenantsPage from './pages/superadmin/SuperAdminTenantsPage';
-import SuperAdminOrgDetailPage from './pages/superadmin/SuperAdminOrgDetailPage';
-import SuperAdminPlansPage from './pages/superadmin/SuperAdminPlansPage';
-import SuperAdminPromotionsPage from './pages/superadmin/SuperAdminPromotionsPage';
-import SuperAdminAlertsPage from './pages/superadmin/SuperAdminAlertsPage';
-import SuperAdminBillingPage from './pages/superadmin/SuperAdminBillingPage';
-import SuperAdminPaymentDetailPage from './pages/superadmin/SuperAdminPaymentDetailPage';
-import DashboardPage from './pages/DashboardPage';
-import ActivityPage from './pages/ActivityPage';
-import MembersPage from './pages/members/MembersPage';
-import MemberDetailPage from './pages/members/MemberDetailPage';
-import ChitsPage from './pages/chits/ChitsPage';
-import ChitDetailPage from './pages/chits/ChitDetailPage';
-import PaymentsPage, {
-  RecordPaymentTab,
-  CashRequestsTab,
-  PendingRemittanceTab,
-  HistoryTab,
-  IntimationsTab,
-} from './pages/payments/PaymentsPage';
-import PayoutsPage from './pages/payouts/PayoutsPage';
-import PayoutDetailPage from './pages/payouts/PayoutDetailPage';
-import DrawsPage from './pages/draws/DrawsPage';
-import AuctionRoomPage from './pages/auction/AuctionRoomPage';
-import ReportsPage from './pages/reports/ReportsPage';
-import MyAccountPage from './pages/admin/MyAccountPage';
-import AdminMemberViewPage from './pages/admin/AdminMemberViewPage';
-import MyOrgPage from './pages/admin/MyOrgPage';
-import RolesPage from './pages/admin/RolesPage';
-import StaffDetailPage from './pages/admin/StaffDetailPage';
-import TreasuryPage from './pages/admin/TreasuryPage';
-import SettlementPage from './pages/admin/SettlementPage';
-import AdminParticipationPage from './pages/admin/AdminParticipationPage';
-import BillingPage from './pages/BillingPage';
-import StaffTasksPage from './pages/staff/StaffTasksPage';
-import ManagerCashPickupPage from './pages/manager/ManagerCashPickupPage';
-import MemberPortalPage from './pages/member/MemberPortalPage';
-import MemberProfilePage from './pages/member/MemberProfilePage';
-import MemberChitDetailPage from './pages/member/MemberChitDetailPage';
-import MemberInvitationsPage from './pages/member/MemberInvitationsPage';
-import ChitfundRequestsPage from './pages/member/ChitfundRequestsPage';
-import TransactionDetailPage from './pages/TransactionDetailPage';
-import ErrorPage from './pages/ErrorPage';
-import SessionExpiredPage from './pages/SessionExpiredPage';
 import TenantGate from './components/layout/TenantGate';
 import HubLayout from './components/hub/HubLayout';
-import HubLoginPage from './pages/hub/HubLoginPage';
-import HubChangePasswordPage from './pages/hub/HubChangePasswordPage';
-import HubAcceptInvitePage from './pages/hub/HubAcceptInvitePage';
-import HubTicketWorkspace from './pages/hub/HubTicketWorkspace';
-import HubEmployeesPage from './pages/hub/HubEmployeesPage';
-import HubChatPage from './pages/hub/HubChatPage';
+
+// Keep the app shell visible while each route loads on slower connections.
+function loadPage(load) {
+  const Page = lazy(load);
+  return function DeferredPage(props) {
+    return <Suspense fallback={
+      <div role="status" className="flex min-h-48 items-center justify-center gap-3 px-4 text-sm text-slate-600">
+        <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[#1E3A5F] border-t-transparent" />
+        Opening page…
+      </div>
+    }><Page {...props} /></Suspense>;
+  };
+}
+
+const LoginPage = loadPage(() => import('./pages/LoginPage'));
+const LandingPage = loadPage(() => import('./pages/LandingPage'));
+const PrivacyPolicyPage = loadPage(() => import('./pages/PrivacyPolicyPage'));
+const TermsPage = loadPage(() => import('./pages/TermsPage'));
+const DeleteAccountPage = loadPage(() => import('./pages/DeleteAccountPage'));
+const LegalReviewPage = loadPage(() => import('./pages/LegalReviewPage'));
+const AboutPage = loadPage(() => import('./pages/AboutPage'));
+const ChangePasswordPage = loadPage(() => import('./pages/ChangePasswordPage'));
+const SelectCompanyPage = loadPage(() => import('./pages/SelectCompanyPage'));
+const SetupAccountPage = loadPage(() => import('./pages/SetupAccountPage'));
+const AdminSetupPage = loadPage(() => import('./pages/AdminSetupPage'));
+const ChitfundRequestLandingPage = loadPage(() => import('./pages/ChitfundRequestLandingPage'));
+const TransferPage = loadPage(() => import('./pages/TransferPage'));
+const GoogleProofPage = loadPage(() => import('./pages/GoogleProofPage'));
+const RegisterOrgPage = loadPage(() => import('./pages/RegisterOrgPage'));
+const ProxyPage = loadPage(() => import('./pages/ProxyPage'));
+const OrgUserSetupPage = loadPage(() => import('./pages/OrgUserSetupPage'));
+const SuperAdminHomePage = loadPage(() => import('./pages/superadmin/SuperAdminHomePage'));
+const SuperAdminTenantsPage = loadPage(() => import('./pages/superadmin/SuperAdminTenantsPage'));
+const SuperAdminOrgDetailPage = loadPage(() => import('./pages/superadmin/SuperAdminOrgDetailPage'));
+const SuperAdminPlansPage = loadPage(() => import('./pages/superadmin/SuperAdminPlansPage'));
+const SuperAdminPromotionsPage = loadPage(() => import('./pages/superadmin/SuperAdminPromotionsPage'));
+const SuperAdminAlertsPage = loadPage(() => import('./pages/superadmin/SuperAdminAlertsPage'));
+const SuperAdminBillingPage = loadPage(() => import('./pages/superadmin/SuperAdminBillingPage'));
+const SuperAdminPaymentDetailPage = loadPage(() => import('./pages/superadmin/SuperAdminPaymentDetailPage'));
+const DashboardPage = loadPage(() => import('./pages/DashboardPage'));
+const ActivityPage = loadPage(() => import('./pages/ActivityPage'));
+const MembersPage = loadPage(() => import('./pages/members/MembersPage'));
+const MemberDetailPage = loadPage(() => import('./pages/members/MemberDetailPage'));
+const ChitsPage = loadPage(() => import('./pages/chits/ChitsPage'));
+const ChitDetailPage = loadPage(() => import('./pages/chits/ChitDetailPage'));
+const PayoutsPage = loadPage(() => import('./pages/payouts/PayoutsPage'));
+const PayoutDetailPage = loadPage(() => import('./pages/payouts/PayoutDetailPage'));
+const DrawsPage = loadPage(() => import('./pages/draws/DrawsPage'));
+const AuctionRoomPage = loadPage(() => import('./pages/auction/AuctionRoomPage'));
+const ReportsPage = loadPage(() => import('./pages/reports/ReportsPage'));
+const MyAccountPage = loadPage(() => import('./pages/admin/MyAccountPage'));
+const AdminMemberViewPage = loadPage(() => import('./pages/admin/AdminMemberViewPage'));
+const MyOrgPage = loadPage(() => import('./pages/admin/MyOrgPage'));
+const RolesPage = loadPage(() => import('./pages/admin/RolesPage'));
+const StaffDetailPage = loadPage(() => import('./pages/admin/StaffDetailPage'));
+const TreasuryPage = loadPage(() => import('./pages/admin/TreasuryPage'));
+const SettlementPage = loadPage(() => import('./pages/admin/SettlementPage'));
+const AdminParticipationPage = loadPage(() => import('./pages/admin/AdminParticipationPage'));
+const BillingPage = loadPage(() => import('./pages/BillingPage'));
+const StaffTasksPage = loadPage(() => import('./pages/staff/StaffTasksPage'));
+const ManagerCashPickupPage = loadPage(() => import('./pages/manager/ManagerCashPickupPage'));
+const MemberPortalPage = loadPage(() => import('./pages/member/MemberPortalPage'));
+const MemberProfilePage = loadPage(() => import('./pages/member/MemberProfilePage'));
+const MemberChitDetailPage = loadPage(() => import('./pages/member/MemberChitDetailPage'));
+const MemberInvitationsPage = loadPage(() => import('./pages/member/MemberInvitationsPage'));
+const ChitfundRequestsPage = loadPage(() => import('./pages/member/ChitfundRequestsPage'));
+const TransactionDetailPage = loadPage(() => import('./pages/TransactionDetailPage'));
+const ErrorPage = loadPage(() => import('./pages/ErrorPage'));
+const SessionExpiredPage = loadPage(() => import('./pages/SessionExpiredPage'));
+const HubLoginPage = loadPage(() => import('./pages/hub/HubLoginPage'));
+const HubChangePasswordPage = loadPage(() => import('./pages/hub/HubChangePasswordPage'));
+const HubAcceptInvitePage = loadPage(() => import('./pages/hub/HubAcceptInvitePage'));
+const HubTicketWorkspace = loadPage(() => import('./pages/hub/HubTicketWorkspace'));
+const HubEmployeesPage = loadPage(() => import('./pages/hub/HubEmployeesPage'));
+const HubChatPage = loadPage(() => import('./pages/hub/HubChatPage'));
+
+const PaymentsPage = loadPage(() => import('./pages/payments/PaymentsPage'));
+const RecordPaymentTab = loadPage(() => import('./pages/payments/PaymentsPage').then((module) => ({ default: module.RecordPaymentTab })));
+const CashRequestsTab = loadPage(() => import('./pages/payments/PaymentsPage').then((module) => ({ default: module.CashRequestsTab })));
+const PendingRemittanceTab = loadPage(() => import('./pages/payments/PaymentsPage').then((module) => ({ default: module.PendingRemittanceTab })));
+const HistoryTab = loadPage(() => import('./pages/payments/PaymentsPage').then((module) => ({ default: module.HistoryTab })));
+const IntimationsTab = loadPage(() => import('./pages/payments/PaymentsPage').then((module) => ({ default: module.IntimationsTab })));
 
 function PaymentsDefaultRedirect() {
   const { user } = useAuth();
@@ -83,7 +101,25 @@ function PaymentsDefaultRedirect() {
   return <Navigate to={dest} replace />;
 }
 
+function AdminBillingRoute() {
+  const { user } = useAuth();
+  return user?.role === 'ADMIN' ? <BillingPage /> : <Navigate to="/dashboard" replace />;
+}
+
 export default function App() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const onLegalReviewRequired = (event) => {
+      const hubSession = event.detail?.hub === true || (!!sessionStorage.getItem('hub_token')
+        && (window.location.pathname.startsWith('/hub') || window.location.pathname.startsWith('/superadmin')));
+      const reviewPath = hubSession ? '/hub/legal-review' : '/legal-review';
+      if (window.location.pathname === reviewPath) return;
+      sessionStorage.setItem(hubSession ? 'hub_legal_return_path' : 'legal_return_path', window.location.pathname + window.location.search);
+      navigate(reviewPath, { replace: true });
+    };
+    window.addEventListener('legal-review-required', onLegalReviewRequired);
+    return () => window.removeEventListener('legal-review-required', onLegalReviewRequired);
+  }, [navigate]);
   return (
     <>
     <ScrollToTop />
@@ -91,14 +127,19 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route path="/terms" element={<TermsPage />} />
+      <Route path="/delete-account" element={<DeleteAccountPage />} />
+      <Route path="/legal-review" element={<LegalReviewPage />} />
+      <Route path="/hub/legal-review" element={<LegalReviewPage hub />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterOrgPage />} />
       <Route path="/select-company" element={<SelectCompanyPage />} />
       <Route path="/setup-account" element={<SetupAccountPage />} />
+      <Route path="/setup" element={<AdminSetupPage />} />
       <Route path="/org-user-setup" element={<OrgUserSetupPage />} />
       <Route path="/chitfund-request" element={<ChitfundRequestLandingPage />} />
       <Route path="/auth/transfer" element={<TransferPage />} />
+      <Route path="/auth/google-proof" element={<GoogleProofPage />} />
       <Route path="/proxy" element={<ProxyPage />} />
       {/* Forced password change — accessible to any authenticated user */}
       <Route path="/change-password" element={<ChangePasswordPage />} />
@@ -142,7 +183,7 @@ export default function App() {
         <Route path="/treasury" element={<TreasuryPage />} />
         <Route path="/settlement" element={<SettlementPage />} />
         <Route path="/myorg" element={<MyOrgPage />} />
-        <Route path="/billing" element={<BillingPage />} />
+        <Route path="/billing" element={<AdminBillingRoute />} />
         <Route path="/roles" element={<RolesPage />} />
         <Route path="/staff/:id" element={<StaffDetailPage />} />
         <Route path="/admin/participation/:adminId" element={<AdminParticipationPage />} />

@@ -14,6 +14,7 @@ import { C } from './ui';
 
 export type DashboardGridItem = {
   id: string;
+  label?: string;
   content: (options: { editing: boolean; beginEditing: () => void }) => ReactNode;
 };
 
@@ -51,6 +52,7 @@ function SortableItem({
   columns,
   onBeginEditing,
   onMove,
+  onHide,
 }: {
   item: DashboardGridItem;
   index: number;
@@ -61,6 +63,7 @@ function SortableItem({
   columns: number;
   onBeginEditing: () => void;
   onMove: (from: number, to: number) => void;
+  onHide: (id: string) => void;
 }) {
   const translation = useRef(new Animated.ValueXY()).current;
   const scale = useRef(new Animated.Value(1)).current;
@@ -123,6 +126,12 @@ function SortableItem({
             </View>
           </View>
         )}
+        {editing && <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Hide ${item.label ?? item.id.replace(/-/g, ' ')}`}
+          onPress={() => onHide(item.id)}
+          style={styles.hideButton}
+        ><Text style={styles.hideButtonText}>Hide</Text></Pressable>}
       </Animated.View>
     </GestureDetector>
   );
@@ -143,17 +152,21 @@ export function SortableDashboardGrid({
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [order, setOrder] = useState(ids);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(storageKey)
-      .then((raw) => {
+    setHiddenIds([]);
+    Promise.all([AsyncStorage.getItem(storageKey), AsyncStorage.getItem(`${storageKey}:hidden`)])
+      .then(([raw, hiddenRaw]) => {
         if (!active) return;
         const saved = raw ? JSON.parse(raw) as string[] : null;
         setOrder(normalizeOrder(saved, ids));
+        const savedHidden = hiddenRaw ? JSON.parse(hiddenRaw) as string[] : [];
+        setHiddenIds(Array.isArray(savedHidden) ? savedHidden.filter((id) => typeof id === 'string') : []);
       })
       .catch(() => {
-        if (active) setOrder(ids);
+        if (active) { setOrder(ids); setHiddenIds([]); }
       });
     return () => { active = false; };
   }, [storageKey]);
@@ -163,12 +176,14 @@ export function SortableDashboardGrid({
   }, [ids.join('|')]);
 
   const visibleItems = normalizeOrder(order, ids)
+    .filter((id) => !hiddenIds.includes(id))
     .map((id) => itemMap.get(id))
     .filter((item): item is DashboardGridItem => Boolean(item));
   const hasCollapsedItems = Boolean(collapsedCount && visibleItems.length > collapsedCount);
   const displayedItems = editing || expanded || !collapsedCount
     ? visibleItems
     : visibleItems.slice(0, collapsedCount);
+  const currentHidden = normalizeOrder(order, ids).filter((id) => hiddenIds.includes(id));
   const cellWidth = width > 0 ? (width - gap * (columns - 1)) / columns : 0;
 
   const saveOrder = (next: string[]) => {
@@ -179,12 +194,29 @@ export function SortableDashboardGrid({
   const handleMove = (from: number, rawTo: number) => {
     const to = Math.max(0, Math.min(rawTo, visibleItems.length - 1));
     if (from === to) return;
-    saveOrder(move(visibleItems.map((item) => item.id), from, to));
+    const movedVisible = move(visibleItems.map((item) => item.id), from, to);
+    const hiddenInOrder = normalizeOrder(order, ids).filter((id) => hiddenIds.includes(id));
+    saveOrder([...movedVisible, ...hiddenInOrder]);
+  };
+
+  const hide = (id: string) => {
+    if (visibleItems.length <= 1) return;
+    const next = [...hiddenIds, id];
+    setHiddenIds(next);
+    AsyncStorage.setItem(`${storageKey}:hidden`, JSON.stringify(next)).catch(() => undefined);
+  };
+
+  const restore = (id: string) => {
+    const next = hiddenIds.filter((itemId) => itemId !== id);
+    setHiddenIds(next);
+    AsyncStorage.setItem(`${storageKey}:hidden`, JSON.stringify(next)).catch(() => undefined);
   };
 
   const reset = () => {
     Vibration.vibrate(18);
     saveOrder(ids);
+    setHiddenIds([]);
+    AsyncStorage.removeItem(`${storageKey}:hidden`).catch(() => undefined);
   };
 
   const changeEditing = (next: boolean) => {
@@ -229,10 +261,21 @@ export function SortableDashboardGrid({
                 }
               }}
               onMove={handleMove}
+              onHide={hide}
             />
           ))}
         </View>
       )}
+      {editing && currentHidden.length > 0 && <View style={styles.hiddenBar}>
+        <Text style={styles.hiddenTitle}>Hidden cards · tap to show</Text>
+        <View style={styles.hiddenList}>
+          {currentHidden.map((id) => <Pressable
+            key={id} accessibilityRole="button"
+            accessibilityLabel={`Show ${itemMap.get(id)?.label ?? id.replace(/-/g, ' ')}`}
+            onPress={() => restore(id)} style={styles.restoreButton}
+          ><Text style={styles.restoreText}>+ {itemMap.get(id)?.label ?? id.replace(/-/g, ' ')}</Text></Pressable>)}
+        </View>
+      </View>}
       {!editing && width > 0 && (
         <View>
           {hasCollapsedItems && (
@@ -287,6 +330,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15,43,68,0.10)',
   },
   dragHandleText: { color: C.navy, fontSize: 17, fontWeight: '800', lineHeight: 19 },
+  hideButton: {
+    position: 'absolute', left: 8, bottom: 8, minHeight: 30, paddingHorizontal: 10,
+    borderRadius: 10, justifyContent: 'center', backgroundColor: C.white,
+    borderWidth: 1, borderColor: C.gray200,
+  },
+  hideButtonText: { color: C.gray600, fontSize: 11, fontWeight: '700' },
+  hiddenBar: { marginTop: 10, padding: 12, borderRadius: 14, backgroundColor: '#DDE4EC' },
+  hiddenTitle: { color: C.navy, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  hiddenList: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  restoreButton: { minHeight: 32, paddingHorizontal: 10, borderRadius: 16, justifyContent: 'center', backgroundColor: C.white },
+  restoreText: { color: C.navy, fontSize: 11, fontWeight: '700' },
   insightsButton: {
     alignSelf: 'center',
     minHeight: 36,

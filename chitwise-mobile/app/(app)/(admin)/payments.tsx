@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
+import NetInfo from '@react-native-community/netinfo';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,23 +14,26 @@ import {
   getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
   getCashRequestAuditLog, assignStaffToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
   getMembers, getMembersPage, getChits, getChitsForMember,
-  getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
+  getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance, getPaymentPreview, recordPayment,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
   getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
   getSettlementPreview, confirmSettlement, getMemberSettlements, recordSettlementTransaction, getPendingSettlements, getSettlementById,
   getMemberTotalBalance, getMemberCredit, voidSettlement, getSettlementTransactions,
   getPendingIntimations, getAllIntimations, approveIntimation, rejectIntimation, voidIntimation,
 } from '../../../services/api';
-import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime } from '../../../components/ui';
+import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { useUIStore } from '../../../store/uiStore';
 import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 import { getPendingCountForMember } from '../../../offline/database';
 import { getAccountScope } from '../../../offline/accountScope';
 import { useAuthStore } from '../../../store/authStore';
+import { parseSettlementPaymentAmount, remainingSettlementAmount } from '../../../utils/settlementPayment';
+import { disbursementFormError } from '../../../utils/disbursementForm';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 import { OfflineCollectionReviews } from '../../../components/OfflineCollectionReviews';
+import { checkedPaymentPreview, isStalePaymentConflict, type PaymentPreview } from '../../../utils/paymentPreview';
 
 const ALL_TABS = ['Record Payment', 'Cash Requests', 'Intimations', 'Settlement', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
 type Tab = typeof ALL_TABS[number];
@@ -249,13 +253,13 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
         />
       )}
 
-      {displayed.map((r: any) => {
+      {displayed.map((r: any, i: number) => {
         const cfg = CP_STATUS[r.status] ?? CP_STATUS.PENDING;
         const breakdown: any[] = r.allocations ?? [];
         const hasBreakdown = breakdown.length > 1;
         const isExpanded = expandedRequestId === r.id;
         return (
-          <Card key={r.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: cfg.color }}>
+          <Card key={r.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: cfg.color, backgroundColor: listRowColor(i) }}>
             {/* Header */}
             <TouchableOpacity
               activeOpacity={hasBreakdown ? 0.6 : 1}
@@ -444,7 +448,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
               <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
             {/* Step 1 — Select Member */}
             <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
@@ -608,7 +612,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                 {memberMap[editTarget.memberId]} · {editTarget.status}
               </Text>
             )}
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
               {/* Amount */}
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Amount (₹)</Text>
               <TextInput
@@ -686,7 +690,8 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Assign Staff Modal ─────────────────────────────────────────────── */}
       <Modal visible={!!assignTarget} animationType="slide" transparent onRequestClose={() => setAssignTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
+          <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '75%' }} contentContainerStyle={{ padding: 24 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Assign Staff</Text>
@@ -703,7 +708,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             {workers.length === 0 ? (
               <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 24 }}>No staff members in the team yet</Text>
             ) : (
-              <ScrollView style={{ maxHeight: 220, marginBottom: 12 }}>
+              <ScrollView style={{ maxHeight: 220, marginBottom: 12 }} nestedScrollEnabled>
                 {workers.map((w: any) => (
                   <TouchableOpacity key={w.id} onPress={() => setAssignWorkerId(w.id)}
                     style={{ padding: 12, borderRadius: 10, marginBottom: 6, borderWidth: 2,
@@ -727,7 +732,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
               <View style={{ flex: 1 }}><Button label="Assign" variant="primary" disabled={!assignWorkerId} loading={assignMut.isPending}
                 onPress={() => assignMut.mutate({ id: assignTarget.id, staffId: assignWorkerId, notes: assignNotes })} /></View>
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -803,6 +808,7 @@ function RecordPaymentTab() {
   const [memberId, setMemberId] = useState('');
   const [chitId, setChitId] = useState('');
   const [selectedAllocations, setSelectedAllocations] = useState<Record<string, string>>({});
+  const [autoAllocate, setAutoAllocate] = useState(false);
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState('CASH');
   const [collectedBy, setCollectedBy] = useState('SELF');
@@ -816,6 +822,11 @@ function RecordPaymentTab() {
   useEffect(() => { const timer = setTimeout(() => setMemberSearchTerm(memberSearch.trim()), 250); return () => clearTimeout(timer); }, [memberSearch]);
   const [memberInfoId, setMemberInfoId] = useState('');
   const [idempotencyKey, setIdempotencyKey] = useState(() => Crypto.randomUUID());
+  const [reviewPreview, setReviewPreview] = useState<{ key: string; data: PaymentPreview; cashApplied: number } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [staleReview, setStaleReview] = useState(false);
+  const previewKeyRef = useRef('');
 
   const memberPages = useInfiniteQuery({
     queryKey: ['record-payment-members', memberSearchTerm],
@@ -865,12 +876,14 @@ function RecordPaymentTab() {
   const isCash = mode === 'CASH';
   const isCredit = mode === 'CREDIT';
   const workerCollect = isCash && collectedBy !== 'SELF';
-  const isExplicitMode = !isCredit && !workerCollect;
+  const isExplicitMode = !isCredit && !workerCollect && !autoAllocate;
   const allocationEntries = Object.entries(selectedAllocations)
     .map(([selectedChitId, selectedAmount]) => ({ chitId: selectedChitId, amount: Number(selectedAmount || 0) }))
     .filter((entry) => entry.amount > 0);
   const allocationTotal = allocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const allSelectedBalancesKnown = allocationEntries.every((entry) => (multiBalances as any)[entry.chitId] != null);
+  const explicitOverflow = isExplicitMode && allocationEntries.some((entry) =>
+    (multiBalances as any)[entry.chitId] != null && entry.amount > Number((multiBalances as any)[entry.chitId]));
   const bal = isExplicitMode && allocationEntries.length > 1
     ? allSelectedBalancesKnown ? allocationEntries.reduce((sum, entry) => sum + Number((multiBalances as any)[entry.chitId]), 0) : null
     : primaryBalance;
@@ -886,6 +899,9 @@ function RecordPaymentTab() {
   const outstanding = bal != null ? Number(bal) : null;
   const creditCoversAll = outstanding !== null && outstanding > 0 && creditBalance >= outstanding;
   const creditPartial = creditBalance > 0 && !creditCoversAll && outstanding !== null && outstanding > 0;
+  const previewKey = `${memberId}|${chitId}|${amount}|${mode}|${collectedBy}|${autoAllocate}|${idempotencyKey}`;
+  previewKeyRef.current = previewKey;
+  const currentPreview = reviewPreview?.key === previewKey ? reviewPreview : null;
 
   useEffect(() => {
     if (creditPartial && outstanding !== null) {
@@ -921,16 +937,33 @@ function RecordPaymentTab() {
     // a payment directly — nobody's balance changes until that staff member
     // confirms they collected the cash and admin confirms receipt. See the
     // matching comment in members.tsx's collectMutation for the full reasoning.
-    mutationFn: () => workerCollect
-      ? adminCreateCashRequest(
+    mutationFn: (balanceVersion?: string) => {
+      if (workerCollect) return adminCreateCashRequest(
           memberId,
           allocationEntries[0]?.chitId ?? chitId,
           amtNum,
           collectedBy,
           notes || undefined,
           allocationEntries.length > 1 ? allocationEntries : undefined,
-        )
-      : recordPaymentOfflineCapable({
+        );
+      if (isCredit) {
+        if (!balanceVersion) throw new Error('Review current credit allocations before applying them.');
+        return recordPayment({
+          chitId, memberId, amount: 0, paymentMode: 'CREDIT',
+          notes: notes || undefined, balanceVersion, idempotencyKey,
+        });
+      }
+      if (autoAllocate && !isCredit) {
+        if (!balanceVersion) throw new Error('Review current payment amounts before recording.');
+        // This path must post online with the reviewed balance version. An
+        // offline queue would lose the guarantee that these figures are current.
+        return recordPayment({
+          chitId, memberId, amount: amtNum, paymentMode: mode,
+          notes: notes || undefined, paymentReference: paymentReference || undefined,
+          balanceVersion, idempotencyKey,
+        });
+      }
+      return recordPaymentOfflineCapable({
         chitId: allocationEntries[0]?.chitId ?? chitId,
         memberId,
         amount: isCredit ? 0 : amtNum,
@@ -939,7 +972,8 @@ function RecordPaymentTab() {
         paymentReference: paymentReference || undefined,
         allocations: isExplicitMode && allocationEntries.length > 0 ? allocationEntries : undefined,
         idempotencyKey,
-      }),
+      });
+    },
     onMutate: () => {
       // Scroll to top immediately so the SyncStatusCard is on-screen before the
       // pending-count update arrives (which happens right after the fast local
@@ -948,7 +982,7 @@ function RecordPaymentTab() {
     },
     onSuccess: (data: any) => {
       const msg = isCredit
-        ? 'Credits applied — outstanding settled'
+        ? 'Available credit applied to the reviewed installments'
         : workerCollect
         ? 'Cash pickup request sent — awaiting staff collection'
         : data?.offlineQueued
@@ -958,6 +992,8 @@ function RecordPaymentTab() {
       setIdempotencyKey(Crypto.randomUUID());
       setAmount(''); setNotes(''); setPaymentReference(''); setCollectedBy('SELF');
       setSelectedAllocations({});
+      setAutoAllocate(false);
+      setReviewPreview(null); setPreviewError(''); setStaleReview(false);
       if (isCredit) setMode('CASH');
       scrollRef.current?.scrollTo({ y: 0, animated: true });
 
@@ -976,11 +1012,46 @@ function RecordPaymentTab() {
       if (chitId) qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
       qc.invalidateQueries({ queryKey: ['m-wallet'] });
     },
-    onError: (e: any) => {
+    onError: (e: any, balanceVersion) => {
+      if (balanceVersion && isStalePaymentConflict(e)) {
+        setReviewPreview(null);
+        setStaleReview(true);
+        setPreviewError('The member balance changed. Tap Record again to review the updated amounts.');
+        qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
+        qc.invalidateQueries({ queryKey: ['m-member-credit-pay', memberId] });
+        qc.invalidateQueries({ queryKey: ['m-pay-multi-balances', memberId] });
+        Alert.alert('Balance changed', 'No payment was recorded. Tap Record again to review the updated amounts.');
+        return;
+      }
       console.error('[RecordPayment] onError status=' + (e?.response?.status ?? 'none') + ' code=' + (e?.code ?? 'none') + ' msg=' + (e?.message ?? '') + ' data=' + JSON.stringify(e?.response?.data));
       Alert.alert('Error', e.response?.data?.message ?? e?.message ?? 'Failed to record payment — please try again.');
     },
   });
+
+  const requestPreview = async () => {
+    if (previewLoading || recordMut.isPending) return;
+    const requestKey = previewKey;
+    setPreviewLoading(true);
+    setPreviewError('');
+    try {
+      const network = await NetInfo.fetch();
+      if (network.isConnected !== true || network.isInternetReachable === false) {
+        throw new Error(isCredit
+          ? 'Connect to review the current credit allocation before applying it.'
+          : 'Connect to review Auto-apply amounts. If offline recording is enabled, choose exact dues to save offline.');
+      }
+      const response = await getPaymentPreview(memberId, chitId, amtNum) as PaymentPreview;
+      if (previewKeyRef.current !== requestKey) return;
+      const checked = checkedPaymentPreview(response, { memberId, chitId, amount: amtNum });
+      setReviewPreview({ key: requestKey, ...checked });
+    } catch (error: any) {
+      if (previewKeyRef.current !== requestKey) return;
+      setReviewPreview(null);
+      setPreviewError(error?.response?.data?.message ?? error?.message ?? 'Could not review the current payment amounts. Try again.');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   const voidMut = useMutation({
     mutationFn: () => voidPaymentBatch(voidBatchId, voidReason),
@@ -1026,14 +1097,76 @@ function RecordPaymentTab() {
   );
 
   const submitLabel = isCredit
-    ? `Apply ₹${(outstanding ?? 0).toLocaleString('en-IN')} Credits`
+    ? 'Review credit allocation'
     : workerCollect
     ? `Send for Pickup — ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'}`
     : `Record ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'} Payment`;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+    <ScrollView ref={scrollRef}
+      contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 860, alignSelf: 'center' }}
+      keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
+
+      <Modal visible={!!currentPreview} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setReviewPreview(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 24, width: '100%', maxWidth: 680, alignSelf: 'center' }}>
+            <Text style={{ ...T.h2, marginBottom: 8 }}>{staleReview ? 'Review updated payment' : isCredit ? 'Review credit allocation' : 'Review payment allocation'}</Text>
+            <Text style={{ fontSize: 12, lineHeight: 18, color: C.gray500, marginBottom: 16 }}>
+              {staleReview ? 'The member balance changed. Check these refreshed amounts before proceeding.'
+                : 'These current server amounts are checked again when the payment is recorded.'}
+            </Text>
+            {currentPreview && <>
+              {([
+                ['Selected chit due', currentPreview.data.selectedChitOutstanding],
+                ['All chit dues', currentPreview.data.totalOutstanding],
+                ['Existing member credit', currentPreview.data.creditAvailable],
+                ['Existing credit applied', currentPreview.data.creditConsumed],
+                ...(!isCredit ? [
+                  ['Amount received', currentPreview.data.requestedAmount],
+                  ['Cash applied to dues', currentPreview.cashApplied],
+                  ['New member credit', currentPreview.data.projectedNewCredit],
+                ] as Array<[string, number | string]> : []),
+              ] as Array<[string, number | string]>).map(([label, value]) => (
+                <View key={label} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+                  <Text style={{ flex: 1, fontSize: 13, color: C.gray600 }}>{label}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>₹{Number(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</Text>
+                </View>
+              ))}
+              {currentPreview.data.allocations.length > 0 && <>
+                <Text style={{ ...T.label, marginTop: 18, marginBottom: 8 }}>Dues covered</Text>
+                {currentPreview.data.allocations.map((line, index) => (
+                  <View key={`${line.chitId}-${line.monthNumber}-${line.catchUpLine}-${index}`} style={{ backgroundColor: listRowColor(index), borderRadius: 10, padding: 11, marginBottom: 6 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray900 }}>
+                      {payableChits.find((chit: any) => chit.id === line.chitId)?.name ?? 'Chit'} · {line.catchUpLine ? 'Catch-up' : 'Draw'} {line.monthNumber}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: C.gray500, marginTop: 3 }}>
+                      ₹{Number(line.creditApplied).toLocaleString('en-IN', { maximumFractionDigits: 2 })} credit{!isCredit && ` + ₹${Number(line.newPaymentApplied).toLocaleString('en-IN', { maximumFractionDigits: 2 })} cash`}
+                    </Text>
+                  </View>
+                ))}
+              </>}
+            </>}
+          </ScrollView>
+          <View style={{ width: '100%', maxWidth: 680, alignSelf: 'center', padding: 20, borderTopWidth: 1, borderTopColor: C.gray200, flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity accessibilityRole="button" onPress={() => setReviewPreview(null)} style={{ flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: C.gray200 }}>
+              <Text style={{ color: C.gray700, fontWeight: '700' }}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" disabled={recordMut.isPending || !currentPreview} onPress={() => {
+              if (!currentPreview || previewKeyRef.current !== currentPreview.key) {
+                setReviewPreview(null);
+                setPreviewError('Payment details changed. Review current amounts again.');
+                return;
+              }
+              const version = currentPreview.data.balanceVersion;
+              setReviewPreview(null);
+              recordMut.mutate(version);
+            }} style={{ flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', backgroundColor: C.navy, opacity: recordMut.isPending ? 0.5 : 1 }}>
+              <Text style={{ color: C.white, fontWeight: '700' }}>{isCredit ? 'Apply Credit' : 'Proceed'}</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       <SyncStatusCard compact />
       <PendingPaymentQueueCard memberNames={paymentMemberNames} chitNames={Object.fromEntries((memberChits as any[]).map((chit: any) => [chit.id, chit.name]))} />
@@ -1057,7 +1190,7 @@ function RecordPaymentTab() {
           <TouchableOpacity key={m.id}
             testID={`member-row-${m.fullName ?? m.name}`}
             accessibilityLabel={m.fullName ?? m.name}
-            onPress={() => { setSelectedMember(m); setMemberId(m.id); setChitId(''); setSelectedAllocations({}); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
+            onPress={() => { setSelectedMember(m); setMemberId(m.id); setChitId(''); setSelectedAllocations({}); setAutoAllocate(false); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); setReviewPreview(null); setPreviewError(''); setStaleReview(false); }}
             style={{ padding: 12, backgroundColor: memberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? C.navy : C.gray900 }}>
               {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
@@ -1101,6 +1234,25 @@ function RecordPaymentTab() {
       </Modal>
 
       {/* ── Chit picker (ACTIVE / PAUSED / COMPLETED only) ─────────────────── */}
+      {memberId && !isCredit && !workerCollect && (
+        <View style={{ flexDirection: 'row', gap: 8, padding: 5, borderRadius: 12, backgroundColor: C.gray100, marginBottom: 14 }}>
+          {([
+            { label: 'Choose exact dues', auto: false },
+            { label: 'Auto-apply extra', auto: true },
+          ]).map((option) => (
+            <TouchableOpacity key={option.label} accessibilityRole="button" accessibilityState={{ selected: autoAllocate === option.auto }}
+              onPress={() => { setAutoAllocate(option.auto); setChitId(''); setSelectedAllocations({}); setAmount(''); setReviewPreview(null); setPreviewError(''); setStaleReview(false); }}
+              style={{ flex: 1, paddingVertical: 11, paddingHorizontal: 8, borderRadius: 9, alignItems: 'center', backgroundColor: autoAllocate === option.auto ? C.navy : C.gray100 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: autoAllocate === option.auto ? C.white : C.gray600 }}>{option.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+      {memberId && autoAllocate && !workerCollect && !isCredit && (
+        <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 12 }}>
+          Auto-apply needs an internet connection. Review the server's exact split before recording; this option cannot be saved offline.
+        </Text>
+      )}
       {memberId && (
         <>
           <Text style={{ ...T.label, marginBottom: 8 }}>Select Chit Fund</Text>
@@ -1141,6 +1293,9 @@ function RecordPaymentTab() {
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Total payment</Text>
                 <Text style={{ fontSize: 13, fontWeight: '800', color: C.navy }}>₹{allocationTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
               </View>
+              {explicitOverflow && <Text style={{ fontSize: 12, color: C.amber }}>
+                An exact allocation cannot exceed that chit's due. Review the amount or choose Auto-apply extra.
+              </Text>}
             </View>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
@@ -1209,7 +1364,7 @@ function RecordPaymentTab() {
             )}
           </View>
           {isCredit && (
-            <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{creditBalance.toLocaleString('en-IN')} credit will cover ₹{(outstanding ?? 0).toLocaleString('en-IN')} outstanding — no cash needed.</Text>
+            <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>No cash is needed. Review which unpaid installments this credit will clear across the member’s chits.</Text>
           )}
           {creditPartial && (
             <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{creditBalance.toLocaleString('en-IN')} credit auto-applies → collect remaining <Text style={{ fontWeight: '700' }}>₹{Math.max(0, (outstanding ?? 0) - creditBalance).toLocaleString('en-IN')}</Text></Text>
@@ -1232,10 +1387,10 @@ function RecordPaymentTab() {
           {isExplicitMode && allocationEntries.length > 0 && (
             <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 10 }}>Payment total is calculated from the selected chit allocations above.</Text>
           )}
-          {!isExplicitMode && isOverpay && (
+          {!isExplicitMode && isOverpay && !autoAllocate && (
             <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: '#F59E0B' }}>
               <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
-                ₹{amtNum.toLocaleString('en-IN')} exceeds outstanding ₹{bal!.toLocaleString('en-IN')} — this will create a credit balance.
+                ₹{amtNum.toLocaleString('en-IN')} exceeds outstanding ₹{bal!.toLocaleString('en-IN')}. Any excess is reviewed when the cash is confirmed; no credit has been posted yet.
               </Text>
             </View>
           )}
@@ -1331,6 +1486,8 @@ function RecordPaymentTab() {
             placeholderTextColor={C.gray400}
             style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top', marginBottom: 16 }} />
 
+          {!!previewError && <Text accessibilityRole="alert" style={{ fontSize: 12, color: C.amber, marginBottom: 12 }}>{previewError}</Text>}
+
           {/* Submit */}
           <Button
             label={submitLabel}
@@ -1338,9 +1495,9 @@ function RecordPaymentTab() {
             fullWidth
             disabled={isExpired || (isCredit
               ? !creditCoversAll
-              : (isExplicitMode ? allocationTotal <= 0 : (!amount || amtNum <= 0))
+              : (isExplicitMode ? allocationTotal <= 0 || explicitOverflow : (!amount || amtNum <= 0))
                 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && !paymentReference.trim()))}
-            loading={recordMut.isPending}
+            loading={recordMut.isPending || previewLoading}
             onPress={async () => {
               const workerName = workerCollect
                 ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'staff')
@@ -1363,8 +1520,10 @@ function RecordPaymentTab() {
                 ? `Apply ₹${creditBalance.toLocaleString('en-IN')} credit balance to settle ₹${(outstanding ?? 0).toLocaleString('en-IN')} outstanding for ${selectedChit?.name}?`
                 : isOverpayNow && showSync && !workerCollect
                 ? `Record ₹${totalPay.toLocaleString('en-IN')} against last known dues of ₹${totalDue!.toLocaleString('en-IN')}? The server will verify current dues. Any excess or changed collection will pause for admin review before it is applied.${breakdown}`
+                : isOverpayNow && workerCollect
+                ? `This pickup request exceeds the selected chit due (₹${totalDue!.toLocaleString('en-IN')}). The cash is not credited yet; its allocation will be reviewed when it is confirmed.${breakdown}\n\nContinue?`
                 : isOverpayNow
-                ? `This exceeds the amount owed (₹${totalDue!.toLocaleString('en-IN')}). ${actionVerb} ₹${totalPay.toLocaleString('en-IN')} — the extra ₹${(totalPay - totalDue!).toLocaleString('en-IN')} will be added to credit balance and can be applied to future dues.${breakdown}\n\nContinue?`
+                ? `This exceeds the selected chit due (₹${totalDue!.toLocaleString('en-IN')}). Review the exact allocation before recording.${breakdown}`
                 : workerCollect
                 ? `${actionVerb} ₹${amtNum.toLocaleString('en-IN')} to ${workerName} for ${selectedChit?.name}?${breakdown}\n\nThey'll need to confirm they collected it before it's credited.`
                 : isExplicitMode && allocationEntries.length > 1
@@ -1376,9 +1535,10 @@ function RecordPaymentTab() {
                 confirmMsg,
                 [
                   { text: 'Cancel', style: 'cancel' },
-                  { text: workerCollect ? 'Send Request' : 'Record', onPress: () => recordMut.mutate() },
+                  { text: workerCollect ? 'Send Request' : 'Record', onPress: () => recordMut.mutate(undefined) },
                 ],
               );
+              const proceed = (isCredit || (autoAllocate && !workerCollect)) ? requestPreview : doRecord;
 
               if (!isCredit && memberId) {
                 const user = useAuthStore.getState().user;
@@ -1391,14 +1551,14 @@ function RecordPaymentTab() {
                       `This member already has ${pending} payment${pending > 1 ? 's' : ''} saved on this device waiting to sync. Recording again may create a duplicate.\n\nRecord anyway?`,
                       [
                         { text: 'Cancel', style: 'cancel' },
-                        { text: 'Record Anyway', style: 'destructive', onPress: doRecord },
+                        { text: 'Record Anyway', style: 'destructive', onPress: proceed },
                       ],
                     );
                     return;
                   }
                 }
               }
-              doRecord();
+              proceed();
             }}
           />
         </>
@@ -1408,11 +1568,11 @@ function RecordPaymentTab() {
       {memberId && chitId && (batches as any[]).length > 0 && (
         <View style={{ marginTop: 24 }}>
           <Text style={{ ...T.label, marginBottom: 10 }}>Payment History</Text>
-          {(batches as any[]).map((b: any) => {
+          {(batches as any[]).map((b: any, i: number) => {
             const bColor = BATCH_COLOR[b.status] ?? C.gray400;
             const isPendingRemit = b.status === 'AWAITING_REMITTANCE' || b.status === 'COLLECTED';
             return (
-              <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: bColor }}>
+              <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: bColor, backgroundColor: listRowColor(i) }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1457,9 +1617,10 @@ function RecordPaymentTab() {
       )}
 
       {/* ── Void batch modal ───────────────────────────────────────────────── */}
-      <Modal visible={!!voidBatchId} animationType="slide" transparent>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+      <Modal visible={!!voidBatchId} animationType="slide" transparent onRequestClose={() => setVoidBatchId('')}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }} contentContainerStyle={{ padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 12 }}>Void Payment</Text>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Reason *</Text>
             <TextInput value={voidReason} onChangeText={setVoidReason} multiline
@@ -1470,8 +1631,8 @@ function RecordPaymentTab() {
               <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setVoidBatchId('')} /></View>
               <View style={{ flex: 1 }}><Button label="Void" variant="danger" disabled={!voidReason.trim()} loading={voidMut.isPending} onPress={() => voidMut.mutate()} /></View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -1507,6 +1668,7 @@ function PayoutsTab() {
   const [disburseIdempotencyKey, setDisburseIdempotencyKey] = useState(() => Crypto.randomUUID());
   const [disburseAmt, setDisburseAmt] = useState('');
   const [disburseMode, setDisburseMode] = useState('CASH');
+  const [disburseReference, setDisburseReference] = useState('');
   const [disburseNotes, setDisburseNotes] = useState('');
 
   // ── Cancel / Void state ───────────────────────────────────────────────────
@@ -1730,12 +1892,14 @@ function PayoutsTab() {
 
   const disburseMut = useMutation({
     mutationFn: () => disbursePayout(disburseTarget.id, {
-      amount: Number(disburseAmt), disbursementMode: disburseMode, notes: disburseNotes || undefined,
+      amount: Number(disburseAmt), disbursementMode: disburseMode,
+      referenceNumber: disburseMode === 'CASH' ? undefined : disburseReference.trim(),
+      notes: disburseNotes || undefined,
     }, disburseIdempotencyKey),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
       qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
-      setDisburseTarget(null); setDisburseAmt(''); setDisburseNotes('');
+      setDisburseTarget(null); setDisburseAmt(''); setDisburseReference(''); setDisburseNotes('');
       setDisburseIdempotencyKey(Crypto.randomUUID());
       toast.saved('Payout disbursed successfully');
     },
@@ -1788,10 +1952,10 @@ function PayoutsTab() {
 
       {displayPayouts.length === 0 && <EmptyState title="No payouts" message={filter === 'PENDING' ? 'No pending payouts.' : 'No payouts recorded yet.'} />}
 
-      {displayPayouts.map((p: any) => {
+      {displayPayouts.map((p: any, i: number) => {
         const pColor = PAYOUT_STATUS_COLOR[p.status] ?? C.gray300;
         return (
-          <Card key={p.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: pColor }}>
+          <Card key={p.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: pColor, backgroundColor: listRowColor(i) }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
@@ -1862,6 +2026,7 @@ function PayoutsTab() {
                   setDisburseTarget(p);
                   setDisburseAmt(String(p.remainingAmount ?? p.netPayoutAmount ?? p.winningAmount ?? ''));
                   setDisburseMode('CASH');
+                  setDisburseReference('');
                   setDisburseNotes('');
                 }} />
               )}
@@ -1891,7 +2056,8 @@ function PayoutsTab() {
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             {/* Step 1: Chit selection */}
             <Text style={{ ...T.label, marginBottom: 8 }}>Select Chit *</Text>
             {activeChits.length === 0 ? (
@@ -2206,6 +2372,16 @@ function PayoutsTab() {
             })()}
 
             {/* Notes */}
+            {disburseMode !== 'CASH' && (
+              <>
+                <Text style={{ ...T.label, marginBottom: 6 }}>
+                  {disburseMode === 'BANK_TRANSFER' ? 'UTR' : disburseMode === 'UPI' ? 'UPI transaction ID' : 'Cheque number'} *
+                </Text>
+                <TextInput value={disburseReference} onChangeText={setDisburseReference} autoCapitalize="characters"
+                  placeholder="Enter payment reference" placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }} />
+              </>
+            )}
             <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
             <TextInput
               value={cpNotes}
@@ -2216,6 +2392,7 @@ function PayoutsTab() {
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top' }}
             />
           </ScrollView>
+          </KeyboardAvoidingView>
 
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <Button
@@ -2239,8 +2416,9 @@ function PayoutsTab() {
 
       {/* ── Disburse Modal ───────────────────────────────────────────────────── */}
       <Modal visible={!!disburseTarget} animationType="slide" transparent onRequestClose={() => setDisburseTarget(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }} contentContainerStyle={{ padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.green, marginBottom: 4 }}>Disburse Payout</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
               Winner: {(memberMap[disburseTarget?.memberId ?? disburseTarget?.winnerId] as any)?.fullName ?? '—'}
@@ -2267,19 +2445,26 @@ function PayoutsTab() {
               <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setDisburseTarget(null)} /></View>
               <View style={{ flex: 1 }}><Button label="Disburse" variant="success"
                 disabled={!disburseAmt || Number(disburseAmt) <= 0} loading={disburseMut.isPending}
-                onPress={() => Alert.alert('Confirm', `Disburse ₹${Number(disburseAmt).toLocaleString('en-IN')} via ${disburseMode}?`, [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Disburse', onPress: () => disburseMut.mutate() },
-                ])} /></View>
+                onPress={() => {
+                  const remaining = disburseTarget?.remainingAmount ??
+                    (Number(disburseTarget?.netPayoutAmount ?? 0) - Number(disburseTarget?.disbursedAmount ?? 0));
+                  const error = disbursementFormError({ amount: disburseAmt, remaining, mode: disburseMode, referenceNumber: disburseReference });
+                  if (error) { Alert.alert('Check disbursement', error); return; }
+                  Alert.alert('Confirm', `Disburse ₹${Number(disburseAmt).toLocaleString('en-IN')} via ${disburseMode}${disburseMode === 'CASH' ? '' : ` · ${disburseReference.trim()}`}?`, [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Disburse', onPress: () => disburseMut.mutate() },
+                  ]);
+                }} /></View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Cancel / Void Modal ──────────────────────────────────────────────── */}
       <Modal visible={!!actionTarget} animationType="slide" transparent onRequestClose={() => setActionTarget(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }} contentContainerStyle={{ padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>
               {actionType === 'cancel' ? 'Cancel Payout' : 'Void Payout'}
             </Text>
@@ -2300,8 +2485,8 @@ function PayoutsTab() {
                   onPress={() => actionType === 'cancel' ? cancelMut.mutate() : voidMut.mutate()} />
               </View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </ScrollView>
   );
@@ -2415,11 +2600,11 @@ function TreasuryTab() {
 
       <SectionHeader title={`Transactions (${Math.min(txShowCount, (txns as any[]).length)} of ${(txns as any[]).length})`} />
       {(txns as any[]).length === 0 && <EmptyState title="No transactions" message="Add deposits or withdrawals above." />}
-      {(txns as any[]).slice(0, txShowCount).map((tx: any) => {
+      {(txns as any[]).slice(0, txShowCount).map((tx: any, i: number) => {
         const isOut = tx.entryType === 'OUT' || (tx.entryType ?? '').includes('WITHDRAWAL');
         return (
           <TouchableOpacity key={tx.id} onPress={() => setSelectedTx(tx)} activeOpacity={0.75}>
-            <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: isOut ? C.red : C.green }}>
+            <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: isOut ? C.red : C.green, backgroundColor: listRowColor(i) }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -2453,9 +2638,10 @@ function TreasuryTab() {
       })}
 
       {/* Add Transaction Modal */}
-      <Modal visible={showAdd} animationType="slide" transparent>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+      <Modal visible={showAdd} animationType="slide" transparent onRequestClose={() => setShowAdd(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+            style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }} contentContainerStyle={{ padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: txType === 'DEPOSIT' ? C.green : C.red, marginBottom: 16 }}>
               {txType === 'DEPOSIT' ? '+ Add Deposit' : '− Record Withdrawal'}
             </Text>
@@ -2552,8 +2738,8 @@ function TreasuryTab() {
                   );
                 }} /></View>
             </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Transaction Detail Modal */}
@@ -2662,8 +2848,10 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
 
   // Payment step
   const [payMode, setPayMode] = useState('CASH');
+  const [payAmount, setPayAmount] = useState('');
   const [payRef, setPayRef] = useState('');
   const [payNotes, setPayNotes] = useState('');
+  const [recordPaymentKey, setRecordPaymentKey] = useState(() => Crypto.randomUUID());
 
   // Expand/collapse per chit
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -2723,8 +2911,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
       qc.invalidateQueries({ queryKey: ['m-settlement-history', memberId] });
       const net = Math.abs(Number(settlement?.netAmount ?? 0));
       if (net > 0 && settlement?.id) {
-        setConfirmedSettlement(settlement);
-        setStep('payment');
+        openPaymentStep(settlement);
       } else {
         toast.saved('Settlement confirmed — member marked Inactive. Accounts balanced.');
         resetAll();
@@ -2734,20 +2921,39 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
   });
 
   const recordPayMut = useMutation({
-    mutationFn: () => recordSettlementTransaction(
-      confirmedSettlement.id,
-      Math.abs(Number(confirmedSettlement.netAmount)),
-      payMode,
-      payRef || null,
-      payNotes || null,
-    ),
-    onSuccess: () => {
-      toast.saved('Payment recorded — settlement complete.');
+    mutationFn: () => {
+      const amount = parseSettlementPaymentAmount(payAmount, remainingSettlementAmount(confirmedSettlement));
+      if (amount === null) throw new Error('Enter an amount within the remaining settlement balance.');
+      return recordSettlementTransaction(
+        confirmedSettlement.id, amount, payMode, payRef || null, payNotes || null, recordPaymentKey,
+      );
+    },
+    onSuccess: (transaction) => {
+      const remaining = Number(transaction.remainingAmount ?? 0);
+      const recorded = Number(transaction.amount ?? payAmount);
       qc.invalidateQueries({ queryKey: ['m-settlement-pending'] });
       qc.invalidateQueries({ queryKey: ['m-settlement-history'] });
-      resetAll();
+      qc.invalidateQueries({ queryKey: ['m-settlement-txns', confirmedSettlement?.id] });
+      qc.invalidateQueries({ queryKey: ['m-wallet'] });
+      qc.invalidateQueries({ queryKey: ['m-wallet-txns'] });
+      setRecordPaymentKey(Crypto.randomUUID());
+      if (remaining > 0) {
+        setConfirmedSettlement((current: any) => ({
+          ...current,
+          collectedAmount: transaction.collectedAmount,
+          disbursedAmount: transaction.disbursedAmount,
+          paymentStatus: transaction.paymentStatus,
+        }));
+        setPayAmount(String(remaining));
+        setPayRef('');
+        setPayNotes('');
+        Alert.alert('Partial payment recorded', `₹${recorded.toLocaleString('en-IN')} recorded. ₹${remaining.toLocaleString('en-IN')} remains.`);
+      } else {
+        resetAll();
+        Alert.alert('Settlement payment recorded', `₹${recorded.toLocaleString('en-IN')} recorded. The settlement is fully paid.`);
+      }
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment'),
+    onError: (e: any) => Alert.alert('Payment not confirmed', e.response?.data?.message ?? e.message ?? 'Please retry with the same details.'),
   });
 
   // Transaction trail for the settlement open in the detail sheet.
@@ -2785,18 +2991,31 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
     setAdjAmount(''); setAdjReason(''); setNotes('');
     setSupersedingSettlement(null); setSupersessionReason('');
     setConfirmIdempotencyKey(null);
-    setPayMode('CASH'); setPayRef(''); setPayNotes('');
+    setPayMode('CASH'); setPayAmount(''); setPayRef(''); setPayNotes('');
+    setRecordPaymentKey(Crypto.randomUUID());
     setConfirmedSettlement(null); setExpanded({});
+  }
+
+  function openPaymentStep(settlement: any) {
+    setConfirmedSettlement(settlement);
+    setPayAmount(String(remainingSettlementAmount(settlement)));
+    setPayMode('CASH'); setPayRef(''); setPayNotes('');
+    setRecordPaymentKey(Crypto.randomUUID());
+    setStep('payment');
   }
 
   // ── Net amount with adjustment ─────────────────────────────────────────────
   const baseNet = Number(preview?.grandTotal ?? 0);
   const adjNum = adjAmount ? Number(adjAmount) : 0;
   const finalNet = baseNet + adjNum;
+  const paymentRemaining = remainingSettlementAmount(confirmedSettlement);
+  const validPaymentAmount = parseSettlementPaymentAmount(payAmount, paymentRemaining);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
       {/* ── Awaiting Settlement Payment ─────────────────────────────────── */}
       {(pendingSettlements.length > 0 || pendingLoading) && (
         <View style={{ marginBottom: 20 }}>
@@ -2813,7 +3032,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
 
           {pendingLoading ? (
             <Text style={{ color: C.gray400, textAlign: 'center', padding: 16 }}>Loading…</Text>
-          ) : pendingSettlements.map((s: any) => {
+          ) : pendingSettlements.map((s: any, i: number) => {
             const net = Number(s.netAmount ?? 0);
             const absNet = Math.abs(net);
             const moved = net > 0 ? Number(s.collectedAmount ?? 0) : Number(s.disbursedAmount ?? 0);
@@ -2823,7 +3042,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             const statusLabel = { PENDING: 'Unpaid', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial' }[s.paymentStatus as string] ?? s.paymentStatus;
             const statusColor = { PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight }[s.paymentStatus as string] ?? C.gray400;
             return (
-              <Card key={s.id} style={{ marginBottom: 10, borderLeftWidth: 4, borderLeftColor: C.amber }}>
+              <Card key={s.id} style={{ marginBottom: 10, borderLeftWidth: 4, borderLeftColor: C.amber, backgroundColor: listRowColor(i) }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>{memberName}</Text>
@@ -2851,13 +3070,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                   </View>
                 </View>
                 <Button label="Record Payment" variant="primary" size="sm"
-                  onPress={() => {
-                    setConfirmedSettlement(s);
-                    setPayMode('CASH');
-                    setPayRef('');
-                    setPayNotes('');
-                    setStep('payment');
-                  }} />
+                  onPress={() => openPaymentStep(s)} />
               </Card>
             );
           })}
@@ -2982,7 +3195,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900 }}>{selectedMember?.fullName}</Text>
-              <Text style={{ fontSize: 12, color: C.gray400 }}>Settlement Preview</Text>
+              <Text style={{ fontSize: 12, color: C.gray400 }}>All chits · member exits the organization</Text>
             </View>
           </View>
 
@@ -3165,7 +3378,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
               setConfirmIdempotencyKey(key);
               Alert.alert(
                 supersedingSettlement ? 'Confirm Audited Correction' : 'Confirm Settlement',
-                `${supersedingSettlement ? 'Reverse the original and create a linked replacement for' : 'Settle'} ${selectedMember?.fullName}?\n\n${finalNet < 0 ? `Fund refunds ₹${Math.abs(finalNet).toLocaleString('en-IN')} to member.` : finalNet > 0 ? `Member owes ₹${Math.abs(finalNet).toLocaleString('en-IN')} to fund.` : 'No money changes hands.'}\n\nMember will be marked Inactive.`,
+                `${supersedingSettlement ? 'Reverse the original and create a linked replacement for' : 'Settle'} ${selectedMember?.fullName} across all chits shown?\n\n${finalNet < 0 ? `Fund refunds ₹${Math.abs(finalNet).toLocaleString('en-IN')} to member.` : finalNet > 0 ? `Member owes ₹${Math.abs(finalNet).toLocaleString('en-IN')} to fund.` : 'No money changes hands.'}\n\nMember will be marked Inactive across the organization.`,
                 [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Confirm', style: 'destructive', onPress: () => confirmMut.mutate(key) },
@@ -3186,26 +3399,47 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
               Settlement Confirmed
             </Text>
             <Text style={{ fontSize: 12, color: '#166534' }}>
-              {selectedMember?.fullName ?? 'Member'} is now Inactive. Record how the payment was made.
+              {(members as any[]).find((member: any) => member.id === confirmedSettlement.memberId)?.fullName ?? 'Member'} is now Inactive. Record how the payment was made.
             </Text>
           </View>
 
           <Card style={{ marginBottom: 20, backgroundColor: SETT_PURPLE_LIGHT, borderWidth: 1.5, borderColor: SETT_PURPLE_BORDER }}>
-            <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Amount to record</Text>
+            <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Remaining to {Number(confirmedSettlement.netAmount ?? 0) < 0 ? 'pay member' : 'collect from member'}</Text>
             <Text style={{ fontSize: 28, fontWeight: '800', color: SETT_PURPLE }}>
-              ₹{Math.abs(Number(confirmedSettlement.netAmount ?? 0)).toLocaleString('en-IN')}
+              ₹{paymentRemaining.toLocaleString('en-IN')}
             </Text>
             <Text style={{ fontSize: 12, color: C.navy, marginTop: 4 }}>
-              {Number(confirmedSettlement.netAmount ?? 0) < 0 ? 'Fund pays member' : 'Member pays fund'}
+              Settlement total ₹{Math.abs(Number(confirmedSettlement.netAmount ?? 0)).toLocaleString('en-IN')}
+              {paymentRemaining < Math.abs(Number(confirmedSettlement.netAmount ?? 0))
+                ? ` · Already recorded ₹${(Math.abs(Number(confirmedSettlement.netAmount ?? 0)) - paymentRemaining).toLocaleString('en-IN')}`
+                : ''}
             </Text>
           </Card>
+
+          <Text style={{ ...T.label, marginBottom: 6 }}>Amount to record (₹)</Text>
+          <TextInput value={payAmount}
+            onChangeText={(value) => { setPayAmount(value); setRecordPaymentKey(Crypto.randomUUID()); }}
+            keyboardType="decimal-pad" placeholder={`Up to ₹${paymentRemaining.toLocaleString('en-IN')}`}
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: validPaymentAmount === null ? C.red : C.gray300,
+              borderRadius: 10, padding: 12, fontSize: 15, color: C.gray900, marginBottom: 6 }} />
+          {validPaymentAmount !== null && validPaymentAmount < paymentRemaining && (
+            <Text style={{ fontSize: 12, color: C.amber, marginBottom: 12 }}>
+              ₹{(paymentRemaining - validPaymentAmount).toLocaleString('en-IN')} will remain after this partial payment.
+            </Text>
+          )}
+          {validPaymentAmount === null && (
+            <Text style={{ fontSize: 12, color: C.red, marginBottom: 12 }}>
+              Enter a positive amount up to the remaining balance, with at most two decimals.
+            </Text>
+          )}
 
           {/* Payment mode */}
           <Text style={{ ...T.label, marginBottom: 8 }}>Payment Mode</Text>
           <View style={{ gap: 8, marginBottom: 16 }}>
             {(['CASH', 'BANK_TRANSFER', 'UPI'] as const).map((m) => (
               <TouchableOpacity key={m}
-                onPress={() => setPayMode(m)}
+                onPress={() => { setPayMode(m); setRecordPaymentKey(Crypto.randomUUID()); }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, borderWidth: 2,
                   borderColor: payMode === m ? SETT_PURPLE : C.gray300,
                   backgroundColor: payMode === m ? SETT_PURPLE_LIGHT : C.white }}>
@@ -3223,7 +3457,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
           {payMode !== 'CASH' && (
             <>
               <Text style={{ ...T.label, marginBottom: 6 }}>Reference / UTR (optional)</Text>
-              <TextInput value={payRef} onChangeText={setPayRef}
+              <TextInput value={payRef} onChangeText={(value) => { setPayRef(value); setRecordPaymentKey(Crypto.randomUUID()); }}
                 placeholder={payMode === 'UPI' ? 'UPI transaction ID' : 'NEFT / RTGS reference'}
                 placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 10 }} />
@@ -3232,12 +3466,14 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
 
           {/* Notes */}
           <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
-          <TextInput value={payNotes} onChangeText={setPayNotes} multiline
+          <TextInput value={payNotes} onChangeText={(value) => { setPayNotes(value); setRecordPaymentKey(Crypto.randomUUID()); }} multiline
             placeholder="Any notes about this payment…"
             placeholderTextColor={C.gray400}
             style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top', marginBottom: 20 }} />
 
-          <Button label="Record Payment" variant="success" fullWidth loading={recordPayMut.isPending}
+          <Button label={validPaymentAmount !== null && validPaymentAmount < paymentRemaining ? 'Record Partial Payment' : 'Record Full Payment'}
+            variant="success" fullWidth loading={recordPayMut.isPending}
+            disabled={validPaymentAmount === null || recordPayMut.isPending}
             onPress={() => recordPayMut.mutate()} />
           <View style={{ marginTop: 10 }}>
             <Button label="Record Later" variant="ghost" fullWidth
@@ -3357,10 +3593,10 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
                               {t.direction ?? t.type ?? (inbound ? 'Collected' : 'Disbursed')}
-                              {t.paymentMode ? ` · ${String(t.paymentMode).replace(/_/g, ' ')}` : ''}
+                              {(t.mode ?? t.paymentMode) ? ` · ${String(t.mode ?? t.paymentMode).replace(/_/g, ' ')}` : ''}
                             </Text>
                             <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                              {fmtDateTime(t.createdAt ?? t.transactionDate)}
+                              {fmtDateTime(t.recordedAt ?? t.createdAt ?? t.transactionDate)}
                               {t.referenceNumber ? ` · Ref ${t.referenceNumber}` : ''}
                             </Text>
                             {t.notes && (
@@ -3419,6 +3655,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
         </SafeAreaView>
       </Modal>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -3528,7 +3765,7 @@ function RemittanceTab() {
             </View>
           </View>
 
-          {remitItems.map((item) => {
+          {remitItems.map((item, i: number) => {
             const isPickup = item.kind === 'pickup';
             const stageColor = isPickup ? '#16A34A' : C.amber;
             const isCredit = !isPickup && item.paymentMode === 'CREDIT';
@@ -3552,7 +3789,7 @@ function RemittanceTab() {
             const hasBreakdown = isPickup && breakdown.length > 1;
             const isExpanded = expandedItem === itemKey;
             return (
-              <Card key={itemKey} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: stageColor }}>
+              <Card key={itemKey} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: stageColor, backgroundColor: listRowColor(i) }}>
                 <TouchableOpacity
                   activeOpacity={hasBreakdown ? 0.6 : 1}
                   disabled={!hasBreakdown}
@@ -3916,11 +4153,11 @@ function HistoryTab() {
           <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>
             {Math.min(histShowCount, allDisplayedBatches.length)} of {allDisplayedBatches.length} payment{allDisplayedBatches.length !== 1 ? 's' : ''}
           </Text>
-          {displayedBatches.map((b: any) => {
+          {displayedBatches.map((b: any, i: number) => {
             const st = BATCH_STATUS_STYLE[b.status] ?? { bg: C.gray100, color: C.gray500, label: b.status };
             return (
               <TouchableOpacity key={b.id} onPress={() => setSelectedBatch(b)} activeOpacity={0.75}>
-              <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: st.color }}>
+              <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: st.color, backgroundColor: listRowColor(i) }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
@@ -4035,7 +4272,7 @@ function IntimationApproveModal({
 
   return (
     <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -4053,7 +4290,7 @@ function IntimationApproveModal({
                 {intimation.paymentReference ? ` · Ref: ${intimation.paymentReference}` : ''}
               </Text>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled">
               {(intimation.items ?? []).map((it: any, idx: number) => (
                 <View key={it.id} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>
@@ -4135,7 +4372,7 @@ function IntimationsTab() {
       {/* Reject modal */}
       {rejectTarget && (
         <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setRejectTarget(null)}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
               <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
                 <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 12 }}>Reject Intimation</Text>
@@ -4165,7 +4402,7 @@ function IntimationsTab() {
       {/* Void modal */}
       {voidTarget && (
         <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setVoidTarget(null)}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
               <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
                 <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Void Approved Intimation</Text>

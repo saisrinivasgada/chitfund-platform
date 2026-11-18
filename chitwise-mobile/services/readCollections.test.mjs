@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { listSnapshot, requestKey } from '../../shared/offline/readSnapshots.js';
+import { rateLimitMessage } from '../../shared/rateLimitMessage.js';
 
 const code = ts.transpileModule(await readFile(new URL('./api.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
@@ -17,7 +18,9 @@ async function client() {
     get: async (path, config) => { calls.push({ path, params: config.params }); return { data: { data: { content: [] } } }; },
   };
   const dependencies = {
+    '../../shared/rateLimitMessage': { rateLimitMessage },
     axios: { default: { create: () => http } },
+    'react-native': { DeviceEventEmitter: { emit() {} } },
     'expo-secure-store': {}, 'expo-crypto': {},
     '../store/authStore': { accountStorageId() {}, useAuthStore: {} },
     '../store/uiStore': { useUIStore: {} }, '../store/syncStore': { useSyncStore: {} },

@@ -2,6 +2,7 @@ import { useOfflinePresentation } from '../offline/useOfflinePresentation';
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { shouldRetryRead } from '../../../shared/offline/readSnapshots';
 import {
   ArrowLeft, CheckCircle, Clock, XCircle, Banknote, CreditCard, Building2,
   User, FileText, Calendar, Hash, Layers, Receipt, AlertTriangle,
@@ -138,7 +139,7 @@ export default function TransactionDetailPage() {
     queryKey: ['batch', batchId],
     queryFn:  () => getPaymentBatchById(batchId),
     enabled:  !!batchId,
-    retry: 1,
+    retry: (failureCount, error) => shouldRetryRead(failureCount, error, 1),
   });
 
   const { data: chit } = useQuery({
@@ -310,6 +311,10 @@ export default function TransactionDetailPage() {
   const receiptStartDate = chit?.startDate
     ? new Date(chit.startDate + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     : null;
+  const allocations = batch.allocations ?? [];
+  const hasAllocationBreakdown = allocations.some((a) => a.creditApplied != null || a.cashApplied != null);
+  const creditApplied = allocations.reduce((sum, a) => sum + Number(a.creditApplied ?? 0), 0);
+  const totalAllocated = allocations.reduce((sum, a) => sum + Number(a.allocatedAmount ?? 0), 0);
   const receiptRows = [
     ['Date',         fmtDateTime(batch.collectedAt ?? batch.createdAt)],
     ['Payment Mode', batch.paymentMode === 'CREDIT' ? 'Credit Balance' : (batch.paymentMode?.replace(/_/g, ' ') ?? '—')],
@@ -317,7 +322,9 @@ export default function TransactionDetailPage() {
     ['Chit Name',    chitName],
     ...(receiptChitValue ? [['Chit Value', receiptChitValue]] : []),
     ...(receiptStartDate ? [['Chit Start', receiptStartDate]] : []),
-    ...(batch.allocations?.length > 0 ? [['Draw(s)', batch.allocations.map((a) => `Draw #${a.monthNumber}`).join(', ')]] : []),
+    ...(batch.allocations?.length > 0 ? [['Draw(s)', batch.allocations.map((a) => `Draw #${a.monthNumber}${a.chitId && a.chitId !== batch.chitId ? ` · Chit ${a.chitId}` : ''}`).join(', ')]] : []),
+    ...(hasAllocationBreakdown && creditApplied > 0 ? [['Existing credit used', fmtAmt(creditApplied)]] : []),
+    ...(hasAllocationBreakdown ? [['Total applied to installments', fmtAmt(totalAllocated)]] : []),
     ...(batch.notes ? [['Notes', batch.notes]] : []),
   ];
 
@@ -369,6 +376,22 @@ export default function TransactionDetailPage() {
             ))}
           </tbody>
         </table>
+        {allocations.length > 0 && (
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#1E3A5F', marginBottom: '8px' }}>INSTALLMENT ALLOCATION</div>
+            {allocations.map((alloc, idx) => (
+              <div key={alloc.paymentRecordId ?? alloc.catchUpInstallmentLineId ?? idx} style={{ padding: '8px 0', borderBottom: '1px solid #F3F4F6', fontSize: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <span>{alloc.catchUpInstallmentLineId ? 'Past installment' : 'Installment'} · Draw #{alloc.monthNumber}{alloc.chitId && alloc.chitId !== batch.chitId ? ` · Chit ${alloc.chitId}` : ''}</span>
+                  <strong>{fmtAmt(alloc.allocatedAmount)}</strong>
+                </div>
+                {(alloc.creditApplied != null || alloc.cashApplied != null) && (
+                  <div style={{ color: '#6B7280', marginTop: '3px' }}>New payment {fmtAmt(alloc.cashApplied)} · Existing credit {fmtAmt(alloc.creditApplied)}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {/* Ref ID */}
         <div style={{ backgroundColor: '#F9FAFB', borderRadius: '8px', padding: '12px 14px', marginBottom: '28px', border: '1px solid #F3F4F6' }}>
           <div style={{ fontSize: '10px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Transaction Reference</div>
@@ -571,24 +594,29 @@ export default function TransactionDetailPage() {
       )}
 
       {/* Draw Allocations */}
-      {batch.allocations && batch.allocations.length > 0 && (
-        <Card title={`Draw Allocations — ${chitName}`} icon={Calendar}>
+      {allocations.length > 0 && (
+        <Card title="Installment allocations" icon={Calendar}>
           <div className="py-2 space-y-0">
-            {batch.allocations.map((alloc, idx) => {
-              const draw = drawByMonth[alloc.monthNumber];
+            {allocations.map((alloc, idx) => {
+              const otherChit = alloc.chitId && alloc.chitId !== batch.chitId;
+              const draw = otherChit ? null : drawByMonth[alloc.monthNumber];
               const drawDate = draw?.drawDate ? new Date(draw.drawDate) : null;
               const monthLabel = drawDate
                 ? `${MONTH_NAMES[drawDate.getMonth()]} ${drawDate.getFullYear()}`
                 : null;
               return (
-                <div key={idx} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+                <div key={alloc.paymentRecordId ?? alloc.catchUpInstallmentLineId ?? idx} className="flex items-center justify-between gap-3 py-3 border-b border-gray-100 last:border-0">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-[#EEF2F8] flex items-center justify-center flex-shrink-0">
                       <Calendar size={13} style={{ color: '#1E3A5F' }} />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-800">Draw #{alloc.monthNumber}</p>
+                      <p className="text-sm font-medium text-gray-800">{alloc.catchUpInstallmentLineId ? 'Past installment' : 'Installment'} · Draw #{alloc.monthNumber}</p>
                       {monthLabel && <p className="text-xs text-gray-400">{chitName} · {monthLabel}</p>}
+                      {otherChit && <p className="text-xs text-gray-500 break-all">Chit {alloc.chitId}</p>}
+                      {(alloc.creditApplied != null || alloc.cashApplied != null) && (
+                        <p className="text-xs text-gray-500">New payment {h(alloc.cashApplied)} · Existing credit {h(alloc.creditApplied)}</p>
+                      )}
                     </div>
                   </div>
                   <span className="text-sm font-semibold text-gray-900">{h(alloc.allocatedAmount)}</span>

@@ -1,10 +1,10 @@
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState, useEffect } from 'react';
-import { View, Text, FlatList, RefreshControl, TextInput, Modal, ScrollView, TouchableOpacity, Linking, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, FlatList, RefreshControl, TextInput, Modal, ScrollView, TouchableOpacity, Linking, ActivityIndicator, Alert, useWindowDimensions } from 'react-native';
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMembersPage, getMemberTotalBalance, getChitsForMember, getMemberBalance } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate, Button } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate, Button, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
 function MemberBalance({ memberId }: { memberId: string }) {
@@ -137,13 +137,13 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.5, marginBottom: 10 }}>
                 ENROLLED CHITS ({(chits as any[]).length})
               </Text>
-              {(chits as any[]).map((chit: any) => (
-                <Card key={chit.id} style={{ marginBottom: 8 }}>
+              {(chits as any[]).map((chit: any, i: number) => (
+                <Card key={chit.id} style={{ marginBottom: 8, backgroundColor: listRowColor(i) }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{chit.name}</Text>
                       <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                        ₹{Number(chit.chitValue ?? 0).toLocaleString('en-IN')} · {chit.capacity} members
+                        ₹{Number(chit.chitValue ?? 0).toLocaleString('en-IN')} · {chit.payingMemberSlots ?? '—'} paying member slots
                       </Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -162,6 +162,8 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
 }
 
 export default function ManagerMembersScreen() {
+  const { width: viewportWidth } = useWindowDimensions();
+  const tabletList = viewportWidth >= 700;
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selected, setSelected] = useState<any>(null);
@@ -187,6 +189,12 @@ export default function ManagerMembersScreen() {
       <ReadDataBoundary label="Members" queryKeys={[['mgr-members-page', debouncedSearch]]}>
 
       <FlatList
+        style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
+        key={tabletList ? 'tablet-members' : 'phone-members'}
+        numColumns={tabletList ? 2 : 1}
+        columnWrapperStyle={tabletList ? { gap: 12 } : undefined}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
         data={members}
         keyExtractor={(m: any) => m.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
@@ -215,9 +223,9 @@ export default function ManagerMembersScreen() {
         ListFooterComponent={isFetchingNextPage ? (
           <ActivityIndicator color={C.navy} style={{ marginVertical: 16 }} />
         ) : null}
-        renderItem={({ item: m }) => (
-          <TouchableOpacity activeOpacity={0.75} onPress={() => setSelected(m)}>
-            <Card style={{ marginBottom: 10 }}>
+        renderItem={({ item: m, index }) => (
+          <TouchableOpacity activeOpacity={0.75} style={tabletList ? { flex: 1, maxWidth: (Math.min(viewportWidth, 960) - 44) / 2, minWidth: 0 } : undefined} onPress={() => setSelected(m)}>
+            <Card style={{ marginBottom: 10, backgroundColor: listRowColor(index) }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{m.fullName ?? m.name}</Text>

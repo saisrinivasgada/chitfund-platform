@@ -21,8 +21,8 @@ test('renders exact payment values and reflects a reasoned full void', async ({ 
     syncedAt: '2026-10-12T09:17:00',
     notes: 'Offline collection confirmed by member',
     allocations: [
-      { monthNumber: 1, allocatedAmount: 5000 },
-      { monthNumber: 2, allocatedAmount: 3500 },
+      { monthNumber: 1, allocatedAmount: 5000, cashApplied: 4500, creditApplied: 500, paymentRecordId: 'record-1' },
+      { monthNumber: 2, allocatedAmount: 4000, cashApplied: 4000, creditApplied: 0, catchUpInstallmentLineId: 'catchup-2', chitId: 'chit-200' },
     ],
     ...(voided ? {
       voidedBy: 'admin-1',
@@ -65,10 +65,20 @@ test('renders exact payment values and reflects a reasoned full void', async ({ 
   await expect(main.locator('p').filter({ hasText: /^₹8,500$/ })).toBeVisible();
   await expect(page.getByRole('paragraph').filter({ hasText: /^Ravi Kumar$/ })).toBeVisible();
   await expect(page.getByRole('paragraph').filter({ hasText: /^Lakshmi Monthly ₹1 Lakh$/ }).first()).toBeVisible();
-  await expect(page.getByText('₹5,000', { exact: true })).toBeVisible();
-  await expect(page.getByText('₹3,500', { exact: true })).toBeVisible();
+  await expect(main.getByText('₹5,000', { exact: true }).last()).toBeVisible();
+  await expect(main.getByText('₹4,000', { exact: true }).last()).toBeVisible();
+  await expect(main.getByText('New payment ₹4,500 · Existing credit ₹500', { exact: true }).last()).toBeVisible();
+  await expect(main.getByText('Past installment · Draw #2', { exact: true }).last()).toBeVisible();
+  await expect(main.getByText('Chit chit-200', { exact: true }).last()).toBeVisible();
   await expect(page.getByRole('paragraph').filter({ hasText: /^01 Jan 2026$/ })).toBeVisible();
   await expect(page.getByText('Synced At', { exact: true })).toBeVisible();
+
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.getByText('Existing credit used', { exact: true })).toBeVisible();
+  await expect(page.getByText('Total applied to installments', { exact: true })).toBeVisible();
+  await page.emulateMedia({ media: 'screen' });
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await page.getByRole('button', { name: 'Void', exact: true }).click();
   const confirm = page.getByRole('button', { name: 'Confirm Void' });
@@ -80,5 +90,5 @@ test('renders exact payment values and reflects a reasoned full void', async ({ 
   await expect.poll(() => submittedReason).toBe('Duplicate collection entered by mistake');
   await expect(page.getByText('Void Details', { exact: true })).toBeVisible();
   await expect(page.getByText('Duplicate collection entered by mistake', { exact: true })).toBeVisible();
-  await expect(page.getByText('Draw Allocations — Lakshmi Monthly ₹1 Lakh', { exact: true })).toBeVisible();
+  await expect(page.getByText('Installment allocations', { exact: true })).toBeVisible();
 });

@@ -44,6 +44,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
   const [conv, setConv] = useState(initialConv);
   const hasId = !!conv.id;
   const [input, setInput] = useState('');
+  const retryDraft = useRef<{ content: string; clientMessageId: string } | null>(null);
   const flatRef = useRef<FlatList>(null);
 
   // Promote from draft to real conv if conversations list loads and finds a match
@@ -89,7 +90,8 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
       const msg = await sendChatMessage(convId, content, clientMessageId);
       return { msg, createdConv, convId };
     },
-    onSuccess: ({ msg, createdConv, convId }: any) => {
+    onSuccess: ({ msg, createdConv, convId }: any, variables: any) => {
+      retryDraft.current = null;
       if (createdConv) {
         setConv(createdConv);
         queryClient.invalidateQueries({ queryKey: ['m-conversations'] });
@@ -105,7 +107,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
         };
       });
       queryClient.invalidateQueries({ queryKey: ['m-conversations'] });
-      setInput('');
+      setInput((current) => current.trim() === variables.content ? '' : current);
     },
     onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send message'),
   });
@@ -126,12 +128,16 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
         };
       });
     },
+    onError: () => Alert.alert('Message not deleted', 'Check your connection and try again.'),
   });
 
   const handleSend = useCallback(() => {
     const content = input.trim();
     if (!content || sendMutation.isPending) return;
-    sendMutation.mutate({ content, clientMessageId: genId() });
+    const clientMessageId = retryDraft.current?.content === content
+      ? retryDraft.current.clientMessageId : genId();
+    retryDraft.current = { content, clientMessageId };
+    sendMutation.mutate({ content, clientMessageId });
   }, [input, sendMutation]);
 
   const handleDelete = (msg: any) => {
@@ -209,6 +215,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
 
       <FlatList
         ref={flatRef}
+        keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
         data={messages}
         keyExtractor={(m) => m.id}
         renderItem={renderMessage}
@@ -254,6 +261,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
 function GroupChatView({ group, userId, onBack }: { group: any; userId: string; onBack: () => void }) {
   const queryClient = useQueryClient();
   const [input, setInput] = useState('');
+  const retryDraft = useRef<{ content: string; clientMessageId: string } | null>(null);
   const flatRef = useRef<FlatList>(null);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
@@ -269,7 +277,8 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
 
   const sendMutation = useMutation({
     mutationFn: ({ content, clientMessageId }: any) => sendGroupMessage(group.id, content, clientMessageId),
-    onSuccess: (newMsg: any) => {
+    onSuccess: (newMsg: any, variables: any) => {
+      retryDraft.current = null;
       queryClient.setQueryData(['m-groupMessages', group.id], (old: any) => {
         if (!old) return { pages: [{ items: [newMsg], nextCursor: null }], pageParams: [undefined] };
         const exists = old.pages.some((p: any) => (p.items ?? []).some((m: any) => m.id === newMsg.id));
@@ -281,7 +290,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
         };
       });
       queryClient.invalidateQueries({ queryKey: ['m-groups'] });
-      setInput('');
+      setInput((current) => current.trim() === variables.content ? '' : current);
     },
     onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send message'),
   });
@@ -302,12 +311,16 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
         };
       });
     },
+    onError: () => Alert.alert('Message not deleted', 'Check your connection and try again.'),
   });
 
   const handleSend = useCallback(() => {
     const content = input.trim();
     if (!content || sendMutation.isPending) return;
-    sendMutation.mutate({ content, clientMessageId: genId() });
+    const clientMessageId = retryDraft.current?.content === content
+      ? retryDraft.current.clientMessageId : genId();
+    retryDraft.current = { content, clientMessageId };
+    sendMutation.mutate({ content, clientMessageId });
   }, [input, sendMutation]);
 
   const handleDelete = (msg: any) => {
@@ -374,6 +387,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
 
       <FlatList
         ref={flatRef}
+        keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
         data={messages}
         keyExtractor={(m) => m.id}
         renderItem={renderMessage}
@@ -601,7 +615,7 @@ function NewChatModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={resetAndClose}>
       <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={resetAndClose}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1}>
             <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
               {/* Handle */}
@@ -920,6 +934,7 @@ function UnifiedList({
 
       <FlatList
         data={filtered}
+        keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
         keyExtractor={(i) => i._type + '-' + i.id}
         onRefresh={() => { refetchConvs(); refetchGroups(); }}
         refreshing={false}

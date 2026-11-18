@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { retryAfterDelayMs } from '../../shared/rateLimitMessage.js';
 
 test('native upgrade preserves unknown outcomes for review and confirmed sign-out rejects stale workers', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'chitwise-signout-')); const connections = []; const keys = new Map();
@@ -143,6 +144,7 @@ test('native upgrade preserves unknown outcomes for review and confirmed sign-ou
     await t.test('expired delivery outcomes cannot overwrite newer receipts, cancellations, recovery or relogin',async()=>{
       let response,started,published=0;
       const deps={
+        '../../shared/rateLimitMessage':{retryAfterDelayMs},
         axios:{default:{isAxiosError:e=>!!e?.isAxiosError}},'expo-crypto':dependencies['expo-crypto'],
         '@react-native-community/netinfo':{default:{}},'../services/api':{recordPayment(){}},
         '../store/authStore':{useAuthStore:{}},'./accountScope':{requireOrganizationScope(){}},'./database':db,

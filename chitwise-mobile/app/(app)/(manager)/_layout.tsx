@@ -55,6 +55,7 @@ export default function ManagerLayout() {
       <Tabs.Screen name="chits"    options={{ title: 'Chits' }} />
       <Tabs.Screen name="members"  options={{ title: 'Members' }} />
       <Tabs.Screen name="more"     options={{ title: 'More' }} />
+      <Tabs.Screen name="messages" options={{ href: null, title: 'Messages' }} />
     </Tabs>
     </>
   );

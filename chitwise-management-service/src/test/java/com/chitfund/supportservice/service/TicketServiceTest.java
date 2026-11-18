@@ -176,6 +176,42 @@ class TicketServiceTest {
     }
 
     @Test
+    void openingAnotherMembersTicketDoesNotClearOrClaimTheirUnreadMessages() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-1");
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+
+        ticketService.markRead("ticket-1", "tenant-1", false, "admin-1", false);
+        assertThat(ticketService.getTicket("ticket-1", "tenant-1", false,
+                "admin-1", false).getUnreadCount()).isZero();
+        verify(messageRepository, never()).markReadByCreator(any(), any());
+        verify(messageRepository, never()).markReadByHandler(any(), any());
+    }
+
+    @Test
+    void ticketUnreadAndReadOperationsOnlyIncludeIncomingMessages() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-1");
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+        when(messageRepository.countByTicketIdAndReadByCreatorFalseAndSenderTypeIn(
+                eq("ticket-1"), eq(java.util.List.of(SenderType.SUPER_ADMIN, SenderType.SUPPORT_AGENT))))
+                .thenReturn(2L);
+        when(messageRepository.countByTicketIdAndReadByHandlerFalseAndSenderTypeIn(
+                eq("ticket-1"), eq(java.util.List.of(SenderType.ORG_ADMIN, SenderType.ORG_MEMBER))))
+                .thenReturn(1L);
+
+        assertThat(ticketService.getTicket("ticket-1", "tenant-1", false,
+                "member-1", true).getUnreadCount()).isEqualTo(2);
+        assertThat(ticketService.getTicket("ticket-1", "tenant-1", true,
+                "agent-1", false).getUnreadCount()).isEqualTo(1);
+
+        ticketService.markRead("ticket-1", "tenant-1", false, "member-1", true);
+        ticketService.markRead("ticket-1", "tenant-1", true, "agent-1", false);
+        verify(messageRepository).markReadByCreator("ticket-1",
+                java.util.List.of(SenderType.SUPER_ADMIN, SenderType.SUPPORT_AGENT));
+        verify(messageRepository).markReadByHandler("ticket-1",
+                java.util.List.of(SenderType.ORG_ADMIN, SenderType.ORG_MEMBER));
+    }
+
+    @Test
     void assignmentAuditRecordsTheRealSupportAgentRole() {
         SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
         EmployeeService employeeService = org.mockito.Mockito.mock(EmployeeService.class);

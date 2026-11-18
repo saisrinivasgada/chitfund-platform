@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createSupportTicket, listMyTickets, getTicketMessages,
@@ -102,13 +102,14 @@ function NewTicketForm({ onSuccess, onCancel, initialType = 'GENERAL' }) {
 }
 
 function TicketList({ onOpen, onNewTicket }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['my-tickets'],
     queryFn: () => listMyTickets({ page: 0, size: 20 }),
     staleTime: 30_000,
   });
 
   if (isLoading) return <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-gray-400" /></div>;
+  if (isError) return <div className="text-center py-10"><p role="alert" className="text-sm text-red-600 mb-3">Could not load tickets.</p><Button variant="primary" size="sm" onClick={() => refetch()}>Try again</Button></div>;
 
   const tickets = data?.items ?? [];
 
@@ -154,32 +155,68 @@ function TicketChat({ ticket, onBack, currentUserId }) {
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [olderError, setOlderError] = useState(false);
   const [now, setNow] = useState(Date.now());
   const bottomRef = useRef(null);
+  const messagesRef = useRef(null);
+  const olderScrollRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const initialScrollRef = useRef(false);
   const qc = useQueryClient();
 
   useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError(false);
     markTicketRead(ticket.id).catch(() => {});
-    getTicketMessages(ticket.id, { limit: 50 }).then(data => {
+    const refresh = (initial = false) => getTicketMessages(ticket.id, { limit: 50 }).then(data => {
+      if (!active) return;
       const msgs = [...(data.items ?? [])].reverse();
-      setMessages(msgs);
-      setCursor(data.nextCursor ?? null);
-      setHasMore(data.hasNext ?? false);
+      if (initial) {
+        setMessages(msgs);
+        setCursor(data.nextCursor ?? null);
+        setHasMore(data.hasNext ?? false);
+        setLoading(false);
+      } else {
+        setMessages(previous => {
+          const freshById = new Map(msgs.map(message => [message.id, message]));
+          const knownIds = new Set(previous.map(message => message.id));
+          return [...previous.map(message => freshById.get(message.id) ?? message),
+            ...msgs.filter(message => !knownIds.has(message.id))];
+        });
+        markTicketRead(ticket.id).catch(() => {});
+      }
+    }).catch(() => {
+      if (!active || !initial) return;
+      setLoadError(true);
       setLoading(false);
     });
+    refresh(true);
+    const poller = setInterval(() => refresh(), 15000);
     const ticker = setInterval(() => setNow(Date.now()), 10000);
-    return () => clearInterval(ticker);
+    return () => { active = false; clearInterval(poller); clearInterval(ticker); };
   }, [ticket.id]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  useLayoutEffect(() => {
+    const panel = messagesRef.current;
+    const previous = olderScrollRef.current;
+    if (panel && previous) {
+      panel.scrollTop = previous.top + panel.scrollHeight - previous.height;
+      olderScrollRef.current = null;
+      return;
+    }
+    if (!initialScrollRef.current || nearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: initialScrollRef.current ? 'smooth' : 'auto' });
+    }
+    initialScrollRef.current = true;
+  }, [messages.length]);
 
   const sendMut = useMutation({
     mutationFn: (content) => sendTicketMessage(ticket.id, content),
-    onSuccess: (msg) => {
+    onSuccess: (msg, content) => {
       setMessages(prev => [...prev, msg]);
-      setInput('');
+      setInput(current => current.trim() === content ? '' : current);
       qc.invalidateQueries({ queryKey: ['my-tickets'] });
     },
   });
@@ -192,11 +229,19 @@ function TicketChat({ ticket, onBack, currentUserId }) {
 
   async function loadMore() {
     if (!cursor || !hasMore) return;
-    const data = await getTicketMessages(ticket.id, { cursor, limit: 50 });
-    const older = [...(data.items ?? [])].reverse();
-    setMessages(prev => [...older, ...prev]);
-    setCursor(data.nextCursor ?? null);
-    setHasMore(data.hasNext ?? false);
+    setOlderError(false);
+    const panel = messagesRef.current;
+    if (panel) olderScrollRef.current = { top: panel.scrollTop, height: panel.scrollHeight };
+    try {
+      const data = await getTicketMessages(ticket.id, { cursor, limit: 50 });
+      const older = [...(data.items ?? [])].reverse();
+      setMessages(prev => [...older, ...prev]);
+      setCursor(data.nextCursor ?? null);
+      setHasMore(data.hasNext ?? false);
+    } catch {
+      olderScrollRef.current = null;
+      setOlderError(true);
+    }
   }
 
   async function handleDelete(msg) {
@@ -211,6 +256,7 @@ function TicketChat({ ticket, onBack, currentUserId }) {
     (now - new Date(msg.createdAt).getTime()) < DELETE_WINDOW_MS;
 
   if (loading) return <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-gray-400" /></div>;
+  if (loadError) return <div className="text-center py-10"><p role="alert" className="text-sm text-red-600 mb-3">Could not load messages.</p><Button variant="primary" size="sm" onClick={onBack}>Back to tickets</Button></div>;
 
   return (
     <div className="flex flex-col h-full">
@@ -231,12 +277,16 @@ function TicketChat({ ticket, onBack, currentUserId }) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+      <div ref={messagesRef} onScroll={(event) => {
+        const panel = event.currentTarget;
+        nearBottomRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 120;
+      }} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
         {hasMore && (
           <button onClick={loadMore} className="w-full text-xs text-gray-400 hover:text-gray-600 py-1 cursor-pointer">
             Load older messages
           </button>
         )}
+        {olderError && <p role="alert" className="text-xs text-red-600 text-center">Could not load older messages. Try again.</p>}
         {messages.map(msg => {
           const isMe = msg.senderType === 'ORG_ADMIN';
           return (
@@ -246,7 +296,8 @@ function TicketChat({ ticket, onBack, currentUserId }) {
                 <div className="flex items-end gap-1">
                   {isMe && canDelete(msg) && (
                     <button onClick={() => handleDelete(msg)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-red-400 hover:text-red-600 cursor-pointer">
+                            aria-label="Delete message"
+                            className="transition-opacity p-1 rounded text-red-400 hover:text-red-600 cursor-pointer">
                       <Trash2 size={12} />
                     </button>
                   )}
@@ -268,7 +319,9 @@ function TicketChat({ ticket, onBack, currentUserId }) {
 
       {/* Send box */}
       {ticket.status !== 'CLOSED' && ticket.status !== 'RESOLVED' ? (
-        <form onSubmit={handleSend} className="flex gap-2 px-4 py-3 border-t border-gray-100">
+        <form onSubmit={handleSend} className="flex flex-col gap-1 px-4 py-3 border-t border-gray-100">
+          {sendMut.isError && <p role="alert" className="text-xs text-red-600">Message was not sent. Your draft is saved; try again.</p>}
+          <div className="flex gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -280,6 +333,7 @@ function TicketChat({ ticket, onBack, currentUserId }) {
                   style={{ backgroundColor: '#1E3A5F' }}>
             {sendMut.isPending ? <Loader2 size={15} className="animate-spin text-white" /> : <Send size={15} className="text-white" />}
           </button>
+          </div>
         </form>
       ) : (
         <p className="text-xs text-center text-gray-400 py-3 border-t border-gray-100">

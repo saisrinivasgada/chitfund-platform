@@ -11,7 +11,7 @@ import {
   resetMemberPassword, getUserById, getStaffRequests, getBatchesByCollector, getMembers,
   adminUpdateUserPhone, unlockUser,
 } from '../../../services/api';
-import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, ListLoadingScreen, PhoneInput, Amount } from '../../../components/ui';
+import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, ListLoadingScreen, PhoneInput, Amount, listRowColor } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { toast } from '../../../components/Toast';
@@ -379,10 +379,10 @@ export default function AdminTeamScreen() {
               {isCollector && pendingPickups.length > 0 && (
                 <View style={{ marginBottom: 16 }}>
                   <Text style={{ ...T.label, marginBottom: 8 }}>PENDING PICKUPS</Text>
-                  {pendingPickups.map((r: any) => {
+                  {pendingPickups.map((r: any, i: number) => {
                     const st = REQUEST_STATUS[r.status] ?? REQUEST_STATUS.ASSIGNED;
                     return (
-                      <View key={r.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                      <View key={r.id} style={{ backgroundColor: listRowColor(i), borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                           <View style={{ backgroundColor: st.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                             <Text style={{ fontSize: 11, fontWeight: '700', color: st.color }}>{st.label}</Text>
@@ -697,10 +697,10 @@ export default function AdminTeamScreen() {
                   <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 8 }}>
                     Physical pickup requests completed or cancelled.
                   </Text>
-                  {requestHistory.slice(0, 10).map((r: any) => {
+                  {requestHistory.slice(0, 10).map((r: any, i: number) => {
                     const st = REQUEST_STATUS[r.status] ?? REQUEST_STATUS.COLLECTED;
                     return (
-                      <View key={r.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                      <View key={r.id} style={{ backgroundColor: listRowColor(i), borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                           <View style={{ backgroundColor: st.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                             <Text style={{ fontSize: 11, fontWeight: '700', color: st.color }}>{st.label}</Text>
@@ -735,11 +735,11 @@ export default function AdminTeamScreen() {
                   <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 8 }}>
                     Payment batches created after cash was confirmed received.
                   </Text>
-                  {(collectorBatches as any[]).slice(0, 10).map((b: any) => {
+                  {(collectorBatches as any[]).slice(0, 10).map((b: any, i: number) => {
                     const done = b.status === 'COMPLETED';
                     const awaiting = b.status === 'AWAITING_REMITTANCE';
                     return (
-                      <View key={b.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                      <View key={b.id} style={{ backgroundColor: listRowColor(i), borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                           <View style={{
                             borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
@@ -806,7 +806,7 @@ export default function AdminTeamScreen() {
               <Text style={{ fontSize: 16 }}>✕</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 20 }}>
+          <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             {[
               { label: 'Full Name *', value: cFullName, set: setCFullName, placeholder: 'Ravi Kumar' },
               { label: 'Username *', value: cUsername, set: setCUsername, placeholder: 'ravi_kumar' },

@@ -14,6 +14,18 @@ chitfund-frontend/dist/
 
 # Secrets — NEVER commit these
 *.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+service-account*.json
+firebase-adminsdk*.json
+terraform.tfstate*
+.terraform/
 .env
 .env.prod
 .env.local
@@ -27,6 +39,11 @@ aws-resources.txt
 *.iml
 .DS_Store
 *.swp
+**/.claude/
+
+# Local handoff notes and diagnostic captures
+/CLAUDE_AUTH_BACKEND_HANDOFF.md
+/chitfund-user-service/*.png
 
 # Logs
 logs/

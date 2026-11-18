@@ -3,6 +3,30 @@ import * as SecureStore from 'expo-secure-store';
 import { serializeActions } from './serializeActions';
 import { decodeSavedAccounts } from './savedAccounts';
 import { resumeOfflineSession } from '../offline/database';
+import { cancelAllReminderRepeats } from '../utils/reminderNotifications';
+
+const REGISTERED_PUSH_TOKEN_KEY = 'chitwise_registered_push_token';
+
+async function revokePushTokenBeforeLogout(user: AuthUser | null) {
+  if (!user || user.authSource === 'HUB') return;
+  const token = await SecureStore.getItemAsync(REGISTERED_PUSH_TOKEN_KEY);
+  if (!token) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+  try {
+    const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL ?? ''}/notifications/push-token`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
+      body: JSON.stringify({ token }),
+      signal: controller.signal,
+    });
+    if (response.ok) await SecureStore.deleteItemAsync(REGISTERED_PUSH_TOKEN_KEY);
+  } catch {
+    // Local sign-out still proceeds if the device is offline.
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF' | 'MEMBER' | 'SUPER_ADMIN' | 'SUPPORT_AGENT';
 
@@ -124,6 +148,12 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
       // Read before changing active credentials. An unreadable index may own
       // unsynced work, so signing in must not replace it with a new empty one.
       const existing = await loadAccounts();
+      const previous = get().user;
+      if (previous && accountStorageId(previous.id, previous.tenantId, previous.authSource ?? 'ORGANIZATION')
+          !== accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION')) {
+        await cancelAllReminderRepeats();
+        await revokePushTokenBeforeLogout(previous);
+      }
       // Persist the new credentials before exposing the new identity to the
       // route guard. Screens start their queries as soon as `user` changes;
       // publishing state first lets those requests leave with the previous
@@ -175,6 +205,7 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
       if (user.authSource !== 'HUB') await resumeOfflineSession(`${id}:${user.role}`);
       set({ user, accounts: existing });
     } else {
+      await cancelAllReminderRepeats();
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
@@ -185,6 +216,8 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
 
   logout: async () => {
     const { user } = get();
+    await cancelAllReminderRepeats();
+    await revokePushTokenBeforeLogout(user);
     if (user?.authSource === 'HUB' && user.refreshToken) {
       try {
         await fetch(`${process.env.EXPO_PUBLIC_API_URL ?? ''}/hub/auth/logout`, {
@@ -209,6 +242,11 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
   },
 
   logoutFromAccount: async (accountId: string) => {
+    const { user } = get();
+    if (user && accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION') === accountId) {
+      await cancelAllReminderRepeats();
+      await revokePushTokenBeforeLogout(user);
+    }
     const accounts = await loadAccounts();
     const updated = accounts.map((a) =>
       a.accountId === accountId ? { ...a, sessionValid: false, token: '', refreshToken: undefined } : a
@@ -216,7 +254,6 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
     await saveAccounts(updated);
     set({ accounts: updated });
 
-    const { user } = get();
     if (user && accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION') === accountId) {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
@@ -227,6 +264,8 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
   },
 
   logoutAll: async () => {
+    await cancelAllReminderRepeats();
+    await revokePushTokenBeforeLogout(get().user);
     const accounts = await loadAccounts();
     const updated = accounts.map((a) => ({ ...a, sessionValid: false, token: '', refreshToken: undefined }));
     await saveAccounts(updated);
@@ -249,6 +288,7 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
     await saveAccounts(updated);
     set((s) => ({ accounts: updated, user: isCurrentUser ? null : s.user }));
     if (isCurrentUser) {
+      await cancelAllReminderRepeats();
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
@@ -261,6 +301,12 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
     const target = accounts.find((a) => a.accountId === accountId);
     if (!target) return false;
     if (!target.sessionValid) return 'needs-login';
+    const previousUser = get().user;
+    if (previousUser && accountStorageId(previousUser.id, previousUser.tenantId,
+      previousUser.authSource ?? 'ORGANIZATION') !== accountId) {
+      await cancelAllReminderRepeats();
+      await revokePushTokenBeforeLogout(previousUser);
+    }
 
     const user: AuthUser = {
       id: target.userId,
@@ -304,10 +350,15 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
   },
 
   removeAccount: async (accountId: string) => {
+    const current = get().user;
+    if (current && accountStorageId(current.id, current.tenantId,
+      current.authSource ?? 'ORGANIZATION') === accountId) {
+      await cancelAllReminderRepeats();
+      await revokePushTokenBeforeLogout(current);
+    }
     const accounts = await loadAccounts();
     const updated = accounts.filter((a) => a.accountId !== accountId);
     await saveAccounts(updated);
-    const current = get().user;
     const removingCurrent = !!current
       && accountStorageId(current.id, current.tenantId, current.authSource ?? 'ORGANIZATION') === accountId;
     if (removingCurrent) {
@@ -398,11 +449,13 @@ export const useAuthStore = create<AuthState>((set, get) => serializeActions<Aut
           await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
           await SecureStore.deleteItemAsync(USER_KEY);
           await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
+          await cancelAllReminderRepeats();
           set({ user: null, accounts, isLoading: false });
           return;
         }
         set({ user: { ...user, token }, accounts, isLoading: false });
       } else {
+        await cancelAllReminderRepeats();
         set({ accounts, isLoading: false });
       }
     } catch {

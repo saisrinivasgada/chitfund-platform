@@ -79,12 +79,27 @@ function MessageBubble({
 function ChatInput({
   onSend, isPending, accentColor, placeholder = 'Type a message...',
 }: {
-  onSend: (text: string) => void;
+  onSend: (text: string, clientMessageId: string) => Promise<unknown>;
   isPending: boolean;
   accentColor: string;
   placeholder?: string;
 }) {
   const [input, setInput] = useState('');
+  const retryDraft = useRef<{ text: string; clientMessageId: string } | null>(null);
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || isPending) return;
+    const clientMessageId = retryDraft.current?.text === text
+      ? retryDraft.current.clientMessageId : genId();
+    retryDraft.current = { text, clientMessageId };
+    try {
+      await onSend(text, clientMessageId);
+      retryDraft.current = null;
+      setInput((current) => current.trim() === text ? '' : current);
+    } catch {
+      // The mutation shows the error; keep the draft and id for a safe retry.
+    }
+  }
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, borderTopWidth: 1, borderColor: C.gray100 }}>
       <TextInput
@@ -100,7 +115,7 @@ function ChatInput({
         }}
       />
       <TouchableOpacity
-        onPress={() => { const t = input.trim(); if (t && !isPending) { onSend(t); setInput(''); } }}
+        onPress={handleSend}
         disabled={!input.trim() || isPending}
         style={{
           width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center',
@@ -144,6 +159,7 @@ function AdminChatView({ conversation, userId, onBack }: { conversation: any; us
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteChatMessage(conversation.id, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['m-chatMessages', conversation.id] }),
+    onError: () => Alert.alert('Message not deleted', 'Check your connection and try again.'),
   });
 
   function handleDelete(msg: any) {
@@ -171,6 +187,7 @@ function AdminChatView({ conversation, userId, onBack }: { conversation: any; us
 
       <FlatList
         data={messages}
+        keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
         keyExtractor={(m) => m.id}
         renderItem={({ item }) => (
           <MessageBubble
@@ -193,7 +210,7 @@ function AdminChatView({ conversation, userId, onBack }: { conversation: any; us
         }
       />
 
-      <ChatInput onSend={(t) => sendMut.mutate({ content: t, clientMessageId: genId() })} isPending={sendMut.isPending} accentColor={C.navy} placeholder="Message your admin..." />
+      <ChatInput onSend={(content, clientMessageId) => sendMut.mutateAsync({ content, clientMessageId })} isPending={sendMut.isPending} accentColor={C.navy} placeholder="Message your admin..." />
     </KeyboardAvoidingView>
   );
 }
@@ -226,6 +243,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteGroupMessage(group.id, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['m-groupMessages-member', group.id] }),
+    onError: () => Alert.alert('Message not deleted', 'Check your connection and try again.'),
   });
 
   function handleDelete(msg: any) {
@@ -254,6 +272,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
 
       <FlatList
         data={messages}
+        keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
         keyExtractor={(m) => m.id}
         renderItem={({ item }) => (
           <MessageBubble
@@ -276,7 +295,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
         }
       />
 
-      <ChatInput onSend={(t) => sendMut.mutate({ content: t, clientMessageId: genId() })} isPending={sendMut.isPending} accentColor={ACCENT} />
+      <ChatInput onSend={(content, clientMessageId) => sendMut.mutateAsync({ content, clientMessageId })} isPending={sendMut.isPending} accentColor={ACCENT} />
     </KeyboardAvoidingView>
   );
 }
@@ -436,6 +455,7 @@ function UnifiedList({
       ) : (
         <FlatList
           data={filtered}
+          keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
           keyExtractor={(i) => i._type + '-' + i.id}
           renderItem={renderItem}
           onRefresh={() => { refetchConv(); refetchGroups(); }}

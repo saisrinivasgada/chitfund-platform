@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { consumeProxyBootstrap } from '../utils/proxySessionTransfer';
 
 function decodeJwtPayload(token) {
   try {
@@ -17,12 +18,14 @@ function roleRedirect(role) {
 }
 
 export default function ProxyPage() {
-  const [params] = useSearchParams();
   const navigate  = useNavigate();
   const { login } = useAuth();
+  const bootstrapRef = useRef(undefined);
 
   useEffect(() => {
-    const token = params.get('token');
+    if (bootstrapRef.current === undefined) bootstrapRef.current = consumeProxyBootstrap();
+    const bootstrap = bootstrapRef.current;
+    const token = bootstrap?.token;
     if (!token) { navigate('/login'); return; }
 
     const claims = decodeJwtPayload(token);
@@ -37,7 +40,7 @@ export default function ProxyPage() {
     const tenantData = {
       tenantId:      claims.tenantId,
       tenantSlug:    claims.tenantSlug,
-      tenantName:    params.get('tenantName') ?? undefined,
+      tenantName:    bootstrap.tenantName || undefined,
       tenantPlan:    claims.tenantPlan ?? 'BASIC',
       tenantStatus:  'ACTIVE',
       planExpiresAt: null, // proxy sessions bypass plan-expiry gate

@@ -3,7 +3,7 @@ import { useOfflinePresentation } from '../../../offline/useOfflinePresentation'
 import { useState } from 'react';
 import {
   View, Text, FlatList, RefreshControl, Alert, TextInput,
-  TouchableOpacity, Modal, ScrollView, KeyboardAvoidingView, Platform,
+  TouchableOpacity, Modal, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions,
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,11 +13,12 @@ import {
   getMembers, getChits, getMyPendingBatches, listStaff,
   rescheduleRequest, getAdminSupportContact,
 } from '../../../services/api';
-import { C, T, Card, Badge, Amount, fmtDate, fmtDateTime, EmptyState, LoadingScreen } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, fmtDate, fmtDateTime, EmptyState, LoadingScreen, listRowColor } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import RoleLogo from '../../../components/RoleLogo';
+import { NotificationInboxButton } from '../../../components/NotificationInboxButton';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 import { markPickupOfflineCapable, partialCollectOfflineCapable } from '../../../offline/staffQueue';
@@ -221,8 +222,8 @@ function TaskModal({
           </TouchableOpacity>
         </View>
 
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
 
             {/* Amount hero */}
             <View style={{
@@ -456,6 +457,8 @@ function TaskModal({
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
 export default function StaffTasksScreen() {
+  const { width: viewportWidth } = useWindowDimensions();
+  const compactSummary = viewportWidth < 360;
   const { user } = useAuthStore();
   const qc = useQueryClient();
 
@@ -536,6 +539,7 @@ export default function StaffTasksScreen() {
       <ReadDataBoundary label="Assigned collections" queryKeys={[['staff-tasks']]}>
 
       <FlatList
+        style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
         data={assigned}
         keyExtractor={(t: any) => t.id}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
@@ -554,7 +558,10 @@ export default function StaffTasksScreen() {
 
                 </View>
               </View>
-              <ProfileAvatarButton />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <NotificationInboxButton />
+                <ProfileAvatarButton />
+              </View>
             </View>
 
             <SyncStatusCard compact />
@@ -569,14 +576,16 @@ export default function StaffTasksScreen() {
             <PendingPaymentQueueCard memberNames={memberMap} />
 
             {/* Summary strip */}
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+            <View style={{ flexDirection: 'row', flexWrap: compactSummary ? 'wrap' : 'nowrap', gap: 8, marginBottom: 20 }}>
               {[
                 { label: 'TO COLLECT', amt: needAmt, count: assigned.length, color: C.navy, bg: C.navy50 },
                 { label: 'HOLDING',    amt: holdingAmt, count: custodyItems.length + partiallyCollected.length, color: C.amber, bg: '#FFFBEB' },
                 { label: 'TODAY',      amt: todayAmt, count: 0, color: C.green, bg: '#F0FDF4' },
-              ].map(({ label, amt, count, color, bg }) => (
+              ].map(({ label, amt, count, color, bg }, index) => (
                 <View key={label} style={{
-                  flex: 1, borderRadius: 12, padding: 12,
+                  flex: compactSummary ? undefined : 1,
+                  width: compactSummary ? (index === 2 ? '100%' : '48%') : undefined,
+                  borderRadius: 12, padding: 12,
                   backgroundColor: amt > 0 ? bg : C.gray50,
                   borderWidth: 1.5, borderColor: amt > 0 ? color : C.gray200,
                 }}>
@@ -596,7 +605,7 @@ export default function StaffTasksScreen() {
                 <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                   Cash with you — pending admin action ({custodyItems.length})
                 </Text>
-                {custodyItems.map((item) => {
+                {custodyItems.map((item, i: number) => {
                   const isPickup = item.kind === 'pickup';
                   const stageColor = isPickup ? C.green : C.amber;
                   const itemKey = `${item.kind}-${item.id}`;
@@ -604,7 +613,7 @@ export default function StaffTasksScreen() {
                   const hasBreakdown = isPickup && breakdown.length > 1;
                   const isExpanded = expandedCustodyId === itemKey;
                   return (
-                    <Card key={itemKey} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: stageColor }}>
+                    <Card key={itemKey} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: stageColor, backgroundColor: listRowColor(i) }}>
                       <TouchableOpacity
                         activeOpacity={hasBreakdown ? 0.6 : 1}
                         disabled={!hasBreakdown}
@@ -663,8 +672,8 @@ export default function StaffTasksScreen() {
                 <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                   Partial — Admin follow-up ({partiallyCollected.length})
                 </Text>
-                {partiallyCollected.map((t: any) => (
-                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
+                {partiallyCollected.map((t: any, i: number) => (
+                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber, backgroundColor: listRowColor(i) }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
@@ -711,9 +720,9 @@ export default function StaffTasksScreen() {
             </TouchableOpacity>
           ) : null
         }
-        renderItem={({ item: t }) => (
+        renderItem={({ item: t, index }) => (
           <TouchableOpacity activeOpacity={0.75} onPress={() => setSelectedTask(t)}>
-            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.amber }}>
+            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.amber, backgroundColor: listRowColor(index) }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <View style={{ flex: 1, marginRight: 12 }}>
                   <Text style={{ fontSize: 15, fontWeight: '800', color: C.gray900 }}>

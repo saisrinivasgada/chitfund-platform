@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { hubGetMe, hubUpdateMe } from '../../services/api';
 
 const INPUT_CLS = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/10 bg-white';
 
 export default function HubProfileModal({ onClose }) {
+  const navigate = useNavigate();
   const [form, setForm] = useState({ fullName: '', email: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -90,6 +92,11 @@ export default function HubProfileModal({ onClose }) {
             >
               {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save changes'}
             </button>
+            <div className="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs">
+              <button type="button" onClick={() => { onClose(); navigate('/privacy'); }} className="text-[#1E3A5F] underline">Privacy</button>
+              <button type="button" onClick={() => { onClose(); navigate('/terms'); }} className="text-[#1E3A5F] underline">Terms</button>
+              <button type="button" onClick={() => { onClose(); navigate('/delete-account?source=hub'); }} className="font-semibold text-red-700 underline">Delete my account</button>
+            </div>
           </>
         )}
       </div>

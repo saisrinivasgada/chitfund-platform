@@ -3,7 +3,8 @@ import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread, getMyChitfundRequests } from '../../services/api';
-import { LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail, UserPlus } from 'lucide-react';
+import { shouldHandoffToTenant, tenantHandoffUrl } from '../../utils/tenantHandoff';
+import { LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail, UserPlus, MoreHorizontal } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
 import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
 import Modal from '../ui/Modal';
@@ -127,7 +128,11 @@ function SwitchOrgModal({ currentTenantId, currentTenantName, onClose }) {
   async function handleSwitch(tenant) {
     setSwitching(tenant.tenantId);
     try {
-      const data = await selectTenant({ loginToken, tenantId: tenant.tenantId });
+      const useHandoff = shouldHandoffToTenant(tenant.slug);
+      const data = await selectTenant({ loginToken, tenantId: tenant.tenantId, webHandoff: useHandoff });
+      const handoffUrl = useHandoff ? tenantHandoffUrl(data, tenant.slug) : null;
+      if (handoffUrl) { window.location.replace(handoffUrl); return; }
+      if (useHandoff) throw new Error('Organization switch could not continue. Please try again.');
       const accessToken = data.accessToken ?? data.token;
       const scopedTenant = data.tenant ?? tenant;
       login(accessToken, {
@@ -247,6 +252,7 @@ export default function MemberPortalLayout() {
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSwitchOrg, setShowSwitchOrg] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
+  const [showMobileActions, setShowMobileActions] = useState(false);
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
   const { data: me } = useQuery({
@@ -296,17 +302,17 @@ export default function MemberPortalLayout() {
       {/* Top nav */}
       <header className="print:hidden bg-white border-b border-gray-100 px-4 sm:px-8 sticky top-0 z-20">
         <div className="flex items-center justify-between h-14">
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => navigate('/member')}>
+          <div className="flex shrink-0 items-center gap-2.5 cursor-pointer" onClick={() => navigate('/member')}>
             <RoleLogo role="MEMBER" className="w-8 h-8" />
             <span
-              className="text-base font-bold"
+              className="hidden sm:inline text-base font-bold"
               style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
             >
               ChitWise
             </span>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-3">
             <button type="button" onClick={() => navigate('/member/chitfund-requests')} title="Chitfund Requests"
               className="relative w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer">
               <UserPlus size={16} />
@@ -340,7 +346,7 @@ export default function MemberPortalLayout() {
                   <a
                     href={`tel:${adminPhone}`}
                     title="Call admin"
-                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                    className="hidden xl:flex w-8 h-8 items-center justify-center rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
                   >
                     <Phone size={16} />
                   </a>
@@ -349,7 +355,7 @@ export default function MemberPortalLayout() {
                   <a
                     href={`mailto:${adminEmail}`}
                     title="Email admin"
-                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                    className="hidden xl:flex w-8 h-8 items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
                   >
                     <Mail size={16} />
                   </a>
@@ -358,7 +364,7 @@ export default function MemberPortalLayout() {
                   <a
                     href={`sms:${adminPhone}`}
                     title="SMS admin"
-                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors"
+                    className="hidden xl:flex w-8 h-8 items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors"
                   >
                     <MessageSquare size={16} />
                   </a>
@@ -370,7 +376,7 @@ export default function MemberPortalLayout() {
             {/* Company switcher — shows current org name, click to switch */}
             <button
               onClick={() => setShowSwitchOrg(true)}
-              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-[#1E3A5F] hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
+              className="hidden xl:flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-[#1E3A5F] hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
               title="Switch organization"
             >
               <Building2 size={13} className="flex-shrink-0" />
@@ -384,7 +390,7 @@ export default function MemberPortalLayout() {
             {altLabel && (
               <button
                 onClick={() => setShowSwitch(true)}
-                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-[#1E3A5F] hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
+                className="hidden xl:flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-[#1E3A5F] hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
                 title={`Switch to ${altLabel} account`}
               >
                 <RoleLogo role={altRole} className="w-6 h-6" />
@@ -394,7 +400,7 @@ export default function MemberPortalLayout() {
               </button>
             )}
 
-            <Link to="/member/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <Link to="/member/profile" onClick={() => setShowMobileActions(false)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
                 style={{ backgroundColor: '#D4A017' }}
@@ -407,13 +413,32 @@ export default function MemberPortalLayout() {
             </Link>
             <button
               onClick={() => requestLogout()}
-              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 cursor-pointer"
+              className="hidden xl:flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 cursor-pointer"
             >
               <LogOut size={15} />
               <span className="hidden sm:inline">Sign out</span>
             </button>
+            <button type="button" onClick={() => setShowMobileActions((open) => !open)}
+              aria-label="More account actions" aria-expanded={showMobileActions}
+              className="xl:hidden w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100">
+              <MoreHorizontal size={20} />
+            </button>
           </div>
         </div>
+        {showMobileActions && (
+          <>
+          <button type="button" aria-label="Close account menu" onClick={() => setShowMobileActions(false)}
+            className="fixed inset-0 z-20 xl:hidden" />
+          <div className="xl:hidden absolute right-4 top-14 z-30 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-xl text-sm">
+            <button type="button" onClick={() => { setShowMobileActions(false); setShowSwitchOrg(true); }} className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-gray-50"><Building2 size={16} />Switch organization</button>
+            {altLabel && <button type="button" onClick={() => { setShowMobileActions(false); setShowSwitch(true); }} className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-gray-50"><RefreshCw size={16} />Switch to {altLabel}</button>}
+            {adminPhone && <a href={`tel:${adminPhone}`} onClick={() => setShowMobileActions(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-gray-50"><Phone size={16} />Call admin</a>}
+            {adminEmail && <a href={`mailto:${adminEmail}`} onClick={() => setShowMobileActions(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-gray-50"><Mail size={16} />Email admin</a>}
+            {adminPhone && <a href={`sms:${adminPhone}`} onClick={() => setShowMobileActions(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-gray-50"><MessageSquare size={16} />SMS admin</a>}
+            <button type="button" onClick={() => { setShowMobileActions(false); requestLogout(); }} className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left text-red-600 hover:bg-red-50"><LogOut size={16} />Sign out</button>
+          </div>
+          </>
+        )}
       </header>
 
       <main className="py-6 px-4 sm:px-8 w-full">

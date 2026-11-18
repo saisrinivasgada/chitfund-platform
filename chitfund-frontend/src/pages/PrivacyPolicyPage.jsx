@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 const P = '#1E3A5F';
-const UPDATED = 'September 2026';
+const UPDATED = 'November 2026';
 
 const SECTIONS = [
   { id: 's1',  num: '1',  title: 'Who We Are',                              icon: Building2   },
@@ -23,7 +23,7 @@ const SECTIONS = [
   { id: 's11', num: '11', title: 'Data Retention',                           icon: Clock       },
   { id: 's12', num: '12', title: 'Your Rights',                              icon: UserCheck   },
   { id: 's13', num: '13', title: 'Children\'s Data',                         icon: Users       },
-  { id: 's14', num: '14', title: 'Cookies',                                  icon: Layers      },
+  { id: 's14', num: '14', title: 'Cookies & Device Storage',                 icon: Layers      },
   { id: 's15', num: '15', title: 'Changes to This Policy',                   icon: RefreshCw   },
   { id: 's16', num: '16', title: 'Indian Law & DPDP Compliance',             icon: Shield      },
   { id: 's17', num: '17', title: 'Contact & Grievance Officer',              icon: Mail        },
@@ -178,9 +178,9 @@ export default function PrivacyPolicyPage() {
             <p>This is information provided directly to ChitWise when your organisation registers and uses the platform:</p>
             <ul className="list-disc pl-5 space-y-1.5">
               <li><strong>Organisation details:</strong> business name, subdomain, contact information</li>
-              <li><strong>Admin and staff accounts:</strong> full name, email, phone, login credentials (passwords are stored as one-way encrypted hashes — never in plain text)</li>
+              <li><strong>Admin and staff accounts:</strong> full name, email, phone, login credentials (passwords are stored as one-way hashes, never in plain text)</li>
               <li><strong>Usage data:</strong> login activity, audit logs, device and browser information</li>
-              <li><strong>Terms and consent records:</strong> date/time of Terms acceptance, Terms version accepted, and Privacy Policy acknowledgement — stored per user account for compliance purposes</li>
+              <li><strong>Terms acceptance records:</strong> acceptance time and recorded Terms version where an account creation flow captures acceptance</li>
             </ul>
           </S>
 
@@ -195,6 +195,7 @@ export default function PrivacyPolicyPage() {
             <ul className="list-disc pl-5 space-y-1.5">
               <li><strong>Member records:</strong> name, phone number, email, address</li>
               <li><strong>Transaction data:</strong> chit group details, installment amounts, payment records, draw history, payouts</li>
+              <li><strong>Messages and support:</strong> messages, support requests, and information you choose to attach or enter</li>
               <li><strong>Optional identity references:</strong> Aadhaar last 4 digits, PAN number (see note below)</li>
             </ul>
 
@@ -205,13 +206,12 @@ export default function PrivacyPolicyPage() {
                 whether to collect and enter them. Here is exactly how ChitWise handles this data:
               </p>
               <ul className="list-disc pl-5 space-y-1.5 text-amber-800">
-                <li><strong>What is stored:</strong> Last 4 digits of Aadhaar only (as an optional reference identifier). PAN number if voluntarily entered. Full Aadhaar numbers are never stored.</li>
+                <li><strong>What is stored:</strong> The Aadhaar reference field accepts only the last 4 digits; PAN can be entered optionally. Do not enter a full Aadhaar number in notes or other free-text fields.</li>
                 <li><strong>Why it is collected:</strong> For member identification purposes within your organisation's records — the same way a chit fund manager might note a partial ID for reference.</li>
-                <li><strong>Who can see it:</strong> Admin and Manager roles within your organisation. ChitWise support staff may access it only when required to resolve a specific support issue.</li>
-                <li><strong>How it is protected:</strong> Stored in an isolated, access-controlled database per tenant; encrypted in transit via HTTPS; restricted by role-based permissions.</li>
-                <li><strong>In data exports:</strong> Aadhaar last 4 and PAN are included in data exports initiated by authorised admin users of your organisation.</li>
-                <li><strong>In logs:</strong> Aadhaar and PAN values are never written to application logs.</li>
-                <li><strong>Retention:</strong> Retained for as long as the member record exists in ChitWise. Upon account closure or a verified erasure request, this data is permanently deleted from active systems.</li>
+                <li><strong>Who can see it:</strong> Authorised users within your organisation and, where available, members viewing their own profile. ChitWise support personnel may access it when needed for support or security.</li>
+                <li><strong>How it is protected:</strong> Access is scoped to your organisation and restricted by role-based permissions; data is encrypted in transit via HTTPS.</li>
+                <li><strong>In data exports:</strong> Exports containing member identity fields may include these values. Treat downloaded files as sensitive and share them only with authorised people.</li>
+                <li><strong>Retention:</strong> We review identity references when an account closes or an erasure request is verified. We remove data that is no longer needed, subject to applicable record-retention obligations.</li>
               </ul>
               <p className="text-amber-700 italic mt-3">
                 If your organisation does not require Aadhaar or PAN references for its operations, we
@@ -222,11 +222,11 @@ export default function PrivacyPolicyPage() {
 
           <S id="s4" title="4. Your Organisation's Responsibility for Member Data" icon={Shield} r={sectionRefs}>
             <p>
-              Under the Digital Personal Data Protection Act, 2023 (DPDP Act), organisations using
-              ChitWise to manage their member records are <strong>Data Fiduciaries</strong> — they
-              determine the purpose and means of processing personal data. ChitWise acts as a{' '}
-              <strong>Data Processor</strong> on your behalf for member data. For its own registered
-              users (admins and staff), ChitWise is itself a Data Fiduciary.
+              Organisations using ChitWise generally determine why their member records are collected
+              and how they are used. For those records, the organisation is generally the{' '}
+              <strong>Data Fiduciary</strong> and ChitWise processes data to provide the service.
+              ChitWise also determines some purposes for its own platform accounts, authentication,
+              security, and support data. Each request is assessed according to the data and purpose involved.
             </p>
             <p>As the Data Fiduciary for your members' data, your organisation is responsible for:</p>
             <ul className="list-disc pl-5 space-y-1.5">
@@ -246,16 +246,16 @@ export default function PrivacyPolicyPage() {
               <li>To send notifications related to draw results, payment reminders, and payout updates (as configured by your organisation)</li>
               <li>To provide customer support and respond to your queries</li>
               <li>To monitor platform performance and improve the service</li>
-              <li>To maintain a record of Terms and Privacy Policy acceptance (date, version, user ID) for compliance purposes</li>
+              <li>To maintain the Terms acceptance records captured during account creation</li>
               <li>To comply with applicable laws and regulations</li>
             </ul>
           </S>
 
           <S id="s6" title="6. Data Isolation & Support Access" icon={Lock} r={sectionRefs}>
             <div className="p-4 rounded-xl border text-sm leading-relaxed" style={{ backgroundColor: '#EFF4FA', borderColor: '#BFDBFE' }}>
-              Each organisation's data on ChitWise is fully isolated. Your members, transactions, and
-              records are visible only to users within your organisation and are not accessible to other
-              organisations using the platform.
+              Member, transaction, and chit records are scoped to your organisation. Users from another
+              organisation cannot access them through their organisation account. Authorised ChitWise
+              personnel may access them for the limited purposes described below.
             </div>
             <p>
               ChitWise personnel may access your organisation's Customer Data only when reasonably
@@ -274,8 +274,8 @@ export default function PrivacyPolicyPage() {
               <li>HTTPS encryption for all data in transit</li>
               <li>Encrypted password storage (bcrypt hashing)</li>
               <li>Role-based access controls (Admin, Manager, Staff, Member)</li>
-              <li>Audit logs for all sensitive actions</li>
-              <li>Tenant-level data isolation at the database level</li>
+              <li>Audit logging for sensitive actions</li>
+              <li>Organisation-scoped data access controls</li>
             </ul>
             <p className="text-gray-500 italic">
               No internet-based service can be guaranteed to be completely secure. We encourage you to
@@ -308,7 +308,8 @@ export default function PrivacyPolicyPage() {
             <p>Current providers:</p>
             <ul className="list-disc pl-5 space-y-1.5">
               <li><strong>Amazon Web Services (AWS):</strong> Cloud infrastructure — servers, storage, and database hosting</li>
-              <li><strong>Communications providers:</strong> Used to deliver SMS notifications configured by your organisation</li>
+              <li><strong>AWS email services and Meta WhatsApp:</strong> Used to deliver email and WhatsApp messages where those channels are enabled</li>
+              <li><strong>Google:</strong> Used for Google sign-in when you choose that sign-in method</li>
             </ul>
             <p>
               We may share data with regulators, courts, or law enforcement only when required by a valid
@@ -332,23 +333,26 @@ export default function PrivacyPolicyPage() {
               <li><strong>Inactive accounts:</strong> we may contact you before removing long-dormant data</li>
               <li><strong>Account closure:</strong> submit a closure and erasure request to{' '}
                 <a href="mailto:help@thechitwise.com" className="underline" style={{ color: P }}>help@thechitwise.com</a>;
-                we will confirm the deletion scope and timeline before proceeding
+                we will confirm the deletion scope and timeline before proceeding. Removing a login does not erase chit, payment, or audit records that an organisation or law must retain
               </li>
               <li><strong>Legal hold:</strong> where applicable law requires us to retain records (e.g., financial regulations), we will retain only what is required for the minimum statutory period</li>
               <li><strong>Aggregated/anonymised analytics:</strong> may be retained indefinitely as they cannot be linked to individuals or organisations</li>
             </ul>
+            <button type="button" onClick={() => navigate('/delete-account')} className="mt-3 font-semibold underline" style={{ color: P }}>
+              Request account deletion
+            </button>
             <p>You can request a full export of your data at any time by contacting us at{' '}
               <a href="mailto:help@thechitwise.com" className="underline" style={{ color: P }}>help@thechitwise.com</a>.
             </p>
           </S>
 
           <S id="s12" title="12. Your Rights (Data Principals)" icon={UserCheck} r={sectionRefs}>
-            <p>Under applicable Indian law, including the DPDP Act 2023, you have the following rights as a Data Principal:</p>
+            <p>Subject to applicable law, including provisions of the DPDP Act 2023 as they come into force, you may request:</p>
             <ul className="list-disc pl-5 space-y-1.5">
               <li><strong>Access &amp; Summary:</strong> Request a summary of the personal data we hold about you and how it is processed</li>
               <li><strong>Correction:</strong> Request correction of inaccurate or incomplete personal data — many fields can be updated directly in the platform</li>
               <li><strong>Erasure:</strong> Request deletion of personal data we no longer need for the purpose it was collected — subject to legal retention requirements</li>
-              <li><strong>Grievance Redressal:</strong> File a complaint with our Grievance Officer (see Section 17); we will acknowledge within 48 hours and resolve within 30 days</li>
+              <li><strong>Grievance Redressal:</strong> File a complaint with our Grievance Officer (see Section 17)</li>
               <li><strong>Nomination:</strong> Nominate another individual to exercise your rights on your behalf in the event of death or incapacity (submit the nomination in writing to our Grievance Officer)</li>
               <li><strong>Withdraw Consent:</strong> Withdraw any consent you have given us; note that withdrawal may affect your ability to use parts of the platform that depend on that consent</li>
             </ul>
@@ -357,7 +361,12 @@ export default function PrivacyPolicyPage() {
               <a href="mailto:help@thechitwise.com" className="underline font-medium" style={{ color: P }}>
                 help@thechitwise.com
               </a>
-              . We will acknowledge your request within 48 hours.
+              . We will verify your identity and explain the next steps.
+            </p>
+            <p>
+              If privacy law in another country or region applies to your account, contact us through
+              the same address. We will assess the request under the applicable law, including any
+              required exceptions for financial records or legal claims.
             </p>
           </S>
 
@@ -370,20 +379,23 @@ export default function PrivacyPolicyPage() {
             </div>
           </S>
 
-          <S id="s14" title="14. Cookies" icon={Layers} r={sectionRefs}>
+          <S id="s14" title="14. Cookies & Device Storage" icon={Layers} r={sectionRefs}>
             <p>
-              ChitWise uses minimal cookies — primarily session cookies required to maintain your login
-              state. We do not use third-party tracking cookies, advertising cookies, or cross-site
-              tracking technologies.
+              ChitWise uses cookies and device storage to maintain sign-in state and settings. Where
+              offline features are enabled, the web or mobile app may keep copies of permitted records
+              on your device so work can continue during a connection outage. Signing out of one account
+              does not necessarily remove another saved account or an organisation's required records.
+              We do not use advertising cookies or cross-site tracking technologies.
             </p>
           </S>
 
           <S id="s15" title="15. Changes to This Policy" icon={RefreshCw} r={sectionRefs}>
             <p>
               We may update this Privacy Policy from time to time. We will notify active users of
-              significant changes via email or an in-app notice at least 7 days before changes take
-              effect. The date at the top of this page reflects when it was last updated. The version
-              accepted by each user is stored against their account for audit purposes.
+              material changes and explain how their information will be affected. The date at the
+              top of this page reflects when it was last updated. Reading this notice or continuing
+              to use the app does not, by itself, give consent for a new purpose; where consent is
+              required, we will ask for it separately.
             </p>
           </S>
 
@@ -391,8 +403,8 @@ export default function PrivacyPolicyPage() {
             <p>
               ChitWise is operated in India and this Privacy Policy is governed by Indian law, including
               the <strong>Digital Personal Data Protection Act, 2023</strong> (DPDP Act) to the extent
-              it is in force and applicable. We are committed to compliance with the DPDP Act and will
-              update our practices as its rules are notified.
+              it is in force and applicable. Its provisions and implementing rules have different
+              commencement dates; we will update our practices as those requirements take effect.
             </p>
             <p>Key commitments under Indian law:</p>
             <ul className="list-disc pl-5 space-y-1.5">
@@ -401,15 +413,14 @@ export default function PrivacyPolicyPage() {
               <li><strong>Accuracy:</strong> We take reasonable steps to keep data accurate and up to date</li>
               <li><strong>Storage limitation:</strong> Data is not retained beyond its necessary purpose, subject to legal obligations</li>
               <li><strong>Security:</strong> Appropriate technical and organisational measures are in place (see Section 7)</li>
-              <li><strong>Consent records:</strong> Consent given on the platform is versioned and timestamped; you can withdraw it at any time</li>
+              <li><strong>Consent:</strong> You may withdraw consent where processing relies on it, subject to applicable legal obligations</li>
               <li><strong>Significant Data Fiduciary:</strong> If ChitWise is notified as a Significant Data Fiduciary under the DPDP Act, we will appoint a Data Protection Officer and publish the contact details here</li>
             </ul>
             <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-100 text-sm text-amber-900">
               <p className="font-semibold mb-1">Bank Account Data</p>
               <p>
                 ChitWise may store bank account numbers for payout purposes within your organisation.
-                This data is treated as sensitive and is accessible only to Admin roles. It is transmitted
-                exclusively over HTTPS and is never written to application logs.
+                We restrict access to authorised roles and transmit this information over HTTPS.
               </p>
             </div>
           </S>
@@ -430,7 +441,8 @@ export default function PrivacyPolicyPage() {
             <p className="mt-3">
               We will acknowledge your grievance within <strong>48 hours</strong> and aim to resolve it
               within <strong>30 days</strong>. If you are not satisfied with our response, you may escalate
-              to the appropriate Data Protection Board once constituted under the DPDP Act.
+              to the Data Protection Board of India where the applicable DPDP provisions and escalation
+              process permit it.
             </p>
             <a href="mailto:help@thechitwise.com"
               className="inline-flex items-center gap-2 mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
@@ -447,7 +459,7 @@ export default function PrivacyPolicyPage() {
         <span>© {new Date().getFullYear()} ChitWise</span>
         <button onClick={() => navigate('/terms')} className="underline hover:text-gray-600 cursor-pointer">Terms of Service</button>
         <span className="text-gray-300">·</span>
-        <span className="text-gray-400">Privacy Policy (v2, Sep 2026)</span>
+        <span className="text-gray-400">Privacy Policy (Nov 2026)</span>
       </div>
 
       {/* Back to top */}

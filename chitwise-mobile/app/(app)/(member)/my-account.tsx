@@ -56,7 +56,7 @@ export default function MemberMyAccountScreen() {
         <Text style={{ fontSize: 18, fontWeight: '800', color: C.navy }}>My Account</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }} showsVerticalScrollIndicator={false}>
 
         {/* Avatar card */}
         <View style={{ backgroundColor: C.surface, borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>

@@ -17,7 +17,7 @@ export function cacheableRead(path, method = 'GET') {
 export function shouldRetryRead(failureCount, error, maximum = 2) {
   const status = error?.status ?? error?.response?.status;
   return !error?.offlineMissing && !error?.requiresLogin
-    && ![400, 401, 403, 404, 410].includes(status) && failureCount < maximum;
+    && ![400, 401, 403, 404, 410, 429].includes(status) && failureCount < maximum;
 }
 
 export function mayKeepReadSnapshot(error) {

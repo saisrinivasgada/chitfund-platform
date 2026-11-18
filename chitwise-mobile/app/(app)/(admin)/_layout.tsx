@@ -43,7 +43,7 @@ export default function AdminLayout() {
   const { data: recentLogs = [] } = useQuery({
     queryKey: ['m-activity-badge-poll'],
     queryFn: () => getAuditLogs({ size: 20, sort: 'createdAt,desc' }),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
     enabled: !!activityLastSeenAt,
   });
 

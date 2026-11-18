@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, View, Text, Modal, ScrollView, TouchableOpacity } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getMyNotifications, markNotificationRead, markAllNotificationsRead, getMembers, getChits } from '../services/api';
+import { getMyNotifications, markNotificationRead, markAllNotificationsRead } from '../services/api';
 import { C, T, fmtDate } from './ui';
 
 // ── Relative time ──────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ function NotifCard({
       >
         <Animated.Text style={{ fontSize: 20, color: '#fff', transform: [{ scale }] }}>🗑</Animated.Text>
         <Animated.Text style={{ fontSize: 10, color: '#fff', fontWeight: '600', marginTop: 2, transform: [{ scale }] }}>
-          Remove
+          Hide
         </Animated.Text>
       </TouchableOpacity>
     );
@@ -216,28 +216,17 @@ export function NotificationsModal({ visible, onClose }: { visible: boolean; onC
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
-  const { data: notifs = [], refetch } = useQuery({
+  const { data: notifs = [], refetch, isLoading, isError } = useQuery({
     queryKey: ['m-notifs'],
     queryFn: getMyNotifications,
     enabled: visible,
     refetchInterval: visible ? 30_000 : false,
   });
 
-  // Name resolution — use existing cached queries so no extra network calls
-  const { data: members = [] } = useQuery({
-    queryKey: ['m-members'],
-    queryFn: getMembers,
-    staleTime: 120_000,
-    enabled: visible,
-  });
-  const { data: chits = [] } = useQuery({
-    queryKey: ['m-chits'],
-    queryFn: getChits,
-    staleTime: 120_000,
-    enabled: visible,
-  });
-  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id?.toLowerCase(), m.fullName ?? m.name]));
-  const chitMap   = Object.fromEntries((chits   as any[]).map((c: any) => [c.id?.toLowerCase(), c.name]));
+  // Notification metadata carries display names when available. Opening the
+  // inbox must not fetch the whole member and chit directories on slow links.
+  const memberMap: Record<string, string> = {};
+  const chitMap: Record<string, string> = {};
 
   const readMut = useMutation({
     mutationFn: (id: string) => markNotificationRead(id),
@@ -275,14 +264,13 @@ export function NotificationsModal({ visible, onClose }: { visible: boolean; onC
   }
 
   function handleClearAll() {
-    const unreadIds = (notifs as any[]).filter((n: any) => !n.read).map((n: any) => n.id);
-    setDismissed(prev => new Set([...prev, ...unreadIds]));
     readAllMut.mutate();
   }
 
   // Reset dismissed set when modal reopens
-  const prevVisible = dismissed.size > 0 && !visible;
-  if (prevVisible) setDismissed(new Set());
+  useEffect(() => {
+    if (!visible) setDismissed(new Set());
+  }, [visible]);
 
   const all = (notifs as any[]).filter((n: any) => !dismissed.has(n.id));
   const unreadCount = all.filter((n: any) => !n.read).length;
@@ -315,7 +303,7 @@ export function NotificationsModal({ visible, onClose }: { visible: boolean; onC
                 onPress={handleClearAll}
                 style={{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: C.navy50, borderRadius: 9 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>Clear all</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>Mark all read</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity onPress={onClose} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
@@ -356,7 +344,19 @@ export function NotificationsModal({ visible, onClose }: { visible: boolean; onC
 
         {/* ── List ── */}
         <ScrollView contentContainerStyle={{ padding: 12, paddingBottom: 40 }}>
-          {displayed.length === 0 ? (
+          {isLoading ? (
+            <View style={{ alignItems: 'center', paddingVertical: 52 }}>
+              <Text style={{ fontSize: 14, color: C.gray500 }}>Loading notifications…</Text>
+            </View>
+          ) : isError ? (
+            <View style={{ alignItems: 'center', paddingVertical: 52 }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>Notifications unavailable</Text>
+              <Text style={{ fontSize: 13, color: C.gray500, marginTop: 6 }}>Check your connection and try again.</Text>
+              <TouchableOpacity onPress={() => refetch()} style={{ marginTop: 16, padding: 10 }}>
+                <Text style={{ color: C.navy, fontWeight: '700' }}>Try again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : displayed.length === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: 52 }}>
               <Text style={{ fontSize: 36, marginBottom: 12 }}>🔔</Text>
               <Text style={{ fontSize: 16, fontWeight: '700', color: C.gray900 }}>

@@ -51,6 +51,7 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
   const [resendSecs, setResendSecs] = useState(0);
   const [sendCount, setSendCount] = useState(0);
   const [resendBlocked, setResendBlocked] = useState(false);
+  const otpVerifyInFlight = useRef(false);
   const resendRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -117,23 +118,28 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
     } finally { setLoading(false); }
   }
 
-  async function handleVerifyOtp() {
-    if (otp.length !== 6 || lockoutSecs > 0) return;
+  async function handleVerifyOtp(nextCode = otp) {
+    if (nextCode.length !== 6 || lockoutSecs > 0 || otpVerifyInFlight.current) return;
+    otpVerifyInFlight.current = true;
     setLoading(true); setError('');
     try {
-      const data = await forgotPasswordVerifyOtp({ userId: userIdRef.current, code: otp });
+      const data = await forgotPasswordVerifyOtp({ userId: userIdRef.current, code: nextCode });
       resetTokenRef.current = data.resetToken;
       if (resendRef.current) clearInterval(resendRef.current);
       setStep('password');
     } catch (err: any) {
-      const code = err.response?.data?.code;
+      const code = err.response?.data?.errorCode ?? err.response?.data?.code;
       if (code === 'OTP_004') {
-        setError('OTP expired or already used. Go back and request a new one.');
-      } else {
+        setOtp('');
+        setError('Too many wrong attempts. Go back and request a new OTP.');
+      } else if (code === 'OTP_003') {
+        setOtp('');
         startLockout();
         setError('Incorrect OTP. You must wait 5 minutes before trying again.');
+      } else {
+        setError(err.response?.data?.message ?? 'Could not verify the OTP. Please try again.');
       }
-    } finally { setLoading(false); }
+    } finally { otpVerifyInFlight.current = false; setLoading(false); }
   }
 
   async function handleResetPassword() {
@@ -249,7 +255,9 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
                 <Text style={{ fontSize: 15, color: '#6B7280', marginBottom: 8, lineHeight: 22 }}>
                   Enter the 6-digit OTP sent to {maskedPhoneRef.current}.
                 </Text>
-                <OtpCodeInput value={otp} onChangeText={(v) => { setOtp(v); setError(''); }} disabled={lockoutSecs > 0} hasError={!!error} autoFocus />
+                <OtpCodeInput value={otp} onChangeText={(v) => { setOtp(v); setError(''); }}
+                  onComplete={handleVerifyOtp} disabled={lockoutSecs > 0}
+                  status={loading ? 'loading' : error ? 'error' : 'idle'} autoFocus />
                 {lockoutSecs > 0 && (
                   <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, marginTop: 12 }}>
                     <Text style={{ color: '#92400E', fontSize: 13 }}>
@@ -261,7 +269,7 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
                 <View style={{ height: 20 }} />
                 <Button
                   label="Verify OTP"
-                  onPress={handleVerifyOtp}
+                  onPress={() => handleVerifyOtp()}
                   loading={loading}
                   disabled={otp.length !== 6 || lockoutSecs > 0}
                   fullWidth
@@ -337,6 +345,8 @@ export default function LoginScreen() {
   const [showForgot, setShowForgot] = useState(false);
   const [loginOtpState, setLoginOtpState] = useState<{ otpToken: string; maskedPhone: string } | null>(null);
   const [loginOtp, setLoginOtp] = useState('');
+  const loginOtpInFlight = useRef(false);
+  const loginEmailOtpInFlight = useRef(false);
   const [loginEmailState, setLoginEmailState] = useState<{ emailVerificationToken: string; maskedEmail: string } | null>(null);
   const [loginEmailOtp, setLoginEmailOtp] = useState('');
   const { setUser } = useAuthStore();
@@ -489,12 +499,13 @@ export default function LoginScreen() {
     }
   }
 
-  async function handleLoginOtpSubmit() {
-    if (!loginOtpState || loginOtp.length !== 6) return;
+  async function handleLoginOtpSubmit(nextCode = loginOtp) {
+    if (!loginOtpState || nextCode.length !== 6 || loginOtpInFlight.current) return;
+    loginOtpInFlight.current = true;
     setError('');
     setLoading(true);
     try {
-      const data = await verifyLoginOtp(loginOtpState.otpToken, loginOtp);
+      const data = await verifyLoginOtp(loginOtpState.otpToken, nextCode);
       setLoginOtpState(null);
       if (data.requiresTenantSelection && data.loginToken) {
         const tenants = data.tenants ?? [];
@@ -512,18 +523,21 @@ export default function LoginScreen() {
       }
       await applyAuth(data, true);
     } catch (err: any) {
-      setError(err.response?.data?.message ?? 'Incorrect OTP. Please try again.');
+      setError(err.response?.data?.message ?? 'Could not verify the OTP. Please try again.');
+      if (err.response?.status !== 429) setLoginOtp('');
     } finally {
+      loginOtpInFlight.current = false;
       setLoading(false);
     }
   }
 
-  async function handleLoginEmailOtpSubmit() {
-    if (!loginEmailState || loginEmailOtp.length !== 6) return;
+  async function handleLoginEmailOtpSubmit(nextCode = loginEmailOtp) {
+    if (!loginEmailState || nextCode.length !== 6 || loginEmailOtpInFlight.current) return;
+    loginEmailOtpInFlight.current = true;
     setError('');
     setLoading(true);
     try {
-      const data = await verifyLoginEmailOtp(loginEmailState.emailVerificationToken, loginEmailOtp);
+      const data = await verifyLoginEmailOtp(loginEmailState.emailVerificationToken, nextCode);
       setLoginEmailState(null);
       setLoginEmailOtp('');
       if (data.requiresOtp && data.otpToken) {
@@ -547,8 +561,10 @@ export default function LoginScreen() {
       }
       await applyAuth(data, true);
     } catch (err: any) {
-      setError(err.response?.data?.message ?? 'Incorrect email OTP. Please try again.');
+      setError(err.response?.data?.message ?? 'Could not verify the email OTP. Please try again.');
+      if (err.response?.status !== 429) setLoginEmailOtp('');
     } finally {
+      loginEmailOtpInFlight.current = false;
       setLoading(false);
     }
   }
@@ -713,6 +729,11 @@ export default function LoginScreen() {
           <Text style={{ textAlign: 'center', color: C.white + '44', fontSize: 11, marginTop: 20 }}>
             ChitWise © {new Date().getFullYear()}
           </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 16, marginTop: 10 }}>
+            <Text accessibilityRole="link" onPress={() => Linking.openURL('https://thechitwise.com/privacy')} style={{ color: C.white + 'BB', fontSize: 11 }}>Privacy</Text>
+            <Text accessibilityRole="link" onPress={() => Linking.openURL('https://thechitwise.com/terms')} style={{ color: C.white + 'BB', fontSize: 11 }}>Terms</Text>
+            <Text accessibilityRole="link" onPress={() => Linking.openURL('https://thechitwise.com/delete-account')} style={{ color: C.white + 'BB', fontSize: 11 }}>Delete account</Text>
+          </View>
         </View>
       </KeyboardAvoidingView>
 
@@ -748,20 +769,23 @@ export default function LoginScreen() {
       {/* Login OTP verification */}
       <Modal visible={!!loginOtpState} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your identity</Text>
+        <View style={{ flex: 1, backgroundColor: 'rgba(15,30,48,0.55)', justifyContent: 'center', padding: 18 }}>
+          <View style={{ width: '100%', maxWidth: 420, alignSelf: 'center', backgroundColor: C.surface,
+            borderRadius: 24, borderWidth: 1, borderColor: C.gray300, padding: 24,
+            shadowColor: C.navy, shadowOpacity: 0.16, shadowRadius: 24, elevation: 8 }}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: C.navy, marginBottom: 6, textAlign: 'center' }}>Let’s verify your number</Text>
             <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
-              A 6-digit OTP was sent to {loginOtpState?.maskedPhone}
+              We’ve sent a 6 digit WhatsApp code to {loginOtpState?.maskedPhone}
             </Text>
-            <OtpCodeInput value={loginOtp} onChangeText={(v) => { setLoginOtp(v); setError(''); }} hasError={!!error} autoFocus />
+            <OtpCodeInput value={loginOtp} onChangeText={(v) => { setLoginOtp(v); setError(''); }}
+              onComplete={handleLoginOtpSubmit} status={loading ? 'loading' : error ? 'error' : 'idle'} autoFocus />
             {error ? (
               <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12 }}>
                 <Text style={{ color: C.red, fontSize: 13 }}>{error}</Text>
               </View>
             ) : null}
             <View style={{ height: 20 }} />
-            <Button label="Verify & Sign In" onPress={handleLoginOtpSubmit} loading={loading} disabled={loginOtp.length !== 6} fullWidth size="lg" />
+            <Button label="Verify & Sign In" onPress={() => handleLoginOtpSubmit()} loading={loading} disabled={loginOtp.length !== 6} fullWidth size="lg" />
             <TouchableOpacity onPress={() => { setLoginOtpState(null); setLoginOtp(''); setError(''); }} style={{ marginTop: 14, alignItems: 'center' }}>
               <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Cancel — go back</Text>
             </TouchableOpacity>
@@ -773,18 +797,21 @@ export default function LoginScreen() {
       {/* Mandatory email verification for newly-created organization users */}
       <Modal visible={!!loginEmailState} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-            <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your email</Text>
+          <View style={{ flex: 1, backgroundColor: 'rgba(15,30,48,0.55)', justifyContent: 'center', padding: 18 }}>
+            <View style={{ width: '100%', maxWidth: 420, alignSelf: 'center', backgroundColor: C.surface,
+              borderRadius: 24, borderWidth: 1, borderColor: C.gray300, padding: 24,
+              shadowColor: C.navy, shadowOpacity: 0.16, shadowRadius: 24, elevation: 8 }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: C.navy, marginBottom: 6, textAlign: 'center' }}>Verify your email</Text>
               <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
                 Enter the 6-digit code generated for {loginEmailState?.maskedEmail}
               </Text>
-              <OtpCodeInput value={loginEmailOtp} onChangeText={(v) => { setLoginEmailOtp(v); setError(''); }} hasError={!!error} autoFocus />
+              <OtpCodeInput value={loginEmailOtp} onChangeText={(v) => { setLoginEmailOtp(v); setError(''); }}
+                onComplete={handleLoginEmailOtpSubmit} status={loading ? 'loading' : error ? 'error' : 'idle'} autoFocus />
               {error ? <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12 }}>
                 <Text style={{ color: C.red, fontSize: 13 }}>{error}</Text>
               </View> : null}
               <View style={{ height: 20 }} />
-              <Button label="Verify Email & Continue" onPress={handleLoginEmailOtpSubmit} loading={loading}
+              <Button label="Verify Email & Continue" onPress={() => handleLoginEmailOtpSubmit()} loading={loading}
                 disabled={loginEmailOtp.length !== 6} fullWidth size="lg" />
               <TouchableOpacity onPress={handleResendLoginEmailOtp} disabled={loading} style={{ marginTop: 14, alignItems: 'center' }}>
                 <Text style={{ fontSize: 13, color: C.navy }}>Generate a new email OTP</Text>

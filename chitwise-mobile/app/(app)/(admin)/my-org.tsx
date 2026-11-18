@@ -106,7 +106,7 @@ function SupportPhoneSection({ currentPhone }: { currentPhone?: string | null })
       qc.invalidateQueries({ queryKey: ['org-settings'] });
       setChanging(false); setPhone(''); setOtp(''); setOtpSent(false);
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.message ?? 'Invalid OTP');
+      Alert.alert('Error', e.response?.data?.message ?? 'Could not verify right now. Please try again.');
     } finally { setLoading(false); }
   }
 
@@ -216,7 +216,7 @@ export default function MyOrgScreen() {
           <ActivityIndicator color={C.navy} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
 
           {/* Org banner */}
           <View style={{ backgroundColor: C.navy, borderRadius: 18, padding: 20, marginBottom: 16, shadowColor: C.navy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 6 }}>

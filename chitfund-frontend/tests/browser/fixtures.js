@@ -22,6 +22,7 @@ function json(data, status = 200) {
  */
 export async function installAuthenticatedApp(page, {
   analyticsEnabled = false,
+  chatEnabled = false,
   settlementEnabled = false,
   offlineEnabled = false,
   user = defaultUser,
@@ -37,7 +38,7 @@ export async function installAuthenticatedApp(page, {
     status: 'ACTIVE',
     planExpiresAt: '2099-12-31T23:59:59Z',
     analyticsEnabled,
-    chatEnabled: false,
+    chatEnabled,
     settlementEnabled,
     offlineEnabled,
     adminPhone: '9000000000',
@@ -84,7 +85,7 @@ export async function installAuthenticatedApp(page, {
           tenantStatus: tenant.status,
           planExpiresAt: tenant.planExpiresAt,
           analyticsEnabled,
-          chatEnabled: false,
+          chatEnabled,
           settlementEnabled,
         },
       }));
@@ -107,6 +108,7 @@ export async function installAuthenticatedApp(page, {
 }
 
 export async function expectAuthenticatedShell(page) {
-  await expect(page.getByText('Acceptance Chit Fund', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('ADMIN', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(page.getByText('Acceptance Chit Fund', { exact: true }).filter({ visible: true }).first()).toBeVisible();
+  await expect(page).not.toHaveURL(/\/login(?:\?|$)/);
 }

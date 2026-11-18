@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { getDrawPayments } from '../services/api';
 import { ReadDataBoundary } from './ReadDataBoundary';
-import { C } from './ui';
+import { C, listRowColor } from './ui';
 import { isPaymentCleared, hasOutstandingPayment } from '../utils/paymentStatus';
 
 const PAY_STATUS_COLOR: Record<string, string> = {
@@ -23,7 +23,7 @@ export function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmou
   drawStatus: string;
   memberMap: Record<string, string>;
   installmentAmount?: number;
-  onCollect: (memberId: string) => void;
+  onCollect: (memberId: string, outstandingAmount: number) => void;
 }) {
   const { data: payments = [], isLoading } = useQuery({
     queryKey: [queryKeyPrefix, drawId],
@@ -51,7 +51,7 @@ export function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmou
       <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>
         Member Payments ({cleared}/{total} cleared)
       </Text>
-      {(payments as any[]).map((p: any) => {
+      {(payments as any[]).map((p: any, index: number) => {
         const mName = memberMap[p.memberId] ?? 'Unknown';
         const isCleared = isPaymentCleared(p.status);
         const isPendingSync = p._pendingSync === true;
@@ -65,7 +65,8 @@ export function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmou
 
         return (
           <View key={p.id} style={{
-            paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.gray100,
+            paddingVertical: 9, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: C.gray100,
+            backgroundColor: listRowColor(index),
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -75,7 +76,7 @@ export function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmou
               </View>
               {canCollect && (
                 <TouchableOpacity
-                  onPress={() => onCollect(p.memberId)}
+                  onPress={() => onCollect(p.memberId, outstanding)}
                   style={{ marginLeft: 8, backgroundColor: C.green + '15', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 }}>
                   <Text style={{ fontSize: 12, color: C.green, fontWeight: '700' }}>Collect</Text>
                 </TouchableOpacity>

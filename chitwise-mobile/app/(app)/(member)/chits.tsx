@@ -1,12 +1,12 @@
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { outstandingValue } from '../../../../shared/offline/balanceValue';
 import { useState, useEffect } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView, TextInput, Platform } from 'react-native';
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView, TextInput, Platform, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getMyChits, getMyMemberProfile, getMemberBalance, getPaymentHistory, getMyDraws, getWinners, getPayoutsForMember, listAuctions, getAuction, placeBid } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Divider, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Divider, fmtDate, listRowColor } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 const MONTH_STATUS_COLOR: Record<string, string> = {
@@ -174,8 +174,8 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
   const outstanding = histArr.reduce((s, r: any) => s + Math.max(0, Number(r.amountDue ?? 0) - Number(r.amountPaid ?? 0)), 0);
 
   return (
-    <Modal visible animationType="slide" transparent presentationStyle="overFullScreen">
-      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }}>
+    <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }}>
         <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%' }}>
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -226,7 +226,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
             </View>
           )}
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             {modalTab === 'auction' ? (
               /* ── Auction Tab ── */
               !displayAuction ? (
@@ -568,13 +568,13 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
                 ) : (
                   <View>
                     <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>Draw History</Text>
-                    {histArr.map((r: any) => {
+                    {histArr.map((r: any, i: number) => {
                       const color = MONTH_STATUS_COLOR[r.status] ?? C.gray400;
                       const label = MONTH_STATUS_LABEL[r.status] ?? r.status;
                       const won = winnerByMonth[r.monthNumber] && winnerByMonth[r.monthNumber].memberId === memberId;
                       const pct = r.amountDue > 0 ? Math.min(100, Math.round((r.amountPaid / r.amountDue) * 100)) : 0;
                       return (
-                        <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: C.surface }}>
+                        <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: listRowColor(i) }}>
                           <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
                             <Text style={{ fontSize: 13, fontWeight: '800', color: C.white }}>{r.monthNumber}</Text>
                           </View>
@@ -602,13 +602,15 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
             )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 export default function MemberChitsScreen() {
   const router = useRouter();
+  const { width: viewportWidth } = useWindowDimensions();
+  const tabletList = viewportWidth >= 700;
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ACTIVE');
 
   const { data: chits = [], isLoading: chitsLoading, refetch } = useQuery({
@@ -640,7 +642,11 @@ export default function MemberChitsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <ReadDataBoundary label="Chits" queryKeys={[['member-chits'], ['member-profile-me']]}><FlatList
+        key={tabletList ? 'tablet-member-chits' : 'phone-member-chits'}
+        style={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
         data={filteredChits}
+        numColumns={tabletList ? 2 : 1}
+        columnWrapperStyle={tabletList ? { gap: 12 } : undefined}
         keyExtractor={(c: any) => c.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
@@ -673,9 +679,10 @@ export default function MemberChitsScreen() {
         ListEmptyComponent={
           <EmptyState title="No chit funds" message="You haven't been enrolled in any chit funds yet." />
         }
-        renderItem={({ item: c }) => (
-          <TouchableOpacity activeOpacity={0.85} onPress={() => router.push({ pathname: '/(app)/(member)/chit-detail', params: { chitId: c.id } } as any)}>
-            <Card style={{ marginBottom: 14 }}>
+        renderItem={({ item: c, index }) => (
+          <TouchableOpacity activeOpacity={0.85} style={tabletList ? { flex: 1, maxWidth: (Math.min(viewportWidth, 960) - 44) / 2, minWidth: 0 } : undefined}
+            onPress={() => router.push({ pathname: '/(app)/(member)/chit-detail', params: { chitId: c.id } } as any)}>
+            <Card style={{ marginBottom: 14, backgroundColor: listRowColor(index) }}>
               {/* Chit name + status */}
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, flex: 1 }} numberOfLines={2}>{c.name}</Text>

@@ -4,9 +4,14 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { registerPushToken, unregisterPushToken, markReminderSeen } from '../services/api';
-import { useAuthStore } from '../store/authStore';
+import { useQueryClient } from '@tanstack/react-query';
+import * as SecureStore from 'expo-secure-store';
+import { registerPushToken, markReminderSeen } from '../services/api';
+import { accountStorageId, useAuthStore } from '../store/authStore';
+import { scheduleReminderRepeat } from '../utils/reminderNotifications';
+export { scheduleReminderRepeat, cancelReminderRepeat } from '../utils/reminderNotifications';
+
+const REGISTERED_PUSH_TOKEN_KEY = 'chitwise_registered_push_token';
 
 // How the app behaves when a push arrives while it is in the foreground
 Notifications.setNotificationHandler({
@@ -22,27 +27,34 @@ Notifications.setNotificationHandler({
 function getScreenRoute(screen: string, role?: string): string | null {
   const r = role ?? 'MEMBER';
   switch (screen) {
-    case 'reminders': return '/(app)/(member)/reminders';
+    case 'reminders': return r === 'MEMBER' ? '/(app)/(member)/reminders' : null;
     case 'chits':
-      return r === 'MEMBER' ? '/(app)/(member)/chits' : null;
+      if (r === 'MEMBER') return '/(app)/(member)/chits';
+      if (r === 'ADMIN') return '/(app)/(admin)/chits';
+      if (r === 'MANAGER') return '/(app)/(manager)/chits';
+      return null;
     case 'payments':
       if (r === 'MEMBER') return '/(app)/(member)/payments';
-      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/payments';
+      if (r === 'ADMIN') return '/(app)/(admin)/payments';
+      if (r === 'MANAGER') return '/(app)/(manager)/payments';
       return null;
-    case 'payouts': return '/(app)/(member)/payouts';
-    case 'requests': return '/(app)/(member)/requests';
-    case 'tasks': return '/(app)/(staff)/index';
+    case 'payouts': return r === 'MEMBER' ? '/(app)/(member)/payouts' : null;
+    case 'requests': return r === 'MEMBER' ? '/(app)/(member)/requests' : null;
+    case 'tasks': return r === 'STAFF' ? '/(app)/(staff)/index' : null;
     case 'account':
       if (r === 'MEMBER') return '/(app)/(member)/my-account';
-      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/my-account';
+      if (r === 'ADMIN') return '/(app)/(admin)/my-account';
+      if (r === 'MANAGER') return '/(app)/(manager)/more';
       return null;
     case 'messages':
       if (r === 'MEMBER') return '/(app)/(member)/messages';
-      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/messages';
+      if (r === 'ADMIN') return '/(app)/(admin)/messages';
+      if (r === 'MANAGER') return '/(app)/(manager)/messages';
+      if (r === 'STAFF') return '/(app)/(staff)/messages';
       return null;
     case 'support':
       if (r === 'MEMBER') return '/(app)/(member)/support';
-      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/support';
+      if (r === 'ADMIN') return '/(app)/(admin)/support';
       return null;
     default: return null;
   }
@@ -50,6 +62,7 @@ function getScreenRoute(screen: string, role?: string): string | null {
 
 export function usePushNotifications(isLoggedIn: boolean) {
   const router = useRouter();
+  const qc = useQueryClient();
   const { user } = useAuthStore();
   const tokenRef = useRef<string | null>(null);
   const notifListenerRef    = useRef<Notifications.Subscription | null>(null);
@@ -57,15 +70,32 @@ export function usePushNotifications(isLoggedIn: boolean) {
 
   useEffect(() => {
     if (!isLoggedIn) {
-      // On logout, unregister this device token
-      if (tokenRef.current) {
-        unregisterPushToken(tokenRef.current);
-        tokenRef.current = null;
-      }
+      // Auth store revokes the token before clearing the authenticated session.
+      tokenRef.current = null;
       return;
     }
 
     let mounted = true;
+    const account = user ? accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION') : null;
+    const sameAccount = () => {
+      const current = useAuthStore.getState().user;
+      return !!account && !!current
+        && accountStorageId(current.id, current.tenantId, current.authSource ?? 'ORGANIZATION') === account;
+    };
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    async function registerWithRetry(token: string, platform: string, attempt = 1) {
+      try {
+        await registerPushToken(token, platform);
+        if (mounted) await SecureStore.setItemAsync(REGISTERED_PUSH_TOKEN_KEY, token);
+      } catch {
+        if (mounted && attempt < 3) {
+          retryTimer = setTimeout(() => registerWithRetry(token, platform, attempt + 1), 5000 * attempt);
+        } else if (mounted) {
+          console.warn('[Push] Could not register this device for notifications');
+        }
+      }
+    }
 
     async function registerAndSubscribe() {
       // Push notifications are only available on physical devices
@@ -105,22 +135,22 @@ export function usePushNotifications(isLoggedIn: boolean) {
 
       const expoPushToken = tokenData.data;
       tokenRef.current = expoPushToken;
-      console.log('[Push] Expo push token:', expoPushToken);
 
       // Register token with our backend
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
-      await registerPushToken(expoPushToken, platform);
+      registerWithRetry(expoPushToken, platform);
 
       // Listen for notifications received while app is foregrounded
       notifListenerRef.current = Notifications.addNotificationReceivedListener(async (notification) => {
+        qc.invalidateQueries({ queryKey: ['m-notifs'] });
+        qc.invalidateQueries({ queryKey: ['m-unread'] });
         const data = notification.request.content.data as any;
-        if (data?.screen === 'reminders' && data?.reminderId && data?.repeatIntervalMinutes) {
+        if (data?.screen === 'reminders' && data?.reminderId && data?.repeatIntervalMinutes
+            && sameAccount() && useAuthStore.getState().user?.role === 'MEMBER') {
           await scheduleReminderRepeat(
             data.reminderId,
             data.repeatIntervalMinutes,
             data.reminderTime,
-            notification.request.content.title ?? 'Payment Reminder',
-            notification.request.content.body ?? 'You have a pending payment reminder.',
           );
         }
       });
@@ -130,7 +160,8 @@ export function usePushNotifications(isLoggedIn: boolean) {
         const data = response.notification.request.content.data as any;
 
         // Reminder deep-link — tap navigates to Reminders tab and opens detail
-        if (data?.screen === 'reminders' && data?.reminderId) {
+        if (data?.screen === 'reminders' && data?.reminderId
+            && sameAccount() && useAuthStore.getState().user?.role === 'MEMBER') {
           try { await markReminderSeen(data.reminderId); } catch {}
 
           // Schedule repeat on tap — covers cold-start (app was killed when push arrived)
@@ -139,8 +170,6 @@ export function usePushNotifications(isLoggedIn: boolean) {
               data.reminderId,
               data.repeatIntervalMinutes,
               data.reminderTime,
-              response.notification.request.content.title ?? 'Payment Reminder',
-              response.notification.request.content.body ?? 'You have a pending payment reminder.',
             );
           }
 
@@ -158,61 +187,19 @@ export function usePushNotifications(isLoggedIn: boolean) {
           }
         }
 
-        const link: string | undefined = data?.link;
-        if (link) {
-          try { router.push(link as any); } catch {}
-        }
+        // Only role-mapped destinations are accepted from notification data.
       });
     }
 
-    registerAndSubscribe();
+    registerAndSubscribe().catch(() => {
+      if (mounted) console.warn('[Push] Notification setup failed');
+    });
 
     return () => {
       mounted = false;
+      if (retryTimer) clearTimeout(retryTimer);
       notifListenerRef.current?.remove();
       responseListenerRef.current?.remove();
     };
-  }, [isLoggedIn]);
-}
-
-// ── Shared helper — schedule a local repeating notification for a reminder ─────
-
-export async function scheduleReminderRepeat(
-  reminderId: string,
-  repeatIntervalMinutes: number | string,
-  reminderTime: string | null | undefined,
-  title: string,
-  body: string,
-) {
-  const key = `reminder_notif_${reminderId}`;
-  const existing = await AsyncStorage.getItem(key);
-  if (existing) return; // already scheduled
-
-  const content = {
-    title,
-    body,
-    data: { screen: 'reminders', reminderId },
-  };
-
-  let trigger: any;
-  if (reminderTime && Number(repeatIntervalMinutes) === 1440) {
-    const [hour, minute] = reminderTime.split(':').map(Number);
-    trigger = { hour, minute, repeats: true };
-  } else {
-    trigger = { seconds: Number(repeatIntervalMinutes) * 60, repeats: true };
-  }
-
-  try {
-    const localId = await Notifications.scheduleNotificationAsync({ content, trigger });
-    await AsyncStorage.setItem(key, localId);
-  } catch {}
-}
-
-export async function cancelReminderRepeat(reminderId: string) {
-  const key = `reminder_notif_${reminderId}`;
-  try {
-    const notifId = await AsyncStorage.getItem(key);
-    if (notifId) await Notifications.cancelScheduledNotificationAsync(notifId);
-  } catch {}
-  await AsyncStorage.removeItem(key);
+  }, [isLoggedIn, user?.id, qc, router]);
 }

@@ -58,6 +58,10 @@ test('network failure retains saved data; explicit deletion/access denial does n
     assert.equal(shouldRetryRead(0, { response: { status } }), false);
   }
   assert.equal(shouldRetryRead(0, { offlineMissing: true }), false);
+  // A 429 includes a server retry window. Immediate query retries add load and
+  // can consume an OTP resend allowance without any user action.
+  assert.equal(shouldRetryRead(0, { response: { status: 429 } }), false);
+  assert.equal(mayKeepReadSnapshot({ response: { status: 429 } }), true);
   assert.equal(shouldRetryRead(0, new Error('Network down')), true);
   assert.equal(shouldRetryRead(2, new Error('Network down')), false);
 });

@@ -91,7 +91,7 @@ function AddMemberModal({ onClose }) {
     const emailDelivered = created.setupEmailSent;
     const isNewAccount = created.requestKind === 'NEW_ACCOUNT';
     const actionUrl = created.actionToken
-      ? `${window.location.origin}/chitfund-request?token=${created.actionToken}`
+      ? `${window.location.origin}/chitfund-request#token=${encodeURIComponent(created.actionToken)}`
       : '';
     const showActionLink = !emailDelivered && !isNewAccount && actionUrl;
     return (

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { selectTenant } from '../services/api';
+import { rememberActiveBrowserKey } from '../utils/trustedBrowser';
+import { shouldHandoffToTenant, tenantHandoffUrl } from '../utils/tenantHandoff';
 import { BookOpen, Building2, ChevronRight, Shield, Users, Briefcase } from 'lucide-react';
 
 function roleLabel(role) {
@@ -65,7 +67,7 @@ export default function SelectCompanyPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { loginToken, tenants = [] } = location.state ?? {};
+  const { loginToken, tenants = [], browserKey = null, rememberRequested = false } = location.state ?? {};
 
   const [selected, setSelected]   = useState(null);
   const [loading, setLoading]     = useState(false);
@@ -86,7 +88,12 @@ export default function SelectCompanyPage() {
     setError('');
     setLoading(true);
     try {
-      const authData = await selectTenant({ loginToken, tenantId: tenant.tenantId });
+      const useHandoff = shouldHandoffToTenant(tenant.slug);
+      const authData = await selectTenant({ loginToken, tenantId: tenant.tenantId,
+        rememberDevice: rememberRequested && useHandoff, webHandoff: useHandoff });
+      const handoffUrl = useHandoff ? tenantHandoffUrl(authData, tenant.slug, browserKey) : null;
+      if (handoffUrl) { window.location.replace(handoffUrl); return; }
+      if (useHandoff) throw new Error('Organization sign-in could not continue. Please try again.');
       const scopedTenant = authData?.tenant ?? tenant;
       const accessToken = authData?.accessToken ?? authData?.token;
       const role = authData?.user?.role ?? 'MEMBER';
@@ -106,10 +113,12 @@ export default function SelectCompanyPage() {
         analyticsEnabled: scopedTenant.analyticsEnabled === true,
         chatEnabled: scopedTenant.chatEnabled === true,
         settlementEnabled: scopedTenant.settlementEnabled === true,
+        addOns: Array.isArray(scopedTenant.addOns) ? scopedTenant.addOns : [],
           offlineEnabled: typeof scopedTenant.offlineEnabled === 'boolean' ? scopedTenant.offlineEnabled : undefined,
         adminPhone: scopedTenant.adminPhone ?? null,
         adminEmail: scopedTenant.adminEmail ?? null,
       });
+      rememberActiveBrowserKey(userData.id, browserKey);
       if (userData.mustChangePassword) {
         navigate('/change-password', { replace: true });
       } else if (role === 'MEMBER') {
@@ -121,7 +130,9 @@ export default function SelectCompanyPage() {
       }
     } catch (err) {
       setSelected(null);
-      setError(err.response?.data?.message ?? 'Could not sign in to this organization. Try again.');
+      setError(err.response?.data?.errorCode === 'AUTH_004'
+        ? 'Your sign-in session ended. Return to login to start again.'
+        : err.response?.data?.message ?? 'Could not sign in to this organization. Try again.');
     } finally {
       setLoading(false);
     }

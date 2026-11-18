@@ -64,13 +64,25 @@ def _batches(db, chit_id: str, member_id: str):
         (chit_id, member_id))
 
 
+def _balance_version(api, admin, chit_id, member_id, amount):
+    r = api.as_role("GET", f"{api.payment}/payments/preview", admin,
+                    params={"memberId": str(member_id), "chitId": str(chit_id),
+                            "amount": str(amount)})
+    if r.status_code == 200:
+        return r.json()["data"]["balanceVersion"]
+    return None
+
+
 class TestIdempotencyKey:
     """A retried request must not charge the member twice."""
 
     def test_same_key_twice_creates_one_batch(self, api, db, chit_month):
         key = f"test-{uuid.uuid4()}"
         body = {"chitId": chit_month["chit_id"], "memberId": chit_month["member"],
-                "amount": 1000, "paymentMode": "UPI"}
+                "amount": 1000, "paymentMode": "UPI",
+                "balanceVersion": _balance_version(api, chit_month["admin"],
+                                                   chit_month["chit_id"],
+                                                   chit_month["member"], 1000)}
 
         first = api.as_role("POST", f"{api.payment}/payments", chit_month["admin"],
                             json=body, headers={"X-Idempotency-Key": key})
@@ -95,10 +107,16 @@ class TestIdempotencyKey:
         base = {"chitId": chit_month["chit_id"], "memberId": chit_month["member"],
                 "paymentMode": "UPI"}
 
+        bv400 = _balance_version(api, chit_month["admin"],
+                                 chit_month["chit_id"], chit_month["member"], 400)
         api.as_role("POST", f"{api.payment}/payments", chit_month["admin"],
-                    json={**base, "amount": 400}, headers={"X-Idempotency-Key": key})
+                    json={**base, "amount": 400, "balanceVersion": bv400},
+                    headers={"X-Idempotency-Key": key})
+        bv900 = _balance_version(api, chit_month["admin"],
+                                 chit_month["chit_id"], chit_month["member"], 900)
         api.as_role("POST", f"{api.payment}/payments", chit_month["admin"],
-                    json={**base, "amount": 900}, headers={"X-Idempotency-Key": key})
+                    json={**base, "amount": 900, "balanceVersion": bv900},
+                    headers={"X-Idempotency-Key": key})
 
         batches = _batches(db, chit_month["chit_id"], chit_month["member"])
         assert len(batches) == 1, (
@@ -111,8 +129,10 @@ class TestIdempotencyKey:
         # the same member/chit/amount within the 10-minute duplicate-check window
         # need confirmDuplicate=true on the second to affirm they are not an
         # accidental double-entry. Idempotency must not collapse them into one.
+        bv = _balance_version(api, chit_month["admin"],
+                              chit_month["chit_id"], chit_month["member"], 300)
         body = {"chitId": chit_month["chit_id"], "memberId": chit_month["member"],
-                "amount": 300, "paymentMode": "CASH"}
+                "amount": 300, "paymentMode": "CASH", "balanceVersion": bv}
         api.as_role("POST", f"{api.payment}/payments", chit_month["admin"],
                     json=body, headers={"X-Idempotency-Key": str(uuid.uuid4())})
         body_confirm = {**body, "confirmDuplicate": True}
@@ -131,7 +151,10 @@ class TestConcurrentPayments:
     def test_two_identical_requests_with_one_key_charge_once(self, api, db, chit_month):
         key = f"race-{uuid.uuid4()}"
         body = {"chitId": chit_month["chit_id"], "memberId": chit_month["member"],
-                "amount": 1000, "paymentMode": "UPI"}
+                "amount": 1000, "paymentMode": "UPI",
+                "balanceVersion": _balance_version(api, chit_month["admin"],
+                                                   chit_month["chit_id"],
+                                                   chit_month["member"], 1000)}
 
         def send():
             return api.as_role("POST", f"{api.payment}/payments", chit_month["admin"],

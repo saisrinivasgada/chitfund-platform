@@ -8,7 +8,9 @@ import com.chitfund.paymentservice.domain.PaymentRecord;
 import com.chitfund.paymentservice.domain.enums.PaymentMode;
 import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
+import com.chitfund.paymentservice.dto.request.CollectCashRequest;
 import com.chitfund.paymentservice.dto.request.RequestedChitAllocation;
+import com.chitfund.paymentservice.dto.response.PaymentPreviewResponse;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
 import com.chitfund.paymentservice.repository.PaymentAllocationRepository;
 import com.chitfund.paymentservice.repository.PaymentBatchRepository;
@@ -45,13 +47,19 @@ import static org.mockito.Mockito.*;
  * oracle in {@code tests/oracle/chitmath.py} (cases CALC-F*, CALC-C*). Nothing
  * here reads an expectation back from the service.
  *
- * <p>Rule (PaymentService.java:606-668):
+ * <p>Rule (PaymentService.applyFifo):
  * <pre>
- *   1. consume member credit, capped at total owed across ALL chits
- *   2. allocate oldest month first within the paying chit
- *   3. spill into other chits, oldest debt first
+ *   1. one member-wide locked read of every outstanding record; total owed is
+ *      summed from those same locked rows
+ *   2. consume member credit, capped at total owed across ALL chits
+ *   3. apply credit + cash to the oldest unpaid installment ACROSS ALL chits —
+ *      regardless of the chit the request named — ordered by dueDate, then a
+ *      deterministic tie-break of chitId, monthNumber, record id
  *   4. any remainder becomes credit
  * </pre>
+ *
+ * <p>Operator-selected explicit allocations ({@code applyExplicitChitAllocations})
+ * are a separate path and stay chit-scoped — covered by the explicit-* tests below.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -73,6 +81,7 @@ class FifoAllocationTest {
     @Mock private MemberCreditService memberCreditService;
     @Mock private ChitMonthDrawService chitMonthDrawService;
     @Mock private com.chitfund.paymentservice.client.AuditClient auditClient;
+    @Mock private OfflinePaymentReviewCapture offlineReviews;
 
     @InjectMocks private PaymentService service;
 
@@ -89,12 +98,8 @@ class FifoAllocationTest {
 
         when(memberServiceClient.isMemberActive(any())).thenReturn(true);
         when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
-                anyString(), any(), anyList()))
-                .thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findOutstandingAcrossOtherChitsForUpdateByTenant(
-                anyString(), any(), any(), anyList()))
-                .thenReturn(List.of());
+        when(paymentRecordRepository.findMemberOutstandingForUpdate(anyString(), any(), anyList()))
+                .thenReturn(new ArrayList<>());
         when(batchRepository.saveAndFlush(any(PaymentBatch.class))).thenAnswer(inv -> {
             PaymentBatch b = inv.getArgument(0);
             if (b.getId() == null) b.setId(UUID.randomUUID());
@@ -131,16 +136,21 @@ class FifoAllocationTest {
         return record(chitId, month, due, "0", PaymentRecordStatus.OUTSTANDING);
     }
 
-    private void withCurrentChitRecords(List<PaymentRecord> records) {
-        when(paymentRecordRepository
-                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                        eq(TENANT), eq(memberId), eq(chitA), anyList()))
+    /**
+     * The automatic FIFO path takes a single member-wide locked read of every
+     * outstanding record across all chits. The service sorts a copy, so order here
+     * is irrelevant — the records may be handed over in any order.
+     */
+    private void withMemberOutstanding(List<PaymentRecord> records) {
+        when(paymentRecordRepository.findMemberOutstandingForUpdate(
+                eq(TENANT), eq(memberId), anyList()))
                 .thenReturn(new ArrayList<>(records));
     }
 
-    private void withOtherChitRecords(List<PaymentRecord> records) {
+    /** Explicit (operator-selected) path still reads per selected chit. */
+    private void withCurrentChitRecords(List<PaymentRecord> records) {
         when(paymentRecordRepository
-                .findOutstandingAcrossOtherChitsForUpdateByTenant(
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
                         eq(TENANT), eq(memberId), eq(chitA), anyList()))
                 .thenReturn(new ArrayList<>(records));
     }
@@ -189,7 +199,7 @@ class FifoAllocationTest {
                 outstanding(chitA, 1, "1000"),
                 outstanding(chitA, 2, "1000"),
                 outstanding(chitA, 3, "1000"));
-        withCurrentChitRecords(recs);
+        withMemberOutstanding(recs);
 
         pay("2500");
 
@@ -210,7 +220,7 @@ class FifoAllocationTest {
     void topsUpPartiallyPaidMonthFirst() {
         PaymentRecord m1 = record(chitA, 1, "1000", "400", PaymentRecordStatus.PARTIALLY_PAID);
         PaymentRecord m2 = outstanding(chitA, 2, "1000");
-        withCurrentChitRecords(List.of(m1, m2));
+        withMemberOutstanding(List.of(m1, m2));
 
         pay("1000");
 
@@ -225,7 +235,7 @@ class FifoAllocationTest {
     @DisplayName("an exact payment settles without creating credit")
     void exactPaymentLeavesNothingOver() {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
-        withCurrentChitRecords(List.of(m1));
+        withMemberOutstanding(List.of(m1));
 
         pay("1000");
 
@@ -233,41 +243,43 @@ class FifoAllocationTest {
         verify(memberCreditService, never()).addCredit(any(), any(), any(), any(), any(), anyString());
     }
 
-    // ── cross-chit spill ─────────────────────────────────────────────────────
+    // ── cross-chit oldest-first ──────────────────────────────────────────────
 
     @Test
-    @DisplayName("CALC-F02: money left after the paying chit spills into the member's other chit")
+    @DisplayName("CALC-F02: cash settles equal-date dues in deterministic chit order")
     void spillsIntoOtherChits() {
         PaymentRecord a1 = outstanding(chitA, 1, "1000");
         PaymentRecord b1 = outstanding(chitB, 1, "1000");
-        withCurrentChitRecords(List.of(a1));
-        withOtherChitRecords(List.of(b1));
+        withMemberOutstanding(List.of(b1, a1));
 
         pay("1500");
 
-        assertThat(a1.getAmountPaid()).isEqualByComparingTo("1000");
-        assertThat(b1.getAmountPaid()).isEqualByComparingTo("500");
+        PaymentRecord first = chitA.toString().compareTo(chitB.toString()) < 0 ? a1 : b1;
+        PaymentRecord second = first == a1 ? b1 : a1;
+        assertThat(first.getAmountPaid()).isEqualByComparingTo("1000");
+        assertThat(second.getAmountPaid()).isEqualByComparingTo("500");
 
         // The allocation must name the chit the money actually landed on,
         // otherwise a later void would reverse it against the wrong chit.
         List<PaymentAllocation> allocs = capturedAllocations();
         assertThat(allocs).hasSize(2);
-        assertThat(allocs).anyMatch(a -> a.getChitId().equals(chitB)
+        assertThat(allocs).anyMatch(a -> a.getChitId().equals(second.getChitId())
                 && a.getAllocatedAmount().compareTo(new BigDecimal("500")) == 0);
     }
 
     @Test
-    @DisplayName("nothing spills while the paying chit still has dues")
+    @DisplayName("an older due in another chit wins over the selected chit")
     void doesNotSpillWhenCurrentChitUnsettled() {
         PaymentRecord a1 = outstanding(chitA, 1, "1000");
         PaymentRecord b1 = outstanding(chitB, 1, "1000");
-        withCurrentChitRecords(List.of(a1));
-        withOtherChitRecords(List.of(b1));
+        a1.setDueDate(LocalDate.of(2026, 2, 1));
+        b1.setDueDate(LocalDate.of(2026, 1, 1));
+        withMemberOutstanding(List.of(a1, b1));
 
         pay("600");
 
-        assertThat(a1.getAmountPaid()).isEqualByComparingTo("600");
-        assertThat(b1.getAmountPaid()).isEqualByComparingTo("0");
+        assertThat(b1.getAmountPaid()).isEqualByComparingTo("600");
+        assertThat(a1.getAmountPaid()).isEqualByComparingTo("0");
     }
 
     // ── credit ───────────────────────────────────────────────────────────────
@@ -276,7 +288,7 @@ class FifoAllocationTest {
     @DisplayName("CALC-C02: overpaying with every chit clear turns the excess into credit")
     void overpaymentBecomesCredit() {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
-        withCurrentChitRecords(List.of(m1));
+        withMemberOutstanding(List.of(m1));
 
         pay("5000");
 
@@ -289,11 +301,8 @@ class FifoAllocationTest {
     @DisplayName("CALC-C03: existing credit is spent before the new cash")
     void creditConsumedBeforeCash() {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
-        withCurrentChitRecords(List.of(m1));
+        withMemberOutstanding(List.of(m1));
         when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("400"));
-        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
-                eq(TENANT), eq(memberId), anyList()))
-                .thenReturn(new BigDecimal("1000"));
 
         pay("600");
 
@@ -307,14 +316,218 @@ class FifoAllocationTest {
     }
 
     @Test
+    @DisplayName("credit and new cash together clear the oldest other-chit due first")
+    void creditAndCashFollowGlobalOldestFirst() {
+        PaymentRecord selected = outstanding(chitA, 1, "1000");
+        PaymentRecord older = outstanding(chitB, 1, "1000");
+        selected.setDueDate(LocalDate.of(2026, 2, 1));
+        older.setDueDate(LocalDate.of(2026, 1, 1));
+        withMemberOutstanding(List.of(selected, older));
+        when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("500"));
+
+        pay("1000");
+
+        verify(memberCreditService).consumeCredit(eq(memberId), eq(new BigDecimal("500")),
+                any(), any(), any(), anyString());
+        assertThat(older.getAmountPaid()).isEqualByComparingTo("1000");
+        assertThat(selected.getAmountPaid()).isEqualByComparingTo("500");
+        verify(memberCreditService, never()).addCredit(any(), any(), any(), any(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("server preview separates existing credit from new cash in global FIFO order")
+    void previewMatchesPostedAllocationAcrossChits() {
+        PaymentRecord selected = outstanding(chitA, 1, "1000");
+        PaymentRecord older = outstanding(chitB, 1, "1000");
+        selected.setDueDate(LocalDate.of(2026, 2, 1));
+        older.setDueDate(LocalDate.of(2026, 1, 1));
+        withMemberOutstanding(List.of(selected, older));
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(
+                eq(TENANT), eq(memberId), anyList())).thenReturn(List.of(selected, older));
+        when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("500"));
+        when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("500"));
+
+        PaymentPreviewResponse preview = service.previewPayment(memberId, chitA, new BigDecimal("1000"));
+
+        assertThat(preview.creditConsumed()).isEqualByComparingTo("500");
+        assertThat(preview.totalOutstanding()).isEqualByComparingTo("2000");
+        assertThat(preview.selectedChitOutstanding()).isEqualByComparingTo("1000");
+        assertThat(preview.projectedNewCredit()).isEqualByComparingTo("0");
+        assertThat(preview.balanceVersion()).isNotBlank();
+        assertThat(preview.allocations()).hasSize(2);
+        assertThat(preview.allocations().get(0).chitId()).isEqualTo(chitB);
+        assertThat(preview.allocations().get(0).creditApplied()).isEqualByComparingTo("500");
+        assertThat(preview.allocations().get(0).newPaymentApplied()).isEqualByComparingTo("500");
+        assertThat(preview.allocations().get(1).chitId()).isEqualTo(chitA);
+        assertThat(preview.allocations().get(1).creditApplied()).isEqualByComparingTo("0");
+        assertThat(preview.allocations().get(1).newPaymentApplied()).isEqualByComparingTo("500");
+        verify(batchRepository, never()).saveAndFlush(any(PaymentBatch.class));
+
+        pay("1000");
+        assertThat(older.getAmountPaid()).isEqualByComparingTo("1000");
+        assertThat(selected.getAmountPaid()).isEqualByComparingTo("500");
+    }
+
+    @Test
+    @DisplayName("preview shows the full overpayment becoming new credit when no dues exist")
+    void previewNoDuesProjectsNewCreditWithoutWriting() {
+        when(memberCreditService.getBalance(memberId)).thenReturn(BigDecimal.ZERO);
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(
+                eq(TENANT), eq(memberId), anyList())).thenReturn(List.of());
+
+        PaymentPreviewResponse preview = service.previewPayment(memberId, chitA, new BigDecimal("1200"));
+
+        assertThat(preview.totalOutstanding()).isEqualByComparingTo("0");
+        assertThat(preview.projectedNewCredit()).isEqualByComparingTo("1200");
+        assertThat(preview.allocations()).isEmpty();
+        verify(batchRepository, never()).saveAndFlush(any(PaymentBatch.class));
+        verify(memberCreditService, never()).addCredit(any(), any(), any(), any(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("zero-cash preview shows exactly which old dues existing credit will clear")
+    void previewCreditOnlyUsesNoCash() {
+        PaymentRecord due = outstanding(chitA, 1, "1000");
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(
+                eq(TENANT), eq(memberId), anyList())).thenReturn(List.of(due));
+        when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("400"));
+
+        PaymentPreviewResponse preview = service.previewPayment(memberId, chitA, BigDecimal.ZERO);
+
+        assertThat(preview.requestedAmount()).isEqualByComparingTo("0");
+        assertThat(preview.creditConsumed()).isEqualByComparingTo("400");
+        assertThat(preview.allocations()).hasSize(1);
+        assertThat(preview.allocations().get(0).creditApplied()).isEqualByComparingTo("400");
+        assertThat(preview.allocations().get(0).newPaymentApplied()).isEqualByComparingTo("0");
+        verify(batchRepository, never()).saveAndFlush(any(PaymentBatch.class));
+    }
+
+    @Test
+    @DisplayName("credit-only posting requires the reviewed balance and consumes credit once")
+    void creditOnlyPostingRequiresCurrentReview() {
+        PaymentRecord due = outstanding(chitA, 1, "1000");
+        withMemberOutstanding(List.of(due));
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(
+                eq(TENANT), eq(memberId), anyList())).thenReturn(List.of(due));
+        when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("400"));
+        when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("400"));
+        RecordPaymentRequest req = new RecordPaymentRequest();
+        req.setChitId(chitA);
+        req.setMemberId(memberId);
+        req.setAmount(BigDecimal.ZERO);
+        req.setPaymentMode(PaymentMode.CREDIT);
+
+        assertThatThrownBy(() -> service.recordPayment(req, UUID.randomUUID(), "credit-review"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("Review the current payment allocation");
+        req.setBalanceVersion("stale");
+        assertThatThrownBy(() -> service.recordPayment(req, UUID.randomUUID(), "credit-review"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("balances changed");
+        verify(batchRepository, never()).saveAndFlush(any(PaymentBatch.class));
+
+        req.setBalanceVersion(service.previewPayment(memberId, chitA, BigDecimal.ZERO).balanceVersion());
+        service.recordPayment(req, UUID.randomUUID(), "credit-review");
+        assertThat(due.getAmountPaid()).isEqualByComparingTo("400");
+        verify(memberCreditService).consumeCredit(eq(memberId), eq(new BigDecimal("400")), any(), any(), any(), anyString());
+        verify(batchRepository).saveAndFlush(any(PaymentBatch.class));
+        verify(adminWalletService, never()).addEntry(any(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("admin cash collection needs a current review before creating a receipt")
+    void adminCashCollectionRequiresCurrentReview() {
+        PaymentRecord due = outstanding(chitA, 1, "1000");
+        withMemberOutstanding(List.of(due));
+        when(memberCreditService.getBalance(memberId)).thenReturn(BigDecimal.ZERO);
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(
+                eq(TENANT), eq(memberId), anyList())).thenReturn(List.of(due));
+        CollectCashRequest req = new CollectCashRequest();
+        req.setChitId(chitA);
+        req.setMemberId(memberId);
+        req.setAmount(new BigDecimal("600"));
+
+        assertThatThrownBy(() -> service.collectCash(req, UUID.randomUUID(), true, "admin-cash-review"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("Review the current cash allocation");
+        req.setBalanceVersion("stale");
+        assertThatThrownBy(() -> service.collectCash(req, UUID.randomUUID(), true, "admin-cash-review"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("balances changed");
+        verify(batchRepository, never()).saveAndFlush(any(PaymentBatch.class));
+
+        req.setBalanceVersion(service.previewPayment(memberId, chitA, req.getAmount()).balanceVersion());
+        service.collectCash(req, UUID.randomUUID(), true, "admin-cash-review");
+        assertThat(due.getAmountPaid()).isEqualByComparingTo("600");
+        verify(batchRepository).saveAndFlush(any(PaymentBatch.class));
+    }
+
+    @Test
+    @DisplayName("stale online review stops before receipt or credit movement")
+    void staleReviewDoesNotPostMoney() {
+        PaymentRecord due = outstanding(chitA, 1, "1000");
+        withMemberOutstanding(List.of(due));
+        RecordPaymentRequest req = new RecordPaymentRequest();
+        req.setChitId(chitA);
+        req.setMemberId(memberId);
+        req.setAmount(new BigDecimal("600"));
+        req.setPaymentMode(PaymentMode.UPI);
+        req.setBalanceVersion("stale-review");
+
+        assertThatThrownBy(() -> service.recordPayment(req, UUID.randomUUID(), "review-key"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("balances changed");
+        verify(batchRepository, never()).saveAndFlush(any(PaymentBatch.class));
+        verify(memberCreditService, never()).consumeCredit(any(), any(), any(), any(), any(), anyString());
+        assertThat(due.getAmountPaid()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("current server preview version permits exactly the reviewed online allocation")
+    void currentReviewPostsPayment() {
+        PaymentRecord due = outstanding(chitA, 1, "1000");
+        withMemberOutstanding(List.of(due));
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndStatusInOrderById(
+                eq(TENANT), eq(memberId), anyList())).thenReturn(List.of(due));
+        when(memberCreditService.getBalance(memberId)).thenReturn(BigDecimal.ZERO);
+        PaymentPreviewResponse preview = service.previewPayment(memberId, chitA, new BigDecimal("600"));
+
+        RecordPaymentRequest req = new RecordPaymentRequest();
+        req.setChitId(chitA);
+        req.setMemberId(memberId);
+        req.setAmount(new BigDecimal("600"));
+        req.setPaymentMode(PaymentMode.UPI);
+        req.setBalanceVersion(preview.balanceVersion());
+        service.recordPayment(req, UUID.randomUUID(), "review-current-key");
+
+        assertThat(due.getAmountPaid()).isEqualByComparingTo("600");
+        verify(batchRepository).saveAndFlush(any(PaymentBatch.class));
+    }
+
+    @Test
+    @DisplayName("positive CREDIT amount cannot create a payment without cash or existing credit")
+    void positiveCreditAmountCannotFabricatePayment() {
+        RecordPaymentRequest req = new RecordPaymentRequest();
+        req.setChitId(chitA);
+        req.setMemberId(memberId);
+        req.setAmount(new BigDecimal("1000"));
+        req.setPaymentMode(PaymentMode.CREDIT);
+
+        assertThatThrownBy(() -> service.recordPayment(req, UUID.randomUUID(), "credit-forgery"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("zero cash amount");
+        verify(batchRepository, never()).saveAndFlush(any(PaymentBatch.class));
+        verify(paymentRecordRepository, never()).save(any(PaymentRecord.class));
+        verify(memberCreditService, never()).consumeCredit(any(), any(), any(), any(), any(), anyString());
+        verify(adminWalletService, never()).addEntry(any(), any(), anyString());
+    }
+
+    @Test
     @DisplayName("credit consumed is capped at what is owed, not at the balance")
     void creditConsumptionCappedAtOwed() {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
-        withCurrentChitRecords(List.of(m1));
+        withMemberOutstanding(List.of(m1));
         when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("5000"));
-        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
-                eq(TENANT), eq(memberId), anyList()))
-                .thenReturn(new BigDecimal("1000"));
 
         pay("0.00");
 
@@ -324,27 +537,23 @@ class FifoAllocationTest {
         assertThat(used.getValue()).isEqualByComparingTo("1000");
     }
 
-    /**
-     * A3 — credit is offset against dues in *every* chit, not only the one being
-     * paid. Pinning it so the behaviour is visible; whether it should be
-     * chit-scoped is an open product question.
-     */
+    /** Existing credit settles dues across chits, including the oldest other chit. */
     @Test
     @DisplayName("A3: credit is offset against total dues across all chits")
     void creditOffsetIsCrossChit() {
         PaymentRecord a1 = outstanding(chitA, 1, "1000");
-        withCurrentChitRecords(List.of(a1));
+        PaymentRecord b1 = outstanding(chitB, 1, "2000");
+        b1.setDueDate(LocalDate.of(2025, 12, 1));
+        withMemberOutstanding(List.of(a1, b1));
         when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("3000"));
-        // 1,000 in this chit + 2,000 elsewhere.
-        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
-                eq(TENANT), eq(memberId), anyList()))
-                .thenReturn(new BigDecimal("3000"));
 
         pay("0.00");
 
         ArgumentCaptor<BigDecimal> used = ArgumentCaptor.forClass(BigDecimal.class);
         verify(memberCreditService).consumeCredit(eq(memberId), used.capture(), any(), any(), any(), anyString());
         assertThat(used.getValue()).isEqualByComparingTo("3000");
+        assertThat(b1.getAmountPaid()).isEqualByComparingTo("2000");
+        assertThat(a1.getAmountPaid()).isEqualByComparingTo("1000");
     }
 
     // ── statuses the allocator must not touch ────────────────────────────────
@@ -356,7 +565,7 @@ class FifoAllocationTest {
         // ever loosened, a winner's withheld installment could be charged twice.
         PaymentRecord deducted = record(chitA, 1, "1000", "1000", PaymentRecordStatus.PAYOUT_DEDUCTED);
         PaymentRecord open = outstanding(chitA, 2, "1000");
-        withCurrentChitRecords(List.of(open));   // repo excludes the deducted row
+        withMemberOutstanding(List.of(open));   // repo excludes the deducted row
 
         pay("1000");
 
@@ -368,7 +577,7 @@ class FifoAllocationTest {
     @Test
     @DisplayName("paying when nothing is owed becomes credit rather than being lost")
     void paymentWithNoDuesBecomesCredit() {
-        withCurrentChitRecords(List.of());
+        withMemberOutstanding(List.of());
 
         pay("1000");
 
@@ -444,6 +653,7 @@ class FifoAllocationTest {
         req.setAmount(new BigDecimal("1000"));
         req.setPaymentMode(PaymentMode.UPI);
         req.setPaymentReference("UPI-FIFO-IDEMPOTENT");
+        req.setBalanceVersion("stale-after-first-success");
 
         service.recordPayment(req, UUID.randomUUID(), "key-1");
 

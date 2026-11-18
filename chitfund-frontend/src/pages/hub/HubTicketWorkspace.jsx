@@ -9,7 +9,7 @@ import {
   hubRejectIdentityCase, hubExecuteIdentityCase,
   hubCreateTicket, hubListTenants,
 } from '../../services/api';
-import { Inbox, Send, Trash2, ChevronUp, AlertCircle, Search, Flag, Building2, Plus, X } from 'lucide-react';
+import { Inbox, Send, Trash2, ChevronUp, ChevronLeft, AlertCircle, Search, Flag, Building2, Plus, X } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import TicketReasonDialog from '../../components/hub/TicketReasonDialog';
 
@@ -151,7 +151,7 @@ function IdentityCasePanel({ ticket, hubUser }) {
   try { approvedProposal = identityCase.proposalJson ? JSON.parse(identityCase.proposalJson) : null; } catch { /* malformed */ }
   const canPrepare = hubUser.canManageIdentityCases || hubUser.platformOwner;
   return (
-    <div className="mx-4 mt-3 rounded-xl border border-blue-200 bg-blue-50/60 p-4 space-y-3 flex-shrink-0">
+    <div className="mx-3 sm:mx-4 mt-3 rounded-xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4 space-y-3 flex-shrink-0 max-h-[35dvh] overflow-y-auto">
       <div className="flex items-center justify-between">
         <div><p className="text-sm font-bold text-[#1E3A5F]">Protected Identity Case</p><p className="text-xs text-gray-500 mt-0.5">{identityCase.subtype?.replaceAll('_',' ')} · immutable ticket link</p></div>
         <span className="px-2.5 py-1 rounded-full bg-white border border-blue-200 text-xs font-bold text-blue-700">{identityCase.status?.replaceAll('_',' ')}</span>
@@ -218,7 +218,7 @@ function TicketDetail({ id, hubUser, now }) {
     enabled: !!id,
   });
 
-  const { data: msgPages, isLoading: msgsLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+  const { data: msgPages, isLoading: msgsLoading, isError: msgsError, refetch: refetchMessages, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ['hub-ticket-messages', id],
     queryFn: ({ pageParam }) => hubGetTicketMessages(id, { cursor: pageParam, limit: 50 }),
     getNextPageParam: (lastPage) => lastPage.hasNext ? lastPage.nextCursor : undefined,
@@ -239,9 +239,9 @@ function TicketDetail({ id, hubUser, now }) {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
   const sendMut = useMutation({
-    mutationFn: () => hubSendTicketMessage(id, content.trim()),
-    onSuccess: () => {
-      setContent('');
+    mutationFn: (message) => hubSendTicketMessage(id, message),
+    onSuccess: (_result, message) => {
+      setContent(current => current.trim() === message ? '' : current);
       qc.invalidateQueries({ queryKey: ['hub-ticket-messages', id] });
       qc.invalidateQueries({ queryKey: ['hub-ticket', id] });
       qc.invalidateQueries({ queryKey: ['hub-tickets'] });
@@ -300,10 +300,10 @@ function TicketDetail({ id, hubUser, now }) {
   const isPriority    = ticket.priority === 'HIGH' || ticket.priority === 'URGENT';
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-5 py-3">
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-3 sm:px-5 py-3 max-h-[45dvh] overflow-y-auto">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-mono text-xs text-gray-400 font-medium">{ticket.ticketNumber}</span>
@@ -362,7 +362,7 @@ function TicketDetail({ id, hubUser, now }) {
       <IdentityCasePanel ticket={ticket} hubUser={hubUser} />
 
       {/* Message thread */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3 bg-gray-50">
         {hasNextPage && (
           <div className="flex justify-center">
             <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage}
@@ -373,6 +373,8 @@ function TicketDetail({ id, hubUser, now }) {
         )}
         {msgsLoading ? (
           <div className="flex items-center justify-center py-10 text-gray-400 text-sm">Loading messages…</div>
+        ) : msgsError ? (
+          <button type="button" onClick={() => refetchMessages()} className="text-sm text-red-600 py-8">Could not load replies. Tap to retry.</button>
         ) : messages.length === 0 ? (
           <div className="flex items-center justify-center py-10 text-gray-400 text-sm">No messages yet. Start the conversation.</div>
         ) : messages.map(msg => {
@@ -381,7 +383,7 @@ function TicketDetail({ id, hubUser, now }) {
           return (
             <div key={msg.id} className={`flex ${isHub ? 'justify-end' : 'justify-start'}`}
               onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}>
-              <div className="relative max-w-[72%]">
+              <div className="relative max-w-[88%] sm:max-w-[72%] min-w-0 break-words">
                 <p className={`text-[11px] text-gray-400 mb-0.5 ${isHub ? 'text-right' : 'text-left'}`}>
                   {isHub ? (msg.senderName ?? 'Hub Staff') : (msg.senderName ?? 'Org Admin')}
                 </p>
@@ -407,21 +409,24 @@ function TicketDetail({ id, hubUser, now }) {
       </div>
 
       {/* Reply box */}
-      {currentStatus !== 'CLOSED' ? (
-        <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 flex gap-2 items-end">
+      {currentStatus !== 'CLOSED' && currentStatus !== 'RESOLVED' ? (
+        <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3">
+          {sendMut.isError && <p role="alert" className="text-xs text-red-600 mb-2">Reply was not sent. Your draft is saved; try again.</p>}
+          <div className="flex gap-2 items-end">
           <textarea value={content} onChange={e => setContent(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && content.trim()) { e.preventDefault(); sendMut.mutate(); } }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && content.trim()) { e.preventDefault(); sendMut.mutate(content.trim()); } }}
             rows={2} placeholder="Reply to this ticket…"
-            className="flex-1 resize-none px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] bg-white" />
-          <button onClick={() => sendMut.mutate()} disabled={!content.trim() || sendMut.isPending}
+            className="flex-1 min-w-0 resize-none px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] bg-white" />
+          <button onClick={() => sendMut.mutate(content.trim())} disabled={!content.trim() || sendMut.isPending}
             className="flex items-center justify-center w-10 h-10 rounded-xl text-white transition-opacity disabled:opacity-40 flex-shrink-0"
             style={{ backgroundColor: '#1E3A5F' }}>
             <Send size={16} />
           </button>
+          </div>
         </div>
       ) : (
         <div className="flex-shrink-0 border-t border-gray-200 bg-white p-3 text-center text-xs text-gray-400">
-          This ticket is closed. No further replies allowed.
+          This ticket is {currentStatus.toLowerCase()}. No further replies allowed.
         </div>
       )}
       <TicketReasonDialog action={ticketAction} reason={actionReason} setReason={setActionReason}
@@ -483,8 +488,8 @@ function CreateTicketModal({ onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-4 sm:p-6 max-h-[95dvh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
             Create Ticket on Behalf
@@ -621,13 +626,13 @@ export default function HubTicketWorkspace() {
   const tickets = data?.items ?? [];
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
       {/* ── Left pane ──────────────────────────────────────────────────────── */}
-      <div className="w-[380px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col h-full overflow-hidden">
+      <div className={`${id ? 'hidden xl:flex' : 'flex'} w-full xl:w-[380px] min-w-0 flex-shrink-0 bg-white border-r border-gray-200 flex-col h-full overflow-hidden`}>
         {/* Filter bar */}
         <div className="flex-shrink-0 p-3 border-b border-gray-100 space-y-2">
           <div className="flex gap-2">
-            <div className="relative flex-1">
+            <div className="relative flex-1 min-w-0">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input value={filters.q} onChange={e => update('q', e.target.value)}
                 placeholder="Search tickets…"
@@ -647,7 +652,7 @@ export default function HubTicketWorkspace() {
               { key: 'priority', ph: 'Priority', opts: [{ v: 'URGENT', l: 'Urgent' }, { v: 'HIGH', l: 'High' }, { v: 'NORMAL', l: 'Normal' }, { v: 'LOW', l: 'Low' }] },
             ].map(({ key, ph, opts }) => (
               <select key={key} value={filters[key]} onChange={e => update(key, e.target.value)}
-                className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-200">
+                className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-200">
                 <option value="">{ph}</option>
                 {opts.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
               </select>
@@ -726,9 +731,15 @@ export default function HubTicketWorkspace() {
       </div>
 
       {/* ── Right pane ─────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+      <div className={`${id ? 'flex' : 'hidden xl:flex'} flex-1 min-w-0 min-h-0 flex-col overflow-hidden bg-gray-50`}>
         {id ? (
-          <TicketDetail key={id} id={id} hubUser={hubUser} now={now} />
+          <>
+            <button type="button" onClick={() => navigate('/hub/tickets')}
+              className="xl:hidden flex-shrink-0 flex items-center gap-1 px-3 py-2 bg-white border-b border-gray-200 text-sm font-semibold text-[#1E3A5F]">
+              <ChevronLeft size={17} /> Back to tickets
+            </button>
+            <div className="flex-1 min-h-0"><TicketDetail key={id} id={id} hubUser={hubUser} now={now} /></div>
+          </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
             <Inbox size={40} className="opacity-20" />

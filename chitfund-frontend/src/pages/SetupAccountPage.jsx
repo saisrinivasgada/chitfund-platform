@@ -1,16 +1,21 @@
-import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { setupAccount, sendSetupEmailOtp, getPublicChitfundRequest } from '../services/api';
 import { BookOpen, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import OtpCodeInput from '../components/ui/OtpCodeInput';
+import LegalAcceptanceCheckbox from '../components/legal/LegalAcceptanceCheckbox';
+import { readOneTimeLinkToken, removeOneTimeLinkTokenFromUrl } from '../utils/oneTimeLinkToken';
 
 export default function SetupAccountPage() {
-  const [params]         = useSearchParams();
-  const token             = params.get('token');
+  const [token]           = useState(readOneTimeLinkToken);
   const navigate          = useNavigate();
+
+  useEffect(() => {
+    if (token) removeOneTimeLinkTokenFromUrl();
+  }, [token]);
 
   const [newPassword, setNewPassword]     = useState('');
   const [confirmPass, setConfirmPass]     = useState('');
@@ -216,25 +221,11 @@ export default function SetupAccountPage() {
             </div>
           )}
 
-          <label className="flex items-start gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={termsAccepted}
-              onChange={e => setTermsAccepted(e.target.checked)}
-              className="mt-0.5 w-4 h-4 flex-shrink-0 cursor-pointer accent-[#1E3A5F]"
-            />
-            <span className="text-sm text-gray-600 leading-relaxed">
-              I agree to the ChitWise{' '}
-              <button type="button" onClick={() => window.open('/terms', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
-                Terms of Service
-              </button>
-              {' '}and acknowledge the{' '}
-              <button type="button" onClick={() => window.open('/privacy', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
-                Privacy Policy
-              </button>
-              .
-            </span>
-          </label>
+          <LegalAcceptanceCheckbox
+            id="setup-legal-acceptance"
+            checked={termsAccepted}
+            onChange={setTermsAccepted}
+          />
 
           <Button type="submit" loading={loading} disabled={!termsAccepted} className="w-full mt-2">
             Activate account

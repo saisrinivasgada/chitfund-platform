@@ -1,8 +1,9 @@
 import { ReadDataBoundary } from '../../../components/ReadDataBoundary';
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Pressable, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Pressable, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
+import NetInfo from '@react-native-community/netinfo';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useOnlineMutation } from '../../../offline/useOnlineMutation';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,17 +16,18 @@ import {
   sendPaymentReminder, sendWhatsAppReminder, getMyTenantLimits, getMemberSettlements,
   adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
   getPaymentHistory, getDeletedMembers, setPromisedPaymentDate,
-  adminCreateCashRequest, listStaff,
+  adminCreateCashRequest, listStaff, getPaymentPreview, recordPayment,
   revokeAppAccess,
   suspendChitfundRequest, revokeAfterSuspension,
 } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone, listRowColor } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useUIStore } from '../../../store/uiStore';
 import { useAuthStore } from '../../../store/authStore';
 import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
+import { checkedPaymentPreview, isStalePaymentConflict, type PaymentPreview } from '../../../utils/paymentPreview';
 
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLACKLISTED'];
 
@@ -82,6 +84,8 @@ function MemberCreditBadge({ memberId }: { memberId: string }) {
 }
 
 export default function AdminMembersScreen() {
+  const { width: viewportWidth } = useWindowDimensions();
+  const tabletList = viewportWidth >= 700;
   const { isExpired } = useUIStore();
   const settlementEnabled = useAuthStore((state) => state.user?.settlementEnabled === true);
   const qc = useQueryClient();
@@ -133,6 +137,7 @@ export default function AdminMembersScreen() {
   const [collectNotes, setCollectNotes] = useState('');
   const [collectReference, setCollectReference] = useState('');
   const [useCredits, setUseCredits] = useState(false);
+  const [collectPreviewLoading, setCollectPreviewLoading] = useState(false);
   const [collectedBy, setCollectedBy] = useState('SELF');
   const [selectedAllocations, setSelectedAllocations] = useState<Record<string, string>>({});
 
@@ -181,7 +186,7 @@ export default function AdminMembersScreen() {
   const { data: tenantLimits } = useQuery({ queryKey: ['my-tenant-limits'], queryFn: getMyTenantLimits, staleTime: 5 * 60 * 1000 });
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const collectors = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER'].includes(s.role));
-  const workerCollect = collectMode === 'CASH' && collectedBy !== 'SELF';
+  const workerCollect = !useCredits && collectMode === 'CASH' && collectedBy !== 'SELF';
 
   const statusApiFilter = statusFilter === 'Active' ? 'ACTIVE' : statusFilter === 'Inactive' ? 'INACTIVE' : statusFilter === 'Blacklisted' ? 'BLACKLISTED' : undefined;
 
@@ -338,7 +343,19 @@ export default function AdminMembersScreen() {
     // confirms receipt. This replaces the old direct-to-batch shortcut, which let
     // whoever filled this form claim money was collected without the staff
     // member ever being asked to confirm it.
-    mutationFn: () => workerCollect
+    mutationFn: (balanceVersion?: string) => useCredits
+      ? balanceVersion
+        ? recordPayment({
+            memberId: selected?.id,
+            chitId: collectChitId,
+            amount: 0,
+            paymentMode: 'CREDIT',
+            notes: collectNotes || undefined,
+            balanceVersion,
+            idempotencyKey: collectIdempotencyKey,
+          })
+        : Promise.reject(new Error('Review the current credit allocation before applying it.'))
+      : workerCollect
       ? adminCreateCashRequest(
           selected?.id,
           collectAllocationEntries[0]?.chitId ?? collectChitId,
@@ -396,9 +413,17 @@ export default function AdminMembersScreen() {
         qc.invalidateQueries({ queryKey: ['m-member-balance', memberId] });
         qc.invalidateQueries({ queryKey: ['m-member-credit', memberId] });
       }
-      toast.saved(useCredits ? 'Credits applied — outstanding settled' : data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
+      toast.saved(useCredits ? 'Available credit applied to the reviewed installments' : data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed'),
+    onError: (e: any, balanceVersion) => {
+      if (balanceVersion && isStalePaymentConflict(e)) {
+        qc.invalidateQueries({ queryKey: ['m-member-balance', selected?.id] });
+        qc.invalidateQueries({ queryKey: ['m-member-credit', selected?.id] });
+        Alert.alert('Balance changed', 'No credit was applied. Review the updated allocation and try again.');
+        return;
+      }
+      Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed');
+    },
   });
 
   const reminderMutation = useOnlineMutation({
@@ -583,7 +608,7 @@ export default function AdminMembersScreen() {
       return;
     }
     const base = process.env.EXPO_PUBLIC_WEB_URL ?? 'https://thechitwise.com';
-    const url = data?.actionToken ? `${base}/chitfund-request?token=${data.actionToken}` : '';
+    const url = data?.actionToken ? `${base}/chitfund-request#token=${encodeURIComponent(data.actionToken)}` : '';
     if (!url) {
       toast.noted(title);
       return;
@@ -660,8 +685,40 @@ export default function AdminMembersScreen() {
   );
 
 
-  function submitCollectPayment() {
-    if (useCredits) { collectMutation.mutate(); return; }
+  async function submitCollectPayment() {
+    if (useCredits) {
+      if (collectPreviewLoading || collectMutation.isPending || !selected?.id || !collectChitId) return;
+      setCollectPreviewLoading(true);
+      try {
+        const network = await NetInfo.fetch();
+        if (network.isConnected !== true || network.isInternetReachable === false) {
+          throw new Error('Connect to review the current credit allocation before applying it.');
+        }
+        const response = await getPaymentPreview(selected.id, collectChitId, 0) as PaymentPreview;
+        const { data } = checkedPaymentPreview(response, { memberId: selected.id, chitId: collectChitId, amount: 0 });
+        const affected = data.allocations.map((row) => {
+          const chitName = collectPayableChits.find((chit: any) => chit.id === row.chitId)?.name ?? 'Another chit';
+          return `${chitName} · ${row.catchUpLine ? 'Catch-up' : 'Draw'} ${row.monthNumber}: ₹${Number(row.creditApplied).toLocaleString('en-IN')} credit`;
+        });
+        if (!affected.length) {
+          Alert.alert('No dues to cover', 'This credit cannot be applied to an unpaid installment right now.');
+          return;
+        }
+        Alert.alert(
+          'Review credit allocation',
+          `Existing credit: ₹${Number(data.creditAvailable).toLocaleString('en-IN')}\nCredit applied: ₹${Number(data.creditConsumed).toLocaleString('en-IN')}\nNo cash received.\n\nOldest dues first:\n${affected.join('\n')}`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Apply Credit', onPress: () => collectMutation.mutate(data.balanceVersion) },
+          ],
+        );
+      } catch (error: any) {
+        Alert.alert('Review unavailable', error?.response?.data?.message ?? error?.message ?? 'Could not review the current credit allocation. Try again.');
+      } finally {
+        setCollectPreviewLoading(false);
+      }
+      return;
+    }
 
     const totalPay = collectAllocationEntries.length > 0 ? collectAllocationTotal : Number(collectAmount || 0);
     const totalDue = collectAllocationEntries.length > 0
@@ -689,7 +746,7 @@ export default function AdminMembersScreen() {
         `${selected?.fullName} owes ₹${totalDue.toLocaleString('en-IN')}. ${actionVerb} ₹${totalPay.toLocaleString('en-IN')} — the extra ₹${extra.toLocaleString('en-IN')} will be added to their credit balance and can be applied to future dues.${breakdown}\n\nContinue?`,
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: actionButtonLabel, onPress: () => collectMutation.mutate() },
+          { text: actionButtonLabel, onPress: () => collectMutation.mutate(undefined) },
         ],
       );
       return;
@@ -703,13 +760,13 @@ export default function AdminMembersScreen() {
         `${actionVerb} ₹${collectAllocationTotal.toLocaleString('en-IN')} total across ${collectAllocationEntries.length} chits?${breakdown}`,
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: workerCollect ? 'Send Request' : 'Record', onPress: () => collectMutation.mutate() },
+          { text: workerCollect ? 'Send Request' : 'Record', onPress: () => collectMutation.mutate(undefined) },
         ],
       );
       return;
     }
 
-    collectMutation.mutate();
+    collectMutation.mutate(undefined);
   }
 
   function closeCollectModal() {
@@ -758,7 +815,7 @@ export default function AdminMembersScreen() {
       <ReadDataBoundary label="Members" queryKeys={showingDeleted ? [['m-members-deleted']] : [['m-members-page', debouncedSearch, statusApiFilter]]}>
 
       {/* Header */}
-      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <View>
             <Text style={T.h1}>Members</Text>
@@ -777,7 +834,7 @@ export default function AdminMembersScreen() {
           placeholderTextColor={C.gray400}
           style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.surface, marginBottom: 10 }} />
         {/* Status filter tabs */}
-        <View style={{ flexDirection: 'row', gap: 6 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 6, paddingRight: 16 }}>
           {[null, 'Active', 'Inactive', 'Blacklisted', 'Deleted'].map((f) => {
             const label = f ?? 'All';
             const active = statusFilter === f;
@@ -796,10 +853,14 @@ export default function AdminMembersScreen() {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
       </View>
 
-      <FlatList style={{ flex: 1 }} data={members} keyExtractor={(m: any) => m.id}
+      <FlatList style={{ flex: 1, width: '100%', maxWidth: 960, alignSelf: 'center' }} data={members} keyExtractor={(m: any) => m.id}
+        key={tabletList ? 'tablet-members' : 'phone-members'}
+        numColumns={tabletList ? 2 : 1}
+        columnWrapperStyle={tabletList ? { gap: 12 } : undefined}
+        keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: 32 }}
         onEndReached={() => { if (!showingDeleted && hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
@@ -817,15 +878,16 @@ export default function AdminMembersScreen() {
         ListFooterComponent={isFetchingNextPage && !showingDeleted ? (
           <ActivityIndicator color={C.navy} style={{ marginVertical: 16 }} />
         ) : null}
-        renderItem={({ item: m }) => (
+        renderItem={({ item: m, index }) => (
           // Deleted members are read-only — the detail sheet's actions all assume
           // a live member record.
           <TouchableOpacity
             onPress={() => { if (!showingDeleted) openDetail(m); }}
             activeOpacity={showingDeleted ? 1 : 0.7}
             disabled={showingDeleted}
+            style={tabletList ? { flex: 1, maxWidth: (Math.min(viewportWidth, 960) - 44) / 2, minWidth: 0 } : undefined}
           >
-            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: showingDeleted ? C.gray300 : (m.status === 'ACTIVE' ? C.green : C.gray300), opacity: showingDeleted ? 0.6 : 1 }}>
+            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: showingDeleted ? C.gray300 : (m.status === 'ACTIVE' ? C.green : C.gray300), backgroundColor: listRowColor(index), opacity: showingDeleted ? 0.6 : 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.navy50, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>{(m.fullName ?? '?')[0].toUpperCase()}</Text>
@@ -915,7 +977,8 @@ export default function AdminMembersScreen() {
               </TouchableOpacity>
             </View>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, width: '100%', maxWidth: 960, alignSelf: 'center' }} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled">
             {selected && (
               <>
                 {/* Outstanding Balance */}
@@ -1709,9 +1772,11 @@ export default function AdminMembersScreen() {
                 {/* Create Reminder Sheet */}
                 <Modal visible={showCreateReminder} transparent animationType="slide" onRequestClose={() => setShowCreateReminder(false)}>
                   <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={() => setShowCreateReminder(false)}>
-                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end' }}>
                       <TouchableOpacity activeOpacity={1}>
-                        <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+                        <ScrollView keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled"
+                          style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}
+                          contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
                           <View style={{ alignItems: 'center', marginBottom: 16 }}>
                             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />
                           </View>
@@ -1760,7 +1825,7 @@ export default function AdminMembersScreen() {
                               ? <ActivityIndicator color="#fff" />
                               : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Send Reminder</Text>}
                           </TouchableOpacity>
-                        </View>
+                        </ScrollView>
                       </TouchableOpacity>
                     </KeyboardAvoidingView>
                   </TouchableOpacity>
@@ -1789,15 +1854,17 @@ export default function AdminMembersScreen() {
               </>
             )}
           </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
 
         {/* ── Collect Payment Sheet — nested inside member detail so it stacks on iOS ── */}
         <Modal visible={showCollect} animationType="slide" transparent onRequestClose={closeCollectModal}>
           <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <ScrollView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+            <ScrollView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, width: '100%', maxWidth: 860, alignSelf: 'center' }}
               contentContainerStyle={{ padding: 24 }}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
@@ -1870,11 +1937,11 @@ export default function AdminMembersScreen() {
                     </TouchableOpacity>
                   )}
                   {!creditCoversCollect && (
-                    <Text style={{ fontSize: 11, color: '#059669' }}>Auto-applies on payment</Text>
+                    <Text style={{ fontSize: 11, color: '#059669' }}>Applies to oldest dues when paid</Text>
                   )}
                 </View>
                 {useCredits && (
-                  <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{memberCreditBalance.toLocaleString('en-IN')} credit will cover ₹{collectOutstanding.toLocaleString('en-IN')} outstanding — no cash needed.</Text>
+                  <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>No cash is needed. Review which unpaid installments this credit will clear across the member’s chits.</Text>
                 )}
                 {creditPartialCollect && (
                   <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{memberCreditBalance.toLocaleString('en-IN')} credit auto-applies → collect remaining <Text style={{ fontWeight: '700' }}>₹{Math.max(0, collectOutstanding - memberCreditBalance).toLocaleString('en-IN')}</Text></Text>
@@ -1975,10 +2042,10 @@ export default function AdminMembersScreen() {
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 56, textAlignVertical: 'top', marginBottom: 16 }} />
 
             <Button
-              label={useCredits ? `Apply ₹${collectOutstanding.toLocaleString('en-IN')} Credits` : workerCollect ? `Send for Pickup — ₹${Number(collectAmount || 0).toLocaleString('en-IN')}` : `Record ₹${Number(collectAmount || 0).toLocaleString('en-IN')} Payment`}
+              label={useCredits ? 'Review credit allocation' : workerCollect ? `Send for Pickup — ₹${Number(collectAmount || 0).toLocaleString('en-IN')}` : `Record ₹${Number(collectAmount || 0).toLocaleString('en-IN')} Payment`}
               variant="success" fullWidth size="lg"
               disabled={!collectChitId || (useCredits ? !creditCoversCollect : (!collectAmount || Number(collectAmount) <= 0 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(collectMode) && !collectReference.trim())))}
-              loading={collectMutation.isPending}
+              loading={collectMutation.isPending || collectPreviewLoading}
               onPress={submitCollectPayment} />
             </ScrollView>
             </KeyboardAvoidingView>
@@ -1996,7 +2063,7 @@ export default function AdminMembersScreen() {
             </TouchableOpacity>
           </View>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={{ padding: 20, gap: 14 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 14, width: '100%', maxWidth: 860, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
             {/* Personal Info */}
             <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.5 }}>PERSONAL INFORMATION</Text>
             <View>

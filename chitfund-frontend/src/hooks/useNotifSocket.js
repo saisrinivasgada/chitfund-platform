@@ -3,13 +3,13 @@ import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { useAuth } from '../context/AuthContext';
 
-export function useNotifSocket(onInAppUpdated) {
+export function useNotifSocket(onInAppUpdated, enabled = true) {
   const { token, tenantId } = useAuth();
   const callbackRef = useRef(onInAppUpdated);
   callbackRef.current = onInAppUpdated;
 
   useEffect(() => {
-    if (!token || !tenantId) return undefined;
+    if (!enabled || !token || !tenantId) return undefined;
     const client = new Client({
       webSocketFactory: () => new SockJS('/ws'),
       connectHeaders: { Authorization: `Bearer ${token}` },
@@ -27,5 +27,5 @@ export function useNotifSocket(onInAppUpdated) {
     });
     client.activate();
     return () => { client.deactivate(); };
-  }, [token, tenantId]);
+  }, [enabled, token, tenantId]);
 }

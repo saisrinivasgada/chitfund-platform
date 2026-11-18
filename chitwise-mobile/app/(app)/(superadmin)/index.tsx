@@ -2,7 +2,7 @@ import { requestSignOut } from '../../../offline/signOut';
 import { useState } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, TouchableOpacity,
-  TextInput, ActivityIndicator,
+  TextInput, ActivityIndicator, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -19,7 +19,7 @@ import {
   superAdminListPlans,
 } from '../../../services/api';
 import { useAuthStore } from '../../../store/authStore';
-import { C, Badge, fmtDate } from '../../../components/ui';
+import { C, Badge, fmtDate, listRowColor } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import RoleLogo from '../../../components/RoleLogo';
 import ReasonModal from '../../../components/superadmin/ReasonModal';
@@ -129,9 +129,12 @@ export default function SuperAdminOrgsPage() {
       </View>
 
       <ScrollView
+      keyboardDismissMode="on-drag"
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
         style={{ flex: 1 }}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => refetch()} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ marginBottom: 16, paddingHorizontal: 2 }}>
@@ -139,6 +142,9 @@ export default function SuperAdminOrgsPage() {
             Welcome, {user?.fullName?.split(' ')[0] ?? 'Admin'} 👋
           </Text>
           <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Manage organizations and platform operations.</Text>
+          <TouchableOpacity onPress={() => Linking.openURL('https://thechitwise.com/delete-account')} style={{ alignSelf: 'flex-start', paddingVertical: 8 }}>
+            <Text style={{ fontSize: 12, color: C.navy, textDecorationLine: 'underline' }}>Privacy and account deletion</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Alert banner */}
@@ -228,10 +234,10 @@ export default function SuperAdminOrgsPage() {
             <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 }}>
               Recently Registered
             </Text>
-            {recentOrgs.map((t: any) => (
+            {recentOrgs.map((t: any, i: number) => (
               <TouchableOpacity key={t.id}
                 onPress={() => router.push({ pathname: '/(app)/(superadmin)/org-detail', params: { tenantId: t.id } })}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: C.gray100 }}>
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: listRowColor(i), borderRadius: 12, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: C.gray100 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>{t.name?.[0]?.toUpperCase() ?? '?'}</Text>
                 </View>
@@ -302,10 +308,11 @@ export default function SuperAdminOrgsPage() {
             <Text style={{ fontSize: 15, color: C.gray500 }}>No organizations found</Text>
           </View>
         ) : (
-          filtered.map((t: any) => (
+          filtered.map((t: any, i: number) => (
             <TenantCard
               key={t.id}
               tenant={t}
+              rowIndex={i}
               onPress={() => router.push({ pathname: '/(app)/(superadmin)/org-detail', params: { tenantId: t.id } })}
               onActivate={() => activateMut.mutate(t.id)}
               onSuspend={() => suspendMut.mutate(t.id)}
@@ -328,8 +335,9 @@ export default function SuperAdminOrgsPage() {
   );
 }
 
-function TenantCard({ tenant, onPress, onActivate, onSuspend, onPlan, availablePlans }: {
+function TenantCard({ tenant, rowIndex, onPress, onActivate, onSuspend, onPlan, availablePlans }: {
   tenant: any;
+  rowIndex: number;
   onPress: () => void;
   onActivate: () => void;
   onSuspend: () => void;
@@ -340,7 +348,7 @@ function TenantCard({ tenant, onPress, onActivate, onSuspend, onPlan, availableP
 
   return (
     <View style={{
-      backgroundColor: C.surface, borderRadius: 16, marginBottom: 12,
+      backgroundColor: listRowColor(rowIndex), borderRadius: 16, marginBottom: 12,
       borderWidth: 1, borderColor: C.gray200,
       shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5,
     }}>

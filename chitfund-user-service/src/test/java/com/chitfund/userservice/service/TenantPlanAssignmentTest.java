@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.time.LocalDateTime;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +47,7 @@ class TenantPlanAssignmentTest {
     @Mock NotificationEventPublisher notificationEventPublisher;
     @Mock AuditClient auditClient;
     @Mock ObjectMapper objectMapper;
+    @Mock com.chitfund.userservice.repository.AccountSetupTokenRepository setupTokenRepository;
     @InjectMocks TenantService tenantService;
 
     @Test
@@ -271,6 +273,73 @@ class TenantPlanAssignmentTest {
                 LocalDateTime.now().plusDays(29), LocalDateTime.now().plusDays(31));
         verify(customLimitsRepository).save(org.mockito.ArgumentMatchers.argThat(limits ->
                 "GROWTH".equals(limits.getPlanCode()) && limits.getMaxActiveChits() == 20));
+    }
+
+    @Test
+    void autoCreatedAdminReceivesSetupLinkEmail() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).name("Pilot Chit Fund").slug("pilot-chit")
+                .contactEmail("owner@example.com").plan("BASIC").status("PENDING").build();
+        PlanLimits basic = PlanLimits.builder().plan("BASIC").isActive(true).isPublic(true)
+                .priceMonthlyInr(0).build();
+        ReflectionTestUtils.setField(tenantService, "frontendUrl", "https://test.thechitwise.com");
+        ReflectionTestUtils.setField(tenantService, "setupTokenExpiryHours", 72);
+        when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
+        when(planLimitsRepository.findById("BASIC")).thenReturn(Optional.of(basic));
+        when(customLimitsRepository.existsById(tenantId.toString())).thenReturn(true);
+        when(userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(
+                tenantId.toString(), List.of(com.chitfund.userservice.domain.enums.Role.ADMIN)))
+                .thenReturn(List.of());
+        when(tenantRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        when(userRepository.save(any())).thenAnswer(call -> {
+            User user = call.getArgument(0);
+            user.setId(UUID.randomUUID());
+            return user;
+        });
+        when(setupTokenRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var result = tenantService.activateTenant(tenantId, "owner-1");
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationEventPublisher).publishEmail(
+                org.mockito.ArgumentMatchers.eq("owner@example.com"), any(), html.capture(), text.capture());
+
+        // No plaintext credential in the response — admin must use the setup link
+        assertThat(result.getAdminTempPassword()).isNull();
+        assertThat(html.getValue()).contains("org-user-setup");
+        assertThat(text.getValue()).contains("org-user-setup");
+    }
+
+    @Test
+    void superAdminCreatedOrgUserReceivesSetupLinkEmail() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).name("Pilot Chit Fund").slug("pilot-chit").build();
+        var request = new com.chitfund.userservice.dto.request.AddOrgUserRequest();
+        request.setFullName("Pilot Manager");
+        request.setPhone("9000000000");
+        request.setEmail("manager@example.com");
+        request.setRole("ADMIN");
+        ReflectionTestUtils.setField(tenantService, "frontendUrl", "https://test.thechitwise.com");
+        ReflectionTestUtils.setField(tenantService, "setupTokenExpiryHours", 72);
+        when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
+        when(userRepository.save(any())).thenAnswer(call -> {
+            User user = call.getArgument(0);
+            user.setId(UUID.randomUUID());
+            return user;
+        });
+        when(setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(any(), any()))
+                .thenReturn(List.of());
+        when(setupTokenRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var result = tenantService.addOrgUser(tenantId, request, "owner-1");
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationEventPublisher).publishEmail(
+                org.mockito.ArgumentMatchers.eq("manager@example.com"), any(), html.capture(), text.capture());
+
+        assertThat(result.isSetupEmailQueued()).isTrue();
+        assertThat(html.getValue()).contains("org-user-setup");
+        assertThat(text.getValue()).contains("org-user-setup");
     }
 
     @Test

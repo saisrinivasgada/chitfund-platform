@@ -5,12 +5,13 @@ import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
-import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMySettlements, getMySettlementById, getMyInvitations, getAdminSupportContact, listAuctions } from '../../../services/api';
-import { C, T, Badge, Amount, GlassCard, Card, fmtDate, fmtDateTime, LoadingScreen, SectionHeader } from '../../../components/ui';
+import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMemberCredit, getMySettlements, getMySettlementById, getMyInvitations, getAdminSupportContact, listAuctions } from '../../../services/api';
+import { C, T, Badge, Amount, GlassCard, Card, fmtDate, fmtDateTime, LoadingScreen, SectionHeader, listRowColor } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
 import RoleLogo from '../../../components/RoleLogo';
+import { NotificationInboxButton } from '../../../components/NotificationInboxButton';
 
 const CASE_COLOR: Record<string, string> = { CASE_A: '#F59E0B', CASE_B1: '#1E3A5F', CASE_B2: '#2D5490', UNKNOWN: '#9CA3AF' };
 const CASE_LABEL: Record<string, string> = { CASE_A: 'Case A', CASE_B1: 'Case B1', CASE_B2: 'Case B2', UNKNOWN: 'Unknown' };
@@ -52,6 +53,14 @@ export default function MemberHomeScreen() {
     queryFn: () => getMemberTotalBalance(memberId!),
     enabled: !!memberId,
   });
+
+  const { data: memberCredit, refetch: refetchCredit } = useQuery({
+    queryKey: ['member-credit', memberId],
+    queryFn: () => getMemberCredit(memberId!),
+    enabled: !!memberId,
+    refetchInterval: 60_000,
+  });
+  const availableCredit = Number(memberCredit?.balance ?? 0);
 
   const { data: settlementsPage, refetch: refetchSettlements } = useQuery({
     queryKey: ['my-settlements'],
@@ -113,7 +122,10 @@ export default function MemberHomeScreen() {
 
   async function onRefresh() {
     setIsRefreshing(true);
-    try { await syncCurrentAccount(qc); } catch {} finally { setIsRefreshing(false); }
+    try {
+      await syncCurrentAccount(qc);
+      if (memberId) await refetchCredit();
+    } catch {} finally { setIsRefreshing(false); }
   }
 
   const hour = new Date().getHours();
@@ -129,7 +141,7 @@ export default function MemberHomeScreen() {
 
       <ScrollView
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         showsVerticalScrollIndicator={false}
       >
         {/* Compact role header */}
@@ -142,7 +154,10 @@ export default function MemberHomeScreen() {
 
             </View>
           </View>
-          <ProfileAvatarButton size={44} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <NotificationInboxButton />
+            <ProfileAvatarButton size={44} />
+          </View>
         </View>
 
         <SyncStatusCard compact />
@@ -167,26 +182,27 @@ export default function MemberHomeScreen() {
           {totalBalance != null && (
             <TouchableOpacity activeOpacity={0.78} onPress={() => router.push('/(app)/(member)/payments')} style={{ backgroundColor: C.white + '1A', borderRadius: 14, padding: 18, marginBottom: 16 }}>
               <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 1, marginBottom: 6 }}>
-                {Number(totalBalance) < 0 ? 'CREDIT BALANCE' : 'OUTSTANDING BALANCE'}
+                OUTSTANDING BALANCE
               </Text>
               <Text style={{ fontSize: 32, fontWeight: '800',
-                color: Number(totalBalance) > 0 ? '#FCA5A5'
-                  : Number(totalBalance) < 0 ? '#4ADE80'
-                  : C.white }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
-                ₹{Math.abs(Number(totalBalance)).toLocaleString('en-IN')}
+                color: Number(totalBalance) > 0 ? '#FCA5A5' : C.white }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+                ₹{Number(totalBalance).toLocaleString('en-IN')}
               </Text>
               {Number(totalBalance) > 0 && (
                 <Text style={{ fontSize: 12, color: '#FCA5A5', marginTop: 4 }}>Amount you owe across all chits</Text>
-              )}
-              {Number(totalBalance) < 0 && (
-                <Text style={{ fontSize: 12, color: '#4ADE80', marginTop: 4 }}>
-                  Credit available — offsets your next installment
-                </Text>
               )}
               {Number(totalBalance) === 0 && (
                 <Text style={{ fontSize: 12, color: C.white + '88', marginTop: 4 }}>All dues cleared</Text>
               )}
               <Text style={{ fontSize: 11, color: C.white + '88', marginTop: 8 }}>Tap to view payments →</Text>
+            </TouchableOpacity>
+          )}
+          {availableCredit > 0 && (
+            <TouchableOpacity activeOpacity={0.78} onPress={() => router.push('/(app)/(member)/payments')}
+              style={{ backgroundColor: C.white + '1A', borderRadius: 14, padding: 16, marginBottom: 16 }}>
+              <Text style={{ fontSize: 11, color: C.white + 'AA', fontWeight: '700', letterSpacing: 0.8 }}>AVAILABLE MEMBER CREDIT</Text>
+              <Text style={{ fontSize: 23, fontWeight: '800', color: C.goldLight, marginTop: 4 }}>₹{availableCredit.toLocaleString('en-IN')}</Text>
+              <Text style={{ fontSize: 11, color: C.white + 'AA', marginTop: 4 }}>Separate from outstanding dues · View credit activity →</Text>
             </TouchableOpacity>
           )}
           <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -562,7 +578,7 @@ export default function MemberHomeScreen() {
                       const ciAbs = Math.abs(ciNet);
                       const fundOwes = ciNet < 0;
                       return (
-                        <Card key={ci.chitId ?? i} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: caseColor }}>
+                        <Card key={ci.chitId ?? i} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: caseColor, backgroundColor: listRowColor(i) }}>
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                             <View style={{ flex: 1 }}>
                               <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>{ci.chitName ?? `Chit ${i + 1}`}</Text>

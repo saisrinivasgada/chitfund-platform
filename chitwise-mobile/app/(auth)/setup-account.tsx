@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -44,7 +44,7 @@ export default function SetupAccountScreen() {
       if (!email.trim() || !emailSent || emailOtp.length !== 6) throw new Error('Verify your recovery email');
       if (password.length < 8) throw new Error('Password must be at least 8 characters');
       if (password !== confirm) throw new Error('Passwords do not match');
-      if (!terms) throw new Error('Accept the Terms of Service to continue');
+      if (!terms) throw new Error('Review and accept the Terms of Service to continue');
       return completeChitfundAccountSetup({
         token,
         username: username.trim().toLowerCase(),
@@ -53,7 +53,7 @@ export default function SetupAccountScreen() {
         phoneOtp: phoneOtpRequired ? phoneOtp : undefined,
         email: email.trim().toLowerCase(),
         emailOtp,
-        termsAccepted: true,
+        termsAccepted: terms,
       });
     },
     onSuccess: () => Alert.alert(
@@ -138,19 +138,26 @@ export default function SetupAccountScreen() {
           <Input label="Password *" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" />
           <Input label="Confirm password *" value={confirm} onChangeText={setConfirm} secureTextEntry autoCapitalize="none" />
 
-          <TouchableOpacity onPress={() => setTerms(v => !v)} style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{ checked: terms }}
+            onPress={() => setTerms(v => !v)} style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
             <View style={{ width: 21, height: 21, borderWidth: 1.5, borderColor: terms ? C.navy : C.gray400, backgroundColor: terms ? C.navy : C.white, borderRadius: 5, alignItems: 'center', justifyContent: 'center' }}>
               {terms && <Text style={{ color: C.white }}>✓</Text>}
             </View>
-            <Text style={{ flex: 1, color: C.gray700, fontSize: 13 }}>I accept the Terms of Service</Text>
+            <Text style={{ flex: 1, color: C.gray700, fontSize: 13 }}>I have read and agree to the Terms of Service, and acknowledge the Privacy Policy.</Text>
           </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 20, marginLeft: 31 }}>
+            <Text accessibilityRole="link" onPress={() => Linking.openURL('https://thechitwise.com/terms')}
+              style={{ color: C.navy, fontSize: 12, textDecorationLine: 'underline' }}>Read Terms</Text>
+            <Text accessibilityRole="link" onPress={() => Linking.openURL('https://thechitwise.com/privacy')}
+              style={{ color: C.navy, fontSize: 12, textDecorationLine: 'underline' }}>Privacy Policy</Text>
+          </View>
 
           {!!error && <Text style={{ color: C.red }}>{error}</Text>}
           <Button
             label="Create account"
             fullWidth
             loading={complete.isPending}
-            disabled={!token || complete.isPending}
+            disabled={!token || !terms || complete.isPending}
             onPress={() => complete.mutate()}
           />
         </View>
