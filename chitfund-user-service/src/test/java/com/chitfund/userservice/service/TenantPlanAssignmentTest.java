@@ -302,7 +302,7 @@ class TenantPlanAssignmentTest {
         assertThat(result.getAdminTempPassword()).isNotBlank();
         assertThat(html.getValue()).doesNotContain(result.getAdminTempPassword());
         assertThat(text.getValue()).doesNotContain(result.getAdminTempPassword());
-        assertThat(text.getValue()).contains("pilot-chit.admin", "does not send passwords by email");
+        assertThat(text.getValue()).contains("pilot-chit.admin", "never sent by email");
     }
 
     @Test
