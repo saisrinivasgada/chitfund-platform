@@ -24,6 +24,15 @@ import { readFileSync } from 'node:fs';
 // current navigation stack. Dependency path: expo-router → query-string →
 // decode-uri-component.
 //
+// picomatch 4.0.4: ReDoS vulnerability via crafted extglob patterns. picomatch
+// is consumed exclusively by Expo/Metro's build-time file globbing (@expo/cli,
+// @expo/metro-config, micromatch, tinyglobby). It processes project file-system
+// paths that are internal artifacts — not user-controlled input. No patched
+// version exists; 4.0.7 is the latest and also affected. Hermes (the shipped
+// JS runtime) never loads picomatch. Compensating control: glob patterns are
+// always constructed from trusted project configuration, never from HTTP input
+// or deep links. Dependency path: @expo/cli → micromatch → picomatch.
+//
 // Keep exceptions deliberately narrow: exact advisory URL, exact installed
 // version, and a review-by date that forces a fresh evaluation.
 const REVIEW_BY = '2027-01-31';
@@ -90,6 +99,11 @@ const approvedLeaves = new Map([
   ['https://github.com/advisories/GHSA-qr28-fpjm-wq7f', {
     packageName: 'decode-uri-component', version: '0.2.2',
     exposure: 'expo-router URL parsing — mitigated by OS URL limits and schema validation',
+  }],
+  // picomatch: build-time file globbing; see rationale above
+  ['https://github.com/advisories/GHSA-fc5q-39xc-vjpf', {
+    packageName: 'picomatch', version: '4.0.4',
+    exposure: 'Expo/Metro build-time file globbing — trusted project file paths, no user input',
   }],
 ]);
 

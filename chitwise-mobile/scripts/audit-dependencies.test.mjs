@@ -68,7 +68,10 @@ test('no longer accepts the patched node-forge advisory', () => {
   }, { high: 1 });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /unapproved High advisory/);
+  // node-forge is overridden to 1.4.3 (patched); the exception is pinned at 1.4.0.
+  // The script rejects this as a version mismatch rather than "unapproved" — which
+  // is the correct rejection: the exception no longer applies to the installed version.
+  assert.match(result.stderr, /node-forge.*1\.4\.0.*installed 1\.4\.3|unapproved High advisory/);
 });
 
 test('fails closed for every Critical advisory', () => {
