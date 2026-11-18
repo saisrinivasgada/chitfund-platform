@@ -94,7 +94,7 @@ export default function SuperAdminLayout({ embedded = false }) {
 
   if (embedded) {
     return (
-      <div className="min-h-full bg-[#F5F7FA]">
+      <div className="absolute inset-0 overflow-y-auto bg-[#F5F7FA]">
         <div className="bg-white border-b border-gray-100 px-3 sm:px-6 xl:px-8 flex items-center gap-3 justify-between sticky top-0 z-30">
           <label htmlFor="platform-section" className="sr-only">Platform section</label>
           <select id="platform-section" value={NAV.find(({ to }) => isActive(to))?.to ?? '/superadmin'}

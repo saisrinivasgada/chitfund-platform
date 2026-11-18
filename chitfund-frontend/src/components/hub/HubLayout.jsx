@@ -205,7 +205,7 @@ export default function HubLayout() {
       </aside>
 
       {/* Main content */}
-      <main className={`flex-1 min-w-0 min-h-0 ${isWorkspace ? 'overflow-hidden p-0' : isSaasAdministration ? 'overflow-auto p-0' : 'overflow-auto p-3 sm:p-6'}`}>
+      <main className={`flex-1 min-w-0 min-h-0 ${isWorkspace ? 'overflow-hidden p-0' : isSaasAdministration ? 'overflow-hidden p-0 relative' : 'overflow-auto p-3 sm:p-6'}`}>
         <Outlet />
       </main>
     </div>
