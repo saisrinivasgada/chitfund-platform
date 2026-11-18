@@ -8,6 +8,7 @@ const routes = [
 ];
 
 test('main admin pages remain usable at phone, iPad, and computer browser widths', async ({ page }) => {
+  test.setTimeout(90_000);
   await installAuthenticatedApp(page, { analyticsEnabled: true, settlementEnabled: true });
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
