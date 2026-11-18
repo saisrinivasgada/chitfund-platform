@@ -207,7 +207,7 @@ public class ChitController {
 
     private boolean isAdmin(Authentication auth) {
         return auth != null && auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("SUPER_ADMIN"));
     }
 
     @GetMapping("/org-reservations")

@@ -59,7 +59,7 @@ public class ReservationController {
             @PathVariable UUID chitId, Authentication auth) {
         chitService.findByIdScoped(chitId); // validates tenant ownership
         boolean isAdmin = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("SUPER_ADMIN"));
         List<MonthReservationResponse> list = reservationRepository
                 .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
                 .stream()
@@ -214,7 +214,7 @@ public class ReservationController {
                     "The schedule may have changed. Refresh it and review this slot before saving.");
         }
         boolean callerIsAdmin = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("SUPER_ADMIN"));
         boolean targetingOrgSlot = r.isOrgHeld() || Boolean.TRUE.equals(request.getOrgHeld());
         if (!callerIsAdmin && targetingOrgSlot) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
@@ -275,7 +275,7 @@ public class ReservationController {
                     "Only RESERVED slots can be marked as processed");
         }
         boolean callerIsAdmin = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("SUPER_ADMIN"));
         if (!callerIsAdmin && r.isOrgHeld()) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "Organisation-held slots can only be processed by an admin");
