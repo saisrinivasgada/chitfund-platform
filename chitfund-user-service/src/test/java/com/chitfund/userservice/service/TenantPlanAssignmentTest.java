@@ -46,6 +46,7 @@ class TenantPlanAssignmentTest {
     @Mock NotificationEventPublisher notificationEventPublisher;
     @Mock AuditClient auditClient;
     @Mock ObjectMapper objectMapper;
+    @Mock com.chitfund.userservice.repository.AccountSetupTokenRepository setupTokenRepository;
     @InjectMocks TenantService tenantService;
 
     @Test
@@ -306,7 +307,7 @@ class TenantPlanAssignmentTest {
     }
 
     @Test
-    void superAdminCreatedOrgUserPasswordIsNeverIncludedInWelcomeEmail() {
+    void superAdminCreatedOrgUserReceivesSetupLinkEmail() {
         UUID tenantId = UUID.randomUUID();
         Tenant tenant = Tenant.builder().id(tenantId).name("Pilot Chit Fund").slug("pilot-chit").build();
         var request = new com.chitfund.userservice.dto.request.AddOrgUserRequest();
@@ -320,6 +321,9 @@ class TenantPlanAssignmentTest {
             user.setId(UUID.randomUUID());
             return user;
         });
+        when(setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(any(), any()))
+                .thenReturn(List.of());
+        when(setupTokenRepository.save(any())).thenAnswer(call -> call.getArgument(0));
 
         var result = tenantService.addOrgUser(tenantId, request, "owner-1");
         ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
@@ -327,10 +331,9 @@ class TenantPlanAssignmentTest {
         verify(notificationEventPublisher).publishEmail(
                 org.mockito.ArgumentMatchers.eq("manager@example.com"), any(), html.capture(), text.capture());
 
-        assertThat(result.getTempPassword()).isNotBlank();
-        assertThat(html.getValue()).doesNotContain(result.getTempPassword());
-        assertThat(text.getValue()).doesNotContain(result.getTempPassword());
-        assertThat(text.getValue()).contains("does not send passwords by email");
+        assertThat(result.isSetupEmailQueued()).isTrue();
+        assertThat(html.getValue()).contains("org-user-setup");
+        assertThat(text.getValue()).contains("org-user-setup");
     }
 
     @Test

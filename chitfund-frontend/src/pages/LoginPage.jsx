@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, signInWithGoogle, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, adminForgotPassword, adminVerifyResetOtp, adminResetPassword, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, signInWithGoogle, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
 import { browserKeyForUsername, browserKeyForMobile, browserKeyForGoogle,
   rememberActiveBrowserKey } from '../utils/trustedBrowser';
 import { centralGoogleLoginUrl, loginTenantSlug, tenantHandoffActive, shouldHandoffToTenant, tenantHandoffUrl } from '../utils/tenantHandoff';
@@ -33,7 +33,7 @@ function validatePassword(pw) {
 const OTP_LOCKOUT_SECS = 300; // 5-minute lockout after wrong OTP
 
 function ForgotPasswordFlow({ onClose }) {
-  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone' | 'email-otp'
+  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked' | 'no-phone'
   const [step, setStep]             = useState('lookup');
   const [input, setInput]           = useState('');
   const [lookup, setLookup]         = useState(null); // { userId, maskedPhone, locked, role }
@@ -50,7 +50,6 @@ function ForgotPasswordFlow({ onClose }) {
   const [resendTimer, setResendTimer] = useState(0);
   const [sendCount, setSendCount]     = useState(0);
   const [resendBlocked, setResendBlocked] = useState(false);
-  const [emailInput, setEmailInput]   = useState('');
   const lockoutRef = useRef(null);
   const resendRef  = useRef(null);
   const resetOtpInFlight = useRef(false);
@@ -96,37 +95,6 @@ function ForgotPasswordFlow({ onClose }) {
       setError(err.response?.data?.message ?? 'No account found. Check the username or phone number.');
     } finally { setLoading(false); }
   }
-
-  async function handleEmailReset(e) {
-    e.preventDefault();
-    if (!emailInput.trim()) { setError('Enter your email address'); return; }
-    setError(''); setLoading(true);
-    try {
-      const data = await adminForgotPassword({ email: emailInput.trim() });
-      setLookup((prev) => ({ ...prev, userId: data.userId }));
-      setStep('email-otp');
-    } catch (err) {
-      setError(err.response?.data?.message ?? 'No account found with that email address.');
-    } finally { setLoading(false); }
-  }
-
-  async function handleVerifyEmailOtp(eOrCode) {
-    if (typeof eOrCode !== 'string') eOrCode?.preventDefault();
-    const code = typeof eOrCode === 'string' ? eOrCode : otp;
-    if (code.length !== 6) { setError('Enter all 6 OTP digits'); return; }
-    if (resetOtpInFlight.current) return;
-    resetOtpInFlight.current = true;
-    setError(''); setLoading(true);
-    try {
-      const data = await adminVerifyResetOtp({ userId: lookup.userId, code });
-      setResetToken(data.resetToken);
-      setStep('password');
-    } catch (err) {
-      setError(err.response?.data?.message ?? 'Incorrect or expired OTP. Try again.');
-      setOtp('');
-    } finally { resetOtpInFlight.current = false; setLoading(false); }
-  }
-
 
   async function handleSendOtp(e) {
     e.preventDefault();
@@ -324,43 +292,20 @@ function ForgotPasswordFlow({ onClose }) {
         <div className="flex items-start gap-3">
           <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-amber-900 mb-1">No phone number on this account</p>
-            <p className="text-sm text-amber-800">
-              Enter your account email below to receive a one-time code for password recovery.
+            <p className="text-sm font-semibold text-amber-900 mb-1">Phone number required for account recovery</p>
+            <p className="text-sm text-amber-800 mb-3">
+              This account does not have a verified phone number. Password recovery requires phone verification via the ChitWise mobile app.
+            </p>
+            <p className="text-sm text-amber-700">
+              Please contact your ChitWise administrator or reach us at{' '}
+              <a href="mailto:help@thechitwise.com" className="underline font-medium">help@thechitwise.com</a>{' '}
+              to regain access.
             </p>
           </div>
         </div>
       </div>
-      <form onSubmit={handleEmailReset} className="space-y-3">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Account email address</label>
-          <input type="email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setError(''); }}
-            placeholder="e.g. admin@example.com" required
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]" autoFocus />
-        </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={loading} disabled={!emailInput.trim()} className="w-full">Send Reset OTP</Button>
-        <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); setEmailInput(''); }}
-          className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Change account</button>
-      </form>
-    </div>
-  );
-
-  /* ── Email OTP verification (admin email-reset) ── */
-  if (step === 'email-otp') return (
-    <div className="mt-5 space-y-4">
-      <div className="px-4 py-3 rounded-xl border border-blue-200 bg-blue-50">
-        <p className="text-sm text-blue-700">Email code sent to {emailInput}. Enter it below.</p>
-      </div>
-      <form onSubmit={handleVerifyEmailOtp} className="space-y-3">
-        <OtpCodeInput value={otp} onChange={(v) => { setOtp(v); setError(''); }}
-          onComplete={handleVerifyEmailOtp} status={loading ? 'loading' : error ? 'error' : 'idle'}
-          autoFocus ariaLabel="Email reset OTP" />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={loading} disabled={otp.length !== 6} className="w-full">Verify OTP</Button>
-        <button type="button" onClick={() => { setStep('no-phone'); setOtp(''); setError(''); }}
-          className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Resend OTP</button>
-      </form>
+      <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); }}
+        className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Change account</button>
     </div>
   );
 
