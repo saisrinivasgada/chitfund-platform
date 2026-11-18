@@ -894,9 +894,19 @@ jobs:
             --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}" \
             --query 'DBInstances[0].DBInstanceStatus' --output text)
           if [ "$db_status" = "stopped" ]; then
-            aws rds start-db-instance \
-              --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}" \
-              --no-cli-pager >/dev/null
+            # Retry up to 10 times (5 min) in case of transient InsufficientDBInstanceCapacity
+            for attempt in $(seq 1 10); do
+              if aws rds start-db-instance \
+                --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}" \
+                --no-cli-pager >/dev/null 2>&1; then
+                break
+              fi
+              if [ "$attempt" -eq 10 ]; then
+                echo "Failed to start RDS after 10 attempts" >&2; exit 1
+              fi
+              echo "RDS start attempt $attempt failed (capacity), retrying in 30s..."
+              sleep 30
+            done
           fi
           aws rds wait db-instance-available \
             --db-instance-identifier "${{ vars.STAGING_AWS_DB_INSTANCE_ID }}"
