@@ -25,7 +25,7 @@ public class OtpController {
     private final RateLimiterService rateLimiterService;
 
     @PostMapping("/send")
-    public ResponseEntity<ApiResponse<Void>> sendOtp(
+    public ResponseEntity<ApiResponse<Map<String, String>>> sendOtp(
             @Valid @RequestBody SendPhoneOtpRequest req,
             HttpServletRequest httpRequest) {
         String ip = getClientIp(httpRequest);
@@ -34,8 +34,9 @@ public class OtpController {
                     "Too many OTP requests from this device. Please wait 15 minutes.",
                     HttpStatus.TOO_MANY_REQUESTS);
         }
-        otpService.sendOtp(req.getPhone(), req.getCountryCode(), "REGISTRATION", null);
-        return ResponseEntity.ok(ApiResponse.success(null, "OTP sent to " + req.getPhone()));
+        String devOtp = otpService.sendOtp(req.getPhone(), req.getCountryCode(), "REGISTRATION", null);
+        Map<String, String> data = devOtp != null ? Map.of("devOtp", devOtp) : null;
+        return ResponseEntity.ok(ApiResponse.success(data, "OTP sent to " + req.getPhone()));
     }
 
     @PostMapping("/verify")

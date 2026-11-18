@@ -1625,7 +1625,7 @@ export const deleteTeamNote = async (id) => {
 // ── Phone OTP (public — for registration) ─────────────────────────────────
 export const sendRegistrationOtp = async ({ phone, countryCode }) => {
   const res = await api.post('/auth/otp/send', { phone, countryCode });
-  return res.data; // { success, message }
+  return res.data.data; // { devOtp } when exposure enabled, null otherwise
 };
 export const verifyRegistrationOtp = async ({ phone, countryCode, code }) => {
   const res = await api.post('/auth/otp/verify', { phone, countryCode, code });

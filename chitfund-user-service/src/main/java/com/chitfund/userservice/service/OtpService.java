@@ -36,8 +36,11 @@ public class OtpService {
     @Value("${app.otp.cooldown.enabled:true}")
     private boolean cooldownEnabled;
 
+    @Value("${app.dev.otp-exposure.enabled:false}")
+    private boolean devOtpExposureEnabled;
+
     @Transactional
-    public void sendOtp(String phone, String countryCode, String purpose, String userId) {
+    public String sendOtp(String phone, String countryCode, String purpose, String userId) {
         LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
         long todayCount = otpRepo.countByPhoneAndPurposeAndCreatedAtAfter(phone, purpose, startOfDay);
 
@@ -80,6 +83,7 @@ public class OtpService {
         SmsDeliveryStatus deliveryStatus = smsService.sendOtp(phone, record.getCountryCode(), otp);
         record.setDeliveryStatus(deliveryStatus);
         otpRepo.save(record);
+        return devOtpExposureEnabled ? otp : null;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)

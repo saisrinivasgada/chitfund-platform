@@ -7,6 +7,7 @@ import {
   Zap, Shield, Users, BarChart2, Check,
 } from 'lucide-react';
 import OtpInput from '../components/ui/OtpInput';
+import DevOtpBanner from '../components/ui/DevOtpBanner';
 import LegalAcceptanceCheckbox from '../components/legal/LegalAcceptanceCheckbox';
 import GoogleSignInButton from '../components/auth/GoogleSignInButton';
 import { googleProfileHint } from '../utils/googleCredential';
@@ -91,6 +92,7 @@ export default function RegisterOrgPage() {
   const phoneVerified = Boolean(phoneVerificationId);
   const [showOtp, setShowOtp]             = useState(false);
   const [otpSending, setOtpSending]       = useState(false);
+  const [devOtp, setDevOtp]               = useState(null);
 
   useEffect(() => {
     const planParam = searchParams.get('plan')?.toUpperCase();
@@ -154,7 +156,8 @@ export default function RegisterOrgPage() {
     setError('');
     setPhoneVerificationId(null);
     try {
-      await sendRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode });
+      const data = await sendRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode });
+      if (data?.devOtp) setDevOtp(data.devOtp);
       setShowOtp(true);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Failed to send OTP. Please try again.');
@@ -172,7 +175,8 @@ export default function RegisterOrgPage() {
 
   async function handleOtpResend() {
     setPhoneVerificationId(null);
-    await sendRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode });
+    const data = await sendRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode });
+    if (data?.devOtp) setDevOtp(data.devOtp);
   }
 
   async function handleValidatePromo() {
@@ -514,7 +518,8 @@ export default function RegisterOrgPage() {
                   </FieldLabel>
 
                   {showOtp ? (
-                    <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50">
+                    <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50 space-y-3">
+                      <DevOtpBanner otp={devOtp} />
                       <OtpInput
                         phone={form.adminPhone}
                         countryCode={form.adminPhoneCountryCode}
