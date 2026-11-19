@@ -39,6 +39,7 @@ import {
   superAdminVerifyAdminPhoneOtp,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
+import OtpCodeInput from '../../components/ui/OtpCodeInput';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
 import ManageCreditModal from '../../components/superadmin/ManageCreditModal';
 import { openProxyWindow, transferProxySession } from '../../utils/proxySessionTransfer';
@@ -391,8 +392,10 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
   const [countryCode]                 = useState(user.phoneCountryCode ?? '+91');
   const [savingName, setSavingName]   = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [editingPhone, setEditingPhone] = useState(false);
   const [phoneOtpSent, setPhoneOtpSent] = useState(false);
   const [phoneOtp, setPhoneOtp]       = useState('');
+  const [phoneOtpStatus, setPhoneOtpStatus] = useState('idle');
   const [phoneOtpDevCode, setPhoneOtpDevCode] = useState(null);
   const [sendingPhoneOtp, setSendingPhoneOtp] = useState(false);
   const [verifyingPhone, setVerifyingPhone] = useState(false);
@@ -445,15 +448,20 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
     } finally { setSendingPhoneOtp(false); }
   }
 
-  async function handleVerifyPhoneOtp() {
-    if (!phoneOtp.trim()) return;
+  async function handleVerifyPhoneOtp(code) {
+    const otp = code ?? phoneOtp;
+    if (!otp || otp.length !== 6) return;
     setVerifyingPhone(true);
+    setPhoneOtpStatus('loading');
     try {
-      await superAdminVerifyAdminPhoneOtp(tenantId, user.userId, phone.trim(), countryCode, phoneOtp.trim());
+      await superAdminVerifyAdminPhoneOtp(tenantId, user.userId, phone.trim(), countryCode, otp);
+      setPhoneOtpStatus('success');
       setPhoneVerified(true);
       onSaved('Phone number updated');
       flash('Phone number updated');
     } catch (e) {
+      setPhoneOtpStatus('error');
+      setTimeout(() => setPhoneOtpStatus('idle'), 900);
       flash(e.response?.data?.message ?? 'Incorrect OTP', true);
     } finally { setVerifyingPhone(false); }
   }
@@ -552,47 +560,64 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone Number</label>
             {phoneVerified ? (
               <p className="mt-1 text-xs text-emerald-600 font-medium flex items-center gap-1"><CheckCircle size={13} /> Updated to {phone}</p>
+            ) : !editingPhone ? (
+              <div className="flex items-center gap-2 mt-1">
+                <p className="flex-1 text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2">{user.phone ?? '—'}</p>
+                <button
+                  type="button"
+                  onClick={() => setEditingPhone(true)}
+                  className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 cursor-pointer"
+                  title="Edit phone number"
+                >
+                  <Edit2 size={14} />
+                </button>
+              </div>
             ) : (
               <div className="mt-1 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F]"
-                    placeholder="Phone number"
-                    value={phone}
-                    onChange={(e) => { setPhone(e.target.value); setPhoneOtpSent(false); setPhoneOtp(''); }}
-                  />
-                  <button
-                    type="button"
-                    disabled={sendingPhoneOtp || !phone.trim()}
-                    onClick={handleSendPhoneOtp}
-                    className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer whitespace-nowrap"
-                  >
-                    {sendingPhoneOtp ? '…' : phoneOtpSent ? 'Resend OTP' : 'Send OTP'}
-                  </button>
-                </div>
+                {!phoneOtpSent ? (
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F]"
+                      placeholder="New phone number"
+                      value={phone}
+                      onChange={(e) => { setPhone(e.target.value); setPhoneOtp(''); }}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      disabled={sendingPhoneOtp || !phone.trim() || phone.trim() === (user.phone ?? '')}
+                      onClick={handleSendPhoneOtp}
+                      className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                    >
+                      {sendingPhoneOtp ? '…' : 'Send OTP'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="border border-[#C7D5E8] rounded-xl bg-[#EEF2F8]/50 p-3 space-y-2">
+                    <p className="text-xs text-[#1E3A5F] font-medium">Code sent to {countryCode} {phone}</p>
+                    <OtpCodeInput
+                      value={phoneOtp}
+                      onChange={(v) => setPhoneOtp(v)}
+                      onComplete={handleVerifyPhoneOtp}
+                      autoFocus
+                      status={phoneOtpStatus}
+                      disabled={verifyingPhone}
+                      ariaLabel="Phone verification code"
+                    />
+                    <button
+                      type="button"
+                      disabled={sendingPhoneOtp}
+                      onClick={() => { setPhoneOtpSent(false); setPhoneOtp(''); setPhoneOtpStatus('idle'); }}
+                      className="text-xs text-gray-400 hover:text-gray-600 hover:underline cursor-pointer"
+                    >
+                      {sendingPhoneOtp ? 'Sending…' : 'Resend / change number'}
+                    </button>
+                  </div>
+                )}
                 {phoneOtpDevCode && (
                   <p className="text-xs bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 font-mono text-yellow-800">
                     Dev OTP: <strong>{phoneOtpDevCode}</strong>
                   </p>
-                )}
-                {phoneOtpSent && (
-                  <div className="flex gap-2">
-                    <input
-                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F] font-mono tracking-widest"
-                      placeholder="Enter OTP"
-                      maxLength={8}
-                      value={phoneOtp}
-                      onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))}
-                    />
-                    <button
-                      type="button"
-                      disabled={verifyingPhone || !phoneOtp.trim()}
-                      onClick={handleVerifyPhoneOtp}
-                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1E3A5F] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer"
-                    >
-                      {verifyingPhone ? '…' : 'Verify'}
-                    </button>
-                  </div>
                 )}
               </div>
             )}
@@ -1872,7 +1897,7 @@ export default function SuperAdminOrgDetailPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-900 truncate">{u.fullName ?? u.username}</p>
-                      <p className="text-xs text-gray-500 truncate">{u.email ?? 'No email'}</p>
+                      <p className="text-xs text-gray-500 truncate">{u.phone ?? u.email ?? '—'}</p>
                       {u.setupPending && (
                         <span className="inline-block text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full mt-0.5">Setup pending</span>
                       )}
