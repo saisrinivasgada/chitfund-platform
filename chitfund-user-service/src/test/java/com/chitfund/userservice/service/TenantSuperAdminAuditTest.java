@@ -41,6 +41,7 @@ class TenantSuperAdminAuditTest {
     @Mock AuditClient auditClient;
     @Mock ObjectMapper objectMapper;
     @Mock TenantCreditAdjustmentRepository creditAdjustmentRepository;
+    @Mock OtpService otpService;
     @InjectMocks TenantService tenantService;
 
     @Test

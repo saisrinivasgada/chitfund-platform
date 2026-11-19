@@ -58,6 +58,7 @@ class TenantResendSetupTest {
     @Mock ObjectMapper objectMapper;
     @Mock TenantCreditAdjustmentRepository creditAdjustmentRepository;
     @Mock AccountSetupTokenRepository setupTokenRepository;
+    @Mock OtpService otpService;
     @InjectMocks TenantService tenantService;
 
     @BeforeEach

@@ -48,6 +48,7 @@ class TenantPlanAssignmentTest {
     @Mock AuditClient auditClient;
     @Mock ObjectMapper objectMapper;
     @Mock com.chitfund.userservice.repository.AccountSetupTokenRepository setupTokenRepository;
+    @Mock OtpService otpService;
     @InjectMocks TenantService tenantService;
 
     @Test

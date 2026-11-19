@@ -404,4 +404,107 @@ class OrgUserSetupServiceTest {
             verify(accountEmailOtpService, times(1)).checkAndIncrementAttempt(any(), any(), any(), any());
         }
     }
+
+    // ── checkEmailOtp() — lightweight pre-validation without consuming ─────────
+
+    @Test
+    void checkEmailOtp_succeedsWhenOtpIsCorrect() {
+        UUID userId = UUID.randomUUID();
+        String raw = "validtoken";
+        String hash = OrgUserSetupService.sha256(raw);
+        AccountSetupToken token = AccountSetupToken.builder()
+                .purpose(SetupTokenPurpose.ORG_USER_INVITE)
+                .tokenHash(hash)
+                .userId(userId)
+                .expiresAt(LocalDateTime.now().plusHours(24))
+                .build();
+        User user = User.builder().id(userId).email("admin@test.com").build();
+        when(setupTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(token));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        OtpCheckOutcome correct = OtpCheckOutcome.correct("otp-id-1");
+        when(accountEmailOtpService.checkAndIncrementAttempt(
+                userId.toString(), "admin@test.com", "ORG_USER_SETUP_EMAIL", "123456"))
+                .thenReturn(correct);
+
+        var req = new com.chitfund.userservice.dto.request.OrgUserSetupCheckOtpRequest();
+        req.setToken(raw);
+        req.setEmailOtp("123456");
+
+        service.checkEmailOtp(req); // should not throw
+    }
+
+    @Test
+    void checkEmailOtp_throwsOnIncorrectOtp() {
+        UUID userId = UUID.randomUUID();
+        String raw = "validtoken2";
+        String hash = OrgUserSetupService.sha256(raw);
+        AccountSetupToken token = AccountSetupToken.builder()
+                .purpose(SetupTokenPurpose.ORG_USER_INVITE)
+                .tokenHash(hash)
+                .userId(userId)
+                .expiresAt(LocalDateTime.now().plusHours(24))
+                .build();
+        User user = User.builder().id(userId).email("admin@test.com").build();
+        when(setupTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(token));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        OtpCheckOutcome wrong = OtpCheckOutcome.invalid(OtpCheckResult.INCORRECT, "Incorrect OTP. 2 attempt(s) remaining.");
+        when(accountEmailOtpService.checkAndIncrementAttempt(any(), any(), any(), any())).thenReturn(wrong);
+
+        var req = new com.chitfund.userservice.dto.request.OrgUserSetupCheckOtpRequest();
+        req.setToken(raw);
+        req.setEmailOtp("000000");
+
+        assertThatThrownBy(() -> service.checkEmailOtp(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Incorrect OTP");
+    }
+
+    @Test
+    void checkEmailOtp_throwsForConsumedToken() {
+        String raw = "usedtoken2";
+        String hash = OrgUserSetupService.sha256(raw);
+        AccountSetupToken token = AccountSetupToken.builder()
+                .purpose(SetupTokenPurpose.ORG_USER_INVITE)
+                .tokenHash(hash)
+                .userId(UUID.randomUUID())
+                .usedAt(LocalDateTime.now().minusMinutes(5))
+                .expiresAt(LocalDateTime.now().plusHours(24))
+                .build();
+        when(setupTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(token));
+
+        var req = new com.chitfund.userservice.dto.request.OrgUserSetupCheckOtpRequest();
+        req.setToken(raw);
+        req.setEmailOtp("123456");
+
+        assertThatThrownBy(() -> service.checkEmailOtp(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("already been used");
+    }
+
+    @Test
+    void checkEmailOtp_doesNotConsumeOtpOnSuccess() {
+        UUID userId = UUID.randomUUID();
+        String raw = "noconsumetoken";
+        String hash = OrgUserSetupService.sha256(raw);
+        AccountSetupToken token = AccountSetupToken.builder()
+                .purpose(SetupTokenPurpose.ORG_USER_INVITE)
+                .tokenHash(hash)
+                .userId(userId)
+                .expiresAt(LocalDateTime.now().plusHours(24))
+                .build();
+        User user = User.builder().id(userId).email("admin@test.com").build();
+        when(setupTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(token));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(accountEmailOtpService.checkAndIncrementAttempt(any(), any(), any(), any()))
+                .thenReturn(OtpCheckOutcome.correct("otp-id-2"));
+
+        var req = new com.chitfund.userservice.dto.request.OrgUserSetupCheckOtpRequest();
+        req.setToken(raw);
+        req.setEmailOtp("123456");
+
+        service.checkEmailOtp(req);
+
+        // token must NOT be marked as used — consuming happens only in complete()
+        verify(setupTokenRepository, never()).save(any());
+    }
 }

@@ -61,6 +61,7 @@ test('shows invalid link message for missing token', async ({ page }) => {
 
 test('golden path: OTP send, OTP entry, password, submit, success screen', async ({ page }) => {
   let emailOtpPostCalled = false;
+  let checkOtpPostCalled = false;
   let completePostCalled = false;
 
   await page.route('**/api/auth/org-user-setup**', (route) => {
@@ -73,6 +74,9 @@ test('golden path: OTP send, OTP entry, password, submit, success screen', async
     } else if (method === 'POST' && path.endsWith('/email-otp')) {
       emailOtpPostCalled = true;
       route.fulfill(json({ status: 'success', data: null, message: 'Verification code sent' }));
+    } else if (method === 'POST' && path.endsWith('/check-email-otp')) {
+      checkOtpPostCalled = true;
+      route.fulfill(json({ status: 'success', data: null, message: 'OTP is correct' }));
     } else if (method === 'POST' && path.endsWith('/complete')) {
       completePostCalled = true;
       route.fulfill(json({ status: 'success', data: null, message: 'Account setup complete' }));
@@ -90,11 +94,14 @@ test('golden path: OTP send, OTP entry, password, submit, success screen', async
   await page.getByRole('button', { name: /send verification code/i }).click();
   await expect(page.locator('input[aria-label]').first()).toBeVisible({ timeout: 3000 });
 
-  // Enter 6-digit OTP into digit boxes (OtpCodeInput renders maxLength={length} = 6)
+  // Enter 6-digit OTP — triggers auto-submit via onComplete
   const otpBoxes = page.locator('input[maxlength="6"]');
   for (let i = 0; i < 6; i++) {
     await otpBoxes.nth(i).fill(String(i + 1));
   }
+
+  // Wait for backend verification to succeed and show "Verified"
+  await expect(page.getByText(/verified/i)).toBeVisible({ timeout: 3000 });
 
   // Enter password
   await page.getByPlaceholder(/at least 8 characters/i).fill('SecurePass!1');
@@ -110,6 +117,7 @@ test('golden path: OTP send, OTP entry, password, submit, success screen', async
   await expect(page.getByText(/account activated/i)).toBeVisible({ timeout: 5000 });
 
   expect(emailOtpPostCalled).toBe(true);
+  expect(checkOtpPostCalled).toBe(true);
   expect(completePostCalled).toBe(true);
 });
 
@@ -166,13 +174,31 @@ test('special character rule unmet for alphanumeric password', async ({ page }) 
 });
 
 test('submit button disabled until all password rules satisfied', async ({ page }) => {
-  await setupPageWithDetails(page);
-
-  // Send OTP first
-  await page.route('**/api/auth/org-user-setup**/email-otp', (route) => {
-    route.fulfill(json({ status: 'success', data: null }));
+  // Set up all needed routes including the new check-email-otp step
+  await page.route('**/api/auth/org-user-setup**', (route) => {
+    const method = route.request().method();
+    const url = new URL(route.request().url());
+    if (method === 'GET') {
+      route.fulfill(json({ status: 'success', data: mockDetails }));
+    } else {
+      route.fulfill(json({ status: 'success', data: null }));
+    }
   });
+
+  await page.goto(`/org-user-setup?token=${MOCK_TOKEN}`);
+  await expect(page.getByText('Sunrise Chit Fund')).toBeVisible();
+
+  // Send OTP
   await page.getByRole('button', { name: /send verification code/i }).click();
+  await expect(page.locator('input[maxlength="6"]').first()).toBeVisible({ timeout: 3000 });
+
+  // Enter all 6 digits to trigger auto-verification
+  const otpBoxes = page.locator('input[maxlength="6"]');
+  for (let i = 0; i < 6; i++) {
+    await otpBoxes.nth(i).fill(String(i + 1));
+  }
+  // Wait for OTP to be verified
+  await expect(page.getByText(/verified/i)).toBeVisible({ timeout: 3000 });
 
   // Weak password — button must remain disabled
   await page.getByPlaceholder(/at least 8 characters/i).fill('weak');
@@ -194,6 +220,8 @@ test('shows backend error message verbatim including breached-password rejection
       route.fulfill(json({ status: 'success', data: mockDetails }));
     } else if (method === 'POST' && url.pathname.endsWith('/email-otp')) {
       route.fulfill(json({ status: 'success', data: null }));
+    } else if (method === 'POST' && url.pathname.endsWith('/check-email-otp')) {
+      route.fulfill(json({ status: 'success', data: null, message: 'OTP is correct' }));
     } else if (method === 'POST' && url.pathname.endsWith('/complete')) {
       route.fulfill(json({ status: 'error', message: 'This password has appeared in a data breach. Please choose a different password.' }, 422));
     } else {
@@ -210,6 +238,9 @@ test('shows backend error message verbatim including breached-password rejection
   for (let i = 0; i < 6; i++) {
     await page.locator('input[maxlength="6"]').nth(i).fill(String(i + 1));
   }
+
+  // Wait for OTP verification to complete before filling password
+  await expect(page.getByText(/verified/i)).toBeVisible({ timeout: 3000 });
 
   await page.getByPlaceholder(/at least 8 characters/i).fill('Str0ng!Pass');
   await page.getByPlaceholder(/repeat your password/i).fill('Str0ng!Pass');

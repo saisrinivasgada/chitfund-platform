@@ -26,6 +26,7 @@ class TenantAddOnResolutionTest {
     @Mock TenantCustomLimitsRepository customLimitsRepository;
     @Mock PlanLimitsRepository planLimitsRepository;
     @Spy ObjectMapper objectMapper = new ObjectMapper();
+    @Mock OtpService otpService;
     @InjectMocks TenantService service;
 
     @Test
