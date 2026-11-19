@@ -1,6 +1,2 @@
-spring:
-  profiles:
-    include: prod
-
 app:
   dev.otp-exposure.enabled: true
