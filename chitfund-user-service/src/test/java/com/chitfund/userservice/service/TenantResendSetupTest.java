@@ -2,6 +2,7 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.userservice.client.AuditClient;
+import com.chitfund.userservice.domain.entity.AccountSetupToken;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
