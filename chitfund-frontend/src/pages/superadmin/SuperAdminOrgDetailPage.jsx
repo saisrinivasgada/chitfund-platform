@@ -584,14 +584,16 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
                       onChange={(e) => { setPhone(e.target.value); setPhoneOtp(''); }}
                       autoFocus
                     />
-                    <button
-                      type="button"
-                      disabled={sendingPhoneOtp || !phone.trim() || phone.trim() === (user.phone ?? '')}
-                      onClick={handleSendPhoneOtp}
-                      className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer whitespace-nowrap"
-                    >
-                      {sendingPhoneOtp ? '…' : 'Send OTP'}
-                    </button>
+                    {phone.trim() && phone.trim() !== (user.phone ?? '') && (
+                      <button
+                        type="button"
+                        disabled={sendingPhoneOtp}
+                        onClick={handleSendPhoneOtp}
+                        className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                      >
+                        {sendingPhoneOtp ? '…' : 'Send OTP'}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="border border-[#C7D5E8] rounded-xl bg-[#EEF2F8]/50 p-3 space-y-2">
@@ -617,7 +619,7 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
                 )}
                 {phoneOtpDevCode && (
                   <p className="text-xs bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 font-mono text-yellow-800">
-                    Dev OTP: <strong>{phoneOtpDevCode}</strong>
+                    Staging OTP: <strong>{phoneOtpDevCode}</strong>
                   </p>
                 )}
               </div>
@@ -662,7 +664,7 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
               </button>
               {devSetupUrl && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 space-y-1">
-                  <p className="text-xs font-semibold text-yellow-800">Dev / staging — setup link</p>
+                  <p className="text-xs font-semibold text-yellow-800">Staging — setup link</p>
                   <a href={devSetupUrl} target="_blank" rel="noopener noreferrer"
                     className="text-xs text-yellow-700 break-all font-mono hover:underline">
                     {devSetupUrl}
