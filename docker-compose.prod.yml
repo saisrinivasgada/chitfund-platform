@@ -106,6 +106,7 @@ services:
       WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-NOT_CONFIGURED}
       WHATSAPP_OTP_TEMPLATE_NAME: ${WHATSAPP_OTP_TEMPLATE_NAME:-otp_verification}
       WHATSAPP_OTP_TEMPLATE_LANG: ${WHATSAPP_OTP_TEMPLATE_LANG:-en_US}
+      APP_DEV_OTP_EXPOSURE_ENABLED: ${APP_DEV_OTP_EXPOSURE_ENABLED:-false}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
       interval: 30s
