@@ -423,7 +423,7 @@ class OrgUserSetupServiceTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         OtpCheckOutcome correct = OtpCheckOutcome.correct("otp-id-1");
         when(accountEmailOtpService.checkAndIncrementAttempt(
-                userId.toString(), "admin@test.com", "ORG_USER_SETUP_EMAIL", "123456"))
+                userId.toString(), "admin@test.com", "ORG_USER_SETUP", "123456"))
                 .thenReturn(correct);
 
         var req = new com.chitfund.userservice.dto.request.OrgUserSetupCheckOtpRequest();
