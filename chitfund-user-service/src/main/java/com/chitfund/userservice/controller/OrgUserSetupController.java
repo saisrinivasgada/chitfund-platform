@@ -37,15 +37,16 @@ public class OrgUserSetupController {
     }
 
     @PostMapping("/email-otp")
-    public ResponseEntity<ApiResponse<Void>> sendEmailOtp(
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> sendEmailOtp(
             @Valid @RequestBody OrgUserSetupEmailOtpRequest request,
             HttpServletRequest httpRequest) {
         if (!rateLimiter.tryConsumeOrgUserSetupOtp(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error(
                     "RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
-        service.sendEmailOtp(request);
-        return ResponseEntity.ok(ApiResponse.success(null,
+        String devOtp = service.sendEmailOtp(request);
+        java.util.Map<String, String> data = devOtp != null ? java.util.Map.of("devOtp", devOtp) : null;
+        return ResponseEntity.ok(ApiResponse.success(data,
                 "Verification code sent to your registered email address"));
     }
 

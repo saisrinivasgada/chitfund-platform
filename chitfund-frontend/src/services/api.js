@@ -722,7 +722,8 @@ export const getOrgUserSetupDetails = async (token) => {
 };
 
 export const sendOrgUserSetupEmailOtp = async (token) => {
-  await api.post('/auth/org-user-setup/email-otp', { token });
+  const res = await api.post('/auth/org-user-setup/email-otp', { token });
+  return res.data.data;
 };
 
 export const completeOrgUserSetup = async ({ token, emailOtp, newPassword, termsAccepted }) => {

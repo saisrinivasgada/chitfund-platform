@@ -6,6 +6,7 @@ import { BookOpen, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import OtpCodeInput from '../components/ui/OtpCodeInput';
+import DevOtpBanner from '../components/ui/DevOtpBanner';
 
 export default function OrgUserSetupPage() {
   const [params]  = useSearchParams();
@@ -22,6 +23,7 @@ export default function OrgUserSetupPage() {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
   const [done, setDone]                 = useState(false);
+  const [devOtp, setDevOtp]             = useState(null);
 
   const passwordRules = [
     { label: 'At least 8 characters',           met: newPassword.length >= 8 },
@@ -57,8 +59,9 @@ export default function OrgUserSetupPage() {
     setError('');
     setOtpSending(true);
     try {
-      await sendOrgUserSetupEmailOtp(token);
+      const data = await sendOrgUserSetupEmailOtp(token);
       setOtpSent(true);
+      if (data?.devOtp) setDevOtp(data.devOtp);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Could not send email OTP. Please try again.');
     } finally {
@@ -189,6 +192,7 @@ export default function OrgUserSetupPage() {
               </Button>
             ) : (
               <>
+                <DevOtpBanner otp={devOtp} />
                 <OtpCodeInput value={emailOtp} onChange={setEmailOtp} length={6} autoFocus />
                 <button
                   type="button"

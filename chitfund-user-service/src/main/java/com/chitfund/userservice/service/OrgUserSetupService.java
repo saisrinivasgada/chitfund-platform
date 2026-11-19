@@ -16,6 +16,7 @@ import com.chitfund.userservice.repository.TrustedDeviceRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -50,6 +51,9 @@ public class OrgUserSetupService {
     private final AuditClient auditClient;
     private final RefreshTokenRepository refreshTokenRepository;
     private final TrustedDeviceRepository trustedDeviceRepository;
+
+    @Value("${app.dev.otp-exposure.enabled:false}")
+    private boolean devOtpExposureEnabled;
 
     /**
      * Returns privacy-safe token details without consuming the token.
@@ -86,7 +90,7 @@ public class OrgUserSetupService {
      * Does not accept a caller-supplied email to prevent redirection attacks.
      */
     @Transactional
-    public void sendEmailOtp(OrgUserSetupEmailOtpRequest request) {
+    public String sendEmailOtp(OrgUserSetupEmailOtpRequest request) {
         String tokenHash = sha256(request.getToken());
         AccountSetupToken token = setupTokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID,
@@ -101,9 +105,10 @@ public class OrgUserSetupService {
                     "No email address is on file for this account. Contact your administrator.",
                     HttpStatus.BAD_REQUEST);
         }
-        accountEmailOtpService.send(
+        String otp = accountEmailOtpService.send(
                 user.getId().toString(), user.getEmail(),
                 SETUP_EMAIL_OTP_PURPOSE, user.getFullName());
+        return devOtpExposureEnabled ? otp : null;
     }
 
     /**
