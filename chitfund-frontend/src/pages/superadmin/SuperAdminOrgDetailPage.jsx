@@ -123,7 +123,7 @@ function PlanUsageCard({ plan, chits, memberCount, staffCount, effectiveLimits }
     chitTypesLabel = limits.chitTypes;
   }
 
-  const showStaff = staffLimit !== null;
+  const showStaff = staffLimit !== null && staffLimit !== 0;
   const planColor = planKey === 'ENTERPRISE' ? { bg: '#7C3AED20', fg: '#7C3AED' }
                   : planKey === 'GROWTH'     ? { bg: '#10B98120', fg: '#059669' }
                   : planKey === 'CUSTOM'     ? { bg: '#D9770620', fg: '#D97706' }

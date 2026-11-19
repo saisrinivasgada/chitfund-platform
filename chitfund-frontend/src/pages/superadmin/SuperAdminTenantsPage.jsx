@@ -191,7 +191,6 @@ function TenantRow({ tenant, onAction, onNavigate }) {
           </div>
           <div>
             <p className="font-semibold text-gray-900 text-sm group-hover:text-blue-700 transition-colors">{tenant.name}</p>
-            <p className="text-xs text-gray-400 font-mono">{tenant.contactEmail ?? ''}</p>
           </div>
         </button>
       </td>
