@@ -25,9 +25,7 @@ public class DevOtpExposureGuard {
     public void validate() {
         boolean isProd = Arrays.stream(environment.getActiveProfiles())
                 .anyMatch(p -> p.equalsIgnoreCase("prod") || p.equalsIgnoreCase("production"));
-        boolean isStaging = Arrays.stream(environment.getActiveProfiles())
-                .anyMatch(p -> p.equalsIgnoreCase("staging"));
-        if (devOtpExposureEnabled && isProd && !isStaging) {
+        if (devOtpExposureEnabled && isProd) {
             throw new IllegalStateException(
                 "app.dev.otp-exposure.enabled=true is not permitted under a production profile. " +
                 "This configuration would expose OTP codes in API responses.");
