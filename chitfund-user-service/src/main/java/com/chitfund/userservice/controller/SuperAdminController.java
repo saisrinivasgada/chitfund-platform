@@ -272,8 +272,10 @@ public class SuperAdminController {
     @PostMapping("/{tenantId}/users/{userId}/resend-setup")
     public ResponseEntity<ApiResponse<java.util.Map<String, String>>> resendOrgUserSetup(
             @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @RequestBody(required = false) java.util.Map<String, String> body,
             @AuthenticationPrincipal User principal) {
-        String devSetupUrl = tenantService.resendOrgUserSetup(tenantId, userId, principal.getId().toString());
+        String overrideEmail = body != null ? body.get("overrideEmail") : null;
+        String devSetupUrl = tenantService.resendOrgUserSetup(tenantId, userId, principal.getId().toString(), overrideEmail);
         java.util.Map<String, String> data = devSetupUrl != null
                 ? java.util.Map.of("devSetupUrl", devSetupUrl) : null;
         return ResponseEntity.ok(ApiResponse.success(data, "Setup email queued"));

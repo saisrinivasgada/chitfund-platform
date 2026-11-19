@@ -1508,6 +1508,11 @@ public class TenantService {
 
     @Transactional
     public String resendOrgUserSetup(UUID tenantId, UUID userId, String actorId) {
+        return resendOrgUserSetup(tenantId, userId, actorId, null);
+    }
+
+    @Transactional
+    public String resendOrgUserSetup(UUID tenantId, UUID userId, String actorId, String overrideEmail) {
         // Pessimistic write lock prevents two concurrent resends from both
         // reading "setup pending" simultaneously and then racing to insert a
         // new token, which would cause V186's unique-index constraint to fire
@@ -1524,33 +1529,31 @@ public class TenantService {
                     "Account is already activated. Setup links can only be resent to accounts that have not completed setup.",
                     HttpStatus.CONFLICT);
         }
-        if (user.getEmail() == null || user.getEmail().isBlank()) {
+
+        String targetEmail = (overrideEmail != null && !overrideEmail.isBlank())
+                ? overrideEmail.trim().toLowerCase()
+                : user.getEmail();
+        if (targetEmail == null || targetEmail.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "No email address on record for this user", HttpStatus.BAD_REQUEST);
         }
 
-        // Freshness guard: if a fresh unused invite was created in the last 30 seconds,
-        // treat this as a duplicate request and return idempotently. The pessimistic lock
-        // above serialises concurrent resends, so the second caller always sees the first
-        // caller's committed token here — preventing duplicate emails and unnecessary revocations.
+        // Freshness guard: use a count query to avoid entity-mapping of rows with
+        // corrupted PKs (empty-string id from manual DB inserts). Loading those
+        // rows via findFreshActiveOrgInvite would crash with "Invalid UUID string: ".
         java.time.LocalDateTime freshnessCutoff = java.time.LocalDateTime.now().minusSeconds(30);
-        if (setupTokenRepository.findFreshActiveOrgInvite(userId, freshnessCutoff).isPresent()) {
+        if (setupTokenRepository.hasFreshActiveOrgInvite(userId, freshnessCutoff)) {
             return null;
         }
 
         Tenant tenant = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
-        // Revoke all prior active ORG_USER_INVITE tokens and flush immediately.
-        // saveAllAndFlush() ensures the UPDATEs reach the DB before the INSERT
-        // below, preventing V186's unique-index from seeing two active rows for
-        // the same user within the same Hibernate flush cycle.
-        java.util.List<AccountSetupToken> existing = setupTokenRepository
-                .findAllByUserIdAndPurposeAndUsedAtIsNull(
-                        userId, com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE);
+        // Bulk-revoke via UPDATE — never loads token entities, so rows with corrupted
+        // PKs (empty-string id) don't cause Hibernate's UUID type-mapping to crash.
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        existing.forEach(t -> t.setUsedAt(now));
-        setupTokenRepository.saveAllAndFlush(existing);
+        setupTokenRepository.revokeAllActiveByUserAndPurpose(
+                userId, com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE, now);
 
         String rawToken = UUID.randomUUID().toString().replace("-", "")
                 + UUID.randomUUID().toString().replace("-", "");
@@ -1564,16 +1567,11 @@ public class TenantService {
         try {
             setupTokenRepository.saveAndFlush(token);
         } catch (DataIntegrityViolationException e) {
-            // A concurrent resend won the race and already inserted a new token.
-            // Surface this as a controlled conflict rather than an unhandled 500.
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
                     "A setup link was already sent moments ago. Please try again shortly.",
                     HttpStatus.CONFLICT);
         }
 
-        // Email is queued into the transactional outbox here. It is only
-        // delivered after this transaction commits, so the loser of a
-        // concurrent-resend race never triggers an email send.
         String setupUrl = frontendUrl + "/org-user-setup?token=" + rawToken;
         String html = EmailService.buildOrgUserSetupHtml(
                 user.getFullName(), tenant.getName(), user.getRole().name(),
@@ -1582,7 +1580,7 @@ public class TenantService {
                 user.getFullName(), tenant.getName(), user.getRole().name(),
                 user.getUsername(), setupUrl, setupTokenExpiryHours);
         notificationEventPublisher.publishEmail(
-                user.getEmail(),
+                targetEmail,
                 "Set up your ChitWise account — " + tenant.getName(),
                 html, text);
 

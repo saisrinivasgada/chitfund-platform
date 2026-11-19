@@ -4,6 +4,7 @@ import com.chitfund.userservice.domain.entity.AccountSetupToken;
 import com.chitfund.userservice.domain.enums.SetupTokenPurpose;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -30,6 +31,18 @@ public interface AccountSetupTokenRepository extends JpaRepository<AccountSetupT
 
     // All active (unused, unexpired) tokens for a user+purpose — for concurrent revocation
     List<AccountSetupToken> findAllByUserIdAndPurposeAndUsedAtIsNull(UUID userId, SetupTokenPurpose purpose);
+
+    // Bulk-revoke without loading entities — avoids Hibernate UUID-mapping crash on
+    // rows whose `id` column contains an invalid value (e.g. empty string from manual inserts).
+    @Modifying
+    @Query("UPDATE AccountSetupToken t SET t.usedAt = :now WHERE t.userId = :userId AND t.purpose = :purpose AND t.usedAt IS NULL")
+    void revokeAllActiveByUserAndPurpose(@Param("userId") UUID userId, @Param("purpose") SetupTokenPurpose purpose, @Param("now") LocalDateTime now);
+
+    // Count-based freshness guard — avoids entity load for the same reason above.
+    @Query("SELECT COUNT(t) > 0 FROM AccountSetupToken t WHERE t.userId = :userId " +
+           "AND t.purpose = com.chitfund.userservice.domain.enums.SetupTokenPurpose.ORG_USER_INVITE " +
+           "AND t.usedAt IS NULL AND t.createdAt >= :since")
+    boolean hasFreshActiveOrgInvite(@Param("userId") UUID userId, @Param("since") LocalDateTime since);
 
     // True only when this user has a genuine, unused, unexpired ORG_USER_INVITE token.
     // Tighter than mustChangePassword || emailVerificationRequired, which also fires

@@ -709,8 +709,9 @@ export const superAdminUnlockOrgUser = async (tenantId, userId, reason) => {
   return res.data.data;
 };
 
-export const superAdminResendOrgUserSetup = async (tenantId, userId) => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/resend-setup`);
+export const superAdminResendOrgUserSetup = async (tenantId, userId, overrideEmail) => {
+  const body = overrideEmail ? { overrideEmail } : {};
+  const res = await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/resend-setup`, body);
   return res.data.data; // { devSetupUrl } or null
 };
 

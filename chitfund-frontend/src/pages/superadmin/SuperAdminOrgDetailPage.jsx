@@ -402,6 +402,7 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [resending, setResending]     = useState(false);
   const [devSetupUrl, setDevSetupUrl] = useState(null);
+  const [overrideEmail, setOverrideEmail] = useState('');
   const [error, setError]             = useState('');
   const [success, setSuccess]         = useState('');
 
@@ -469,7 +470,7 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
   async function handleResendSetup() {
     setResending(true);
     try {
-      const data = await superAdminResendOrgUserSetup(tenantId, user.userId);
+      const data = await superAdminResendOrgUserSetup(tenantId, user.userId, overrideEmail.trim() || undefined);
       if (data?.devSetupUrl) setDevSetupUrl(data.devSetupUrl);
       flash('Setup email queued');
       onSaved('Setup email queued');
@@ -638,6 +639,18 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
           {/* Resend activation (setup-pending only) */}
           {user.setupPending && (
             <div className="border-t border-gray-100 pt-4 space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Send to (optional override)
+                </label>
+                <input
+                  type="email"
+                  placeholder={user.email ?? 'Default: account email'}
+                  value={overrideEmail}
+                  onChange={(e) => setOverrideEmail(e.target.value)}
+                  className="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F]"
+                />
+              </div>
               <button
                 type="button"
                 disabled={resending}
@@ -649,8 +662,11 @@ function AdminEditModal({ tenantId, user, onClose, onSaved }) {
               </button>
               {devSetupUrl && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 space-y-1">
-                  <p className="text-xs font-semibold text-yellow-800">Dev only — setup link</p>
-                  <p className="text-xs text-yellow-700 break-all font-mono">{devSetupUrl}</p>
+                  <p className="text-xs font-semibold text-yellow-800">Dev / staging — setup link</p>
+                  <a href={devSetupUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-yellow-700 break-all font-mono hover:underline">
+                    {devSetupUrl}
+                  </a>
                 </div>
               )}
             </div>
