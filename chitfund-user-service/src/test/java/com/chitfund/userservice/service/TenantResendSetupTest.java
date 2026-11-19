@@ -2,7 +2,6 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.userservice.client.AuditClient;
-import com.chitfund.userservice.domain.entity.AccountSetupToken;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
@@ -19,7 +18,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -81,11 +79,9 @@ class TenantResendSetupTest {
         Tenant tenant = Tenant.builder().id(tenantId).name("Test Org").build();
 
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.findFreshActiveOrgInvite(eq(userId), any())).thenReturn(Optional.empty());
+        when(setupTokenRepository.hasFreshActiveOrgInvite(eq(userId), any())).thenReturn(false);
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
-        when(setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(userId, SetupTokenPurpose.ORG_USER_INVITE))
-                .thenReturn(List.of());
-        when(setupTokenRepository.saveAllAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        doNothing().when(setupTokenRepository).revokeAllActiveByUserAndPurpose(any(), any(), any());
         when(setupTokenRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         doNothing().when(notificationEventPublisher).publishEmail(any(), any(), any(), any());
         doNothing().when(auditClient).log(any(), any(), any(), any(), any(), any(), any(), any());
@@ -237,25 +233,18 @@ class TenantResendSetupTest {
         User user = pendingUser(tenantId, userId);
         Tenant tenant = Tenant.builder().id(tenantId).name("Test Org").build();
 
-        AccountSetupToken oldToken = AccountSetupToken.builder()
-                .id(UUID.randomUUID())
-                .userId(userId)
-                .purpose(SetupTokenPurpose.ORG_USER_INVITE)
-                .build();
-
         when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
-        when(setupTokenRepository.findFreshActiveOrgInvite(eq(userId), any())).thenReturn(Optional.empty());
+        when(setupTokenRepository.hasFreshActiveOrgInvite(eq(userId), any())).thenReturn(false);
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
-        when(setupTokenRepository.findAllByUserIdAndPurposeAndUsedAtIsNull(userId, SetupTokenPurpose.ORG_USER_INVITE))
-                .thenReturn(List.of(oldToken));
-        when(setupTokenRepository.saveAllAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        doNothing().when(setupTokenRepository).revokeAllActiveByUserAndPurpose(any(), any(), any());
         when(setupTokenRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
         doNothing().when(notificationEventPublisher).publishEmail(any(), any(), any(), any());
         doNothing().when(auditClient).log(any(), any(), any(), any(), any(), any(), any(), any());
 
         tenantService.resendOrgUserSetup(tenantId, userId, "actor-1");
 
-        assertThat(oldToken.getUsedAt()).isNotNull();
+        verify(setupTokenRepository).revokeAllActiveByUserAndPurpose(
+                eq(userId), eq(SetupTokenPurpose.ORG_USER_INVITE), any());
     }
 
     @Test
