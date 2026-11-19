@@ -1,10 +1,6 @@
 spring:
   application:
     name: user-service
-  profiles:
-    group:
-      staging:
-        - prod
 
 
   jackson:
