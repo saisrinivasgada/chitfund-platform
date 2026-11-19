@@ -191,7 +191,7 @@ function TenantRow({ tenant, onAction, onNavigate }) {
           </div>
           <div>
             <p className="font-semibold text-gray-900 text-sm group-hover:text-blue-700 transition-colors">{tenant.name}</p>
-            <p className="text-xs text-gray-400 font-mono">@{tenant.slug}</p>
+            <p className="text-xs text-gray-400 font-mono">{tenant.contactEmail ?? ''}</p>
           </div>
         </button>
       </td>
@@ -493,7 +493,7 @@ export default function SuperAdminTenantsPage() {
     if (statusFilter === '__CANCEL__') return !!t.cancellationRequestedAt;
     if (!statusFilter && t.status === 'REJECTED') return false;
     if (statusFilter && statusFilter !== '__CANCEL__' && t.status !== statusFilter) return false;
-    return !search || t.name?.toLowerCase().includes(search.toLowerCase()) || t.slug?.toLowerCase().includes(search.toLowerCase());
+    return !search || t.name?.toLowerCase().includes(search.toLowerCase()) || t.contactEmail?.toLowerCase().includes(search.toLowerCase());
   });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -572,7 +572,7 @@ export default function SuperAdminTenantsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or slug…"
+              placeholder="Search by name or email…"
               className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
             />
           </div>

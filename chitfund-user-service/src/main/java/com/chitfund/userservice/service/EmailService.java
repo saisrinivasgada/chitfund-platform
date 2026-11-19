@@ -919,6 +919,73 @@ public class EmailService {
                 """.formatted(name, orgName);
     }
 
+    public static String buildNewOrgRegistrationNotificationHtml(
+            String applicantName, String orgName, String registrantEmail,
+            String submittedAt, String approvalUrl) {
+        String safeName  = escapeHtml(applicantName != null ? applicantName : "");
+        String safeOrg   = escapeHtml(orgName != null ? orgName : "");
+        String safeEmail = escapeHtml(registrantEmail != null ? registrantEmail : "");
+        String safeTime  = escapeHtml(submittedAt != null ? submittedAt : "");
+        String safeUrl   = approvalUrl != null ? approvalUrl : "";
+        String bodyContent = """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  A new organization has submitted a registration and is pending your approval.
+                </p>
+                <div style="background:#F0F9FF;border:2px solid #BAE6FD;border-radius:12px;padding:24px;margin:0 0 20px;">
+                  <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;width:140px;">Applicant</td>
+                      <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">%s</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;">Organization</td>
+                      <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">%s</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;">Email</td>
+                      <td style="padding:6px 0;color:#111827;font-size:13px;">%s</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;">Submitted</td>
+                      <td style="padding:6px 0;color:#111827;font-size:13px;">%s</td>
+                    </tr>
+                  </table>
+                </div>
+                <div style="text-align:center;margin:0 0 20px;">
+                  <a href="%s" style="display:inline-block;background:#1E3A5F;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 32px;border-radius:10px;">
+                    Review Approval Request
+                  </a>
+                </div>
+                <p style="color:#6B7280;font-size:12px;line-height:1.6;margin:0;">
+                  This link requires Super Admin authentication. Do not forward this email.
+                </p>
+                """.formatted(safeName, safeOrg, safeEmail, safeTime, safeUrl);
+        return baseTemplate(LOGO_URL, ICON_CHECKMARK, "New Registration Pending Approval", "#1E3A5F", bodyContent);
+    }
+
+    public static String buildNewOrgRegistrationNotificationText(
+            String applicantName, String orgName, String registrantEmail,
+            String submittedAt, String approvalUrl) {
+        return """
+                New organization registration pending your approval.
+
+                Applicant:    %s
+                Organization: %s
+                Email:        %s
+                Submitted:    %s
+
+                Review the request here (Super Admin login required):
+                %s
+
+                — ChitWise Platform
+                """.formatted(
+                applicantName != null ? applicantName : "",
+                orgName != null ? orgName : "",
+                registrantEmail != null ? registrantEmail : "",
+                submittedAt != null ? submittedAt : "",
+                approvalUrl != null ? approvalUrl : "");
+    }
+
     private static String maskEmail(String email) {
         if (email == null || !email.contains("@")) return "***";
         String[] parts = email.split("@", 2);

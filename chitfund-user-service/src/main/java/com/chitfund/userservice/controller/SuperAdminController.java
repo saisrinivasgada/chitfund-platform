@@ -270,10 +270,51 @@ public class SuperAdminController {
     }
 
     @PostMapping("/{tenantId}/users/{userId}/resend-setup")
-    public ResponseEntity<ApiResponse<Void>> resendOrgUserSetup(
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> resendOrgUserSetup(
             @PathVariable UUID tenantId, @PathVariable UUID userId,
             @AuthenticationPrincipal User principal) {
-        tenantService.resendOrgUserSetup(tenantId, userId, principal.getId().toString());
-        return ResponseEntity.ok(ApiResponse.success(null, "Setup email queued"));
+        String devSetupUrl = tenantService.resendOrgUserSetup(tenantId, userId, principal.getId().toString());
+        java.util.Map<String, String> data = devSetupUrl != null
+                ? java.util.Map.of("devSetupUrl", devSetupUrl) : null;
+        return ResponseEntity.ok(ApiResponse.success(data, "Setup email queued"));
+    }
+
+    @PatchMapping("/{tenantId}/users/{userId}/name")
+    public ResponseEntity<ApiResponse<Void>> updateAdminName(
+            @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @Valid @RequestBody com.chitfund.userservice.dto.request.UpdateAdminNameRequest body,
+            @AuthenticationPrincipal User principal) {
+        tenantService.updateAdminName(tenantId, userId, body.getFullName(), principal.getId().toString());
+        return ResponseEntity.ok(ApiResponse.success(null, "Name updated"));
+    }
+
+    @PatchMapping("/{tenantId}/users/{userId}/email")
+    public ResponseEntity<ApiResponse<Void>> updateAdminEmail(
+            @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @Valid @RequestBody com.chitfund.userservice.dto.request.UpdateAdminEmailRequest body,
+            @AuthenticationPrincipal User principal) {
+        tenantService.updateAdminEmail(tenantId, userId, body.getEmail(), principal.getId().toString());
+        return ResponseEntity.ok(ApiResponse.success(null, "Email updated"));
+    }
+
+    @PostMapping("/{tenantId}/users/{userId}/phone-otp")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> sendAdminPhoneOtp(
+            @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @Valid @RequestBody com.chitfund.userservice.dto.request.SendAdminPhoneOtpRequest body,
+            @AuthenticationPrincipal User principal) {
+        String devOtp = tenantService.sendAdminPhoneUpdateOtp(
+                tenantId, userId, body.getPhone(), body.getCountryCode(), principal.getId().toString());
+        java.util.Map<String, String> data = devOtp != null ? java.util.Map.of("devOtp", devOtp) : null;
+        return ResponseEntity.ok(ApiResponse.success(data, "OTP sent to new phone number"));
+    }
+
+    @PostMapping("/{tenantId}/users/{userId}/phone-verify")
+    public ResponseEntity<ApiResponse<Void>> verifyAdminPhoneOtp(
+            @PathVariable UUID tenantId, @PathVariable UUID userId,
+            @Valid @RequestBody com.chitfund.userservice.dto.request.VerifyAdminPhoneOtpRequest body,
+            @AuthenticationPrincipal User principal) {
+        tenantService.verifyAdminPhoneUpdate(tenantId, userId,
+                body.getPhone(), body.getCountryCode(), body.getOtp(), principal.getId().toString());
+        return ResponseEntity.ok(ApiResponse.success(null, "Phone number updated"));
     }
 }

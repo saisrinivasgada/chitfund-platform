@@ -112,6 +112,37 @@ public class OrgUserSetupService {
     }
 
     /**
+     * Lightweight OTP check: validates without consuming the token.
+     * The attempt counter is still incremented (via REQUIRES_NEW) so this cannot
+     * be used to brute-force codes. The final complete() call re-validates and
+     * marks the OTP consumed atomically with the rest of the account writes.
+     */
+    public void checkEmailOtp(com.chitfund.userservice.dto.request.OrgUserSetupCheckOtpRequest request) {
+        String tokenHash = sha256(request.getToken());
+        AccountSetupToken token = setupTokenRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID,
+                        "Setup link is invalid or not found"));
+        rejectWrongPurpose(token);
+        rejectConsumed(token);
+
+        User user = userRepository.findById(token.getUserId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        OtpCheckOutcome outcome = accountEmailOtpService.checkAndIncrementAttempt(
+                user.getId().toString(), user.getEmail(),
+                SETUP_EMAIL_OTP_PURPOSE, request.getEmailOtp());
+
+        if (!outcome.isCorrect()) {
+            ErrorCode errCode = switch (outcome.getResult()) {
+                case EXPIRED_OR_NOT_FOUND -> ErrorCode.OTP_EXPIRED;
+                case MAX_ATTEMPTS_EXCEEDED -> ErrorCode.OTP_MAX_ATTEMPTS;
+                default -> ErrorCode.OTP_INVALID;
+            };
+            throw new BusinessException(errCode, outcome.getMessage());
+        }
+    }
+
+    /**
      * Completes account setup atomically:
      * - validates token purpose, hash, unused state, expiry
      * - validates terms acceptance and password policy (cheap, no side effects)

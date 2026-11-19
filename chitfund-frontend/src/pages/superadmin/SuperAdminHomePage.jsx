@@ -215,7 +215,7 @@ export default function SuperAdminHomePage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 group-hover:text-[#1E3A5F]">{t.name}</p>
-                      <p className="text-xs text-gray-400 font-mono">@{t.slug}</p>
+                      <p className="text-xs text-gray-400 font-mono">{t.contactEmail ?? ''}</p>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <span className={`inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full ${

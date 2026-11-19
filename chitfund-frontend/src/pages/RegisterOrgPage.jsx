@@ -170,7 +170,8 @@ export default function RegisterOrgPage() {
     const result = await verifyRegistrationOtp({ phone: form.adminPhone, countryCode: form.adminPhoneCountryCode, code });
     if (!result?.verificationToken) throw new Error('Phone verification did not complete. Please try again.');
     setPhoneVerificationId(result.verificationToken);
-    setShowOtp(false);
+    // Delay unmount so OtpInput can render the success tick before disappearing
+    setTimeout(() => setShowOtp(false), 700);
   }
 
   async function handleOtpResend() {

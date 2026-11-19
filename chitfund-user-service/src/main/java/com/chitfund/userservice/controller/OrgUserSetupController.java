@@ -1,6 +1,7 @@
 package com.chitfund.userservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.userservice.dto.request.OrgUserSetupCheckOtpRequest;
 import com.chitfund.userservice.dto.request.OrgUserSetupCompleteRequest;
 import com.chitfund.userservice.dto.request.OrgUserSetupEmailOtpRequest;
 import com.chitfund.userservice.dto.response.OrgUserSetupPublicResponse;
@@ -48,6 +49,18 @@ public class OrgUserSetupController {
         java.util.Map<String, String> data = devOtp != null ? java.util.Map.of("devOtp", devOtp) : null;
         return ResponseEntity.ok(ApiResponse.success(data,
                 "Verification code sent to your registered email address"));
+    }
+
+    @PostMapping("/check-email-otp")
+    public ResponseEntity<ApiResponse<Void>> checkEmailOtp(
+            @Valid @RequestBody OrgUserSetupCheckOtpRequest request,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeOrgUserSetupOtpVerify(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error(
+                    "RATE_LIMIT_001", "Too many attempts. Please wait before trying again."));
+        }
+        service.checkEmailOtp(request);
+        return ResponseEntity.ok(ApiResponse.success(null, "OTP is correct"));
     }
 
     @PostMapping("/complete")

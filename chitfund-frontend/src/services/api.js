@@ -711,7 +711,24 @@ export const superAdminUnlockOrgUser = async (tenantId, userId, reason) => {
 
 export const superAdminResendOrgUserSetup = async (tenantId, userId) => {
   const res = await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/resend-setup`);
-  return res.data.data;
+  return res.data.data; // { devSetupUrl } or null
+};
+
+export const superAdminUpdateAdminName = async (tenantId, userId, fullName) => {
+  await api.patch(`/super-admin/tenants/${tenantId}/users/${userId}/name`, { fullName });
+};
+
+export const superAdminUpdateAdminEmail = async (tenantId, userId, email) => {
+  await api.patch(`/super-admin/tenants/${tenantId}/users/${userId}/email`, { email });
+};
+
+export const superAdminSendAdminPhoneOtp = async (tenantId, userId, phone, countryCode) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/phone-otp`, { phone, countryCode });
+  return res.data.data; // { devOtp } or null
+};
+
+export const superAdminVerifyAdminPhoneOtp = async (tenantId, userId, phone, countryCode, otp) => {
+  await api.post(`/super-admin/tenants/${tenantId}/users/${userId}/phone-verify`, { phone, countryCode, otp });
 };
 
 // ── Org-user account-setup flow (public, token-gated) ────────────────────────
@@ -724,6 +741,10 @@ export const getOrgUserSetupDetails = async (token) => {
 export const sendOrgUserSetupEmailOtp = async (token) => {
   const res = await api.post('/auth/org-user-setup/email-otp', { token });
   return res.data.data;
+};
+
+export const checkOrgUserSetupEmailOtp = async (token, emailOtp) => {
+  await api.post('/auth/org-user-setup/check-email-otp', { token, emailOtp });
 };
 
 export const completeOrgUserSetup = async ({ token, emailOtp, newPassword, termsAccepted }) => {

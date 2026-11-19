@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getOrgUserSetupDetails, sendOrgUserSetupEmailOtp, completeOrgUserSetup } from '../services/api';
+import { getOrgUserSetupDetails, sendOrgUserSetupEmailOtp, checkOrgUserSetupEmailOtp, completeOrgUserSetup } from '../services/api';
 import { BookOpen, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
@@ -24,6 +24,8 @@ export default function OrgUserSetupPage() {
   const [error, setError]               = useState('');
   const [done, setDone]                 = useState(false);
   const [devOtp, setDevOtp]             = useState(null);
+  const [otpStatus, setOtpStatus]       = useState('idle'); // idle | loading | success | error
+  const [otpError, setOtpError]         = useState('');
 
   const passwordRules = [
     { label: 'At least 8 characters',           met: newPassword.length >= 8 },
@@ -57,6 +59,8 @@ export default function OrgUserSetupPage() {
 
   async function handleSendOtp() {
     setError('');
+    setOtpStatus('idle');
+    setOtpError('');
     setOtpSending(true);
     try {
       const data = await sendOrgUserSetupEmailOtp(token);
@@ -69,10 +73,24 @@ export default function OrgUserSetupPage() {
     }
   }
 
+  async function handleVerifyOtp(code) {
+    if (otpStatus === 'success') return;
+    setOtpStatus('loading');
+    setOtpError('');
+    try {
+      await checkOrgUserSetupEmailOtp(token, code);
+      setOtpStatus('success');
+    } catch (err) {
+      setOtpStatus('error');
+      setOtpError(err.response?.data?.message ?? 'Incorrect code. Please try again.');
+      setEmailOtp('');
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!otpSent || emailOtp.length !== 6) {
-      setError('Enter the 6-digit code sent to your email before continuing.');
+    if (otpStatus !== 'success') {
+      setError('Please verify your email OTP before continuing.');
       return;
     }
     if (!allPasswordRulesMet) {
@@ -185,6 +203,13 @@ export default function OrgUserSetupPage() {
               <p className="text-xs text-gray-500 mt-1">
                 We'll send a one-time code to <strong>{details?.maskedEmail}</strong>.
               </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Incorrect email address? Please contact{' '}
+                <a href="mailto:support@thechitwise.com" className="underline text-[#1E3A5F]">
+                  ChitWise Support
+                </a>{' '}
+                to update your email address before proceeding with verification.
+              </p>
             </div>
             {!otpSent ? (
               <Button type="button" variant="secondary" loading={otpSending} onClick={handleSendOtp}>
@@ -193,14 +218,31 @@ export default function OrgUserSetupPage() {
             ) : (
               <>
                 <DevOtpBanner otp={devOtp} />
-                <OtpCodeInput value={emailOtp} onChange={setEmailOtp} length={6} autoFocus />
-                <button
-                  type="button"
-                  className="text-xs text-[#1E3A5F] underline"
-                  onClick={handleSendOtp}
-                  disabled={otpSending}>
-                  Resend code
-                </button>
+                <OtpCodeInput
+                  value={emailOtp}
+                  onChange={(v) => { setEmailOtp(v); if (otpStatus === 'error') setOtpStatus('idle'); setOtpError(''); }}
+                  onComplete={handleVerifyOtp}
+                  length={6}
+                  autoFocus
+                  status={otpStatus}
+                />
+                {otpStatus === 'success' && (
+                  <p className="text-xs text-green-600 font-medium flex items-center gap-1">
+                    <CheckCircle size={13} /> Verified
+                  </p>
+                )}
+                {otpError && (
+                  <p className="text-xs text-red-600">{otpError}</p>
+                )}
+                {otpStatus !== 'success' && (
+                  <button
+                    type="button"
+                    className="text-xs text-[#1E3A5F] underline"
+                    onClick={handleSendOtp}
+                    disabled={otpSending}>
+                    Resend code
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -280,7 +322,7 @@ export default function OrgUserSetupPage() {
             </span>
           </label>
 
-          <Button type="submit" loading={loading} disabled={!termsAccepted || !otpSent || !allPasswordRulesMet} className="w-full mt-2">
+          <Button type="submit" loading={loading} disabled={!termsAccepted || otpStatus !== 'success' || !allPasswordRulesMet} className="w-full mt-2">
             Activate account
           </Button>
         </form>

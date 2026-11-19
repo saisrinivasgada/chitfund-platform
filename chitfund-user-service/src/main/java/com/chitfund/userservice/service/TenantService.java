@@ -76,6 +76,7 @@ public class TenantService {
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final TenantCreditAdjustmentRepository creditAdjustmentRepository;
     private final AccountSetupTokenRepository setupTokenRepository;
+    private final OtpService otpService;
 
     @Value("${app.frontend-url:https://app.thechitwise.com}")
     private String frontendUrl;
@@ -85,6 +86,12 @@ public class TenantService {
 
     @Value("${app.dev.otp-exposure.enabled:false}")
     private boolean devOtpExposureEnabled;
+
+    @Value("${app.founder-notification-email:founder@thechitwise.com}")
+    private String founderNotificationEmail;
+
+    @Value("${app.super-admin-url:https://app.thechitwise.com}")
+    private String superAdminUrl;
 
     // ── Public org self-registration ─────────────────────────────────────────
 
@@ -164,6 +171,23 @@ public class TenantService {
                     html, text);
         } catch (Exception e) {
             log.warn("Registration confirmation email could not be queued for {}: {}", req.getAdminEmail(), e.getMessage());
+        }
+
+        try {
+            String submittedAt = java.time.format.DateTimeFormatter
+                    .ofPattern("dd MMM yyyy, HH:mm 'UTC'")
+                    .format(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC));
+            String approvalUrl = superAdminUrl + "/super-admin/tenants";
+            String nHtml = EmailService.buildNewOrgRegistrationNotificationHtml(
+                    req.getAdminFullName(), req.getOrgName(), req.getAdminEmail(), submittedAt, approvalUrl);
+            String nText = EmailService.buildNewOrgRegistrationNotificationText(
+                    req.getAdminFullName(), req.getOrgName(), req.getAdminEmail(), submittedAt, approvalUrl);
+            notificationEventPublisher.publishEmail(
+                    founderNotificationEmail,
+                    "New registration pending approval — " + req.getOrgName(),
+                    nHtml, nText);
+        } catch (Exception e) {
+            log.warn("Founder notification email could not be queued for new registration {}: {}", req.getOrgName(), e.getMessage());
         }
 
         return toResponse(tenant);
@@ -1414,8 +1438,76 @@ public class TenantService {
 
     // ── Resend org-user setup email (SUPER_ADMIN action) ─────────────────────
 
+    // ── Super-admin: edit org-admin account fields ───────────────────────────
+
     @Transactional
-    public void resendOrgUserSetup(UUID tenantId, UUID userId, String actorId) {
+    public void updateAdminName(UUID tenantId, UUID userId, String fullName, String actorId) {
+        if (fullName == null || fullName.isBlank())
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Full name is required");
+        User user = loadTenantUser(tenantId, userId);
+        String old = user.getFullName();
+        user.setFullName(fullName.strip());
+        userRepository.save(user);
+        auditClient.log("USER", userId.toString(), "ADMIN_NAME_UPDATED",
+                actorId, "ROLE_SUPER_ADMIN",
+                java.util.Map.of("oldName", old != null ? old : ""),
+                java.util.Map.of("newName", fullName.strip()), tenantId.toString());
+    }
+
+    @Transactional
+    public void updateAdminEmail(UUID tenantId, UUID userId, String newEmail, String actorId) {
+        if (newEmail == null || newEmail.isBlank())
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Email is required");
+        User user = loadTenantUser(tenantId, userId);
+        if (!isSetupPending(user))
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Email can only be corrected for accounts that have not yet completed setup", HttpStatus.CONFLICT);
+        String normalised = newEmail.strip().toLowerCase();
+        if (!normalised.equals(user.getEmail()) && userRepository.existsByEmail(normalised))
+            throw new BusinessException(ErrorCode.EMAIL_TAKEN, "An account with this email already exists");
+        String old = user.getEmail();
+        user.setEmail(normalised);
+        userRepository.save(user);
+        auditClient.log("USER", userId.toString(), "ADMIN_EMAIL_CORRECTED",
+                actorId, "ROLE_SUPER_ADMIN",
+                java.util.Map.of("oldEmail", old != null ? old : ""),
+                java.util.Map.of("newEmail", normalised), tenantId.toString());
+    }
+
+    @Transactional
+    public String sendAdminPhoneUpdateOtp(UUID tenantId, UUID userId,
+            String newPhone, String countryCode, String actorId) {
+        loadTenantUser(tenantId, userId); // validates tenancy
+        String otp = otpService.sendOtp(newPhone, countryCode, "SUPER_ADMIN_PHONE_UPDATE", userId.toString());
+        return otp; // non-null only when devOtpExposureEnabled
+    }
+
+    @Transactional
+    public void verifyAdminPhoneUpdate(UUID tenantId, UUID userId,
+            String newPhone, String countryCode, String otp, String actorId) {
+        User user = loadTenantUser(tenantId, userId);
+        otpService.verifyOtp(newPhone, "SUPER_ADMIN_PHONE_UPDATE", userId.toString(), otp);
+        String old = user.getPhone();
+        user.setPhone(newPhone);
+        user.setPhoneCountryCode(countryCode != null ? countryCode : "+91");
+        userRepository.save(user);
+        auditClient.log("USER", userId.toString(), "ADMIN_PHONE_UPDATED",
+                actorId, "ROLE_SUPER_ADMIN",
+                java.util.Map.of("oldPhone", old != null ? old : ""),
+                java.util.Map.of("newPhone", newPhone), tenantId.toString());
+    }
+
+    private User loadTenantUser(UUID tenantId, UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "User not found", HttpStatus.NOT_FOUND));
+        if (!tenantId.toString().equals(user.getTenantId()))
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "User not found", HttpStatus.NOT_FOUND);
+        return user;
+    }
+
+    @Transactional
+    public String resendOrgUserSetup(UUID tenantId, UUID userId, String actorId) {
         // Pessimistic write lock prevents two concurrent resends from both
         // reading "setup pending" simultaneously and then racing to insert a
         // new token, which would cause V186's unique-index constraint to fire
@@ -1443,7 +1535,7 @@ public class TenantService {
         // caller's committed token here — preventing duplicate emails and unnecessary revocations.
         java.time.LocalDateTime freshnessCutoff = java.time.LocalDateTime.now().minusSeconds(30);
         if (setupTokenRepository.findFreshActiveOrgInvite(userId, freshnessCutoff).isPresent()) {
-            return;
+            return null;
         }
 
         Tenant tenant = tenantRepository.findById(tenantId)
@@ -1496,5 +1588,6 @@ public class TenantService {
 
         auditClient.log("USER", userId.toString(), "ORG_USER_SETUP_RESENT",
                 actorId, "ROLE_SUPER_ADMIN", null, null, tenantId.toString());
+        return devOtpExposureEnabled ? setupUrl : null;
     }
 }

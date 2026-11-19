@@ -33,6 +33,10 @@ import {
   superAdminListAddOns,
   superAdminCancelTenant,
   superAdminResumeTenant,
+  superAdminUpdateAdminName,
+  superAdminUpdateAdminEmail,
+  superAdminSendAdminPhoneOtp,
+  superAdminVerifyAdminPhoneOtp,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
@@ -76,7 +80,7 @@ const PLAN_CHIT_TYPES = {
 
 function UsageBar({ label, used, limit }) {
   const isUnlimited = limit === Infinity;
-  const pct = isUnlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
+  const pct = (isUnlimited || limit === 0) ? 0 : Math.min(100, Math.round((used / limit) * 100));
   const danger = pct >= 90;
   const warning = pct >= 70;
   const barColor = danger ? '#EF4444' : warning ? '#F59E0B' : '#10B981';
@@ -375,6 +379,264 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
             <Button type="submit" loading={loading} disabled={!form.email.trim()}>{loading ? 'Adding…' : 'Add User'}</Button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function AdminEditModal({ tenantId, user, onClose, onSaved }) {
+  const [fullName, setFullName]       = useState(user.fullName ?? '');
+  const [email, setEmail]             = useState(user.email ?? '');
+  const [phone, setPhone]             = useState(user.phone ?? '');
+  const [countryCode]                 = useState(user.phoneCountryCode ?? '+91');
+  const [savingName, setSavingName]   = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneOtp, setPhoneOtp]       = useState('');
+  const [phoneOtpDevCode, setPhoneOtpDevCode] = useState(null);
+  const [sendingPhoneOtp, setSendingPhoneOtp] = useState(false);
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [resending, setResending]     = useState(false);
+  const [devSetupUrl, setDevSetupUrl] = useState(null);
+  const [error, setError]             = useState('');
+  const [success, setSuccess]         = useState('');
+
+  function flash(msg, isErr = false) {
+    if (isErr) { setError(msg); setSuccess(''); }
+    else { setSuccess(msg); setError(''); }
+    setTimeout(() => { setError(''); setSuccess(''); }, 3000);
+  }
+
+  async function handleSaveName() {
+    if (!fullName.trim()) return;
+    setSavingName(true);
+    try {
+      await superAdminUpdateAdminName(tenantId, user.userId, fullName.trim());
+      onSaved('Name updated');
+      flash('Name saved');
+    } catch (e) {
+      flash(e.response?.data?.message ?? 'Failed to update name', true);
+    } finally { setSavingName(false); }
+  }
+
+  async function handleSaveEmail() {
+    if (!email.trim()) return;
+    setSavingEmail(true);
+    try {
+      await superAdminUpdateAdminEmail(tenantId, user.userId, email.trim());
+      onSaved('Email updated');
+      flash('Email saved');
+    } catch (e) {
+      flash(e.response?.data?.message ?? 'Failed to update email', true);
+    } finally { setSavingEmail(false); }
+  }
+
+  async function handleSendPhoneOtp() {
+    if (!phone.trim()) return;
+    setSendingPhoneOtp(true);
+    setPhoneOtpDevCode(null);
+    try {
+      const data = await superAdminSendAdminPhoneOtp(tenantId, user.userId, phone.trim(), countryCode);
+      setPhoneOtpSent(true);
+      if (data?.devOtp) setPhoneOtpDevCode(data.devOtp);
+    } catch (e) {
+      flash(e.response?.data?.message ?? 'Failed to send OTP', true);
+    } finally { setSendingPhoneOtp(false); }
+  }
+
+  async function handleVerifyPhoneOtp() {
+    if (!phoneOtp.trim()) return;
+    setVerifyingPhone(true);
+    try {
+      await superAdminVerifyAdminPhoneOtp(tenantId, user.userId, phone.trim(), countryCode, phoneOtp.trim());
+      setPhoneVerified(true);
+      onSaved('Phone number updated');
+      flash('Phone number updated');
+    } catch (e) {
+      flash(e.response?.data?.message ?? 'Incorrect OTP', true);
+    } finally { setVerifyingPhone(false); }
+  }
+
+  async function handleResendSetup() {
+    setResending(true);
+    try {
+      const data = await superAdminResendOrgUserSetup(tenantId, user.userId);
+      if (data?.devSetupUrl) setDevSetupUrl(data.devSetupUrl);
+      flash('Setup email queued');
+      onSaved('Setup email queued');
+    } catch (e) {
+      flash(e.response?.data?.message ?? 'Failed to resend setup email', true);
+    } finally { setResending(false); }
+  }
+
+  const initials = (user.fullName ?? user.username ?? '?')[0].toUpperCase();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto overscroll-contain rounded-2xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-sm font-bold text-purple-700 flex-shrink-0">
+              {initials}
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">{user.fullName ?? user.username}</p>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${user.setupPending ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                {user.setupPending ? 'Setup pending' : 'Active'}
+              </span>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 cursor-pointer"><X size={18} /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-5">
+          {/* Flash messages */}
+          {error && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
+          {success && <p className="text-xs text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg">{success}</p>}
+
+          {/* Full Name */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Full Name</label>
+            <div className="flex gap-2 mt-1">
+              <input
+                className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F]"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+              <button
+                type="button"
+                disabled={savingName || !fullName.trim() || fullName.trim() === (user.fullName ?? '')}
+                onClick={handleSaveName}
+                className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1E3A5F] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer"
+              >
+                {savingName ? '…' : 'Save'}
+              </button>
+            </div>
+          </div>
+
+          {/* Username (readonly) */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Username</label>
+            <p className="mt-1 text-sm text-gray-700 font-mono bg-gray-50 rounded-lg px-3 py-2">{user.username}</p>
+          </div>
+
+          {/* Email — only editable when setup is pending */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</label>
+            {user.setupPending ? (
+              <div className="flex gap-2 mt-1">
+                <input
+                  type="email"
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F]"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <button
+                  type="button"
+                  disabled={savingEmail || !email.trim() || email.trim() === (user.email ?? '')}
+                  onClick={handleSaveEmail}
+                  className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1E3A5F] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer"
+                >
+                  {savingEmail ? '…' : 'Save'}
+                </button>
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2">{user.email ?? '—'}</p>
+            )}
+          </div>
+
+          {/* Phone with OTP verification */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone Number</label>
+            {phoneVerified ? (
+              <p className="mt-1 text-xs text-emerald-600 font-medium flex items-center gap-1"><CheckCircle size={13} /> Updated to {phone}</p>
+            ) : (
+              <div className="mt-1 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F]"
+                    placeholder="Phone number"
+                    value={phone}
+                    onChange={(e) => { setPhone(e.target.value); setPhoneOtpSent(false); setPhoneOtp(''); }}
+                  />
+                  <button
+                    type="button"
+                    disabled={sendingPhoneOtp || !phone.trim()}
+                    onClick={handleSendPhoneOtp}
+                    className="px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer whitespace-nowrap"
+                  >
+                    {sendingPhoneOtp ? '…' : phoneOtpSent ? 'Resend OTP' : 'Send OTP'}
+                  </button>
+                </div>
+                {phoneOtpDevCode && (
+                  <p className="text-xs bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 font-mono text-yellow-800">
+                    Dev OTP: <strong>{phoneOtpDevCode}</strong>
+                  </p>
+                )}
+                {phoneOtpSent && (
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:border-[#1E3A5F] font-mono tracking-widest"
+                      placeholder="Enter OTP"
+                      maxLength={8}
+                      value={phoneOtp}
+                      onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))}
+                    />
+                    <button
+                      type="button"
+                      disabled={verifyingPhone || !phoneOtp.trim()}
+                      onClick={handleVerifyPhoneOtp}
+                      className="px-3 py-2 rounded-lg text-xs font-medium bg-[#1E3A5F] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer"
+                    >
+                      {verifyingPhone ? '…' : 'Verify'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Account status */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Account Status</label>
+            <p className="mt-1 text-sm text-gray-700">
+              {user.setupPending
+                ? 'Account setup not yet completed.'
+                : user.lastLoginAt
+                  ? `Last login: ${new Date(user.lastLoginAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                  : 'Active — never logged in'}
+            </p>
+          </div>
+
+          {/* Resend activation (setup-pending only) */}
+          {user.setupPending && (
+            <div className="border-t border-gray-100 pt-4 space-y-3">
+              <button
+                type="button"
+                disabled={resending}
+                onClick={handleResendSetup}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-50 cursor-pointer transition-colors"
+              >
+                <Link size={14} />
+                {resending ? 'Sending…' : 'Resend Activation Email'}
+              </button>
+              {devSetupUrl && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 space-y-1">
+                  <p className="text-xs font-semibold text-yellow-800">Dev only — setup link</p>
+                  <p className="text-xs text-yellow-700 break-all font-mono">{devSetupUrl}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100">
+          <button type="button" onClick={onClose} className="w-full py-2.5 rounded-xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 cursor-pointer">
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -831,6 +1093,7 @@ export default function SuperAdminOrgDetailPage() {
   const [lockModal, setLockModal] = useState(null); // { userId, locked, username }
   const [lockReason, setLockReason] = useState('');
   const [resendingSetupUserId, setResendingSetupUserId] = useState(null);
+  const [adminEditModal, setAdminEditModal] = useState(null); // user object or null
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -1583,7 +1846,7 @@ export default function SuperAdminOrgDetailPage() {
           {/* Admin Contacts */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Admin Contacts</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Admin Accounts</p>
               <button
                 type="button"
                 onClick={() => setShowAddUser(true)}
@@ -1598,24 +1861,24 @@ export default function SuperAdminOrgDetailPage() {
             ) : (
               <div className="space-y-3 max-h-[200px] overflow-y-auto">
                 {byRole('ADMIN').map((u) => (
-                  <div key={u.userId} className="flex items-center gap-3">
+                  <button
+                    key={u.userId}
+                    type="button"
+                    onClick={() => setAdminEditModal(u)}
+                    className="w-full flex items-center gap-3 text-left hover:bg-gray-50 rounded-xl px-2 py-1.5 -mx-2 cursor-pointer transition-colors group"
+                  >
                     <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-xs font-bold text-purple-700 flex-shrink-0">
                       {(u.fullName ?? u.username ?? '?')[0].toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-gray-900 truncate">{u.fullName ?? u.username}</p>
-                      {u.phone ? (
-                        <a href={`tel:${u.phone}`} className="text-xs text-blue-600 hover:underline">{u.phone}</a>
-                      ) : (
-                        <p className="text-xs text-gray-400">No phone</p>
+                      <p className="text-xs text-gray-500 truncate">{u.email ?? 'No email'}</p>
+                      {u.setupPending && (
+                        <span className="inline-block text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full mt-0.5">Setup pending</span>
                       )}
-                      <p className="text-xs text-gray-300 mt-0.5">
-                        {u.lastLoginAt
-                          ? `Last login: ${new Date(u.lastLoginAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
-                          : 'Never logged in'}
-                      </p>
                     </div>
-                  </div>
+                    <Edit2 size={12} className="text-gray-300 group-hover:text-gray-500 flex-shrink-0" />
+                  </button>
                 ))}
               </div>
             )}
@@ -1897,6 +2160,14 @@ export default function SuperAdminOrgDetailPage() {
           tenantId={tenantId}
           onClose={() => setShowAddUser(false)}
           onSuccess={(msg) => { showToast(msg); loadAll(); }}
+        />
+      )}
+      {adminEditModal && (
+        <AdminEditModal
+          tenantId={tenantId}
+          user={adminEditModal}
+          onClose={() => setAdminEditModal(null)}
+          onSaved={(msg) => { showToast(msg); loadAll(); }}
         />
       )}
       {billingModal && (
