@@ -12,4 +12,6 @@ public class ActivationResponse {
     private String adminTempPassword;
     private String adminUserId;
     private boolean adminAlreadyExisted;
+    // Non-null only when APP_DEV_OTP_EXPOSURE_ENABLED=true (staging/dev only, never prod)
+    private String devSetupUrl;
 }

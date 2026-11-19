@@ -83,6 +83,9 @@ public class TenantService {
     @Value("${app.setup-token-expiry-hours:72}")
     private int setupTokenExpiryHours;
 
+    @Value("${app.dev.otp-exposure.enabled:false}")
+    private boolean devOtpExposureEnabled;
+
     // ── Public org self-registration ─────────────────────────────────────────
 
     public TenantResponse registerOrg(RegisterOrgRequest req) {
@@ -341,6 +344,7 @@ public class TenantService {
                 .adminTempPassword(null)
                 .adminUserId(admin.getId().toString())
                 .adminAlreadyExisted(false)
+                .devSetupUrl(devOtpExposureEnabled ? setupUrl : null)
                 .build();
     }
 

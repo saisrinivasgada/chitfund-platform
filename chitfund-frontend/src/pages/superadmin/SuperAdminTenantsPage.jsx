@@ -115,6 +115,19 @@ function CredentialsModal({ creds, onClose }) {
           ? <CredentialField label="Temporary password" value={creds.adminTempPassword} />
           : <div className="mb-4 text-sm text-gray-500 italic">Password already changed by admin.</div>
         }
+        {creds.devSetupUrl && (
+          <div className="mt-3 mb-4 bg-yellow-50 border border-yellow-300 rounded-xl px-4 py-3">
+            <p className="text-xs font-semibold text-yellow-800 mb-1">Dev only — Setup link</p>
+            <a
+              href={creds.devSetupUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-700 underline break-all"
+            >
+              {creds.devSetupUrl}
+            </a>
+          </div>
+        )}
 
         <button
           type="button"
@@ -446,7 +459,7 @@ export default function SuperAdminTenantsPage() {
         const result = await superAdminActivateTenant(tenantId);
         // Only show credentials on first-time activation (new admin created), not on re-activation after suspension
         if (!result.adminAlreadyExisted) {
-          setActivationCreds({ adminUsername: result.adminUsername, adminTempPassword: result.adminTempPassword });
+          setActivationCreds({ adminUsername: result.adminUsername, adminTempPassword: result.adminTempPassword, devSetupUrl: result.devSetupUrl });
         } else {
           showToast('Tenant activated');
         }
